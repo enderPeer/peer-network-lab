@@ -38,3 +38,12 @@ if ($url) {
 } else {
   Write-Warning "Tunnel URL not found yet - check $cfLog"
 }
+
+# Fallback layer: a detached watchdog restarts host/tunnel if either dies.
+$already = Get-CimInstance Win32_Process -Filter "Name LIKE 'powershell%'" |
+  Where-Object { $_.CommandLine -match 'watchdog\.ps1' }
+if (-not $already) {
+  Start-Process -FilePath 'powershell' -ArgumentList '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $here 'watchdog.ps1') `
+    -WindowStyle Hidden
+  Write-Output "Watchdog started (server-data\watchdog.log)."
+}

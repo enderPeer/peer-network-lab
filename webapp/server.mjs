@@ -7,8 +7,8 @@
 // Run: node server.mjs [port]   (default 5210)
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +22,16 @@ const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 
 mkdirSync(DATA_DIR, { recursive: true });
+
+// Startup backup rotation: snapshot the log, keep the newest 5 snapshots.
+if (existsSync(LOG) && statSync(LOG).size > 0) {
+  try {
+    copyFileSync(LOG, join(DATA_DIR, `acts-${Date.now()}.bak`));
+    const baks = readdirSync(DATA_DIR).filter((f) => /^acts-\d+\.bak$/.test(f)).sort();
+    while (baks.length > 5) unlinkSync(join(DATA_DIR, baks.shift()));
+  } catch { /* backup is best-effort */ }
+}
+
 const acts = [{ t: 'seedWorld' }];
 if (existsSync(LOG)) {
   for (const line of readFileSync(LOG, 'utf8').split('\n')) {
@@ -30,13 +40,69 @@ if (existsSync(LOG)) {
   }
 }
 
+// ── Protection layers ────────────────────────────────────────────────
+// Behind the Cloudflare tunnel every socket is localhost; the real client
+// IP arrives in CF-Connecting-IP. Buckets are (windowStart, count) pairs.
+function clientIp(req) {
+  return (req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown').toString();
+}
+function makeLimiter(limit, windowMs) {
+  const buckets = new Map();
+  return (key) => {
+    const now = Date.now();
+    let b = buckets.get(key);
+    if (!b || now - b.start > windowMs) { b = { start: now, count: 0 }; buckets.set(key, b); }
+    if (buckets.size > 10000) buckets.clear(); // memory backstop
+    b.count += 1;
+    return b.count <= limit;
+  };
+}
+const actLimiter = makeLimiter(20, 60_000);        // 20 acts/min/IP
+const registerLimiter = makeLimiter(8, 3_600_000); // 8 registrations/hour/IP
+const pinFailLimiter = makeLimiter(12, 600_000);   // 12 failed PIN tries/10min/IP
+const readLimiter = makeLimiter(600, 60_000);      // 600 reads/min/IP
+
+// Only whitelisted fields survive into the public log — nothing can smuggle
+// extra payload through unexpected keys.
+const ACT_FIELDS = {
+  register: ['t', 'id', 'handle', 'seed', 'epoch', 'pinHash'],
+  burn: ['t', 'id', 'amt'],
+  post: ['t', 'author', 'text', 'a'],
+  opinion: ['t', 'author', 'target', 'p', 'r'],
+  review: ['t', 'author', 'target', 'e', 'f', 'text'],
+  tag: ['t', 'author', 'target', 'name', 'r', 'c'],
+  closeEpoch: ['t', 'epoch'],
+};
+function sanitize(act) {
+  const keep = ACT_FIELDS[act.t] || [];
+  const clean = {};
+  for (const k of keep) if (act[k] !== undefined) clean[k] = act[k];
+  return clean;
+}
+const CONTROL_CHARS = new RegExp('[' + String.fromCharCode(0) + '-' + String.fromCharCode(8) + String.fromCharCode(11) + '-' + String.fromCharCode(31) + String.fromCharCode(127) + ']'); // C0 controls except tab+newline
+function hasControlChars(act) {
+  for (const v of Object.values(act)) {
+    if (typeof v === 'string' && CONTROL_CHARS.test(v)) return true;
+  }
+  return false;
+}
+
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy':
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'",
+};
+
 function persist(act) {
   appendFileSync(LOG, JSON.stringify(act) + '\n', 'utf8');
 }
 
 function json(res, code, body) {
   const buf = JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
   res.end(buf);
 }
 
@@ -105,34 +171,48 @@ function validate(act) {
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  const ip = clientIp(req);
   if (req.method === 'GET' && url.pathname === '/api/acts') {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
     const since = Math.max(0, Number(url.searchParams.get('since') ?? 0) || 0);
     json(res, 200, { acts: acts.slice(since), total: acts.length });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/act') {
+    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most 20 acts per minute from one place' }); return; }
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > MAX_ACT_BYTES * 2) req.destroy(); });
     req.on('end', () => {
       let act;
       try { act = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      // Client's known log length: reply with just the tail it is missing.
+      const since = Math.max(0, Number(act.since ?? 0) || 0);
+      delete act.since;
+      const auth = typeof act.auth === 'string' ? act.auth : '';
+      act = sanitize(act); // whitelist fields; auth/since never persist
+      if (hasControlChars(act)) { json(res, 400, { error: 'unprintable characters are not allowed' }); return; }
+      if (act.t === 'register' && !registerLimiter(ip)) {
+        json(res, 429, { error: 'registration limit reached — try again in an hour' }); return;
+      }
       const err = validate(act);
       if (err) { json(res, err === 'handle already registered' ? 409 : 400, { error: err }); return; }
-      const aerr = authError(act);
-      if (aerr) { json(res, 401, { error: aerr }); return; }
-      delete act.auth; // the raw PIN must never enter the public log
+      const aerr = authError({ ...act, auth });
+      if (aerr) {
+        if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
+        json(res, 401, { error: aerr }); return;
+      }
       acts.push(act);
       persist(act);
       if (act.t === 'register' && act.pinHash) pinIndex.set(act.id, act.pinHash);
-      json(res, 200, { acts, total: acts.length });
+      json(res, 200, { acts: acts.slice(Math.min(since, acts.length)), since: Math.min(since, acts.length), total: acts.length });
     });
     return;
   }
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
     try {
       const page = readFileSync(PAGE);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>' + page.toString() + '</body></html>');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+      res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#131110"></head><body>' + page.toString() + '</body></html>');
     } catch {
       res.writeHead(500); res.end('build missing — run: npm run build:social');
     }

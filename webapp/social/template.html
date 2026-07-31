@@ -359,6 +359,52 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
 .lq-hero .lede { font-family: var(--display); font-size: 19px; line-height: 1.6; margin: 12px auto 20px; max-width: 24em; text-wrap: balance; color: var(--lq-ink); }
 .lq-hero .join { display: flex; flex-direction: column; gap: 10px; max-width: 320px; margin: 0 auto; }
 .lq-hero .lq-note { margin-top: 20px; }
+
+/* connection banner (server fallback) */
+.net-banner {
+  position: sticky; top: 0; z-index: 60;
+  background: var(--bad); color: #FFF6F2;
+  text-align: center; font-size: 13px; font-weight: 600;
+  padding: 8px 14px calc(8px + env(safe-area-inset-top, 0px));
+}
+
+/* ═══ MOBILE OPTIMIZATION ═══ */
+button, .btn, .lq-pill { touch-action: manipulation; }
+@media (max-width: 560px) {
+  .shell { padding: 0 10px 30px; }
+  .lq-shell { padding: 10px 10px calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .lq-card { padding: 15px 16px; border-radius: 20px; }
+  .lq-head { padding: 8px 12px; top: 6px; }
+  .lq-head .wordmark { font-size: 21px; }
+  .lq-hero { padding: 28px 16px 26px; margin-top: 3vh; }
+  .lq-hero .wordmark { font-size: 44px; }
+  .lq-hero .lede { font-size: 16.5px; }
+  .lq-body { font-size: 15px; }
+  .lq-pill { padding: 10px 16px; font-size: 14px; min-height: 42px; }
+  .lq-nav { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .lq-nav button { padding: 8px 15px; }
+  .lq-range input { width: 110px; }
+  /* iOS zooms any focused input under 16px — keep them at 16px on touch */
+  input, textarea, select, .lq-input, body[data-mode='liquid'] textarea.lq-input,
+  .composer textarea, .mini-form textarea, .mini-form input[type='text'],
+  .mini-form input[type='password'], .onboard input { font-size: 16px; }
+  .btn { padding: 9px 15px; min-height: 40px; }
+  .btn.small { padding: 7px 12px; min-height: 36px; font-size: 13px; }
+  .topbar { gap: 8px; padding: 8px 2px; }
+  .wordmark { font-size: 22px; }
+  .tabs { order: 3; width: 100%; justify-content: space-between; }
+  .tabs button { flex: 1; padding: 8px 4px; }
+  .switcher select { padding: 9px 10px; }
+  .card { padding: 13px 14px; }
+  .slider input { width: 100px; }
+  .drawer { width: 100vw; border-left: 0; }
+  .mat .cell { width: 40px; height: 25px; font-size: 10px; }
+  .pulse { gap: 12px; }
+  .onboard { margin-top: 4vh; }
+  .onboard .wordmark { font-size: 46px; }
+  .onboard .join { flex-direction: column; align-items: center; }
+  .onboard input { width: min(280px, 86vw); }
+}
 </style>
 
 <div id="root"></div>
@@ -385,7 +431,11 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
   try { who = JSON.parse(localStorage.getItem(LS_WHO)); } catch (e) { who = null; }
   try { var m0 = JSON.parse(localStorage.getItem(LS_MODE)); if (m0 === 'geek' || m0 === 'liquid') mode = m0; } catch (e) {}
-  try { var p0 = JSON.parse(localStorage.getItem(LS_PINS)); if (p0 && typeof p0 === 'object') pins = p0; } catch (e) {}
+  // PINs live in sessionStorage only: closing the browser forgets them, so a
+  // shared or stolen device never carries them. (One-time migration wipes the
+  // old localStorage copy.)
+  try { localStorage.removeItem(LS_PINS); } catch (e) {}
+  try { var p0 = JSON.parse(sessionStorage.getItem(LS_PINS)); if (p0 && typeof p0 === 'object') pins = p0; } catch (e) {}
 
   function epochOf() {
     var n = 1;
@@ -398,7 +448,7 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
       if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
       localStorage.setItem(LS_WHO, JSON.stringify(who));
       localStorage.setItem(LS_MODE, JSON.stringify(mode));
-      localStorage.setItem(LS_PINS, JSON.stringify(pins));
+      sessionStorage.setItem(LS_PINS, JSON.stringify(pins));
     } catch (e) { /* private mode */ }
   }
 
@@ -416,6 +466,37 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
 
   var lastPinHash = {}; // id -> pinHash from latest replay
 
+  // ── Connection state (server fallback) ──
+  var netFails = 0;
+  var offline = false;
+  function setOnline(ok) {
+    var was = offline;
+    if (ok) { netFails = 0; offline = false; }
+    else { netFails++; offline = netFails >= 2; }
+    if (was !== offline) renderBanner();
+  }
+  function renderBanner() {
+    var old = document.getElementById('net-banner');
+    if (old) old.remove();
+    if (!offline) return;
+    var b = document.createElement('div');
+    b.id = 'net-banner';
+    b.className = 'net-banner';
+    b.textContent = 'Connection lost — reconnecting… nothing you send is recorded until this clears.';
+    document.body.prepend(b);
+  }
+
+  /** Merge a server tail response into the local log (incremental sync). */
+  function mergeTail(d) {
+    if (!d || !d.acts) return false;
+    var base = typeof d.since === 'number' ? d.since : world.acts.length;
+    if (base > world.acts.length) return false; // gap — full refetch will heal
+    var next = world.acts.slice(0, base).concat(d.acts);
+    var changed = next.length !== world.acts.length;
+    world.acts = next;
+    return changed;
+  }
+
   function pushAct(act, onOk) {
     var actor = act.author || (act.t === 'burn' || act.t === 'register' ? act.id : null);
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
@@ -425,27 +506,34 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
       if (onOk) onOk();
       render(); return;
     }
+    if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); return; }
+    act.since = world.acts.length;
     fetch('/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (x) {
+        setOnline(true);
         if (!x.ok) { toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return; }
-        world.acts = x.d.acts; save();
+        mergeTail(x.d); save();
         if (onOk) onOk();
         render();
       })
-      .catch(function () { toast('Connection hiccup — nothing was recorded, try again.'); });
+      .catch(function () { setOnline(false); toast('Connection hiccup — nothing was recorded, try again.'); });
   }
 
   function pollRemote() {
     var ae = document.activeElement;
-    if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
-    if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet') || document.querySelector('.pin-dialog')) return;
+    if (!offline) {
+      if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
+      if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet') || document.querySelector('.pin-dialog')) return;
+    }
     fetch('/api/acts?since=' + world.acts.length, { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
       .then(function (d) {
-        if (d.acts && d.acts.length) { world.acts = world.acts.concat(d.acts); render(); }
+        var wasOffline = offline;
+        setOnline(true);
+        if (mergeTail({ acts: d.acts, since: world.acts.length }) || wasOffline) render();
       })
-      .catch(function () {});
+      .catch(function () { setOnline(false); });
   }
 
   function boot() {
@@ -466,7 +554,18 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
     comment: 'Grain placement is deliberate. This holds up.',
   };
 
+  // Memoized: the log is append-only, so (array identity, length) keys a replay.
+  var replayCache = { ref: null, len: -1, st: null };
   function replay() {
+    if (replayCache.ref === world.acts && replayCache.len === world.acts.length && replayCache.st) {
+      return replayCache.st;
+    }
+    var st = replayUncached();
+    replayCache = { ref: world.acts, len: world.acts.length, st: st };
+    return st;
+  }
+
+  function replayUncached() {
     var g = new E.RawGraph();
     var ledgers = [], ledgerById = {}, handles = {}, kReg = {}, creators = {}, payloads = {};
     var bundles = {}, selfCells = [], deltaActs = {}, epochHistory = [], chron = [];
