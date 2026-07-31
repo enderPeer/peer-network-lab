@@ -244,6 +244,25 @@ details.about p { font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 details.about b { color: var(--ink); }
 .footer-note { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 26px; }
 
+/* guidebook */
+.guide details { border-top: 1px solid var(--line); padding: 10px 0; }
+.guide details:first-of-type { border-top: 0; }
+.guide summary { cursor: pointer; font-family: var(--display); font-size: 16px; padding: 4px 0; }
+.guide summary::marker { color: var(--ember); }
+.guide p, .guide li { font-size: 13px; line-height: 1.6; color: var(--muted); }
+.guide b, .guide strong { color: var(--ink); }
+.guide .formula { font-family: var(--mono); font-size: 12.5px; color: var(--ink); background: var(--card-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 8px 0; overflow-x: auto; }
+.guide .k { font-family: var(--mono); font-size: 11.5px; background: var(--card-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--ink); white-space: nowrap; }
+.guide ol.steps { padding-left: 20px; }
+.guide ol.steps li { margin: 8px 0; }
+.guide ol.steps li::marker { color: var(--ember); font-weight: 700; }
+.guide .watch { color: var(--moss); font-weight: 600; }
+.guide table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin: 6px 0; }
+.guide th { text-align: left; color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 10px 5px 0; }
+.guide td { padding: 4px 10px 4px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.guide td:first-child { font-family: var(--mono); white-space: nowrap; color: var(--ink); }
+.guide .jump { margin-left: 8px; }
+
 /* ═══ LIQUID MODE (mainstream glass look) ═══ */
 body[data-mode='liquid'] {
   background:
@@ -1044,13 +1063,13 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
     }
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('ledger', 'Record')),
+      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
-    var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : ledgerTab(st);
+    var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
     shell.appendChild(h('div', { class: 'cols' },
       h('div', { class: 'rail' }, idCard(st, me, myX, rate), aboutCard()),
@@ -1343,6 +1362,95 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
       h('div', { style: 'display:flex; flex-wrap:wrap' },
         matView(e.slice, 'stored Ψ · ‖Ψ‖F ' + fmt(e.frob)),
         matView(e.pv, 'path view · det ' + fmt(det, 4))));
+  }
+
+  function guideTab(st) {
+    function jump(label, toTab) {
+      return h('button', { class: 'btn small ghost jump', text: label + ' →', onclick: function () { tab = toTab; render(); } });
+    }
+    function sect(title, open) {
+      var d = h('details', {}, h('summary', {}, title));
+      if (open) d.setAttribute('open', '');
+      for (var i = 2; i < arguments.length; i++) if (arguments[i]) d.appendChild(arguments[i]);
+      return d;
+    }
+    function P() { var p = h('p', {}); for (var i = 0; i < arguments.length; i++) p.append(arguments[i]); return p; }
+    function B(t) { return h('b', { text: t }); }
+    function K(t) { return h('span', { class: 'k', text: t }); }
+    function F(t) { return h('div', { class: 'formula', text: t }); }
+
+    var wrap = h('div', { class: 'card guide' },
+      h('p', { class: 'eyebrow', text: 'guidebook — how to drive the Layer-1 sandbox' }),
+
+      sect('What you are looking at', true,
+        P('This app runs the ', B('Peer Network'), ' protocol (spec v0.24.1-dev, Layer 1) for real: every number on screen comes out of the specified mathematics, and the whole network state is replayed from an append-only log of acts — anyone holding the log computes identical results.'),
+        P('The core idea in one line: ', B('influence is transported commitment, not attention.'), ' You buy the right to act by burning reserve; every act spends θ = ' + fmt(THETA, 4) + ' of it; and when you vouch for someone, you don’t give them points — you route your own commitment rate to them. Nothing in the system can mint standing.'),
+        P('This Geek view exposes the machinery. The ✨ simple mode (top bar) is the same network with the math tucked away.')),
+
+      sect('Your identity card (left)', false,
+        P(B('reserve'), ' — your burned value still unspent. Every act debits θ from it (gate ', K('W1'), ': no reserve, no act). ', B('Burn +1.00'), ' adds more — burning is the only way in.'),
+        P(B('acts N'), ' — how many acts you have ever made. ', B('rate = burn/N'), ' — your commitment rate; it falls every time you act and rises only by burning. This is deliberate: talk is priced.'),
+        P(B('reduced x*'), ' — your standing divided by the numéraire ν = ' + NU + '. Two gates read it: the ', K('W2a wall'), ' at ' + fmt(SAFE_FLOOR, 3) + ' (below it you cannot write) and the ', K('W2b door'), ' at ' + PART_FLOOR + ' (the epoch-average requirement).'),
+        P(B('standing'), ' — ν · x*, the number everyone else sees. With nobody vouching for you it equals your rate exactly.')),
+
+      sect('Acting: post, react, review, tag', false,
+        P('Every action is a protocol act: one θ-debit, one count increment, one edge (or two for hyper acts) appended forever. The text you write is ', B('payload'), ' — carried by the network but never read by any formula.'),
+        P(B('Post'), ' mints a Content node. The ', K('attachment'), ' slider is your genesis stance toward it.'),
+        P(B('React'), ' is an Opinion on an artifact: ', K('polarity'), ' (how aligned) × ', K('reaction'), ' (how strongly). Artifact-directed acts ', B('weigh home'), ' — their coefficient lands on your own diagonal, crowding your outward influence. But they wire you into the graph: reacting is how content becomes reachable for your feed.'),
+        P(B('Review'), ' is one hyper act with two legs — toward the work, and minting your Comment (which threads under the post). ', B('Tag'), ' files content under a commons Type node nobody owns.'),
+        P('Sliders run −1…+1. Negative values are real records too — the geometry routes them differently (see the Network tab’s red edges).')),
+
+      sect('The feed: why it shows what it shows', false,
+        F('S(you, content) = W · (1 + standing(creator)/ν) · ‖T‖F'),
+        P(B('W'), ' — the best damped path weight from ', B('you'), ' to the content, at most 4 hops, found by a signed double-cover BFS (inverted-parity paths are blocked). ', B('The feed is your own graph position'), ' — a fresh account reaches nothing, which is why new posts sit under “beyond your horizon” until you act.'),
+        P(B('1 + standing/ν'), ' — the creator amplifier: the author’s standing lifts everything they made.'),
+        P(B('‖T‖F'), ' — the content tensor norm: the folded stance the network holds toward the piece.'),
+        P('Every ranked card prints its own S decomposition — check the arithmetic. ', jump('open feed', 'feed'))),
+
+      sect('Vouching and standing: the mediant', false,
+        P('A ', B('vouch'), ' is a positive Opinion on someone’s ', B('profile'), ' (Profile button or Standings row). All your vouches for one person fold into a single net stance — hostility subtracts, and a bundle netted non-positive compiles no vouch (it still costs you).'),
+        F('standing(i) = Σᵤ Π[u][i]·burnᵤ / Σᵤ Π[u][i]·Nᵤ   (× ν)'),
+        P('Your standing is the ', B('balance/count mediant'), ' of everyone transported to you — a pooled commitment rate, not a score. Consequence worth seeing live: ', B('a backer with a lower rate than yours dilutes you.'), ' Watch the ▲▼ chips in Standings after every act.'),
+        P('Transport is conserved (each person disposes exactly one unit over self + recipients), tilted toward higher-standing recipients, and wall-clamped below ' + fmt(SAFE_FLOOR, 3) + '. No mass is created, destroyed, or minted anywhere.')),
+
+      sect('Epochs: stamping the record', false,
+        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (right rail) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in the Record tab.'),
+        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'ledger'))),
+
+      sect('Reading the Network tab', false,
+        P('Nodes: ', B('circles'), ' are Actors, ', B('diamonds'), ' Profiles, ', B('rounded boxes'), ' artifacts (Content, Comments, Types, Items). Every edge is an act’s projection; ', B('stroke width'), ' is its damped weight.'),
+        P('Colors: ', B('ember'), ' full-tier routing, ', B('gold'), ' half-tier (settlement/proposal families), ', B('grey'), ' marginal tier, ', B('red'), ' negative parity.'),
+        P('Click an edge: the stored 3×3 sentiment slice Ψ (heatmap), the softened 2×2 path view, and the whole weight chain —'),
+        F('w = √|det PV| × √(1+τ²) × e^(−β·H(τ))'),
+        P('det score = directional coherence; τ = maturity from how connected both endpoints already were; H(τ) = binary entropy, so brand-new (τ=0) passes clean, half-mature (τ=½) is damped hardest (×0.383), and old edges recover. ', jump('open network', 'net'))),
+
+      sect('PINs, identities, and honesty', false,
+        P('A handle can be secured at registration with a ', B('PIN'), ' (🔒 in lists). Only a salted hash enters the public log; the host demands the PIN for every act and strips it before storing. This stops squatting and casual impersonation — it is ', B('not'), ' cryptographic identity (short PINs can be brute-forced from the public hash; real keypairs are roadmap Phase 4).'),
+        P('Sandbox liberties, stated plainly: standing re-solves after every act instead of at epoch boundaries, the self-edge bond reads live standing, and on the shared instance every act is public. Don’t post anything private.')),
+
+      sect('Try this: a five-minute experiment', false,
+        h('ol', { class: 'steps' },
+          h('li', {}, 'Note your ', B('rate'), ' in the identity card. ', B('React'), ' to any horizon post. ', h('span', { class: 'watch', text: 'Watch:' }), ' rate drops by one θ-dilution, and the post jumps into your ranked feed with a printed S.'),
+          h('li', {}, B('Post'), ' something. ', h('span', { class: 'watch', text: 'Watch:' }), ' it exists for everyone but ranks only for people connected to you.'),
+          h('li', {}, 'Open a peer’s ', B('Profile'), ' and vouch with high support. ', h('span', { class: 'watch', text: 'Watch:' }), ' the ▲▼ chips — if your post-debit rate is below their standing, your vouch ', B('lowers'), ' them. Sincerity is priced.'),
+          h('li', {}, 'Burn +1.00, then vouch again. ', h('span', { class: 'watch', text: 'Watch:' }), ' with your rate lifted, the same vouch now pulls them up.'),
+          h('li', {}, B('Close the epoch'), '. ', h('span', { class: 'watch', text: 'Watch:' }), ' the certificate in Record, and edge weights shift as tenure advances.'),
+          h('li', {}, 'Open ', B('Network'), ' and click the edges you just created — every number you caused, derived in front of you.'))),
+
+      sect('Glossary', false,
+        h('table', {},
+          h('tr', {}, h('th', { text: 'symbol' }), h('th', { text: 'meaning' })),
+          h('tr', {}, h('td', { text: 'θ = ' + fmt(THETA, 4) }), h('td', { text: 'safety threshold — reserve debited per accepted act (gate W1)' })),
+          h('tr', {}, h('td', { text: 'ν = ' + NU }), h('td', { text: 'numéraire — the unit standing is expressed against; x* = standing/ν' })),
+          h('tr', {}, h('td', { text: 'wall = ' + fmt(SAFE_FLOOR, 3) }), h('td', { text: 'W2a safety wall — every writer’s final x* must clear it' })),
+          h('tr', {}, h('td', { text: 'door = ' + PART_FLOOR }), h('td', { text: 'W2b participation door — the act-weighted epoch mean must clear it' })),
+          h('tr', {}, h('td', { text: 'rate' }), h('td', { text: 'burn/N — your commitment rate; the only source standing can transport' })),
+          h('tr', {}, h('td', { text: 'τ' }), h('td', { text: 'edge maturity, from endpoint connectedness at append time; damps via e^(−β·H(τ))' })),
+          h('tr', {}, h('td', { text: 'β = 2 ln 2' }), h('td', { text: 'inverse temperature — scales sentiment clamps and maturity damping' })),
+          h('tr', {}, h('td', { text: 'Ψ / PV' }), h('td', { text: 'stored 3×3 sentiment slice / its softened 2×2 path view used for routing' })),
+          h('tr', {}, h('td', { text: 'S' }), h('td', { text: 'feed relevance: path weight × creator amplifier × content norm' })),
+          h('tr', {}, h('td', { text: 'x*' }), h('td', { text: 'your reduced standing — fixed point of the conserved transport solve' })))));
+    return wrap;
   }
 
   function ledgerTab(st) {
