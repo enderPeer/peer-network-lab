@@ -2,7 +2,8 @@
 #   1. builds the page, 2. starts the act-log host (port 5210) detached,
 #   3. opens a Cloudflare quick tunnel (throwaway *.trycloudflare.com domain).
 # Usage:  powershell -ExecutionPolicy Bypass -File .\serve-public.ps1
-# Stop:   Get-Process node,cloudflared | Stop-Process   (or reboot — the log persists in server-data\)
+# Stop:   stop the node server.mjs and cloudflared processes (log persists in server-data\)
+# NOTE: ASCII-only on purpose - Windows PowerShell 5.1 misparses BOM-less UTF-8 scripts.
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
@@ -33,7 +34,7 @@ foreach ($i in 1..30) {
 if ($url) {
   Write-Output "PUBLIC URL: $url"
   Write-Output "Local:      http://localhost:5210"
-  Write-Output "Note: quick-tunnel domains are throwaway — a restart mints a new URL."
+  Write-Output "Note: quick-tunnel domains are throwaway; a restart mints a new URL."
 } else {
-  Write-Warning "Tunnel URL not found yet — check $cfLog"
+  Write-Warning "Tunnel URL not found yet - check $cfLog"
 }
