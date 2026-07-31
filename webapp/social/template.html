@@ -425,7 +425,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_PINS = 'peer-sandbox-pins-v1';
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
-  var selEdge = null, prevX = {}, REMOTE = false;
+  var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra'
   var mode = 'liquid';
   var pins = {};
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
@@ -572,6 +572,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var reviewMeta = {}; // commentNodeId -> {e, f}
     var pinHash = {};
     var counter = 0;
+    var certsSoFar = 0; // certificates issued before the current act (CoGra epoch age)
 
     function addActor(id, handle, burn, count, epoch) {
       g.addNode({ id: id, kind: 'Actor', label: handle });
@@ -633,13 +634,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         counter++;
         var cid = 'c' + counter;
         g.addNode({ id: cid, kind: 'Content', label: 'Post ' + counter });
-        g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1 });
+        g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
         debit(a.author); weighHome(a.author, a.a, 1);
         creators[cid] = a.author; payloads[cid] = a.text;
         chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2) });
       } else if (a.t === 'opinion') {
         counter++;
-        var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r });
+        var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
         debit(a.author);
         var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
         if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
@@ -650,8 +651,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         var cmid = 'c' + counter;
         g.addNode({ id: cmid, kind: 'Comment', label: 'Review ' + counter });
         g.appendHyper(
-          { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f },
-          { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e }
+          { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f, epoch: certsSoFar },
+          { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
         );
         debit(a.author); weighHome(a.author, a.e, a.f);
         creators[cmid] = a.author; payloads[cmid] = a.text;
@@ -661,8 +662,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         counter++;
         var tid = typeNode(a.name);
         g.appendHyper(
-          { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c },
-          { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r }
+          { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c, epoch: certsSoFar },
+          { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r, epoch: certsSoFar }
         );
         debit(a.author); weighHome(a.author, a.r, a.c);
         chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name });
@@ -678,6 +679,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         });
         chron.push({ who: null, line: 'epoch ' + a.epoch + ' closed · stamp ' + g0.epochStamp.toFixed(3) + ' · ' + (g0.allPass ? 'certificate accepted' : 'wall/door failed') });
         deltaActs = {};
+        certsSoFar++;
       }
     }
 
@@ -817,6 +819,24 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .filter(function (c) { return c.text; });
   }
   function credibility(st, id) { return NU * (st.xById[id] || 0); }
+
+  // ── CoGra ranking (Layer-2 readout; formula-complete per cogra feed-ranking.md) ──
+  function cograFeed(st, viewer) {
+    return E.cograRank(st.g, viewer, st.epochHistory.length, {
+      personOf: function (id) { return id.indexOf('prof_') === 0 ? id.slice(5) : id; },
+      creatorOf: function (id) { return st.creators[id] || null; },
+      candidates: function (nd) { return nd.kind === 'Content' && !!st.payloads[nd.id]; },
+    });
+  }
+  // §9.2 friend-fresh: direct live person-stance toward the author + fresh Publish.
+  function isFriendFresh(st, viewer, contentId) {
+    var author = st.creators[contentId];
+    if (!author || author === viewer) return false;
+    var b = st.bundles[viewer + '>' + author];
+    if (!b || Math.min(1, Math.max(-1, b.pi)) <= 0) return false;
+    var pub = st.g.edges.find(function (e) { return e.family === 'Publish' && e.tgt === contentId; });
+    return !!pub && pub.epoch === st.epochHistory.length;
+  }
 
   // ── PIN dialog + identity switching ──
   function pinDialog(title, subtitle) {
@@ -997,12 +1017,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           tryAct(who, { t: 'post', author: who, text: t, a: 0.8 }, 'Shared. Every post costs a spark of energy.');
         } }, icon('bolt'), 'Share'))));
 
-    var feed = E.rankFeed(st.g, who, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
-    var ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
-    ranked.forEach(function (f) { box.appendChild(lqPost(st, f.node, f)); });
+    var scores = cograFeed(st, who);
+    // §9.2 friend-fresh reordering: fresh posts from directly-backed authors first.
+    var fresh = [], rest = [];
+    scores.forEach(function (s) { (isFriendFresh(st, who, s.node.id) ? fresh : rest).push(s); });
+    var ranked = fresh.concat(rest);
+    ranked.forEach(function (s) { box.appendChild(lqPost(st, s.node, s)); });
 
     var seen = {};
-    ranked.forEach(function (f) { seen[f.node.id] = 1; });
+    ranked.forEach(function (s) { seen[s.node.id] = 1; });
     var horizon = [];
     st.g.nodes.forEach(function (n) {
       if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
@@ -1017,16 +1040,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return box;
   }
 
-  function lqPost(st, n, f) {
+  function lqPost(st, n, score) {
     var author = st.creators[n.id];
     var tags = tagsOf(st, n.id);
+    var sub = null;
+    if (score) {
+      sub = score.S >= 0
+        ? 'for you · ' + score.paths.length + ' path' + (score.paths.length === 1 ? '' : 's')
+        : 'your network leans against this';
+    }
     var card = h('div', { class: 'lq-glass lq-card' },
       h('div', { style: 'display:flex; align-items:center; gap:10px' },
         avatar(st.handles[author], 'lq-ava s'),
         h('div', {},
           h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2))),
-        f ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: 'for you' }) : null),
+        sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
       h('div', { class: 'lq-body', text: st.payloads[n.id] || '' }));
     if (tags.length) {
       var tr = h('div', { class: 'lq-tagrow' });
@@ -1271,15 +1300,31 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           tryAct(who, { t: 'post', author: who, text: t, a: att.value() }, 'Posted. Publish mints the Content node; attachment is its genesis stance.');
         } })));
 
-    var feed = E.rankFeed(st.g, who, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
-    var ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
-    var maxRel = ranked.length ? ranked[0].relevance : 1;
     var wrap = h('div', {});
     wrap.appendChild(composer);
+    var cogra = feedMode === 'cogra';
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('p', { class: 'eyebrow', text: 'your feed — S = W · (1 + standing/ν) · ‖T‖F · comments nest under their target' }));
+      h('div', { class: 'panel-head', style: 'margin-bottom:6px' },
+        h('p', { class: 'eyebrow', style: 'margin:0', text: cogra
+          ? 'CoGra Σ σ(π)·m(π)·f(Δt) — k-disjoint paths, no standing, balance × taint'
+          : 'L1 default — S = W · (1 + standing/ν) · ‖T‖F' }),
+        h('div', { class: 'tabs' },
+          h('button', { class: cogra ? '' : 'on', text: 'L1', onclick: function () { feedMode = 'l1'; render(); } }),
+          h('button', { class: cogra ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; render(); } }))));
+    var ranked, maxRel;
+    if (cogra) {
+      var scores = cograFeed(st, who);
+      maxRel = scores.length ? Math.max.apply(null, scores.map(function (s) { return Math.abs(s.S); })) : 1;
+      ranked = scores.map(function (s) {
+        return { node: s.node, relevance: s.S, bfsWeight: 0, amplifier: 0, contentNorm: 0, cogra: s };
+      });
+    } else {
+      var feed = E.rankFeed(st.g, who, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
+      ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
+      maxRel = ranked.length ? ranked[0].relevance : 1;
+    }
     if (!ranked.length) {
-      head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs a BFS from you, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
+      head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs from your own position, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
     }
     wrap.appendChild(head);
     ranked.forEach(function (f, i) { wrap.appendChild(postCard(st, f, i + 1, maxRel)); });
@@ -1318,11 +1363,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       tags.forEach(function (t) { tr.appendChild(h('span', { class: 'tagchip', text: t })); });
       card.appendChild(tr);
     }
-    card.appendChild(f.relevance > 0
-      ? h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.relevance, 3) }),
-          '  =  W ' + fmt(f.bfsWeight, 3) + ' · amp ' + fmt(f.amplifier, 2) + ' · ‖T‖ ' + fmt(f.contentNorm, 2))
-      : h('div', { class: 'mech', text: 'no BFS path from you yet — act to connect' }));
-    if (f.relevance > 0) card.appendChild(h('div', { class: 'rankbar' }, h('i', { style: 'width:' + Math.max(3, (100 * f.relevance) / maxRel) + '%' })));
+    if (f.cogra) {
+      var mech = h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.cogra.S, 4) }),
+        '  =  Σ over ' + f.cogra.paths.length + ' disjoint path' + (f.cogra.paths.length === 1 ? '' : 's'));
+      card.appendChild(mech);
+      f.cogra.paths.forEach(function (p) {
+        card.appendChild(h('div', { class: 'mech', style: 'margin-top:2px' },
+          (p.sigma > 0 ? '+' : '−') + fmt(p.m, 3) + ' · f ' + fmt(p.f, 2) + '  via  ' +
+          p.nodes.map(function (nid) { return st.handles[nid] || (st.g.nodes.get(nid) || {}).label || nid; }).join(' → ')));
+      });
+    } else {
+      card.appendChild(f.relevance > 0
+        ? h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.relevance, 3) }),
+            '  =  W ' + fmt(f.bfsWeight, 3) + ' · amp ' + fmt(f.amplifier, 2) + ' · ‖T‖ ' + fmt(f.contentNorm, 2))
+        : h('div', { class: 'mech', text: 'no BFS path from you yet — act to connect' }));
+    }
+    if (f.relevance > 0) card.appendChild(h('div', { class: 'rankbar' }, h('i', { style: 'width:' + Math.max(3, (100 * Math.abs(f.relevance)) / maxRel) + '%' })));
 
     var comments = commentsOf(st, n.id);
     if (comments.length) {
@@ -1545,6 +1601,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P(B('1 + standing/ν'), ' — the creator amplifier: the author’s standing lifts everything they made.'),
         P(B('‖T‖F'), ' — the content tensor norm: the folded stance the network holds toward the piece.'),
         P('Every ranked card prints its own S decomposition — check the arithmetic. ', jump('open feed', 'feed'))),
+
+      sect('The CoGra ranking (Layer-2)', false,
+        P('The Feed tab has two rankings. ', B('L1 default'), ' is the substrate’s conservative readout: single best path × creator amplifier × content norm. ', B('CoGra'), ' is the published Layer-2 replacement (from the CoGra content-graph spec) — the ranking the simple mode uses:'),
+        F('S(u,c) = Σ over k disjoint paths of  σ(π) · m(π) · f(Δt)'),
+        P(B('Breadth counts, funnels don’t.'), ' Up to k=5 node-disjoint strongest paths are summed. Twenty independent endorsement chains beat one strong chain, but a cluster fanning out behind one bridge scores as exactly one path — the min-cut is the amplification ceiling.'),
+        P(B('Sign is social, not L1 parity.'), ' balance = product of directional signs (the enemy of my enemy ranks positive again); ', B('taint'), ' — any negative intensity on the route — is absorbing and forces the term negative. Hate-and-avoid ranks opposite to love-and-seek.'),
+        P(B('Standing never enters.'), ' No creator amplifier, no inbound records — only paths you and your network built forward. A swarm pointing at you appears in their feeds, never yours.'),
+        P(B('Recency'), ' decays only the terminal hop: f(Δt) = 0.5^(Δt/4) in epoch age. Old content resurfaces the moment someone engages now. And netting a bundle to (0,0) kills every path through it — severance, feed, and earnings are the same cut.')),
 
       sect('Vouching and standing: the mediant', false,
         P('A ', B('vouch'), ' is a positive Opinion on someone’s ', B('profile'), ' (Profile button or Standings row). All your vouches for one person fold into a single net stance — hostility subtracts, and a bundle netted non-positive compiles no vouch (it still costs you).'),

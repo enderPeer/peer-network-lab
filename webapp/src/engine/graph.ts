@@ -31,6 +31,8 @@ export interface EdgeInput {
   tier?: Tier;
   /** Fix τ instead of deriving it from pre-degrees (derived Self-edges use tenure τ). */
   tauOverride?: number;
+  /** Epoch in which the parent act was accepted (recency input for L2 readouts). */
+  epoch?: number;
 }
 
 export interface EdgeRecord {
@@ -44,6 +46,7 @@ export interface EdgeRecord {
   mask: Mask;
   tier: Tier;
   tau: number;
+  epoch: number;
   slice: Mat3;
   pv: Mat2;
   frob: number;
@@ -99,6 +102,7 @@ export class RawGraph {
       mask,
       tier,
       tau,
+      epoch: input.epoch ?? 0,
       slice,
       pv,
       frob: frobenius(slice),

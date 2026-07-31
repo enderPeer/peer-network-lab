@@ -77,6 +77,21 @@ CAN attribution decay, spam quantification (w = 0.011), and the standing
 invariances (equal-rate exactness, pair-mass conservation, rate-hull
 confinement, artifact crowding).
 
+## CoGra feed ranking (Layer 2)
+
+`webapp/src/engine/cogra.ts` implements the feed score published
+formula-complete in the author's CoGra content-graph exploration
+([helping-kaiser/cogra](https://github.com/helping-kaiser/cogra),
+`docs/primitive/feed-ranking.md`): S(u,c) = Σ σ(π)·m(π)·f(Δt) over up to k
+node-disjoint strongest forward paths — sum-then-clip fold before weights,
+persons merged (Actor+Profile), standing never enters, balance ×
+absorbing-taint sign instead of L1 parity, epoch-age recency on the terminal
+hop only, channel-gated Tag/Reference T-legs, Types as sinks, and zero-jail
+via (0,0)-netted bundles. Property-tested (disjoint breadth vs delta-funnel
+ceiling, sign algebra, recency, jail, determinism). The sandbox's simple
+mode ranks with CoGra; geek mode toggles L1 default ↔ CoGra with per-path
+breakdowns.
+
 ## Coverage honestly stated
 
 An 8-agent audit ([docs/COVERAGE.md](docs/COVERAGE.md)) compared the code
