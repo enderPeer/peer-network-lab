@@ -758,6 +758,35 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
     });
   }
 
+  function findIdentity(handleText, st) {
+    var slug = 'u_' + (handleText || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (slug !== 'u_' && st.ledgerById[slug]) return slug;
+    var lower = (handleText || '').trim().toLowerCase();
+    for (var id in st.handles) {
+      if ((st.handles[id] || '').toLowerCase() === lower) return id;
+    }
+    return null;
+  }
+
+  function loginWithHandle(handleText, st) {
+    if (!(handleText || '').trim()) { toast('Type your handle first.'); return; }
+    var id = findIdentity(handleText, st);
+    if (!id) { toast('No handle “' + handleText.trim() + '” on this network — create it below.'); return; }
+    if (!st.pinHash[id] && id.indexOf('u_') === 0) {
+      toast('Heads up: this handle has no PIN, so anyone can use it. Re-register a new one with a PIN to claim it properly.');
+    }
+    switchTo(id, st);
+  }
+
+  function recentUsers(st, max) {
+    var out = [];
+    for (var i = world.acts.length - 1; i >= 0 && out.length < max; i--) {
+      var a = world.acts[i];
+      if (a.t === 'register' && st.ledgerById[a.id]) out.push(a.id);
+    }
+    return out;
+  }
+
   function registerIdentity(handle, pin, st) {
     if (!handle) { toast('Pick a handle first.'); return; }
     var id = 'u_' + handle.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -801,10 +830,13 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
     function join() { registerIdentity(name.value.trim(), pin.value, st); }
     name.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
     pin.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
+    var loginInput = h('input', { class: 'lq-input', placeholder: 'Your handle', maxlength: '16' });
+    loginInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') loginWithHandle(loginInput.value, st); });
     var residents = h('div', { class: 'residents', style: 'margin-top:16px' });
-    ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
+    var known = recentUsers(st, 6).concat(['alice', 'bob', 'carol', 'dave']);
+    known.forEach(function (id) {
       residents.appendChild(h('button', { class: 'lq-pill', onclick: function () { switchTo(id, st); } },
-        avatar(st.handles[id], 'lq-ava xs'), st.handles[id]));
+        avatar(st.handles[id], 'lq-ava xs'), st.handles[id] + (st.pinHash[id] ? ' 🔒' : '')));
     });
     var wrap = h('div', { class: 'lq-shell' },
       h('div', { class: 'lq-glass lq-hero' },
@@ -813,7 +845,11 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
         h('div', { class: 'join' },
           name, pin,
           h('button', { class: 'lq-pill hot', style: 'justify-content:center; padding:11px', text: 'Join — it costs a spark of energy', onclick: join })),
-        h('p', { class: 'lq-note', text: 'or hop into a resident:' }),
+        h('p', { class: 'lq-note', style: 'margin-top:18px', text: 'Already registered? Log back in:' }),
+        h('div', { class: 'join', style: 'flex-direction:row; justify-content:center' },
+          loginInput,
+          h('button', { class: 'lq-pill', style: 'flex:none', text: 'Log in', onclick: function () { loginWithHandle(loginInput.value, st); } })),
+        h('p', { class: 'lq-note', text: 'or tap a known peer:' }),
         residents,
         h('p', { class: 'lq-note' },
           (REMOTE ? 'One shared test network — everything you do is public. ' : 'Private sandbox in this browser. ') +
@@ -1021,12 +1057,14 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
     function join() { registerIdentity(input.value.trim(), pinInput.value, st); }
     input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
     pinInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
+    var loginInput = h('input', { placeholder: 'existing handle', maxlength: '16' });
+    loginInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') loginWithHandle(loginInput.value, st); });
     var residents = h('div', { class: 'residents' });
-    ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
+    recentUsers(st, 6).concat(['alice', 'bob', 'carol', 'dave']).forEach(function (id) {
       var l = st.ledgerById[id];
       residents.appendChild(h('button', { class: 'resident', onclick: function () { switchTo(id, st); } },
         avatar(st.handles[id], 'avatar s'),
-        h('span', {}, h('div', { class: 'r-h', text: st.handles[id] }),
+        h('span', {}, h('div', { class: 'r-h', text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') }),
           h('div', { class: 'r-r', text: 'rate ' + fmt(l.burnBal / Math.max(l.actCount, 1), 3) }))));
     });
     var actsN = world.acts.length - 1;
@@ -1040,7 +1078,9 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.epochNow) }), 'epoch')),
       h('div', { class: 'join' }, input, pinInput,
         h('button', { class: 'btn primary', text: 'Create account · burn 1.00 reserve', onclick: join })),
-      h('div', {}, h('p', { class: 'smallnote', style: 'margin-top:22px', text: 'or step into a seeded resident:' }), residents),
+      h('div', { class: 'join', style: 'margin-top:12px' }, loginInput,
+        h('button', { class: 'btn', text: 'Log in', onclick: function () { loginWithHandle(loginInput.value, st); } })),
+      h('div', {}, h('p', { class: 'smallnote', style: 'margin-top:22px', text: 'or step into a known peer:' }), residents),
       h('p', { class: 'smallnote', style: 'margin-top:30px', text: REMOTE
         ? 'Public test instance · real Layer-1 mathematics (spec v0.24.1-dev) · one shared network for every visitor — a PIN protects your handle; don’t post anything private.'
         : 'Tester build · real Layer-1 mathematics (spec v0.24.1-dev) · identities live in this browser only — every visitor gets an independent copy of the network.' }),
