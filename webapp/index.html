@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Peer Network Lab — Layer 1 reference implementation</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Peer Network <span class="accent">Lab</span></h1>
+        <p class="sub">
+          Layer-1 reference implementation · spec v0.24.1-dev · Appendix F reference graph ·
+          all computation client-side (replay-deterministic)
+        </p>
+      </div>
+      <div class="badges" id="test-badge">33/33 spec vectors ✓</div>
+    </header>
+    <main>
+      <section class="panel canvas-panel">
+        <div class="panel-head">
+          <h2>Action Graph</h2>
+          <span class="hint">click an edge to inspect · stroke = damped weight</span>
+        </div>
+        <svg id="graph" viewBox="0 0 760 470"></svg>
+      </section>
+      <section class="panel" id="inspector-panel">
+        <div class="panel-head"><h2>Edge Inspector</h2></div>
+        <div id="inspector"><p class="hint">Select an edge in the graph.</p></div>
+      </section>
+      <section class="panel" id="feed-panel">
+        <div class="panel-head">
+          <h2>Feed Ranking</h2>
+          <select id="viewer-select"></select>
+        </div>
+        <div id="feed"></div>
+      </section>
+      <section class="panel" id="standing-panel">
+        <div class="panel-head">
+          <h2>Standing · Conserved Solve</h2>
+          <span class="hint">mediant fixed point, tilt rung t=1</span>
+        </div>
+        <div id="standing"></div>
+      </section>
+      <section class="panel" id="author-panel">
+        <div class="panel-head">
+          <h2>Author an Act</h2>
+          <span class="hint">θ-debited · W1 · reshapes feed &amp; standing live</span>
+        </div>
+        <div id="author"></div>
+      </section>
+      <section class="panel" id="epoch-panel">
+        <div class="panel-head">
+          <h2>Reference Epoch (5 actors)</h2>
+          <span class="hint">Appendix F certified equilibrium</span>
+        </div>
+        <div id="epoch"></div>
+      </section>
+    </main>
+    <footer>
+      Peer Network Lab v0 — phases 1–2 of the <code>ROADMAP.md</code>. Engine validated against
+      the spec's verification suite (Appendix F). Not affiliated with any deployment.
+    </footer>
+    <script type="module" src="/src/ui/main.ts"></script>
+  </body>
+</html>

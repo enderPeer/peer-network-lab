@@ -1,0 +1,986 @@
+<title>Peer — social sandbox</title>
+<style>
+:root {
+  --paper: #FBF6F0;
+  --card: #FFFFFF;
+  --card-2: #F6EFE6;
+  --ink: #251F19;
+  --muted: #8A7C6C;
+  --line: #E7DCCC;
+  --line-2: #D9CBB6;
+  --ember: #C24D2C;
+  --ember-hot: #E0663C;
+  --ember-soft: rgba(194, 77, 44, 0.10);
+  --brass: #9C7A3C;
+  --brass-soft: rgba(156, 122, 60, 0.12);
+  --moss: #4E7A56;
+  --moss-soft: rgba(78, 122, 86, 0.13);
+  --bad: #A93B2A;
+  --bad-soft: rgba(169, 59, 42, 0.11);
+  --shadow: 0 1px 2px rgba(60, 42, 24, 0.06), 0 8px 28px rgba(60, 42, 24, 0.07);
+  --display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --body: 'Segoe UI', system-ui, sans-serif;
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #131110; --card: #1C1917; --card-2: #211D1A; --ink: #EEE7DC; --muted: #9F9283;
+    --line: #2E2822; --line-2: #3A322A; --ember: #E0663C; --ember-hot: #F07A4C;
+    --ember-soft: rgba(224, 102, 60, 0.14); --brass: #C9A45E; --brass-soft: rgba(201, 164, 94, 0.14);
+    --moss: #7FAF88; --moss-soft: rgba(127, 175, 136, 0.14); --bad: #E06A55; --bad-soft: rgba(224, 106, 85, 0.14);
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.35);
+  }
+}
+:root[data-theme="light"] {
+  --paper: #FBF6F0; --card: #FFFFFF; --card-2: #F6EFE6; --ink: #251F19; --muted: #8A7C6C;
+  --line: #E7DCCC; --line-2: #D9CBB6; --ember: #C24D2C; --ember-hot: #E0663C;
+  --ember-soft: rgba(194,77,44,0.10); --brass: #9C7A3C; --brass-soft: rgba(156,122,60,0.12);
+  --moss: #4E7A56; --moss-soft: rgba(78,122,86,0.13); --bad: #A93B2A; --bad-soft: rgba(169,59,42,0.11);
+  --shadow: 0 1px 2px rgba(60,42,24,0.06), 0 8px 28px rgba(60,42,24,0.07);
+}
+:root[data-theme="dark"] {
+  --paper: #131110; --card: #1C1917; --card-2: #211D1A; --ink: #EEE7DC; --muted: #9F9283;
+  --line: #2E2822; --line-2: #3A322A; --ember: #E0663C; --ember-hot: #F07A4C;
+  --ember-soft: rgba(224,102,60,0.14); --brass: #C9A45E; --brass-soft: rgba(201,164,94,0.14);
+  --moss: #7FAF88; --moss-soft: rgba(127,175,136,0.14); --bad: #E06A55; --bad-soft: rgba(224,106,85,0.14);
+  --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.35);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { background: var(--paper); color: var(--ink); font-family: var(--body); margin: 0; line-height: 1.45; }
+button { font-family: var(--body); cursor: pointer; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+::selection { background: var(--ember-soft); }
+
+.shell { max-width: 1220px; margin: 0 auto; padding: 0 18px 40px; }
+
+/* ── top bar ── */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 10px 2px; margin-bottom: 14px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.wordmark { font-family: var(--display); font-size: 26px; margin: 0; letter-spacing: 0.01em; }
+.wordmark em { font-style: normal; background: linear-gradient(120deg, var(--ember), var(--ember-hot)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.tabs button { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 14px; border-radius: 7px; font-weight: 600; }
+.tabs button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+.switcher { display: flex; gap: 8px; align-items: center; }
+.switcher select { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+
+.cols { display: grid; grid-template-columns: 256px minmax(0, 1fr) 296px; gap: 16px; align-items: start; }
+@media (max-width: 1010px) { .cols { grid-template-columns: 1fr; } .rail { position: static; } }
+.rail { position: sticky; top: 62px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+.card + .card { margin-top: 14px; }
+.card h2 { font-family: var(--display); font-size: 17px; margin: 0 0 10px; letter-spacing: 0.01em; }
+.eyebrow { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+
+/* ── identity ── */
+.idcard .who { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, var(--ember), var(--ember-hot)); color: #FFF4EC; display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 21px; flex: none; }
+.avatar.s { width: 27px; height: 27px; font-size: 13.5px; }
+.handle { font-weight: 700; font-size: 15px; }
+.standing-chip { font-family: var(--mono); font-size: 11px; color: var(--brass); background: var(--brass-soft); border-radius: 10px; padding: 2px 8px; }
+.ledger { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12.5px; margin: 0; }
+.ledger dt { color: var(--muted); }
+.ledger dd { margin: 0; text-align: right; }
+.gauge { height: 7px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 10px 0 6px; }
+.gauge i { display: block; height: 100%; background: linear-gradient(90deg, var(--ember), var(--ember-hot)); border-radius: 4px; transition: width 0.4s ease; }
+.smallnote { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+.btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
+.btn:hover { border-color: var(--ember); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: linear-gradient(120deg, var(--ember), var(--ember-hot)); border-color: transparent; color: #FFF4EC; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.small { padding: 3px 10px; font-size: 12px; border-radius: 7px; }
+.btn.ghost { border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--ember); border-color: transparent; }
+.btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ember); outline-offset: 1px; }
+
+/* ── composer / posts ── */
+.composer textarea, .mini-form textarea { width: 100%; min-height: 66px; resize: vertical; background: var(--card-2); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font-family: var(--body); font-size: 13.5px; }
+.composer .row { display: flex; gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.slider { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.slider input { accent-color: var(--ember); width: 88px; }
+.slider output { font-family: var(--mono); width: 40px; text-align: right; color: var(--ink); }
+
+.post { border: 1px solid var(--line); border-radius: 12px; padding: 13px 15px; margin-top: 12px; background: var(--card); transition: border-color 0.15s, box-shadow 0.15s; }
+.post:hover { border-color: var(--line-2); box-shadow: var(--shadow); }
+.post .head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.rank-chip { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 1px 7px; }
+.post .head .kindtag { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-left: auto; }
+.post .body { font-size: 14.5px; line-height: 1.55; margin: 8px 0; }
+.tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+.tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
+.post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); }
+.post .mech b { color: var(--ink); font-weight: 600; }
+.rankbar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 7px; overflow: hidden; }
+.rankbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--ember)); transition: width 0.5s ease; }
+.actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.mini-form { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.mini-form input[type='text'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
+
+/* ── gates / standings ── */
+.gate { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 10px; padding: 2px 9px; margin: 2px 4px 2px 0; font-weight: 600; }
+.gate.pass { background: var(--moss-soft); color: var(--moss); }
+.gate.fail { background: var(--bad-soft); color: var(--bad); }
+.delta { font-family: var(--mono); font-size: 10.5px; border-radius: 8px; padding: 1px 6px; }
+.delta.up { color: var(--moss); background: var(--moss-soft); }
+.delta.down { color: var(--bad); background: var(--bad-soft); }
+
+table.standings { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.standings th { text-align: left; color: var(--muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 6px 5px 0; }
+table.standings td { padding: 5px 6px 5px 0; border-top: 1px solid var(--line); }
+table.standings td.r, table.standings th.r { text-align: right; }
+table.standings tr.me td { background: var(--ember-soft); }
+table.standings tr:not(:first-child) { cursor: pointer; }
+table.standings tr:not(:first-child):hover td { background: var(--card-2); }
+
+.chron { font-size: 12.5px; color: var(--muted); }
+.chron > div { padding: 7px 0; border-top: 1px dashed var(--line); line-height: 1.5; }
+.chron b { color: var(--ink); font-weight: 600; }
+.chron .num { font-size: 11px; }
+
+/* ── onboarding ── */
+.onboard { max-width: 620px; margin: 7vh auto 0; text-align: center; }
+.onboard .wordmark { font-size: 64px; margin-bottom: 2px; }
+.onboard p.lede { font-family: var(--display); font-size: 18.5px; line-height: 1.6; margin: 12px auto 8px; max-width: 34em; text-wrap: balance; }
+.pulse { display: flex; gap: 18px; justify-content: center; margin: 18px 0 26px; flex-wrap: wrap; }
+.pulse .stat { font-size: 12px; color: var(--muted); }
+.pulse .stat b { display: block; font-family: var(--mono); font-size: 19px; color: var(--ink); font-weight: 600; }
+.onboard .join { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.onboard input { background: var(--card); border: 1px solid var(--line-2); color: var(--ink); border-radius: 10px; padding: 10px 14px; font-size: 15px; width: 220px; }
+.residents { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
+.resident { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 8px 9px; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
+.resident:hover { border-color: var(--ember); box-shadow: var(--shadow); }
+.resident .r-h { font-weight: 600; font-size: 13.5px; text-align: left; }
+.resident .r-r { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: left; }
+@media (prefers-reduced-motion: no-preference) {
+  .onboard > * { animation: settle 0.5s ease-out backwards; }
+  .onboard > *:nth-child(2) { animation-delay: 0.06s; }
+  .onboard > *:nth-child(3) { animation-delay: 0.12s; }
+  .onboard > *:nth-child(4) { animation-delay: 0.18s; }
+  .onboard > *:nth-child(5) { animation-delay: 0.24s; }
+  .onboard > *:nth-child(6) { animation-delay: 0.30s; }
+  @keyframes settle { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .post { animation: settle 0.3s ease-out backwards; }
+}
+
+/* ── network view ── */
+.netwrap { overflow-x: auto; }
+#netsvg { width: 100%; min-width: 560px; height: auto; }
+.node-g text { fill: var(--ink); font-size: 11.5px; text-anchor: middle; font-family: var(--body); pointer-events: none; }
+.node-g .kind { fill: var(--muted); font-size: 8.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+.edge-g { cursor: pointer; }
+.edge-g text { font-family: var(--mono); font-size: 9px; fill: var(--muted); text-anchor: middle; }
+.edge-g.sel text { fill: var(--ember); font-weight: 600; }
+
+.mat { display: inline-grid; gap: 3px; margin: 6px 14px 8px 0; vertical-align: top; }
+.mat .cell { width: 46px; height: 27px; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-family: var(--mono); border-radius: 5px; color: #1B140E; font-weight: 600; }
+.mat-title { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.chain { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: 10px 0 2px; font-size: 12.5px; }
+.chain .term { background: var(--card-2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; }
+.chain .term small { display: block; color: var(--muted); font-size: 9.5px; }
+.chain .op { color: var(--muted); }
+.chain .result { background: var(--ember-soft); border-color: var(--ember); }
+
+/* ── profile drawer ── */
+.scrim { position: fixed; inset: 0; background: rgba(30, 20, 12, 0.35); z-index: 30; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 92vw); background: var(--card); border-left: 1px solid var(--line); z-index: 31; padding: 20px; overflow-y: auto; box-shadow: -12px 0 40px rgba(30,20,12,0.18); }
+@media (prefers-reduced-motion: no-preference) {
+  .drawer { animation: slidein 0.22s ease-out; }
+  @keyframes slidein { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.drawer h3 { font-family: var(--display); font-size: 20px; margin: 10px 0 2px; }
+.drawer .sect { margin-top: 16px; }
+.vouchline { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; border-top: 1px dashed var(--line); }
+
+.toast-host { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 50; width: min(520px, 92vw); }
+.toast { background: var(--ink); color: var(--paper); border-radius: 10px; padding: 9px 15px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(20,12,6,0.3); }
+@media (prefers-reduced-motion: no-preference) {
+  .toast { animation: rise 0.2s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+}
+details.about summary { cursor: pointer; font-family: var(--display); font-size: 15px; }
+details.about p { font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+details.about b { color: var(--ink); }
+.footer-note { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 26px; }
+</style>
+
+<div id="root" class="shell"></div>
+<div class="toast-host" id="toasts"></div>
+<div id="overlay"></div>
+
+<script>
+/*__ENGINE__*/
+</script>
+<script>
+(function () {
+  'use strict';
+  var E = window.PeerEngine;
+  var THETA = E.THETA, NU = E.NU, SAFE_FLOOR = E.SAFE_FLOOR, PART_FLOOR = E.PART_FLOOR;
+  var LS_WORLD = 'peer-sandbox-world-v2';
+  var LS_WHO = 'peer-sandbox-who-v2';
+
+  var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', selEdge = null, prevX = {};
+  var REMOTE = false; // true when a shared host serves /api/acts — then the host owns the log
+  try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
+  try { who = JSON.parse(localStorage.getItem(LS_WHO)); } catch (e) { who = null; }
+
+  function epochOf() {
+    var n = 1;
+    for (var i = 0; i < world.acts.length; i++) if (world.acts[i].t === 'closeEpoch') n++;
+    return n;
+  }
+
+  function save() {
+    try {
+      if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
+      localStorage.setItem(LS_WHO, JSON.stringify(who));
+    } catch (e) { /* private mode */ }
+  }
+
+  function pushAct(act, onOk) {
+    if (!REMOTE) {
+      world.acts.push(act); save();
+      if (onOk) onOk();
+      render(); return;
+    }
+    fetch('/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        if (!x.ok) { toast('Host refused: ' + (x.d && x.d.error ? x.d.error : 'rejected')); render(); return; }
+        world.acts = x.d.acts; save();
+        if (onOk) onOk();
+        render();
+      })
+      .catch(function () { toast('Network hiccup — act not recorded, try again.'); });
+  }
+
+  function pollRemote() {
+    var ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ae.type === 'text'))) return;
+    if (document.querySelector('.drawer') || document.querySelector('.mini-form')) return;
+    fetch('/api/acts?since=' + world.acts.length, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.acts && d.acts.length) { world.acts = world.acts.concat(d.acts); render(); }
+      })
+      .catch(function () {});
+  }
+
+  function boot() {
+    fetch('/api/acts', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (d) {
+        REMOTE = true;
+        world = { acts: d.acts };
+        render();
+        setInterval(pollRemote, 5000);
+      })
+      .catch(function () { render(); });
+  }
+
+  var SEED_POSTS = {
+    photo: 'Street shot from the underpass — first light.',
+    comment: 'Grain placement is deliberate. This holds up.',
+  };
+
+  // ── Replay: world state is a deterministic function of the act log ──
+  function replay() {
+    var g = new E.RawGraph();
+    var ledgers = [], ledgerById = {}, handles = {}, kReg = {}, creators = {}, payloads = {};
+    var bundles = {}, selfCells = [], deltaActs = {}, epochHistory = [], chron = [];
+    var counter = 0;
+
+    function addActor(id, handle, burn, count, epoch) {
+      g.addNode({ id: id, kind: 'Actor', label: handle });
+      g.addNode({ id: 'prof_' + id, kind: 'Profile', label: handle });
+      var l = { id: id, burnBal: burn, actCount: count };
+      ledgers.push(l); ledgerById[id] = l; handles[id] = handle; kReg[id] = epoch;
+    }
+    function debit(id) { var l = ledgerById[id]; l.burnBal -= THETA; l.actCount += 1; deltaActs[id] = (deltaActs[id] || 0) + 1; }
+    // Universal act weighing: every accepted act enters allocation exactly once —
+    // outward for a positive person-vouch, otherwise home on the author's diagonal.
+    function vouch(author, target, p, r) {
+      var key = author + '>' + target;
+      var b = bundles[key] || (bundles[key] = { src: author, rcp: target, pd: 0, pi: 0 });
+      b.pd += p; b.pi += r;
+    }
+    function weighHome(author, pd, pi) {
+      var c = Math.sqrt(Math.abs(pd) * Math.abs(pi));
+      if (c > 0) selfCells.push({ src: author, rcp: author, coeff: Math.min(1, c) });
+    }
+    function typeNode(name) {
+      var id = 'type_' + name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!g.nodes.get(id)) g.addNode({ id: id, kind: 'Type', label: '#' + name });
+      return id;
+    }
+
+    for (var i = 0; i < world.acts.length; i++) {
+      var a = world.acts[i];
+      if (a.t === 'seedWorld') {
+        addActor('alice', 'Alice', 3, 10, 0);
+        addActor('bob', 'Bob', 2, 8, 0);
+        addActor('carol', 'Carol', 4, 12, 0);
+        addActor('dave', 'Dave', 1, 5, 0);
+        g.addNode({ id: 'photo', kind: 'Content', label: 'Photo' });
+        g.addNode({ id: 'comment', kind: 'Comment', label: 'Comment' });
+        g.addNode({ id: 'streetart', kind: 'Type', label: '#StreetArt' });
+        g.addNode({ id: 'sneakers', kind: 'Item', label: 'Sneakers' });
+        g.append({ id: 'e1', family: 'SelfDeclaration', src: 'alice', tgt: 'prof_alice', pd: 1, pi: 0.75 });
+        g.append({ id: 'e1r', family: 'SelfReputation', src: 'prof_alice', tgt: 'alice', pd: 1, pi: 0.75 });
+        g.append({ id: 'e2', family: 'Opinion', src: 'alice', tgt: 'photo', pd: 0.9, pi: 0.7 });
+        g.append({ id: 'e3', family: 'ReviewA', src: 'bob', tgt: 'photo', pd: 0.7, pi: 0.8 });
+        g.append({ id: 'e4', family: 'ReviewT', src: 'photo', tgt: 'comment', pd: 0.8, pi: 0.7 });
+        g.append({ id: 'e5', family: 'TagA', src: 'carol', tgt: 'comment', pd: 0.8, pi: 0.9 });
+        g.append({ id: 'e6', family: 'TagT', src: 'comment', tgt: 'streetart', pd: 0.9, pi: 0.8 });
+        g.append({ id: 'e7', family: 'Affinity', src: 'alice', tgt: 'streetart', pd: 0.6, pi: 0.8 });
+        g.append({ id: 'e8', family: 'Owner', src: 'bob', tgt: 'sneakers', pd: 0.7, pi: 1.0 });
+        creators.photo = 'alice'; creators.comment = 'bob'; creators.sneakers = 'bob'; creators.streetart = 'carol';
+        payloads.photo = SEED_POSTS.photo; payloads.comment = SEED_POSTS.comment;
+        chron.push({ who: 'alice', line: 'posted Photo — seed world' });
+        chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world' });
+      } else if (a.t === 'register') {
+        addActor(a.id, a.handle, a.seed, 0, a.epoch);
+        g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
+        debit(a.id); weighHome(a.id, 1, 1);
+        chron.push({ who: a.id, line: 'registered · burned ' + a.seed.toFixed(2) + ' reserve · θ-debit' });
+      } else if (a.t === 'burn') {
+        ledgerById[a.id].burnBal += a.amt;
+        chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve' });
+      } else if (a.t === 'post') {
+        counter++;
+        var cid = 'c' + counter;
+        g.addNode({ id: cid, kind: 'Content', label: 'Post ' + counter });
+        g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1 });
+        debit(a.author); weighHome(a.author, a.a, 1);
+        creators[cid] = a.author; payloads[cid] = a.text;
+        chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2) });
+      } else if (a.t === 'opinion') {
+        counter++;
+        var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r });
+        debit(a.author);
+        var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
+        if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
+        else weighHome(a.author, a.p, a.r);
+        chron.push({ who: a.author, line: (owner ? 'vouched on ' + (handles[owner] || owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3) });
+      } else if (a.t === 'review') {
+        counter++;
+        var cmid = 'c' + counter;
+        g.addNode({ id: cmid, kind: 'Comment', label: 'Review ' + counter });
+        g.appendHyper(
+          { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f },
+          { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e }
+        );
+        debit(a.author); weighHome(a.author, a.e, a.f);
+        creators[cmid] = a.author; payloads[cmid] = a.text;
+        chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs' });
+      } else if (a.t === 'tag') {
+        counter++;
+        var tid = typeNode(a.name);
+        g.appendHyper(
+          { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c },
+          { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r }
+        );
+        debit(a.author); weighHome(a.author, a.r, a.c);
+        chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name });
+      } else if (a.t === 'closeEpoch') {
+        var cells0 = compileCells(bundles, selfCells);
+        var solved0 = E.solveStanding(ledgers, cells0, { tilt: 1 });
+        var dmap0 = new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; }));
+        var g0 = E.evaluateGates(ledgers, solved0.x, dmap0);
+        epochHistory.push({
+          epoch: a.epoch,
+          acts: Object.keys(deltaActs).reduce(function (s, k) { return s + deltaActs[k]; }, 0),
+          stamp: g0.epochStamp, headroom: g0.headroom, pass: g0.allPass,
+        });
+        chron.push({ who: null, line: 'epoch ' + a.epoch + ' closed · stamp ' + g0.epochStamp.toFixed(3) + ' · ' + (g0.allPass ? 'certificate accepted' : 'wall/door failed') });
+        deltaActs = {};
+      }
+    }
+
+    var cells = compileCells(bundles, selfCells);
+    var solved = E.solveStanding(ledgers, cells, { tilt: 1 });
+    var xById = {};
+    solved.ids.forEach(function (id, i) { xById[id] = solved.x[i]; });
+
+    // Derived self-edge reading (bond from live standing; tenure from epochs)
+    var epochNow = epochHistory.length + 1;
+    for (var id2 in ledgerById) {
+      if (id2 === 'alice') continue;
+      var S = NU * (xById[id2] || 0);
+      var bond = S / (NU + S);
+      var tenure = 1 - 1 / (epochNow - kReg[id2] + 1);
+      if (bond > 0) {
+        g.append({ id: 'dec_' + id2, family: 'SelfDeclaration', src: id2, tgt: 'prof_' + id2, pd: 1, pi: bond, tauOverride: tenure });
+        g.append({ id: 'rep_' + id2, family: 'SelfReputation', src: 'prof_' + id2, tgt: id2, pd: 1, pi: bond, tauOverride: tenure });
+      }
+    }
+
+    return {
+      g: g, ledgers: ledgers, ledgerById: ledgerById, handles: handles, creators: creators,
+      payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
+      deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),
+      epochHistory: epochHistory, chron: chron, epochNow: epochNow,
+    };
+  }
+
+  function compileCells(bundles, selfCells) {
+    var out = (selfCells || []).slice();
+    for (var k in bundles) {
+      var b = bundles[k];
+      var pd = Math.max(-1, Math.min(1, b.pd)), pi = Math.max(-1, Math.min(1, b.pi));
+      if (pd > 0 && pi > 0) {
+        out.push({ src: b.src, rcp: b.rcp, coeff: Math.sqrt(pd * pi) });
+      } else {
+        // Hostile or zero-netted person-directed bundle: weighed home —
+        // hostility costs what support costs, but compiles no vouch.
+        var c = Math.sqrt(Math.abs(pd) * Math.abs(pi));
+        if (c > 0) out.push({ src: b.src, rcp: b.src, coeff: c });
+      }
+    }
+    return out;
+  }
+
+  function tryAct(actorId, actObj, label) {
+    var st = replay();
+    var l = st.ledgerById[actorId];
+    if (!l) return;
+    if (l.burnBal < THETA) {
+      toast('W1 refuses: reserve ' + l.burnBal.toFixed(3) + ' < θ ' + THETA.toFixed(4) + ' — burn reserve to act.');
+      return;
+    }
+    Object.keys(st.xById).forEach(function (id) { prevX[id] = st.xById[id]; });
+    pushAct(actObj, function () { if (label) toast(label); });
+  }
+
+  function toast(msg) {
+    var host = document.getElementById('toasts');
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    host.appendChild(t);
+    setTimeout(function () { t.remove(); }, 4600);
+  }
+
+  // ── tiny DOM helpers ──
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function h(tag, attrs) {
+    var n = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), attrs[k]);
+      else n.setAttribute(k, attrs[k]);
+    }
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null) continue;
+      n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return n;
+  }
+  function sv(tag, attrs) {
+    var n = document.createElementNS(SVG_NS, tag);
+    if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function fmt(v, d) { return Number(v).toFixed(d == null ? 3 : d); }
+  function slider(label, val) {
+    var input = h('input', { type: 'range', min: '-1', max: '1', step: '0.05', value: String(val) });
+    var out = h('output', { text: fmt(val, 2) });
+    input.addEventListener('input', function () { out.textContent = fmt(input.value, 2); });
+    return { row: h('span', { class: 'slider' }, label + ' ', input, out), value: function () { return Number(input.value); } };
+  }
+  function avatar(handle, small) {
+    return h('span', { class: 'avatar' + (small ? ' s' : ''), text: (handle || '?')[0].toUpperCase() });
+  }
+  function deltaChip(id, st) {
+    if (!(id in prevX)) return null;
+    var d = (st.xById[id] || 0) - prevX[id];
+    if (Math.abs(d) < 5e-5) return null;
+    return h('span', { class: 'delta ' + (d > 0 ? 'up' : 'down'), text: (d > 0 ? '▲' : '▼') + Math.abs(NU * d).toFixed(4) });
+  }
+  function tagsOf(st, nodeId) {
+    return st.g.edges.filter(function (e) { return e.family === 'TagT' && e.src === nodeId; })
+      .map(function (e) { return (st.g.nodes.get(e.tgt) || {}).label || ''; });
+  }
+
+  // ── render root ──
+  var root = document.getElementById('root');
+  function render() {
+    var st = replay();
+    root.innerHTML = '';
+    document.getElementById('overlay').innerHTML = '';
+    if (!who || !st.ledgerById[who]) { renderOnboard(st); return; }
+    renderApp(st);
+  }
+
+  // ── onboarding ──
+  function renderOnboard(st) {
+    var input = h('input', { placeholder: 'pick a handle', maxlength: '16' });
+    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
+    function join() {
+      var handle = (input.value || '').trim();
+      if (!handle) { toast('Pick a handle first.'); return; }
+      var id = 'u_' + handle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (id === 'u_' || st.ledgerById[id]) { toast('That handle is taken here — try another.'); return; }
+      pushAct({ t: 'register', id: id, handle: handle, seed: 1.0, epoch: epochOf() }, function () {
+        who = id; save();
+        toast('Registered. θ ' + THETA.toFixed(4) + ' debited — your rate is your standing until someone vouches.');
+      });
+    }
+    var residents = h('div', { class: 'residents' });
+    ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
+      var l = st.ledgerById[id];
+      residents.appendChild(h('button', { class: 'resident', onclick: function () { who = id; save(); render(); } },
+        avatar(st.handles[id], true),
+        h('span', {}, h('div', { class: 'r-h', text: st.handles[id] }),
+          h('div', { class: 'r-r', text: 'rate ' + fmt(l.burnBal / Math.max(l.actCount, 1), 3) }))));
+    });
+    var actsN = world.acts.length - 1;
+    root.appendChild(h('div', { class: 'onboard' },
+      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+      h('p', { class: 'lede', text: 'A social network where influence is commitment, not attention. Every act burns reserve; every endorsement transports your own rate; the feed is mathematics you can replay.' }),
+      h('div', { class: 'pulse' },
+        h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.ledgers.length) }), 'peers'),
+        h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.g.edges.length) }), 'edges'),
+        h('span', { class: 'stat' }, h('b', { class: 'num', text: String(actsN) }), 'acts recorded'),
+        h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.epochNow) }), 'epoch')),
+      h('div', { class: 'join' }, input,
+        h('button', { class: 'btn primary', text: 'Create account · burn 1.00 reserve', onclick: join })),
+      h('div', {}, h('p', { class: 'smallnote', style: 'margin-top:22px', text: 'or step into a seeded resident:' }), residents),
+      h('p', { class: 'smallnote', style: 'margin-top:30px', text: REMOTE
+        ? 'Public test instance · real Layer-1 mathematics (spec v0.24.1-dev) · one shared network for every visitor — handles are unclaimed test identities without passwords, so don’t post anything private.'
+        : 'Tester build · real Layer-1 mathematics (spec v0.24.1-dev) · identities live in this browser only — every visitor gets an independent copy of the network.' })));
+  }
+
+  // ── main app ──
+  function renderApp(st) {
+    var me = st.ledgerById[who];
+    var myX = st.xById[who] || 0;
+    var rate = me.burnBal / Math.max(me.actCount, 1);
+
+    var sel = h('select', { onchange: function () { who = sel.value; save(); render(); } });
+    Object.keys(st.handles).forEach(function (id) {
+      var o = h('option', { value: id, text: st.handles[id] });
+      if (id === who) o.selected = true;
+      sel.appendChild(o);
+    });
+    function tabBtn(key, label) {
+      return h('button', { class: tab === key ? 'on' : '', text: label, onclick: function () { tab = key; selEdge = null; render(); } });
+    }
+    root.appendChild(h('div', { class: 'topbar' },
+      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('ledger', 'Record')),
+      h('div', { class: 'switcher' }, sel,
+        h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
+
+    var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : ledgerTab(st);
+    root.appendChild(h('div', { class: 'cols' },
+      h('div', { class: 'rail' }, idCard(st, me, myX, rate), aboutCard()),
+      center,
+      h('div', { class: 'rail' }, standingsCard(st), epochCard(st))));
+    root.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
+  }
+
+  function idCard(st, me, myX, rate) {
+    var wallPass = myX >= SAFE_FLOOR;
+    return h('div', { class: 'card idcard' },
+      h('div', { class: 'who' }, avatar(st.handles[who]),
+        h('div', {}, h('div', { class: 'handle', text: st.handles[who] }),
+          h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * myX, 4) }), ' ', deltaChip(who, st))),
+      h('div', { class: 'gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
+      h('dl', { class: 'ledger' },
+        h('dt', { text: 'reserve' }), h('dd', { class: 'num', text: fmt(me.burnBal, 3) }),
+        h('dt', { text: 'acts N' }), h('dd', { class: 'num', text: String(me.actCount) }),
+        h('dt', { text: 'rate burn/N' }), h('dd', { class: 'num', text: fmt(rate, 3) }),
+        h('dt', { text: 'reduced x*' }), h('dd', { class: 'num', text: fmt(myX, 3) }),
+        h('dt', { text: 'acts affordable' }), h('dd', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) })),
+      h('div', { style: 'margin-top:8px' },
+        h('span', { class: 'gate ' + (wallPass ? 'pass' : 'fail'), text: 'W2a wall' }),
+        h('span', { class: 'gate ' + (me.burnBal >= THETA ? 'pass' : 'fail'), text: 'W1 solvent' })),
+      h('div', { style: 'margin-top:10px' },
+        h('button', { class: 'btn small', text: 'Burn +1.00 reserve', onclick: function () {
+          pushAct({ t: 'burn', id: who, amt: 1 }, function () {
+            toast('Burned 1.00 reserve. Burn raises your rate — it is the only way in.');
+          });
+        } })),
+      h('p', { class: 'smallnote', text: 'Every act costs θ and raises N — acting dilutes your rate. Endorsements transport rates; nothing mints standing.' }));
+  }
+
+  function aboutCard() {
+    return h('div', { class: 'card' },
+      h('details', { class: 'about' },
+        h('summary', {}, 'How this build works'),
+        h('p', {}, h('b', {}, 'Real mathematics. '), 'Feed = the spec’s relevance score over a signed double-cover BFS (depth 4). Standing = the conserved mediant solve at full tilt, wall-clamped activation, chartered constants.'),
+        h('p', {}, h('b', {}, 'Sandbox liberties. '), REMOTE
+          ? 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; handles are unclaimed test identities without keys or passwords. One shared network — every act is visible to every visitor.'
+          : 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; identities are browser-local without keys; every visitor has an independent network.'),
+        REMOTE
+          ? h('p', {}, h('b', {}, 'Shared instance. '), 'The act log lives on the host and syncs every few seconds.')
+          : h('button', { class: 'btn small', text: 'Reset world', onclick: function () {
+              if (!confirm('Reset this browser’s network to the seed world?')) return;
+              world = { acts: [{ t: 'seedWorld' }] }; who = null; prevX = {}; save(); render();
+            } })));
+  }
+
+  // ── feed tab ──
+  function feedTab(st) {
+    var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored)' });
+    var att = slider('attachment', 0.8);
+    var composer = h('div', { class: 'card composer' },
+      h('p', { class: 'eyebrow', text: 'publish' }), text,
+      h('div', { class: 'row' }, att.row,
+        h('button', { class: 'btn primary', text: 'Post · −θ', onclick: function () {
+          var t = text.value.trim();
+          if (!t) { toast('Write something — the payload is yours, the husk is the network’s.'); return; }
+          tryAct(who, { t: 'post', author: who, text: t, a: att.value() }, 'Posted. Publish mints the Content node; attachment is its genesis stance.');
+        } })));
+
+    var feed = E.rankFeed(st.g, who, function (id) { return NU * (st.xById[id] || 0); }, function (nid) { return st.creators[nid] || null; });
+    var ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id]; });
+    var maxRel = ranked.length ? ranked[0].relevance : 1;
+    var wrap = h('div', {});
+    wrap.appendChild(composer);
+    var head = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'your feed — S = W · (1 + standing/ν) · ‖T‖F' }));
+    if (!ranked.length) {
+      head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs a BFS from you, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
+    }
+    wrap.appendChild(head);
+    ranked.forEach(function (f, i) { wrap.appendChild(postCard(st, f, i + 1, maxRel)); });
+
+    var seen = {};
+    ranked.forEach(function (f) { seen[f.node.id] = 1; });
+    var horizon = [];
+    st.g.nodes.forEach(function (n) {
+      if ((n.kind === 'Content' || n.kind === 'Comment') && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
+    });
+    if (horizon.length) {
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('p', { class: 'eyebrow', text: 'beyond your horizon — exists, not yet reachable in ≤4 hops' })));
+      horizon.forEach(function (n) {
+        wrap.appendChild(postCard(st, { node: n, bfsWeight: 0, amplifier: 1, contentNorm: 0, relevance: 0 }, null, 1));
+      });
+    }
+    return wrap;
+  }
+
+  function postCard(st, f, rank, maxRel) {
+    var n = f.node;
+    var author = st.creators[n.id];
+    var tags = tagsOf(st, n.id);
+    var card = h('div', { class: 'post' },
+      h('div', { class: 'head' },
+        rank ? h('span', { class: 'rank-chip', text: '#' + rank }) : null,
+        avatar(st.handles[author], true),
+        h('b', { text: st.handles[author] || '—' }),
+        h('span', { class: 'standing-chip', text: fmt(NU * (st.xById[author] || 0), 3) }),
+        deltaChip(author, st),
+        h('span', { class: 'kindtag', text: n.kind === 'Comment' ? 'review' : 'post' })),
+      h('div', { class: 'body', text: st.payloads[n.id] || '' }));
+    if (tags.length) {
+      var tr = h('div', { class: 'tagrow' });
+      tags.forEach(function (t) { tr.appendChild(h('span', { class: 'tagchip', text: t })); });
+      card.appendChild(tr);
+    }
+    card.appendChild(f.relevance > 0
+      ? h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.relevance, 3) }),
+          '  =  W ' + fmt(f.bfsWeight, 3) + ' · amp ' + fmt(f.amplifier, 2) + ' · ‖T‖ ' + fmt(f.contentNorm, 2))
+      : h('div', { class: 'mech', text: 'no BFS path from you yet — act to connect' }));
+    if (f.relevance > 0) card.appendChild(h('div', { class: 'rankbar' }, h('i', { style: 'width:' + Math.max(3, (100 * f.relevance) / maxRel) + '%' })));
+
+    var actions = h('div', { class: 'actions' });
+    var open = null;
+    function toggle(builder) {
+      if (open) { open.remove(); open = null; return; }
+      open = builder();
+      card.appendChild(open);
+    }
+    actions.appendChild(h('button', { class: 'btn small', text: 'React', onclick: function () {
+      toggle(function () {
+        var p = slider('polarity', 0.7), r = slider('reaction', 0.7);
+        return h('div', { class: 'mini-form' }, p.row, r.row,
+          h('button', { class: 'btn small primary', text: 'Send Opinion · −θ', onclick: function () {
+            tryAct(who, { t: 'opinion', author: who, target: n.id, p: p.value(), r: r.value() },
+              'Opinion recorded — artifact-directed, so it weighs home to you, and it wires you into the graph.');
+          } }));
+      });
+    } }));
+    actions.appendChild(h('button', { class: 'btn small', text: 'Review', onclick: function () {
+      toggle(function () {
+        var txt = h('textarea', { placeholder: 'your review (payload)' });
+        var e2 = slider('enthusiasm', 0.7), f2 = slider('effort', 0.8);
+        return h('div', { class: 'mini-form' }, txt, e2.row, f2.row,
+          h('button', { class: 'btn small primary', text: 'Review · −θ', onclick: function () {
+            if (!txt.value.trim()) { toast('An empty review still costs θ — write something.'); return; }
+            tryAct(who, { t: 'review', author: who, target: n.id, e: e2.value(), f: f2.value(), text: txt.value.trim() },
+              'Review appended: one act, two legs — A-leg to the work, T-leg minting your Comment.');
+          } }));
+      });
+    } }));
+    actions.appendChild(h('button', { class: 'btn small', text: 'Tag', onclick: function () {
+      toggle(function () {
+        var name = h('input', { type: 'text', placeholder: 'tag name', maxlength: '20' });
+        var r = slider('relevance', 0.8), c = slider('confidence', 0.8);
+        return h('div', { class: 'mini-form' }, name, r.row, c.row,
+          h('button', { class: 'btn small primary', text: 'Tag · −θ', onclick: function () {
+            var nm = (name.value || '').trim().replace(/^#/, '');
+            if (!nm) { toast('Name the tag first.'); return; }
+            tryAct(who, { t: 'tag', author: who, target: n.id, name: nm, r: r.value(), c: c.value() },
+              'Tagged #' + nm + ' — a hyper act into the commons: names are owned by no one.');
+          } }));
+      });
+    } }));
+    if (author && author !== who) {
+      actions.appendChild(h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(author); } }));
+    }
+    card.appendChild(actions);
+    return card;
+  }
+
+  // ── network tab ──
+  var SEED_POS = {
+    alice: [140, 120], prof_alice: [55, 245], photo: [350, 70], bob: [560, 110],
+    comment: [350, 240], carol: [610, 300], streetart: [170, 375], sneakers: [690, 195], dave: [690, 420],
+  };
+  function nodePos(st) {
+    var pos = {}, extra = 0;
+    st.g.nodes.forEach(function (n) {
+      if (SEED_POS[n.id]) { pos[n.id] = SEED_POS[n.id]; return; }
+      var ang = 0.9 + extra * 1.7;
+      var rad = 120 + (extra % 5) * 42;
+      pos[n.id] = [390 + Math.cos(ang) * rad, 250 + Math.sin(ang) * rad * 0.72];
+      extra++;
+    });
+    return pos;
+  }
+  function netTab(st) {
+    var wrap = h('div', {});
+    var card = h('div', { class: 'card netwrap' },
+      h('p', { class: 'eyebrow', text: 'the action graph — stroke = damped weight · click an edge' }));
+    var svg = sv('svg', { id: 'netsvg', viewBox: '0 0 780 490' });
+    var pos = nodePos(st);
+    var marker = sv('marker', { id: 'arr', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '6.5', markerHeight: '6.5', orient: 'auto-start-reverse' });
+    marker.appendChild(sv('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: 'currentColor' }));
+    var defs = sv('defs'); defs.appendChild(marker); svg.appendChild(defs);
+
+    var pair = {};
+    st.g.edges.forEach(function (e) {
+      var p1 = pos[e.src], p2 = pos[e.tgt];
+      if (!p1 || !p2) return;
+      var key = [e.src, e.tgt].sort().join('|');
+      var nth = pair[key] || 0; pair[key] = nth + 1;
+      var dx = p2[0] - p1[0], dy = p2[1] - p1[1], len = Math.hypot(dx, dy) || 1;
+      var pad = 27;
+      var sx = p1[0] + dx / len * pad, sy = p1[1] + dy / len * pad;
+      var tx = p2[0] - dx / len * pad, ty = p2[1] - dy / len * pad;
+      var twoWay = st.g.edges.some(function (o) { return o !== e && o.src === e.tgt && o.tgt === e.src; });
+      var off = (twoWay || nth > 0) ? 15 * (e.src < e.tgt ? 1 : -1) * (1 + nth * 0.5) : 0;
+      var mx = (sx + tx) / 2 - dy / len * off, my = (sy + ty) / 2 + dx / len * off;
+      var color = e.sign < 0 ? 'var(--bad)' : e.tier === 'half' ? 'var(--brass)' : e.tier === 'marginal' ? 'var(--muted)' : 'var(--ember)';
+      var g2 = sv('g', { class: 'edge-g' + (selEdge === e.id ? ' sel' : ''), style: 'color:' + color });
+      var d = 'M ' + sx + ' ' + sy + ' Q ' + mx + ' ' + my + ' ' + tx + ' ' + ty;
+      g2.appendChild(sv('path', { d: d, stroke: 'transparent', fill: 'none', 'stroke-width': '14' }));
+      g2.appendChild(sv('path', { d: d, stroke: color, fill: 'none', 'stroke-width': String(1 + e.weight * 9), 'stroke-opacity': selEdge === e.id ? '1' : '0.7', 'marker-end': 'url(#arr)' }));
+      var lbl = sv('text', { x: String(mx), y: String(my - 5) });
+      lbl.textContent = e.id + ' · ' + fmt(e.weight);
+      g2.appendChild(lbl);
+      g2.addEventListener('click', function () { selEdge = e.id; render(); });
+      svg.appendChild(g2);
+    });
+    st.g.nodes.forEach(function (n) {
+      var p = pos[n.id];
+      if (!p) return;
+      var g2 = sv('g', { class: 'node-g' });
+      if (n.kind === 'Actor') {
+        g2.appendChild(sv('circle', { cx: String(p[0]), cy: String(p[1]), r: '22', fill: 'var(--ember-soft)', stroke: 'var(--ember)', 'stroke-width': '1.5' }));
+      } else if (n.kind === 'Profile') {
+        g2.appendChild(sv('polygon', { points: p[0] + ',' + (p[1] - 22) + ' ' + (p[0] + 22) + ',' + p[1] + ' ' + p[0] + ',' + (p[1] + 22) + ' ' + (p[0] - 22) + ',' + p[1], fill: 'var(--brass-soft)', stroke: 'var(--brass)', 'stroke-width': '1.5' }));
+      } else {
+        g2.appendChild(sv('rect', { x: String(p[0] - 26), y: String(p[1] - 17), width: '52', height: '34', rx: '9', fill: 'var(--moss-soft)', stroke: 'var(--moss)', 'stroke-width': '1.5' }));
+      }
+      var t1 = sv('text', { x: String(p[0]), y: String(p[1] + 3) }); t1.textContent = n.label;
+      var t2 = sv('text', { x: String(p[0]), y: String(p[1] + 14), class: 'kind' }); t2.textContent = n.kind;
+      g2.appendChild(t1); g2.appendChild(t2);
+      svg.appendChild(g2);
+    });
+    card.appendChild(svg);
+    wrap.appendChild(card);
+
+    var e = st.g.edges.find(function (x) { return x.id === selEdge; });
+    if (e) wrap.appendChild(inspectorCard(st, e));
+    else wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'smallnote', text: 'Click any edge to open its tensor: the stored 3×3 slice, the softened 2×2 path view, and the damped-weight chain.' })));
+    return wrap;
+  }
+
+  function heat(v) {
+    var t = Math.max(-1, Math.min(1, v));
+    if (t >= 0) {
+      return 'rgb(' + Math.round(238 - 90 * t) + ',' + Math.round(226 - 40 * t) + ',' + Math.round(208 - 90 * t) + ')';
+    }
+    return 'rgb(' + Math.round(238 + 8 * t) + ',' + Math.round(226 + 110 * t) + ',' + Math.round(208 + 100 * t) + ')';
+  }
+  function matView(m, title) {
+    var cols = m[0] ? m[0].length : 0;
+    var grid = h('div', { class: 'mat', style: 'grid-template-columns: repeat(' + cols + ', auto)' });
+    m.forEach(function (row) {
+      row.forEach(function (v) {
+        grid.appendChild(h('div', { class: 'cell', style: 'background:' + heat(v), text: v === 0 ? '0' : fmt(v, 2) }));
+      });
+    });
+    return h('div', {}, h('div', { class: 'mat-title', text: title }), grid);
+  }
+  function inspectorCard(st, e) {
+    var H = E.binaryEntropy(e.tau);
+    var srcL = (st.g.nodes.get(e.src) || {}).label || e.src;
+    var tgtL = (st.g.nodes.get(e.tgt) || {}).label || e.tgt;
+    function term(v, s, res) {
+      var t = h('div', { class: 'term' + (res ? ' result' : '') }, v, h('small', { text: s }));
+      return t;
+    }
+    var det = e.pv[0][0] * e.pv[1][1] - e.pv[0][1] * e.pv[1][0];
+    return h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: e.id + ' — ' + srcL + ' → ' + tgtL }),
+      h('p', { class: 'smallnote', text: e.family + ' · ' + e.domain + ' · tier ' + e.tier + ' · p_d ' + fmt(e.pd, 2) + ' · p_i ' + fmt(e.pi, 2) + ' · τ ' + fmt(e.tau, 3) + ' · sign ' + (e.sign > 0 ? '+1' : '−1') }),
+      h('div', { class: 'chain' },
+        term(fmt(e.score), 'det score'),
+        h('span', { class: 'op', text: '×' }),
+        term(fmt(Math.sqrt(1 + e.tau * e.tau)), '√(1+τ²)'),
+        h('span', { class: 'op', text: '×' }),
+        term(fmt(Math.exp(-E.BETA * H)), 'e^(−β·H), H=' + fmt(H, 3)),
+        h('span', { class: 'op', text: '=' }),
+        term(fmt(e.weight), 'damped weight', true)),
+      h('div', { style: 'display:flex; flex-wrap:wrap' },
+        matView(e.slice, 'stored Ψ · ‖Ψ‖F ' + fmt(e.frob)),
+        matView(e.pv, 'path view · det ' + fmt(det, 4))));
+  }
+
+  // ── record tab ──
+  function ledgerTab(st) {
+    var wrap = h('div', {});
+    var chron = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'chronicle — the append-only record' }), h('div', { class: 'chron' }));
+    var host = chron.lastChild;
+    st.chron.slice().reverse().forEach(function (c) {
+      host.appendChild(h('div', {}, c.who ? h('b', {}, st.handles[c.who] + ' ') : '', c.line));
+    });
+    wrap.appendChild(chron);
+    if (st.epochHistory.length) {
+      var hist = h('div', { class: 'card', style: 'margin-top:14px' }, h('p', { class: 'eyebrow', text: 'epoch certificates' }));
+      st.epochHistory.slice().reverse().forEach(function (e2) {
+        hist.appendChild(h('p', { class: 'smallnote' },
+          'epoch ' + e2.epoch + ' · ' + e2.acts + ' acts · stamp ',
+          h('span', { class: 'num', text: fmt(e2.stamp, 3) }), ' · headroom ',
+          h('span', { class: 'num', text: fmt(e2.headroom, 3) }), ' · ',
+          h('span', { class: 'gate ' + (e2.pass ? 'pass' : 'fail'), text: e2.pass ? 'accepted' : 'failed' })));
+      });
+      wrap.appendChild(hist);
+    }
+    return wrap;
+  }
+
+  // ── standings + epoch rail ──
+  function standingsCard(st) {
+    var table = h('table', { class: 'standings' },
+      h('tr', {}, h('th', { text: 'peer' }), h('th', { class: 'r', text: 'rate' }), h('th', { class: 'r', text: 'standing' }), h('th', { text: '' })));
+    st.ledgers.slice().sort(function (a, b) { return (st.xById[b.id] || 0) - (st.xById[a.id] || 0); }).forEach(function (l) {
+      var row = h('tr', { class: l.id === who ? 'me' : '' },
+        h('td', {}, st.handles[l.id], ' ', deltaChip(l.id, st)),
+        h('td', { class: 'r num', text: fmt(l.burnBal / Math.max(l.actCount, 1), 3) }),
+        h('td', { class: 'r num', text: fmt(NU * (st.xById[l.id] || 0), 4) }),
+        h('td', {}));
+      row.addEventListener('click', function () { openProfile(l.id); });
+      table.appendChild(row);
+    });
+    return h('div', { class: 'card' }, h('h2', { text: 'Standings' }), table,
+      h('p', { class: 'smallnote', text: 'ν · x*, the conserved mediant of transported (balance, count) pairs. Click a peer for their profile.' }));
+  }
+
+  function epochCard(st) {
+    var dActs = Object.keys(st.deltaActs).reduce(function (s, k) { return s + st.deltaActs[k]; }, 0);
+    var gates = E.evaluateGates(st.ledgers, st.solved.x, st.dmap);
+    return h('div', { class: 'card' },
+      h('h2', { text: 'Epoch ' + st.epochNow }),
+      h('p', { class: 'smallnote' }, dActs + ' act' + (dActs === 1 ? '' : 's') + ' pending · projected stamp ',
+        h('span', { class: 'num', text: dActs ? fmt(gates.epochStamp, 3) : '—' }), ' vs door ' + PART_FLOOR),
+      h('div', {},
+        h('span', { class: 'gate ' + (gates.w2bPass ? 'pass' : 'fail'), text: 'W2b door' }),
+        h('span', { class: 'gate ' + (gates.w2a.every(function (x) { return x.pass; }) ? 'pass' : 'fail'), text: 'W2a wall' })),
+      h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close epoch ' + st.epochNow, onclick: function () {
+        var stNow = replay();
+        Object.keys(stNow.xById).forEach(function (id) { prevX[id] = stNow.xById[id]; });
+        pushAct({ t: 'closeEpoch', epoch: stNow.epochNow }, function () {
+          toast('Epoch closed and stamped. Tenure advances; the self-edge bond re-reads standing.');
+        });
+      } }),
+      h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Closing stamps writers with final reduced standing, checks wall ' + fmt(SAFE_FLOOR, 3) + ' and door ' + PART_FLOOR + ', advances self-edge tenure.' }));
+  }
+
+  // ── profile drawer ──
+  function openProfile(id) {
+    var st = replay();
+    var l = st.ledgerById[id];
+    if (!l) return;
+    var overlay = document.getElementById('overlay');
+    overlay.innerHTML = '';
+    function close() { overlay.innerHTML = ''; }
+    var given = [], received = [];
+    for (var k in st.bundles) {
+      var b = st.bundles[k];
+      var pd = Math.max(-1, Math.min(1, b.pd)), pi = Math.max(-1, Math.min(1, b.pi));
+      var live = pd > 0 && pi > 0;
+      var line = { other: b.src === id ? b.rcp : b.src, coeff: live ? Math.sqrt(pd * pi) : 0, live: live };
+      if (b.src === id) given.push(line); else if (b.rcp === id) received.push(line);
+    }
+    var bond = (NU * (st.xById[id] || 0)) / (NU + NU * (st.xById[id] || 0));
+    var drawer = h('div', { class: 'drawer' },
+      h('button', { class: 'btn small ghost', text: '← close', onclick: close }),
+      avatar(st.handles[id]),
+      h('h3', { text: st.handles[id] }),
+      h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * (st.xById[id] || 0), 4) }),
+      h('dl', { class: 'ledger sect' },
+        h('dt', { text: 'reserve' }), h('dd', { class: 'num', text: fmt(l.burnBal, 3) }),
+        h('dt', { text: 'acts N' }), h('dd', { class: 'num', text: String(l.actCount) }),
+        h('dt', { text: 'rate' }), h('dd', { class: 'num', text: fmt(l.burnBal / Math.max(l.actCount, 1), 3) }),
+        h('dt', { text: 'self-bond p_i' }), h('dd', { class: 'num', text: fmt(bond, 3) }),
+        h('dt', { text: 'acts this epoch' }), h('dd', { class: 'num', text: String(st.deltaActs[id] || 0) })));
+    function vsect(title, list, dir) {
+      var s = h('div', { class: 'sect' }, h('p', { class: 'eyebrow', text: title }));
+      if (!list.length) s.appendChild(h('p', { class: 'smallnote', text: 'none yet' }));
+      list.forEach(function (v) {
+        s.appendChild(h('div', { class: 'vouchline' },
+          h('span', {}, (dir === 'out' ? '→ ' : '← ') + (st.handles[v.other] || v.other)),
+          h('span', { class: 'num', text: v.live ? 'c ' + fmt(v.coeff, 3) : 'folded out' })));
+      });
+      return s;
+    }
+    drawer.appendChild(vsect('vouches given', given, 'out'));
+    drawer.appendChild(vsect('vouches received', received, 'in'));
+    if (id !== who) {
+      var p = slider('support', 0.7), r = slider('conviction', 0.7);
+      drawer.appendChild(h('div', { class: 'sect' },
+        h('p', { class: 'eyebrow', text: 'vouch for ' + st.handles[id] }),
+        h('div', { class: 'mini-form' }, p.row, r.row,
+          h('button', { class: 'btn small primary', text: 'Vouch · −θ', onclick: function () {
+            close();
+            tryAct(who, { t: 'opinion', author: who, target: 'prof_' + id, p: p.value(), r: r.value() },
+              'Vouch recorded — a positive folded Opinion on a profile compiles a person-vouch. Your rate now flows to ' + st.handles[id] + '.');
+          } }))));
+    }
+    overlay.appendChild(h('div', { class: 'scrim', onclick: close }));
+    overlay.appendChild(drawer);
+  }
+
+  boot();
+})();
+</script>

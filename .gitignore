@@ -1,0 +1,17 @@
+# --- withheld from the public repo: the spec author's documents ---
+# (see README "Repository scope" — publish only with the author's consent)
+PeerNetwork_PeerNetwork_*.tex
+PeerNetwork_PeerNetwork_*.pdf
+build.log
+docs/spec-digests/
+docs/COVERAGE.md
+
+# --- build artifacts & runtime state ---
+node_modules/
+webapp/public/peer-social-preview.html
+webapp/server-data/
+dist/
+
+# --- local tooling ---
+.claude/
+*.log
