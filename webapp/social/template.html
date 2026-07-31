@@ -21,6 +21,18 @@
   --display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --body: 'Segoe UI', system-ui, sans-serif;
   --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  /* liquid tokens */
+  --lq-bg-a: #DCE6F7; --lq-bg-b: #F3E3D8; --lq-bg-c: #E4D9F2;
+  --lq-glass: rgba(255, 255, 255, 0.58);
+  --lq-glass-2: rgba(255, 255, 255, 0.38);
+  --lq-edge: rgba(255, 255, 255, 0.75);
+  --lq-ink: #232028;
+  --lq-muted: #6E6878;
+  --lq-accent: #D95B3F;
+  --lq-accent-2: #7A5CC9;
+  --lq-gold: #B58A3E;
+  --lq-good: #3F8A5C;
+  --lq-shadow: 0 10px 34px rgba(60, 50, 90, 0.16);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -29,6 +41,12 @@
     --ember-soft: rgba(224, 102, 60, 0.14); --brass: #C9A45E; --brass-soft: rgba(201, 164, 94, 0.14);
     --moss: #7FAF88; --moss-soft: rgba(127, 175, 136, 0.14); --bad: #E06A55; --bad-soft: rgba(224, 106, 85, 0.14);
     --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.35);
+    --lq-bg-a: #191A2E; --lq-bg-b: #241A26; --lq-bg-c: #101322;
+    --lq-glass: rgba(38, 36, 52, 0.55); --lq-glass-2: rgba(38, 36, 52, 0.35);
+    --lq-edge: rgba(255, 255, 255, 0.14);
+    --lq-ink: #F0EDF6; --lq-muted: #A9A2B6;
+    --lq-accent: #F0764F; --lq-accent-2: #9D82E8; --lq-gold: #D9B06A; --lq-good: #6FBE8C;
+    --lq-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
   }
 }
 :root[data-theme="light"] {
@@ -37,6 +55,10 @@
   --ember-soft: rgba(194,77,44,0.10); --brass: #9C7A3C; --brass-soft: rgba(156,122,60,0.12);
   --moss: #4E7A56; --moss-soft: rgba(78,122,86,0.13); --bad: #A93B2A; --bad-soft: rgba(169,59,42,0.11);
   --shadow: 0 1px 2px rgba(60,42,24,0.06), 0 8px 28px rgba(60,42,24,0.07);
+  --lq-bg-a: #DCE6F7; --lq-bg-b: #F3E3D8; --lq-bg-c: #E4D9F2;
+  --lq-glass: rgba(255,255,255,0.58); --lq-glass-2: rgba(255,255,255,0.38); --lq-edge: rgba(255,255,255,0.75);
+  --lq-ink: #232028; --lq-muted: #6E6878; --lq-accent: #D95B3F; --lq-accent-2: #7A5CC9;
+  --lq-gold: #B58A3E; --lq-good: #3F8A5C; --lq-shadow: 0 10px 34px rgba(60,50,90,0.16);
 }
 :root[data-theme="dark"] {
   --paper: #131110; --card: #1C1917; --card-2: #211D1A; --ink: #EEE7DC; --muted: #9F9283;
@@ -44,6 +66,10 @@
   --ember-soft: rgba(224,102,60,0.14); --brass: #C9A45E; --brass-soft: rgba(201,164,94,0.14);
   --moss: #7FAF88; --moss-soft: rgba(127,175,136,0.14); --bad: #E06A55; --bad-soft: rgba(224,106,85,0.14);
   --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.35);
+  --lq-bg-a: #191A2E; --lq-bg-b: #241A26; --lq-bg-c: #101322;
+  --lq-glass: rgba(38,36,52,0.55); --lq-glass-2: rgba(38,36,52,0.35); --lq-edge: rgba(255,255,255,0.14);
+  --lq-ink: #F0EDF6; --lq-muted: #A9A2B6; --lq-accent: #F0764F; --lq-accent-2: #9D82E8;
+  --lq-gold: #D9B06A; --lq-good: #6FBE8C; --lq-shadow: 0 10px 34px rgba(0,0,0,0.45);
 }
 
 * { box-sizing: border-box; }
@@ -55,7 +81,7 @@ button { font-family: var(--body); cursor: pointer; }
 
 .shell { max-width: 1220px; margin: 0 auto; padding: 0 18px 40px; }
 
-/* ── top bar ── */
+/* ═══ GEEK MODE (Layer-1 lab look) ═══ */
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -81,7 +107,6 @@ button { font-family: var(--body); cursor: pointer; }
 .card h2 { font-family: var(--display); font-size: 17px; margin: 0 0 10px; letter-spacing: 0.01em; }
 .eyebrow { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
 
-/* ── identity ── */
 .idcard .who { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
 .avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, var(--ember), var(--ember-hot)); color: #FFF4EC; display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 21px; flex: none; }
 .avatar.s { width: 27px; height: 27px; font-size: 13.5px; }
@@ -104,7 +129,6 @@ button { font-family: var(--body); cursor: pointer; }
 .btn.ghost:hover { color: var(--ember); border-color: transparent; }
 .btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ember); outline-offset: 1px; }
 
-/* ── composer / posts ── */
 .composer textarea, .mini-form textarea { width: 100%; min-height: 66px; resize: vertical; background: var(--card-2); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font-family: var(--body); font-size: 13.5px; }
 .composer .row { display: flex; gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .slider { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -125,9 +149,14 @@ button { font-family: var(--body); cursor: pointer; }
 .rankbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--ember)); transition: width 0.5s ease; }
 .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .mini-form { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-.mini-form input[type='text'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
+.mini-form input[type='text'], .mini-form input[type='password'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
 
-/* ── gates / standings ── */
+.comments { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 4px; }
+.comment { display: flex; gap: 8px; padding: 7px 0; align-items: flex-start; }
+.comment .c-body { font-size: 13px; line-height: 1.5; }
+.comment .c-head { font-size: 12px; color: var(--muted); }
+.comment .c-head b { color: var(--ink); }
+
 .gate { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; border-radius: 10px; padding: 2px 9px; margin: 2px 4px 2px 0; font-weight: 600; }
 .gate.pass { background: var(--moss-soft); color: var(--moss); }
 .gate.fail { background: var(--bad-soft); color: var(--bad); }
@@ -146,9 +175,7 @@ table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 .chron { font-size: 12.5px; color: var(--muted); }
 .chron > div { padding: 7px 0; border-top: 1px dashed var(--line); line-height: 1.5; }
 .chron b { color: var(--ink); font-weight: 600; }
-.chron .num { font-size: 11px; }
 
-/* ── onboarding ── */
 .onboard { max-width: 620px; margin: 7vh auto 0; text-align: center; }
 .onboard .wordmark { font-size: 64px; margin-bottom: 2px; }
 .onboard p.lede { font-family: var(--display); font-size: 18.5px; line-height: 1.6; margin: 12px auto 8px; max-width: 34em; text-wrap: balance; }
@@ -156,7 +183,7 @@ table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 .pulse .stat { font-size: 12px; color: var(--muted); }
 .pulse .stat b { display: block; font-family: var(--mono); font-size: 19px; color: var(--ink); font-weight: 600; }
 .onboard .join { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.onboard input { background: var(--card); border: 1px solid var(--line-2); color: var(--ink); border-radius: 10px; padding: 10px 14px; font-size: 15px; width: 220px; }
+.onboard input { background: var(--card); border: 1px solid var(--line-2); color: var(--ink); border-radius: 10px; padding: 10px 14px; font-size: 15px; width: 200px; }
 .residents { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
 .resident { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 8px 9px; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
 .resident:hover { border-color: var(--ember); box-shadow: var(--shadow); }
@@ -170,10 +197,9 @@ table.standings tr:not(:first-child):hover td { background: var(--card-2); }
   .onboard > *:nth-child(5) { animation-delay: 0.24s; }
   .onboard > *:nth-child(6) { animation-delay: 0.30s; }
   @keyframes settle { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-  .post { animation: settle 0.3s ease-out backwards; }
+  .post, .lq-card { animation: settle 0.3s ease-out backwards; }
 }
 
-/* ── network view ── */
 .netwrap { overflow-x: auto; }
 #netsvg { width: 100%; min-width: 560px; height: auto; }
 .node-g text { fill: var(--ink); font-size: 11.5px; text-anchor: middle; font-family: var(--body); pointer-events: none; }
@@ -191,7 +217,6 @@ table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 .chain .op { color: var(--muted); }
 .chain .result { background: var(--ember-soft); border-color: var(--ember); }
 
-/* ── profile drawer ── */
 .scrim { position: fixed; inset: 0; background: rgba(30, 20, 12, 0.35); z-index: 30; }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 92vw); background: var(--card); border-left: 1px solid var(--line); z-index: 31; padding: 20px; overflow-y: auto; box-shadow: -12px 0 40px rgba(30,20,12,0.18); }
 @media (prefers-reduced-motion: no-preference) {
@@ -201,6 +226,12 @@ table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 .drawer h3 { font-family: var(--display); font-size: 20px; margin: 10px 0 2px; }
 .drawer .sect { margin-top: 16px; }
 .vouchline { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; border-top: 1px dashed var(--line); }
+
+.pin-dialog { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 40; }
+.pin-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; width: min(320px, 90vw); box-shadow: var(--shadow); text-align: center; position: relative; z-index: 41; }
+.pin-card h3 { font-family: var(--display); margin: 4px 0 10px; }
+.pin-card input { width: 100%; text-align: center; font-size: 18px; letter-spacing: 0.3em; background: var(--card-2); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 10px; font-family: var(--mono); }
+.pin-card .row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
 
 .toast-host { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 50; width: min(520px, 92vw); }
 .toast { background: var(--ink); color: var(--paper); border-radius: 10px; padding: 9px 15px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(20,12,6,0.3); }
@@ -212,9 +243,106 @@ details.about summary { cursor: pointer; font-family: var(--display); font-size:
 details.about p { font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 details.about b { color: var(--ink); }
 .footer-note { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 26px; }
+
+/* ═══ LIQUID MODE (mainstream glass look) ═══ */
+body[data-mode='liquid'] {
+  background:
+    radial-gradient(1100px 700px at 12% -8%, var(--lq-bg-a), transparent 60%),
+    radial-gradient(1000px 640px at 105% 12%, var(--lq-bg-b), transparent 55%),
+    radial-gradient(900px 700px at 50% 115%, var(--lq-bg-c), transparent 60%),
+    var(--paper);
+  background-attachment: fixed;
+  color: var(--lq-ink);
+}
+.lq-shell { max-width: 660px; margin: 0 auto; padding: 14px 14px 110px; }
+.lq-glass {
+  background: var(--lq-glass);
+  border: 1px solid var(--lq-edge);
+  border-radius: 24px;
+  box-shadow: var(--lq-shadow);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  position: relative;
+}
+.lq-glass::before {
+  content: ''; position: absolute; inset: 0 12% auto 12%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+  border-radius: 1px; pointer-events: none;
+}
+.lq-head { position: sticky; top: 10px; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px 16px; margin-bottom: 16px; }
+.lq-head .wordmark { font-size: 24px; color: var(--lq-ink); }
+.lq-head .wordmark em { background: linear-gradient(120deg, var(--lq-accent), var(--lq-accent-2)); -webkit-background-clip: text; background-clip: text; }
+.lq-energy { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--lq-muted); }
+.lq-energy .bar { width: 74px; height: 8px; border-radius: 4px; background: rgba(127,127,127,0.22); overflow: hidden; }
+.lq-energy .bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--lq-gold), var(--lq-accent)); transition: width 0.4s; }
+.lq-ava { width: 38px; height: 38px; border-radius: 50%; border: 0; background: linear-gradient(135deg, var(--lq-accent), var(--lq-accent-2)); color: #FFF; font-family: var(--display); font-size: 18px; display: flex; align-items: center; justify-content: center; }
+.lq-ava.s { width: 30px; height: 30px; font-size: 14px; }
+.lq-ava.xs { width: 24px; height: 24px; font-size: 12px; }
+
+.lq-card { padding: 18px 20px; margin-bottom: 16px; }
+.lq-card h2 { font-family: var(--display); font-size: 18px; margin: 0 0 10px; }
+.lq-name { font-weight: 700; font-size: 14.5px; color: var(--lq-ink); }
+.lq-sub { font-size: 12px; color: var(--lq-muted); }
+.lq-cred { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--lq-gold); font-weight: 700; }
+.lq-body { font-size: 15.5px; line-height: 1.6; margin: 10px 0 4px; color: var(--lq-ink); }
+.lq-tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
+.lq-tag { font-size: 12px; color: var(--lq-accent-2); background: color-mix(in srgb, var(--lq-accent-2) 12%, transparent); border-radius: 10px; padding: 2px 10px; font-weight: 600; }
+
+.lq-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.lq-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--lq-edge); background: var(--lq-glass-2);
+  color: var(--lq-ink); border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600;
+  transition: transform 0.08s, background 0.15s;
+  backdrop-filter: blur(8px);
+}
+.lq-pill:hover { transform: translateY(-1px); background: var(--lq-glass); }
+.lq-pill:active { transform: translateY(0); }
+.lq-pill.hot { background: linear-gradient(120deg, var(--lq-accent), var(--lq-accent-2)); color: #FFF; border-color: transparent; }
+.lq-pill svg { width: 15px; height: 15px; }
+.lq-pill:focus-visible, .lq-input:focus-visible { outline: 2px solid var(--lq-accent); outline-offset: 1px; }
+
+.lq-input, body[data-mode='liquid'] textarea.lq-input {
+  width: 100%; background: var(--lq-glass-2); border: 1px solid var(--lq-edge);
+  color: var(--lq-ink); border-radius: 16px; padding: 11px 15px; font-size: 15px; font-family: var(--body);
+  backdrop-filter: blur(8px);
+}
+body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical; }
+.lq-input::placeholder { color: var(--lq-muted); }
+
+.lq-comments { margin-top: 12px; display: flex; flex-direction: column; gap: 9px; }
+.lq-comment { display: flex; gap: 9px; align-items: flex-start; background: var(--lq-glass-2); border: 1px solid var(--lq-edge); border-radius: 16px; padding: 9px 13px; }
+.lq-comment .lq-sub b { color: var(--lq-ink); }
+.lq-comment .txt { font-size: 13.5px; line-height: 1.5; }
+
+.lq-nav {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 25;
+  display: flex; gap: 4px; padding: 6px; border-radius: 999px;
+}
+.lq-nav button { display: flex; flex-direction: column; align-items: center; gap: 2px; border: 0; background: transparent; color: var(--lq-muted); font-size: 10.5px; font-weight: 600; padding: 7px 18px; border-radius: 999px; }
+.lq-nav button.on { background: linear-gradient(120deg, var(--lq-accent), var(--lq-accent-2)); color: #FFF; }
+.lq-nav svg { width: 19px; height: 19px; }
+
+.lq-peer { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-top: 1px solid var(--lq-edge); }
+.lq-peer:first-of-type { border-top: 0; }
+.lq-peer .grow { flex: 1; min-width: 0; }
+.lq-sheet { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: var(--lq-glass-2); border: 1px solid var(--lq-edge); border-radius: 16px; padding: 12px 14px; }
+.lq-range { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--lq-muted); }
+.lq-range input { accent-color: var(--lq-accent); width: 130px; }
+.lq-range output { font-family: var(--mono); font-size: 13px; color: var(--lq-ink); width: 34px; text-align: right; }
+.lq-note { font-size: 12px; color: var(--lq-muted); line-height: 1.55; }
+.lq-stat-row { display: flex; gap: 20px; margin: 8px 0 2px; flex-wrap: wrap; }
+.lq-stat b { display: block; font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--lq-ink); }
+.lq-stat { font-size: 12px; color: var(--lq-muted); }
+
+.lq-hero { text-align: center; padding: 40px 24px 34px; margin-top: 6vh; }
+.lq-hero .wordmark { font-size: 58px; }
+.lq-hero .lede { font-family: var(--display); font-size: 19px; line-height: 1.6; margin: 12px auto 20px; max-width: 24em; text-wrap: balance; color: var(--lq-ink); }
+.lq-hero .join { display: flex; flex-direction: column; gap: 10px; max-width: 320px; margin: 0 auto; }
+.lq-hero .lq-note { margin-top: 20px; }
 </style>
 
-<div id="root" class="shell"></div>
+<div id="root"></div>
 <div class="toast-host" id="toasts"></div>
 <div id="overlay"></div>
 
@@ -228,11 +356,17 @@ details.about b { color: var(--ink); }
   var THETA = E.THETA, NU = E.NU, SAFE_FLOOR = E.SAFE_FLOOR, PART_FLOOR = E.PART_FLOOR;
   var LS_WORLD = 'peer-sandbox-world-v2';
   var LS_WHO = 'peer-sandbox-who-v2';
+  var LS_MODE = 'peer-sandbox-mode-v1';
+  var LS_PINS = 'peer-sandbox-pins-v1';
 
-  var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', selEdge = null, prevX = {};
-  var REMOTE = false; // true when a shared host serves /api/acts — then the host owns the log
+  var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
+  var selEdge = null, prevX = {}, REMOTE = false;
+  var mode = 'liquid';
+  var pins = {};
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
   try { who = JSON.parse(localStorage.getItem(LS_WHO)); } catch (e) { who = null; }
+  try { var m0 = JSON.parse(localStorage.getItem(LS_MODE)); if (m0 === 'geek' || m0 === 'liquid') mode = m0; } catch (e) {}
+  try { var p0 = JSON.parse(localStorage.getItem(LS_PINS)); if (p0 && typeof p0 === 'object') pins = p0; } catch (e) {}
 
   function epochOf() {
     var n = 1;
@@ -244,11 +378,30 @@ details.about b { color: var(--ink); }
     try {
       if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
       localStorage.setItem(LS_WHO, JSON.stringify(who));
+      localStorage.setItem(LS_MODE, JSON.stringify(mode));
+      localStorage.setItem(LS_PINS, JSON.stringify(pins));
     } catch (e) { /* private mode */ }
   }
 
+  // ── PIN hashing (handle security) ──
+  function sha256hex(s) {
+    if (window.crypto && crypto.subtle) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then(function (b) {
+        return Array.from(new Uint8Array(b)).map(function (x) { return x.toString(16).padStart(2, '0'); }).join('');
+      });
+    }
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return Promise.resolve('fnv' + h.toString(16));
+  }
+
+  var lastPinHash = {}; // id -> pinHash from latest replay
+
   function pushAct(act, onOk) {
+    var actor = act.author || (act.t === 'burn' || act.t === 'register' ? act.id : null);
+    if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
     if (!REMOTE) {
+      delete act.auth;
       world.acts.push(act); save();
       if (onOk) onOk();
       render(); return;
@@ -256,18 +409,18 @@ details.about b { color: var(--ink); }
     fetch('/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (x) {
-        if (!x.ok) { toast('Host refused: ' + (x.d && x.d.error ? x.d.error : 'rejected')); render(); return; }
+        if (!x.ok) { toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return; }
         world.acts = x.d.acts; save();
         if (onOk) onOk();
         render();
       })
-      .catch(function () { toast('Network hiccup — act not recorded, try again.'); });
+      .catch(function () { toast('Connection hiccup — nothing was recorded, try again.'); });
   }
 
   function pollRemote() {
     var ae = document.activeElement;
-    if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ae.type === 'text'))) return;
-    if (document.querySelector('.drawer') || document.querySelector('.mini-form')) return;
+    if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
+    if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet') || document.querySelector('.pin-dialog')) return;
     fetch('/api/acts?since=' + world.acts.length, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
@@ -288,16 +441,18 @@ details.about b { color: var(--ink); }
       .catch(function () { render(); });
   }
 
+  // ── Replay: world state is a deterministic function of the act log ──
   var SEED_POSTS = {
     photo: 'Street shot from the underpass — first light.',
     comment: 'Grain placement is deliberate. This holds up.',
   };
 
-  // ── Replay: world state is a deterministic function of the act log ──
   function replay() {
     var g = new E.RawGraph();
     var ledgers = [], ledgerById = {}, handles = {}, kReg = {}, creators = {}, payloads = {};
     var bundles = {}, selfCells = [], deltaActs = {}, epochHistory = [], chron = [];
+    var reviewMeta = {}; // commentNodeId -> {e, f}
+    var pinHash = {};
     var counter = 0;
 
     function addActor(id, handle, burn, count, epoch) {
@@ -307,8 +462,6 @@ details.about b { color: var(--ink); }
       ledgers.push(l); ledgerById[id] = l; handles[id] = handle; kReg[id] = epoch;
     }
     function debit(id) { var l = ledgerById[id]; l.burnBal -= THETA; l.actCount += 1; deltaActs[id] = (deltaActs[id] || 0) + 1; }
-    // Universal act weighing: every accepted act enters allocation exactly once —
-    // outward for a positive person-vouch, otherwise home on the author's diagonal.
     function vouch(author, target, p, r) {
       var key = author + '>' + target;
       var b = bundles[key] || (bundles[key] = { src: author, rcp: target, pd: 0, pi: 0 });
@@ -346,13 +499,15 @@ details.about b { color: var(--ink); }
         g.append({ id: 'e8', family: 'Owner', src: 'bob', tgt: 'sneakers', pd: 0.7, pi: 1.0 });
         creators.photo = 'alice'; creators.comment = 'bob'; creators.sneakers = 'bob'; creators.streetart = 'carol';
         payloads.photo = SEED_POSTS.photo; payloads.comment = SEED_POSTS.comment;
+        reviewMeta.comment = { e: 0.7, f: 0.8 };
         chron.push({ who: 'alice', line: 'posted Photo — seed world' });
         chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world' });
       } else if (a.t === 'register') {
         addActor(a.id, a.handle, a.seed, 0, a.epoch);
+        if (a.pinHash) pinHash[a.id] = a.pinHash;
         g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
         debit(a.id); weighHome(a.id, 1, 1);
-        chron.push({ who: a.id, line: 'registered · burned ' + a.seed.toFixed(2) + ' reserve · θ-debit' });
+        chron.push({ who: a.id, line: 'registered · burned ' + a.seed.toFixed(2) + ' reserve · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
       } else if (a.t === 'burn') {
         ledgerById[a.id].burnBal += a.amt;
         chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve' });
@@ -382,6 +537,7 @@ details.about b { color: var(--ink); }
         );
         debit(a.author); weighHome(a.author, a.e, a.f);
         creators[cmid] = a.author; payloads[cmid] = a.text;
+        reviewMeta[cmid] = { e: a.e, f: a.f };
         chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs' });
       } else if (a.t === 'tag') {
         counter++;
@@ -412,7 +568,6 @@ details.about b { color: var(--ink); }
     var xById = {};
     solved.ids.forEach(function (id, i) { xById[id] = solved.x[i]; });
 
-    // Derived self-edge reading (bond from live standing; tenure from epochs)
     var epochNow = epochHistory.length + 1;
     for (var id2 in ledgerById) {
       if (id2 === 'alice') continue;
@@ -425,11 +580,13 @@ details.about b { color: var(--ink); }
       }
     }
 
+    lastPinHash = pinHash;
     return {
       g: g, ledgers: ledgers, ledgerById: ledgerById, handles: handles, creators: creators,
       payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
       deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),
       epochHistory: epochHistory, chron: chron, epochNow: epochNow,
+      reviewMeta: reviewMeta, pinHash: pinHash,
     };
   }
 
@@ -441,8 +598,6 @@ details.about b { color: var(--ink); }
       if (pd > 0 && pi > 0) {
         out.push({ src: b.src, rcp: b.rcp, coeff: Math.sqrt(pd * pi) });
       } else {
-        // Hostile or zero-netted person-directed bundle: weighed home —
-        // hostility costs what support costs, but compiles no vouch.
         var c = Math.sqrt(Math.abs(pd) * Math.abs(pi));
         if (c > 0) out.push({ src: b.src, rcp: b.src, coeff: c });
       }
@@ -455,7 +610,9 @@ details.about b { color: var(--ink); }
     var l = st.ledgerById[actorId];
     if (!l) return;
     if (l.burnBal < THETA) {
-      toast('W1 refuses: reserve ' + l.burnBal.toFixed(3) + ' < θ ' + THETA.toFixed(4) + ' — burn reserve to act.');
+      toast(mode === 'liquid'
+        ? 'Out of energy — recharge to keep acting.'
+        : 'W1 refuses: reserve ' + l.burnBal.toFixed(3) + ' < θ ' + THETA.toFixed(4) + ' — burn reserve to act.');
       return;
     }
     Object.keys(st.xById).forEach(function (id) { prevX[id] = st.xById[id]; });
@@ -471,7 +628,7 @@ details.about b { color: var(--ink); }
     setTimeout(function () { t.remove(); }, 4600);
   }
 
-  // ── tiny DOM helpers ──
+  // ── DOM helpers ──
   var SVG_NS = 'http://www.w3.org/2000/svg';
   function h(tag, attrs) {
     var n = document.createElement(tag);
@@ -493,15 +650,30 @@ details.about b { color: var(--ink); }
     if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
     return n;
   }
+  function icon(name) {
+    var paths = {
+      heart: 'M12 21s-7.5-4.9-10-9.5C.6 8.2 2.6 4.5 6.2 4.5c2 0 3.6 1.1 4.4 2.7.8-1.6 2.4-2.7 4.4-2.7 3.6 0 5.6 3.7 4.2 7-2.5 4.6-10 9.5-10 9.5z',
+      bubble: 'M4 5h16c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2H9l-5 4V7c0-1.1.9-2 2-2z',
+      star: 'M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z',
+      tag: 'M3 12l9-9h7c.6 0 1 .4 1 1v7l-9 9c-.4.4-1 .4-1.4 0L3 13.4c-.4-.4-.4-1 0-1.4zM16 8a1.5 1.5 0 1 0 .1 0z',
+      bolt: 'M13 2L4 14h6l-1 8 9-12h-6l1-8z',
+      feed: 'M4 5h16v3H4zM4 10.5h16v3H4zM4 16h10v3H4z',
+      peers: 'M8 11a3.5 3.5 0 1 0-.1 0zM16.5 11.5a3 3 0 1 0-.1 0zM2 20c0-3 2.7-5 6-5s6 2 6 5zM14.5 20c.2-2.3 1.7-4 4-4 2 0 3.5 1.6 3.5 4z',
+      you: 'M12 11a4 4 0 1 0-.1 0zM4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5z',
+    };
+    var s = sv('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' });
+    s.appendChild(sv('path', { d: paths[name] || '' }));
+    return s;
+  }
   function fmt(v, d) { return Number(v).toFixed(d == null ? 3 : d); }
-  function slider(label, val) {
+  function slider(label, val, cls) {
     var input = h('input', { type: 'range', min: '-1', max: '1', step: '0.05', value: String(val) });
     var out = h('output', { text: fmt(val, 2) });
     input.addEventListener('input', function () { out.textContent = fmt(input.value, 2); });
-    return { row: h('span', { class: 'slider' }, label + ' ', input, out), value: function () { return Number(input.value); } };
+    return { row: h('span', { class: cls || 'slider' }, label + ' ', input, out), value: function () { return Number(input.value); } };
   }
-  function avatar(handle, small) {
-    return h('span', { class: 'avatar' + (small ? ' s' : ''), text: (handle || '?')[0].toUpperCase() });
+  function avatar(handle, cls) {
+    return h('span', { class: cls || 'avatar', text: (handle || '?')[0].toUpperCase() });
   }
   function deltaChip(id, st) {
     if (!(id in prevX)) return null;
@@ -513,36 +685,328 @@ details.about b { color: var(--ink); }
     return st.g.edges.filter(function (e) { return e.family === 'TagT' && e.src === nodeId; })
       .map(function (e) { return (st.g.nodes.get(e.tgt) || {}).label || ''; });
   }
+  function commentsOf(st, nodeId) {
+    return st.g.edges
+      .filter(function (e) { return e.family === 'ReviewT' && e.src === nodeId; })
+      .map(function (e) {
+        return {
+          id: e.tgt,
+          author: st.creators[e.tgt],
+          text: st.payloads[e.tgt] || '',
+          meta: st.reviewMeta[e.tgt],
+        };
+      })
+      .filter(function (c) { return c.text; });
+  }
+  function credibility(st, id) { return NU * (st.xById[id] || 0); }
+
+  // ── PIN dialog + identity switching ──
+  function pinDialog(title, subtitle) {
+    return new Promise(function (resolve) {
+      var overlay = document.getElementById('overlay');
+      var input = h('input', { type: 'password', maxlength: '24', placeholder: '••••', autocomplete: 'off' });
+      function done(v) { overlay.innerHTML = ''; resolve(v); }
+      var card = h('div', { class: 'pin-card' },
+        h('h3', { text: title }),
+        h('p', { class: 'smallnote', text: subtitle }),
+        input,
+        h('div', { class: 'row' },
+          h('button', { class: 'btn', text: 'Cancel', onclick: function () { done(null); } }),
+          h('button', { class: 'btn primary', text: 'Unlock', onclick: function () { done(input.value); } })));
+      input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') done(input.value); });
+      overlay.innerHTML = '';
+      overlay.appendChild(h('div', { class: 'pin-dialog' }, h('div', { class: 'scrim', onclick: function () { done(null); } }), card));
+      setTimeout(function () { input.focus(); }, 50);
+    });
+  }
+
+  function switchTo(id, st) {
+    var hash = st.pinHash[id];
+    if (!hash) { who = id; save(); render(); return; }
+    if (pins[id]) {
+      sha256hex(id + ':' + pins[id]).then(function (hx) {
+        if (hx === hash) { who = id; save(); render(); }
+        else { delete pins[id]; switchTo(id, st); }
+      });
+      return;
+    }
+    pinDialog('Unlock ' + (st.handles[id] || id), 'This handle is PIN-secured.').then(function (pin) {
+      if (pin == null) { render(); return; }
+      sha256hex(id + ':' + pin).then(function (hx) {
+        if (hx === hash) { pins[id] = pin; who = id; save(); render(); toast('Welcome back, ' + st.handles[id] + '.'); }
+        else { toast('Wrong PIN.'); render(); }
+      });
+    });
+  }
+
+  function registerIdentity(handle, pin, st) {
+    if (!handle) { toast('Pick a handle first.'); return; }
+    var id = 'u_' + handle.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (id === 'u_' || st.ledgerById[id]) { toast('That handle is taken here — try another.'); return; }
+    var finish = function (pinHash) {
+      var act = { t: 'register', id: id, handle: handle, seed: 1.0, epoch: epochOf() };
+      if (pinHash) act.pinHash = pinHash;
+      pushAct(act, function () {
+        who = id;
+        if (pin) pins[id] = pin;
+        save();
+        toast(pinHash ? 'Registered and PIN-secured. Only this PIN unlocks ' + handle + '.' : 'Registered. Anyone here can use an unsecured handle — add a PIN next time to claim it.');
+      });
+    };
+    if (pin && pin.length >= 4) sha256hex(id + ':' + pin).then(finish);
+    else if (pin && pin.length > 0) { toast('PIN needs at least 4 characters.'); }
+    else finish(null);
+  }
 
   // ── render root ──
   var root = document.getElementById('root');
   function render() {
+    document.body.setAttribute('data-mode', mode);
     var st = replay();
     root.innerHTML = '';
     document.getElementById('overlay').innerHTML = '';
-    if (!who || !st.ledgerById[who]) { renderOnboard(st); return; }
-    renderApp(st);
+    if (mode === 'liquid') {
+      if (!who || !st.ledgerById[who]) renderLiquidHero(st);
+      else renderLiquid(st);
+    } else {
+      if (!who || !st.ledgerById[who]) renderOnboard(st);
+      else renderGeek(st);
+    }
+  }
+  function setMode(m) { mode = m; save(); render(); }
+
+  // ═══ LIQUID FRONTEND ═══
+  function renderLiquidHero(st) {
+    var name = h('input', { class: 'lq-input', placeholder: 'Pick a handle', maxlength: '16' });
+    var pin = h('input', { class: 'lq-input', type: 'password', placeholder: 'PIN to secure it (optional, 4+ chars)', maxlength: '24', autocomplete: 'off' });
+    function join() { registerIdentity(name.value.trim(), pin.value, st); }
+    name.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
+    pin.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
+    var residents = h('div', { class: 'residents', style: 'margin-top:16px' });
+    ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
+      residents.appendChild(h('button', { class: 'lq-pill', onclick: function () { switchTo(id, st); } },
+        avatar(st.handles[id], 'lq-ava xs'), st.handles[id]));
+    });
+    var wrap = h('div', { class: 'lq-shell' },
+      h('div', { class: 'lq-glass lq-hero' },
+        h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+        h('p', { class: 'lede', text: 'Share what you love. Back the people you believe in. Watch trust move like energy.' }),
+        h('div', { class: 'join' },
+          name, pin,
+          h('button', { class: 'lq-pill hot', style: 'justify-content:center; padding:11px', text: 'Join — it costs a spark of energy', onclick: join })),
+        h('p', { class: 'lq-note', text: 'or hop into a resident:' }),
+        residents,
+        h('p', { class: 'lq-note' },
+          (REMOTE ? 'One shared test network — everything you do is public. ' : 'Private sandbox in this browser. ') +
+          'No email, no tracking. A PIN is the only thing protecting a handle, so pick one you don’t use anywhere else.'),
+        h('button', { class: 'lq-pill', style: 'margin-top:14px', text: 'Geek mode', onclick: function () { setMode('geek'); } })));
+    root.appendChild(wrap);
   }
 
-  // ── onboarding ──
+  function lqEnergyBar(me) {
+    var pct = Math.min(100, me.burnBal * 25);
+    return h('span', { class: 'lq-energy' }, icon('bolt'),
+      h('span', { class: 'bar' }, h('i', { style: 'width:' + pct + '%' })),
+      h('span', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) }));
+  }
+
+  function renderLiquid(st) {
+    var me = st.ledgerById[who];
+    var wrap = h('div', { class: 'lq-shell' });
+
+    wrap.appendChild(h('div', { class: 'lq-glass lq-head' },
+      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+      lqEnergyBar(me),
+      h('button', { class: 'lq-ava', text: (st.handles[who] || '?')[0].toUpperCase(), title: 'You', onclick: function () { lqView = 'you'; render(); } })));
+
+    if (lqView === 'feed') wrap.appendChild(lqFeed(st));
+    else if (lqView === 'peers') wrap.appendChild(lqPeers(st));
+    else wrap.appendChild(lqYou(st));
+
+    function navBtn(key, label, ic) {
+      return h('button', { class: lqView === key ? 'on' : '', onclick: function () { lqView = key; render(); } }, icon(ic), label);
+    }
+    wrap.appendChild(h('nav', { class: 'lq-glass lq-nav' },
+      navBtn('feed', 'Feed', 'feed'), navBtn('peers', 'Peers', 'peers'), navBtn('you', 'You', 'you')));
+    root.appendChild(wrap);
+  }
+
+  function lqFeed(st) {
+    var box = h('div', {});
+    var text = h('textarea', { class: 'lq-input', placeholder: 'Share something…' });
+    box.appendChild(h('div', { class: 'lq-glass lq-card' },
+      text,
+      h('div', { class: 'lq-actions' },
+        h('button', { class: 'lq-pill hot', onclick: function () {
+          var t = text.value.trim();
+          if (!t) { toast('Write something first.'); return; }
+          tryAct(who, { t: 'post', author: who, text: t, a: 0.8 }, 'Shared. Every post costs a spark of energy.');
+        } }, icon('bolt'), 'Share'))));
+
+    var feed = E.rankFeed(st.g, who, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
+    var ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
+    ranked.forEach(function (f) { box.appendChild(lqPost(st, f.node, f)); });
+
+    var seen = {};
+    ranked.forEach(function (f) { seen[f.node.id] = 1; });
+    var horizon = [];
+    st.g.nodes.forEach(function (n) {
+      if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
+    });
+    if (horizon.length) {
+      box.appendChild(h('p', { class: 'lq-note', style: 'text-align:center; margin:18px 0 4px', text: '· new to you — react to pull them into your feed ·' }));
+      horizon.forEach(function (n) { box.appendChild(lqPost(st, n, null)); });
+    }
+    if (!ranked.length && !horizon.length) {
+      box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'lq-note', text: 'Nothing here yet — be the first to share.' })));
+    }
+    return box;
+  }
+
+  function lqPost(st, n, f) {
+    var author = st.creators[n.id];
+    var tags = tagsOf(st, n.id);
+    var card = h('div', { class: 'lq-glass lq-card' },
+      h('div', { style: 'display:flex; align-items:center; gap:10px' },
+        avatar(st.handles[author], 'lq-ava s'),
+        h('div', {},
+          h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
+          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2))),
+        f ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: 'for you' }) : null),
+      h('div', { class: 'lq-body', text: st.payloads[n.id] || '' }));
+    if (tags.length) {
+      var tr = h('div', { class: 'lq-tagrow' });
+      tags.forEach(function (t) { tr.appendChild(h('span', { class: 'lq-tag', text: t })); });
+      card.appendChild(tr);
+    }
+
+    var comments = commentsOf(st, n.id);
+    if (comments.length) {
+      var cwrap = h('div', { class: 'lq-comments' });
+      comments.forEach(function (c) {
+        cwrap.appendChild(h('div', { class: 'lq-comment' },
+          avatar(st.handles[c.author], 'lq-ava xs'),
+          h('div', {},
+            h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—')),
+            h('div', { class: 'txt', text: c.text }))));
+      });
+      card.appendChild(cwrap);
+    }
+
+    var open = null;
+    function toggle(builder) {
+      if (open) { open.remove(); open = null; return; }
+      open = builder();
+      card.appendChild(open);
+    }
+    var actions = h('div', { class: 'lq-actions' });
+    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
+      tryAct(who, { t: 'opinion', author: who, target: n.id, p: 0.8, r: 0.8 }, 'Loved it — you’re now connected to this post.');
+    } }, icon('heart'), 'React'));
+    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
+      toggle(function () {
+        var txt = h('textarea', { class: 'lq-input', placeholder: 'Your comment…' });
+        return h('div', { class: 'lq-sheet' }, txt,
+          h('button', { class: 'lq-pill hot', onclick: function () {
+            if (!txt.value.trim()) { toast('Write your comment first.'); return; }
+            tryAct(who, { t: 'review', author: who, target: n.id, e: 0.7, f: 0.8, text: txt.value.trim() }, 'Comment published.');
+          } }, icon('bubble'), 'Comment'));
+      });
+    } }, icon('bubble'), String(comments.length || '')), ' ');
+    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
+      toggle(function () {
+        var name = h('input', { class: 'lq-input', style: 'width:150px', type: 'text', placeholder: 'tag', maxlength: '20' });
+        return h('div', { class: 'lq-sheet' }, name,
+          h('button', { class: 'lq-pill hot', onclick: function () {
+            var nm = (name.value || '').trim().replace(/^#/, '');
+            if (!nm) { toast('Name the tag first.'); return; }
+            tryAct(who, { t: 'tag', author: who, target: n.id, name: nm, r: 0.8, c: 0.8 }, 'Tagged #' + nm + '.');
+          } }, icon('tag'), 'Tag'));
+      });
+    } }, icon('tag'), 'Tag'));
+    if (author && author !== who) {
+      actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
+        toggle(function () { return lqEndorseSheet(st, author); });
+      } }, icon('star'), 'Back ' + (st.handles[author] || '')));
+    }
+    card.appendChild(actions);
+    return card;
+  }
+
+  function lqEndorseSheet(st, target) {
+    var s = slider('strength', 0.7, 'lq-range');
+    return h('div', { class: 'lq-sheet' },
+      h('span', { class: 'lq-note', text: 'Backing someone lends them your credibility — it moves your own weight to them.' }),
+      s.row,
+      h('button', { class: 'lq-pill hot', onclick: function () {
+        var v = Math.max(0.05, s.value());
+        tryAct(who, { t: 'opinion', author: who, target: 'prof_' + target, p: v, r: v },
+          'You backed ' + (st.handles[target] || 'them') + '. Watch their credibility.');
+      } }, icon('star'), 'Back them'));
+  }
+
+  function lqPeers(st) {
+    var box = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Peers' }));
+    st.ledgers.slice().sort(function (a, b) { return credibility(st, b.id) - credibility(st, a.id); }).forEach(function (l) {
+      var row = h('div', { class: 'lq-peer' },
+        avatar(st.handles[l.id], 'lq-ava s'),
+        h('div', { class: 'grow' },
+          h('div', { class: 'lq-name' }, st.handles[l.id] + (l.id === who ? ' (you)' : ''), ' ', deltaChip(l.id, st)),
+          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, l.id), 3),
+            st.pinHash[l.id] ? h('span', { class: 'lq-sub', text: ' · secured' }) : null)));
+      if (l.id !== who) {
+        var open = null;
+        row.appendChild(h('button', { class: 'lq-pill', onclick: function () {
+          if (open) { open.remove(); open = null; return; }
+          open = lqEndorseSheet(st, l.id);
+          box.insertBefore(open, row.nextSibling);
+        } }, icon('star'), 'Back'));
+      }
+      box.appendChild(row);
+    });
+    box.appendChild(h('p', { class: 'lq-note', style: 'margin-top:10px', text: 'Credibility isn’t likes — it’s the commitment of the people backing you, weighted by how much they’ve put in themselves.' }));
+    return box;
+  }
+
+  function lqYou(st) {
+    var me = st.ledgerById[who];
+    var box = h('div', {});
+    box.appendChild(h('div', { class: 'lq-glass lq-card' },
+      h('div', { style: 'display:flex; align-items:center; gap:12px' },
+        avatar(st.handles[who], 'lq-ava'),
+        h('div', {},
+          h('div', { class: 'lq-name', style: 'font-size:17px', text: st.handles[who] }),
+          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, who), 4),
+            st.pinHash[who] ? h('span', { class: 'lq-sub', text: ' · PIN-secured' }) : null))),
+      h('div', { class: 'lq-stat-row' },
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(me.burnBal, 2) }), 'energy'),
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: String(me.actCount) }), 'actions'),
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) }), 'actions left')),
+      h('div', { class: 'lq-actions' },
+        h('button', { class: 'lq-pill hot', onclick: function () {
+          pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Recharged. Commitment in, energy up.'); });
+        } }, icon('bolt'), 'Recharge energy'),
+        h('button', { class: 'lq-pill', text: 'Switch identity', onclick: function () { who = null; save(); render(); } })),
+      h('p', { class: 'lq-note', text: 'Everything you do here spends a little energy and slightly dilutes your credibility rate — that’s the point: acting is a commitment, and backing someone lends them yours.' })));
+    box.appendChild(h('div', { class: 'lq-glass lq-card' },
+      h('h2', { text: 'Under the hood' }),
+      h('p', { class: 'lq-note', text: 'This whole app runs a formally specified protocol — every number you see is replayable mathematics. The geek view exposes the machinery: tensors on every edge, the trust-transport solve, epoch gates, the live network graph.' }),
+      h('button', { class: 'lq-pill', style: 'margin-top:8px', text: 'Open geek mode', onclick: function () { setMode('geek'); } })));
+    return box;
+  }
+
+  // ═══ GEEK FRONTEND (the Layer-1 lab) ═══
   function renderOnboard(st) {
     var input = h('input', { placeholder: 'pick a handle', maxlength: '16' });
+    var pinInput = h('input', { type: 'password', placeholder: 'PIN (optional, 4+)', maxlength: '24', autocomplete: 'off' });
+    function join() { registerIdentity(input.value.trim(), pinInput.value, st); }
     input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
-    function join() {
-      var handle = (input.value || '').trim();
-      if (!handle) { toast('Pick a handle first.'); return; }
-      var id = 'u_' + handle.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (id === 'u_' || st.ledgerById[id]) { toast('That handle is taken here — try another.'); return; }
-      pushAct({ t: 'register', id: id, handle: handle, seed: 1.0, epoch: epochOf() }, function () {
-        who = id; save();
-        toast('Registered. θ ' + THETA.toFixed(4) + ' debited — your rate is your standing until someone vouches.');
-      });
-    }
+    pinInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
     var residents = h('div', { class: 'residents' });
     ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
       var l = st.ledgerById[id];
-      residents.appendChild(h('button', { class: 'resident', onclick: function () { who = id; save(); render(); } },
-        avatar(st.handles[id], true),
+      residents.appendChild(h('button', { class: 'resident', onclick: function () { switchTo(id, st); } },
+        avatar(st.handles[id], 'avatar s'),
         h('span', {}, h('div', { class: 'r-h', text: st.handles[id] }),
           h('div', { class: 'r-r', text: 'rate ' + fmt(l.burnBal / Math.max(l.actCount, 1), 3) }))));
     });
@@ -555,23 +1019,23 @@ details.about b { color: var(--ink); }
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.g.edges.length) }), 'edges'),
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(actsN) }), 'acts recorded'),
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.epochNow) }), 'epoch')),
-      h('div', { class: 'join' }, input,
+      h('div', { class: 'join' }, input, pinInput,
         h('button', { class: 'btn primary', text: 'Create account · burn 1.00 reserve', onclick: join })),
       h('div', {}, h('p', { class: 'smallnote', style: 'margin-top:22px', text: 'or step into a seeded resident:' }), residents),
       h('p', { class: 'smallnote', style: 'margin-top:30px', text: REMOTE
-        ? 'Public test instance · real Layer-1 mathematics (spec v0.24.1-dev) · one shared network for every visitor — handles are unclaimed test identities without passwords, so don’t post anything private.'
-        : 'Tester build · real Layer-1 mathematics (spec v0.24.1-dev) · identities live in this browser only — every visitor gets an independent copy of the network.' })));
+        ? 'Public test instance · real Layer-1 mathematics (spec v0.24.1-dev) · one shared network for every visitor — a PIN protects your handle; don’t post anything private.'
+        : 'Tester build · real Layer-1 mathematics (spec v0.24.1-dev) · identities live in this browser only — every visitor gets an independent copy of the network.' }),
+      h('button', { class: 'btn small ghost', style: 'margin-top:10px', text: '← simple mode', onclick: function () { setMode('liquid'); } })));
   }
 
-  // ── main app ──
-  function renderApp(st) {
+  function renderGeek(st) {
     var me = st.ledgerById[who];
     var myX = st.xById[who] || 0;
     var rate = me.burnBal / Math.max(me.actCount, 1);
 
-    var sel = h('select', { onchange: function () { who = sel.value; save(); render(); } });
+    var sel = h('select', { onchange: function () { var v = sel.value; sel.value = who; switchTo(v, st); } });
     Object.keys(st.handles).forEach(function (id) {
-      var o = h('option', { value: id, text: st.handles[id] });
+      var o = h('option', { value: id, text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') });
       if (id === who) o.selected = true;
       sel.appendChild(o);
     });
@@ -581,22 +1045,26 @@ details.about b { color: var(--ink); }
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
       h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('ledger', 'Record')),
-      h('div', { class: 'switcher' }, sel,
+      h('div', { class: 'switcher' },
+        h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
+        sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : ledgerTab(st);
-    root.appendChild(h('div', { class: 'cols' },
+    var shell = h('div', { class: 'shell' });
+    shell.appendChild(h('div', { class: 'cols' },
       h('div', { class: 'rail' }, idCard(st, me, myX, rate), aboutCard()),
       center,
       h('div', { class: 'rail' }, standingsCard(st), epochCard(st))));
-    root.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
+    shell.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
+    root.appendChild(shell);
   }
 
   function idCard(st, me, myX, rate) {
     var wallPass = myX >= SAFE_FLOOR;
     return h('div', { class: 'card idcard' },
       h('div', { class: 'who' }, avatar(st.handles[who]),
-        h('div', {}, h('div', { class: 'handle', text: st.handles[who] }),
+        h('div', {}, h('div', { class: 'handle', text: st.handles[who] + (st.pinHash[who] ? ' 🔒' : '') }),
           h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * myX, 4) }), ' ', deltaChip(who, st))),
       h('div', { class: 'gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
       h('dl', { class: 'ledger' },
@@ -623,8 +1091,8 @@ details.about b { color: var(--ink); }
         h('summary', {}, 'How this build works'),
         h('p', {}, h('b', {}, 'Real mathematics. '), 'Feed = the spec’s relevance score over a signed double-cover BFS (depth 4). Standing = the conserved mediant solve at full tilt, wall-clamped activation, chartered constants.'),
         h('p', {}, h('b', {}, 'Sandbox liberties. '), REMOTE
-          ? 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; handles are unclaimed test identities without keys or passwords. One shared network — every act is visible to every visitor.'
-          : 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; identities are browser-local without keys; every visitor has an independent network.'),
+          ? 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; a PIN (hashed into the public log, checked by the host) is what protects a handle. One shared network — every act is visible to every visitor.'
+          : 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; identities are browser-local; every visitor has an independent network.'),
         REMOTE
           ? h('p', {}, h('b', {}, 'Shared instance. '), 'The act log lives on the host and syncs every few seconds.')
           : h('button', { class: 'btn small', text: 'Reset world', onclick: function () {
@@ -633,7 +1101,6 @@ details.about b { color: var(--ink); }
             } })));
   }
 
-  // ── feed tab ──
   function feedTab(st) {
     var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored)' });
     var att = slider('attachment', 0.8);
@@ -646,13 +1113,13 @@ details.about b { color: var(--ink); }
           tryAct(who, { t: 'post', author: who, text: t, a: att.value() }, 'Posted. Publish mints the Content node; attachment is its genesis stance.');
         } })));
 
-    var feed = E.rankFeed(st.g, who, function (id) { return NU * (st.xById[id] || 0); }, function (nid) { return st.creators[nid] || null; });
-    var ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id]; });
+    var feed = E.rankFeed(st.g, who, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
+    var ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
     var maxRel = ranked.length ? ranked[0].relevance : 1;
     var wrap = h('div', {});
     wrap.appendChild(composer);
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('p', { class: 'eyebrow', text: 'your feed — S = W · (1 + standing/ν) · ‖T‖F' }));
+      h('p', { class: 'eyebrow', text: 'your feed — S = W · (1 + standing/ν) · ‖T‖F · comments nest under their target' }));
     if (!ranked.length) {
       head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs a BFS from you, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
     }
@@ -663,7 +1130,7 @@ details.about b { color: var(--ink); }
     ranked.forEach(function (f) { seen[f.node.id] = 1; });
     var horizon = [];
     st.g.nodes.forEach(function (n) {
-      if ((n.kind === 'Content' || n.kind === 'Comment') && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
+      if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
     });
     if (horizon.length) {
       wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
@@ -682,11 +1149,11 @@ details.about b { color: var(--ink); }
     var card = h('div', { class: 'post' },
       h('div', { class: 'head' },
         rank ? h('span', { class: 'rank-chip', text: '#' + rank }) : null,
-        avatar(st.handles[author], true),
+        avatar(st.handles[author], 'avatar s'),
         h('b', { text: st.handles[author] || '—' }),
-        h('span', { class: 'standing-chip', text: fmt(NU * (st.xById[author] || 0), 3) }),
+        h('span', { class: 'standing-chip', text: fmt(credibility(st, author), 3) }),
         deltaChip(author, st),
-        h('span', { class: 'kindtag', text: n.kind === 'Comment' ? 'review' : 'post' })),
+        h('span', { class: 'kindtag', text: 'post' })),
       h('div', { class: 'body', text: st.payloads[n.id] || '' }));
     if (tags.length) {
       var tr = h('div', { class: 'tagrow' });
@@ -698,6 +1165,20 @@ details.about b { color: var(--ink); }
           '  =  W ' + fmt(f.bfsWeight, 3) + ' · amp ' + fmt(f.amplifier, 2) + ' · ‖T‖ ' + fmt(f.contentNorm, 2))
       : h('div', { class: 'mech', text: 'no BFS path from you yet — act to connect' }));
     if (f.relevance > 0) card.appendChild(h('div', { class: 'rankbar' }, h('i', { style: 'width:' + Math.max(3, (100 * f.relevance) / maxRel) + '%' })));
+
+    var comments = commentsOf(st, n.id);
+    if (comments.length) {
+      var cwrap = h('div', { class: 'comments' });
+      comments.forEach(function (c) {
+        cwrap.appendChild(h('div', { class: 'comment' },
+          avatar(st.handles[c.author], 'avatar s'),
+          h('div', {},
+            h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
+              c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review'),
+            h('div', { class: 'c-body', text: c.text }))));
+      });
+      card.appendChild(cwrap);
+    }
 
     var actions = h('div', { class: 'actions' });
     var open = null;
@@ -748,7 +1229,6 @@ details.about b { color: var(--ink); }
     return card;
   }
 
-  // ── network tab ──
   var SEED_POS = {
     alice: [140, 120], prof_alice: [55, 245], photo: [350, 70], bob: [560, 110],
     comment: [350, 240], carol: [610, 300], streetart: [170, 375], sneakers: [690, 195], dave: [690, 420],
@@ -846,8 +1326,7 @@ details.about b { color: var(--ink); }
     var srcL = (st.g.nodes.get(e.src) || {}).label || e.src;
     var tgtL = (st.g.nodes.get(e.tgt) || {}).label || e.tgt;
     function term(v, s, res) {
-      var t = h('div', { class: 'term' + (res ? ' result' : '') }, v, h('small', { text: s }));
-      return t;
+      return h('div', { class: 'term' + (res ? ' result' : '') }, v, h('small', { text: s }));
     }
     var det = e.pv[0][0] * e.pv[1][1] - e.pv[0][1] * e.pv[1][0];
     return h('div', { class: 'card', style: 'margin-top:14px' },
@@ -866,7 +1345,6 @@ details.about b { color: var(--ink); }
         matView(e.pv, 'path view · det ' + fmt(det, 4))));
   }
 
-  // ── record tab ──
   function ledgerTab(st) {
     var wrap = h('div', {});
     var chron = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'chronicle — the append-only record' }), h('div', { class: 'chron' }));
@@ -889,15 +1367,14 @@ details.about b { color: var(--ink); }
     return wrap;
   }
 
-  // ── standings + epoch rail ──
   function standingsCard(st) {
     var table = h('table', { class: 'standings' },
       h('tr', {}, h('th', { text: 'peer' }), h('th', { class: 'r', text: 'rate' }), h('th', { class: 'r', text: 'standing' }), h('th', { text: '' })));
     st.ledgers.slice().sort(function (a, b) { return (st.xById[b.id] || 0) - (st.xById[a.id] || 0); }).forEach(function (l) {
       var row = h('tr', { class: l.id === who ? 'me' : '' },
-        h('td', {}, st.handles[l.id], ' ', deltaChip(l.id, st)),
+        h('td', {}, st.handles[l.id] + (st.pinHash[l.id] ? ' 🔒' : ''), ' ', deltaChip(l.id, st)),
         h('td', { class: 'r num', text: fmt(l.burnBal / Math.max(l.actCount, 1), 3) }),
-        h('td', { class: 'r num', text: fmt(NU * (st.xById[l.id] || 0), 4) }),
+        h('td', { class: 'r num', text: fmt(credibility(st, l.id), 4) }),
         h('td', {}));
       row.addEventListener('click', function () { openProfile(l.id); });
       table.appendChild(row);
@@ -926,7 +1403,6 @@ details.about b { color: var(--ink); }
       h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Closing stamps writers with final reduced standing, checks wall ' + fmt(SAFE_FLOOR, 3) + ' and door ' + PART_FLOOR + ', advances self-edge tenure.' }));
   }
 
-  // ── profile drawer ──
   function openProfile(id) {
     var st = replay();
     var l = st.ledgerById[id];
@@ -942,12 +1418,12 @@ details.about b { color: var(--ink); }
       var line = { other: b.src === id ? b.rcp : b.src, coeff: live ? Math.sqrt(pd * pi) : 0, live: live };
       if (b.src === id) given.push(line); else if (b.rcp === id) received.push(line);
     }
-    var bond = (NU * (st.xById[id] || 0)) / (NU + NU * (st.xById[id] || 0));
+    var bond = credibility(st, id) / (NU + credibility(st, id));
     var drawer = h('div', { class: 'drawer' },
       h('button', { class: 'btn small ghost', text: '← close', onclick: close }),
       avatar(st.handles[id]),
-      h('h3', { text: st.handles[id] }),
-      h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * (st.xById[id] || 0), 4) }),
+      h('h3', { text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') }),
+      h('span', { class: 'standing-chip', text: 'standing ' + fmt(credibility(st, id), 4) }),
       h('dl', { class: 'ledger sect' },
         h('dt', { text: 'reserve' }), h('dd', { class: 'num', text: fmt(l.burnBal, 3) }),
         h('dt', { text: 'acts N' }), h('dd', { class: 'num', text: String(l.actCount) }),

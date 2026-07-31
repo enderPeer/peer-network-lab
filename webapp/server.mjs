@@ -6,6 +6,7 @@
 // Persistence: server-data/acts.jsonl (one JSON act per line).
 // Run: node server.mjs [port]   (default 5210)
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +40,33 @@ function json(res, code, body) {
   res.end(buf);
 }
 
+// PIN protection: a register act may carry pinHash = H(id + ':' + pin).
+// Later acts by that identity must carry the raw pin in `auth`; the server
+// verifies the hash and STRIPS auth before the act enters the public log.
+const pinIndex = new Map();
+for (const a of acts) if (a.t === 'register' && a.pinHash) pinIndex.set(a.id, a.pinHash);
+
+function hashPin(id, pin, likeStored) {
+  if (typeof likeStored === 'string' && likeStored.startsWith('fnv')) {
+    // parity with the client's non-secure-context fallback hash
+    let h = 0x811c9dc5;
+    const s = id + ':' + pin;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return 'fnv' + h.toString(16);
+  }
+  return createHash('sha256').update(id + ':' + pin, 'utf8').digest('hex');
+}
+
+function authError(act) {
+  const actor = act.t === 'register' ? null : (act.author ?? (act.t === 'burn' ? act.id : null));
+  if (!actor) return null; // closeEpoch is communal; register is checked for uniqueness only
+  const stored = pinIndex.get(actor);
+  if (!stored) return null;
+  const pin = typeof act.auth === 'string' ? act.auth : '';
+  if (!pin || hashPin(actor, pin, stored) !== stored) return 'this handle is PIN-secured — wrong or missing PIN';
+  return null;
+}
+
 function validate(act) {
   if (!act || typeof act !== 'object' || !ACT_KINDS.has(act.t)) return 'unknown act kind';
   if (JSON.stringify(act).length > MAX_ACT_BYTES) return 'act too large';
@@ -51,6 +79,7 @@ function validate(act) {
       if (!str(act.id, 24) || !/^u_[a-z0-9]+$/.test(act.id) || !str(act.handle, 16)) return 'bad registration';
       if (!num(act.seed) || act.seed !== 1) return 'bad seed';
       if (acts.some((a) => a.t === 'register' && a.id === act.id)) return 'handle already registered';
+      if (act.pinHash !== undefined && !(/^[a-f0-9]{64}$/.test(act.pinHash) || /^fnv[0-9a-f]{1,8}$/.test(act.pinHash))) return 'bad pin hash';
       break;
     case 'burn':
       if (!str(act.id, 24) || act.amt !== 1) return 'bad burn';
@@ -89,8 +118,12 @@ const server = createServer((req, res) => {
       try { act = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
       const err = validate(act);
       if (err) { json(res, err === 'handle already registered' ? 409 : 400, { error: err }); return; }
+      const aerr = authError(act);
+      if (aerr) { json(res, 401, { error: aerr }); return; }
+      delete act.auth; // the raw PIN must never enter the public log
       acts.push(act);
       persist(act);
+      if (act.t === 'register' && act.pinHash) pinIndex.set(act.id, act.pinHash);
       json(res, 200, { acts, total: acts.length });
     });
     return;
