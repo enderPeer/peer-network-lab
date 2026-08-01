@@ -333,6 +333,12 @@ function validate(act) {
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
   const inR = (v) => num(v) && v >= -1 && v <= 1;
   const str = (v, n) => typeof v === 'string' && v.length > 0 && v.length <= n;
+  // A refusal that names no number reads as "your content is broken" when the
+  // only problem is length. Say the limit and what was actually sent.
+  const tooLong = (v, n, what) =>
+    (typeof v === 'string' && v.length > n)
+      ? what + ' is too long: ' + v.length + ' characters, the limit is ' + n
+      : null;
   switch (act.t) {
     case 'register':
       if (!str(act.id, 24) || !/^u_[a-z0-9]+$/.test(act.id) || !str(act.handle, 16)) return 'bad registration';
@@ -344,6 +350,7 @@ function validate(act) {
       if (!str(act.id, 24) || act.amt !== 1) return 'bad burn';
       break;
     case 'post':
+      if (tooLong(act.text, 1000, 'post')) return tooLong(act.text, 1000, 'post');
       if (!str(act.author, 24) || !str(act.text, 1000) || !inR(act.a)) return 'bad post';
       if (act.ref !== undefined && !str(act.ref, 40)) return 'bad reference';
       if (act.media !== undefined) {
@@ -359,6 +366,7 @@ function validate(act) {
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.p) || !inR(act.r)) return 'bad opinion';
       break;
     case 'review':
+      if (tooLong(act.text, 1000, 'comment')) return tooLong(act.text, 1000, 'comment');
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.e) || !inR(act.f) || !str(act.text, 1000)) return 'bad review';
       break;
     case 'tag':
@@ -385,6 +393,7 @@ function validate(act) {
       if (!(/^[a-f0-9]{64}$/.test(act.pinHash ?? '') || /^fnv[0-9a-f]{1,8}$/.test(act.pinHash ?? ''))) return 'bad pin hash';
       break;
     case 'dm':
+      if (tooLong(act.text, 500, 'message')) return tooLong(act.text, 500, 'message');
       if (!str(act.from, 24) || !str(act.to, 24) || !str(act.text, 500)) return 'bad message';
       break;
     case 'editPost': {

@@ -152,6 +152,9 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+.charcount { display: block; text-align: right; font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.charcount.near { color: var(--ember); }
+.charcount.over { color: var(--bad); font-weight: 700; }
 .post .mech b { color: var(--ink); font-weight: 600; }
 .rankbar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 7px; overflow: hidden; }
 .rankbar i { display: block; height: 100%; background: var(--ember); transition: width 0.5s ease; }
@@ -2114,6 +2117,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
     }
     renderChips();
+    var TEXT_MAX = 1000;
+    var counter = h('span', { class: 'charcount' });
+    function updateCount() {
+      var n = text.value.length;
+      counter.textContent = n + ' / ' + TEXT_MAX;
+      counter.className = 'charcount' + (n > TEXT_MAX ? ' over' : n > TEXT_MAX * 0.9 ? ' near' : '');
+    }
+    text.addEventListener('input', updateCount);
+    updateCount();
     fileIn.addEventListener('change', function () {
       var f = fileIn.files && fileIn.files[0];
       if (!f) return;
@@ -2121,11 +2133,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       fileIn.value = '';
     });
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
-      text, chips,
+      text, counter, chips,
       h('div', { class: 'lq-actions' },
         h('button', { class: 'lq-pill hot', onclick: function () {
           var t = text.value.trim();
           if (!t && !composeMedia) { toast('Write something first.'); return; }
+          if (t.length > TEXT_MAX) { toast('Too long by ' + (t.length - TEXT_MAX) + ' — the limit is ' + TEXT_MAX + ' characters.'); return; }
           var act = { t: 'post', author: who, text: t || '·', a: 0.8 };
           if (composeQuote) act.ref = composeQuote;
           if (composeMedia) act.media = [composeMedia];
@@ -2687,13 +2700,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (f2) handleMediaPick(f2, function (entry) { composeMedia = entry; renderChips(); });
       fileIn.value = '';
     });
+    // Show the ceiling before it is hit — finding it by trial cost a tester
+    // several real acts, and every one of them burned θ.
+    var TEXT_MAX = 1000;
+    var counter = h('span', { class: 'charcount' });
+    function updateCount() {
+      var n = text.value.length;
+      counter.textContent = n + ' / ' + TEXT_MAX;
+      counter.className = 'charcount' + (n > TEXT_MAX ? ' over' : n > TEXT_MAX * 0.9 ? ' near' : '');
+    }
+    text.addEventListener('input', updateCount);
+    updateCount();
     var composer = h('div', { class: 'card composer' },
-      h('p', { class: 'eyebrow', text: 'publish' }), text, chips,
+      h('p', { class: 'eyebrow', text: 'publish' }), text, counter, chips,
       h('div', { class: 'row' }, att.row,
         h('button', { class: 'btn small', text: '+ media', onclick: function () { fileIn.click(); } }), fileIn,
         h('button', { class: 'btn primary', text: 'Post · −θ', onclick: function () {
           var t = text.value.trim();
           if (!t && !composeMedia) { toast('Write something — the payload is yours, the husk is the network’s.'); return; }
+          if (t.length > TEXT_MAX) { toast('Too long by ' + (t.length - TEXT_MAX) + ' characters — the limit is ' + TEXT_MAX + '. Trim it before spending θ.'); return; }
           var act = { t: 'post', author: who, text: t || '·', a: att.value() };
           if (composeQuote) act.ref = composeQuote;
           if (composeMedia) act.media = [composeMedia];
