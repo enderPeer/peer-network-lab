@@ -140,8 +140,12 @@ function json(res, code, body) {
 // PIN protection: a register act may carry pinHash = H(id + ':' + pin).
 // Later acts by that identity must carry the raw pin in `auth`; the server
 // verifies the hash and STRIPS auth before the act enters the public log.
+// Replay BOTH sources in log order (newest wins): a PIN set after
+// registration must survive a restart, or protection silently evaporates.
 const pinIndex = new Map();
-for (const a of acts) if (a.t === 'register' && a.pinHash) pinIndex.set(a.id, a.pinHash);
+for (const a of acts) {
+  if ((a.t === 'register' || a.t === 'setPin') && a.pinHash) pinIndex.set(a.id, a.pinHash);
+}
 
 function hashPin(id, pin, likeStored) {
   if (typeof likeStored === 'string' && likeStored.startsWith('fnv')) {
