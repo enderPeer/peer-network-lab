@@ -1,0 +1,5 @@
+{
+  "url": "",
+  "updated": null,
+  "note": "Rewritten by webapp/publish-site.ps1. The shared host lives behind a Cloudflare quick tunnel whose domain changes on every restart; this file names the current one. An empty url means no shared host is published right now, and the app runs entirely in your browser instead."
+}

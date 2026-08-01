@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Peer Network — influence is commitment, not attention">
+  <rect width="1200" height="630" fill="#131110"/>
+  <!-- a few disjoint paths converging on one node: the ranking, drawn -->
+  <g stroke="#3A322C" stroke-width="2" fill="none">
+    <path d="M150 500 C 330 470, 400 330, 600 315"/>
+    <path d="M170 150 C 350 190, 430 290, 600 315"/>
+    <path d="M1050 480 C 880 460, 800 350, 600 315"/>
+  </g>
+  <g stroke="#E0663C" stroke-width="3" fill="none">
+    <path d="M150 500 C 330 470, 400 330, 600 315"/>
+    <path d="M170 150 C 350 190, 430 290, 600 315"/>
+  </g>
+  <g fill="#2A2420">
+    <circle cx="1050" cy="480" r="9"/><circle cx="880" cy="460" r="6"/><circle cx="800" cy="350" r="6"/>
+  </g>
+  <g fill="#E0663C">
+    <circle cx="150" cy="500" r="11"/><circle cx="170" cy="150" r="11"/>
+    <circle cx="400" cy="330" r="7"/><circle cx="430" cy="290" r="7"/>
+  </g>
+  <circle cx="600" cy="315" r="17" fill="#FBF6F0"/>
+  <text x="90" y="120" font-family="Bahnschrift, 'Arial Narrow', sans-serif" font-size="46" font-weight="700" letter-spacing="3" fill="#FBF6F0">PE<tspan fill="#E0663C">E</tspan>R</text>
+  <text x="90" y="565" font-family="Georgia, serif" font-size="42" fill="#FBF6F0">Influence is commitment, not attention.</text>
+  <text x="90" y="605" font-family="ui-monospace, Consolas, monospace" font-size="21" fill="#9C8E7E">S(u,c) = &#931; &#963;(&#960;) &#183; m(&#960;) &#183; f(&#916;t)</text>
+</svg>

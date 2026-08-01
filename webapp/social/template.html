@@ -560,6 +560,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
   var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new'
+  var API = ''; // '' = this origin; set by resolveHost() when served statically
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
   var feedLimit = 30;    // windowed rendering — raised by "show more"
   var composeMedia = null, composeQuote = null; // pending composer attachments
@@ -672,7 +673,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); return; }
     act.since = world.acts.length;
-    fetch('/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
+    fetch(API + '/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (x) {
         setOnline(true);
@@ -690,7 +691,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
       if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet') || document.querySelector('.pin-dialog')) return;
     }
-    fetch('/api/acts?since=' + world.acts.length, { cache: 'no-store' })
+    fetch(API + '/api/acts?since=' + world.acts.length, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
       .then(function (d) {
         var wasOffline = offline;
@@ -700,21 +701,47 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .catch(function () { setOnline(false); });
   }
 
+  /**
+   * Where the shared network lives.
+   *
+   * Served by the host itself, that is this origin and API stays ''. Served
+   * from a static home — GitHub Pages — the host is a Cloudflare quick tunnel
+   * whose domain changes on every restart, so the deployment ships a host.json
+   * naming the current one. ?host= overrides both, which is also how you point
+   * the app at your own host.
+   *
+   * If nothing answers, the app is not broken: it falls back to the private
+   * per-browser sandbox, which is a complete network with no server at all.
+   */
+  function resolveHost() {
+    var override = null;
+    try { override = new URLSearchParams(location.search).get('host'); } catch (e) {}
+    if (override) return Promise.resolve(override.replace(/\/+$/, ''));
+    if (location.protocol === 'file:') return Promise.resolve('');
+    return fetch('host.json', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return d && d.url ? String(d.url).replace(/\/+$/, '') : ''; })
+      .catch(function () { return ''; });
+  }
+
   function boot() {
-    fetch('/api/acts', { cache: 'no-store' })
-      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-      .then(function (d) {
-        REMOTE = true;
-        world = { acts: d.acts };
-        render();
-        setInterval(pollRemote, 5000);
-        setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
-        // Background tabs get throttled — poll the moment the tab comes back,
-        // so an incoming call shows immediately instead of one interval late.
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) signalTick(true); });
-        window.addEventListener('focus', function () { signalTick(true); });
-      })
-      .catch(function () { render(); });
+    resolveHost().then(function (base) {
+      API = base;
+      return fetch(API + '/api/acts', { cache: 'no-store' });
+    }).then(function (r) {
+      if (!r.ok) throw 0;
+      return r.json();
+    }).then(function (d) {
+      REMOTE = true;
+      world = { acts: d.acts };
+      render();
+      setInterval(pollRemote, 5000);
+      setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
+      // Background tabs get throttled — poll the moment the tab comes back,
+      // so an incoming call shows immediately instead of one interval late.
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) signalTick(true); });
+      window.addEventListener('focus', function () { signalTick(true); });
+    }).catch(function () { API = ''; render(); });
   }
 
   // ── Replay: world state is a deterministic function of the act log ──
@@ -1050,7 +1077,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function attachMedia(el, entry) {
     if (entry.d) { el.src = entry.d; return; } // local-mode inline data URL
     el.addEventListener('error', function () { el.classList.add('media-failed'); }, { once: true });
-    el.src = '/api/media/' + entry.h;
+    el.src = API + '/api/media/' + entry.h;
   }
   // ── Audio waveform: real peaks, decoded on the listener's own hardware ──
   var wavePeaks = {}; // media key -> Float32Array of bucket peaks (per session)
@@ -1092,7 +1119,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     function load() {
       if (peaks) { draw(); return; }
-      var url = entry.d || ('/api/media/' + entry.h);
+      var url = entry.d || (API + '/api/media/' + entry.h);
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) { draw(); return; }
       fetch(url).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
@@ -1139,7 +1166,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } else {
       // generic attachment: a download chip (content-addressed, immutable)
       var name = entry.n || 'attachment';
-      el = h('a', { class: 'file-chip', href: entry.d || ('/api/media/' + entry.h), download: name }, '📎 ' + name);
+      el = h('a', { class: 'file-chip', href: entry.d || (API + '/api/media/' + entry.h), download: name }, '📎 ' + name);
     }
     return el;
   }
@@ -1178,7 +1205,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
   }
   function uploadMedia(blob, mime) {
-    return fetch('/api/media', { method: 'POST', headers: { 'Content-Type': mime }, body: blob })
+    return fetch(API + '/api/media', { method: 'POST', headers: { 'Content-Type': mime }, body: blob })
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'upload failed'); return d; }); });
   }
 
@@ -1418,7 +1445,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function signalSend(kind, to, payload) {
     if (!REMOTE) return;
     var me = (call && call.me) || who;
-    fetch('/api/signal', {
+    fetch(API + '/api/signal', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: me, to: to, kind: kind, payload: payload || null, auth: pins[me] || '' }),
     }).catch(function () {});
@@ -1429,7 +1456,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
     if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
     if (lastPinHash[who] && !pins[who]) return; // secured handle without its PIN cannot collect
-    fetch('/api/signal/poll', {
+    fetch(API + '/api/signal/poll', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ who: who, auth: pins[who] || '' }),
     }).then(function (r) {

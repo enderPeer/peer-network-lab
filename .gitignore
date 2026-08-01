@@ -20,3 +20,4 @@ dist/
 peer-graph-*.json
 webapp/tests/_*.test.ts
 webapp/public/peer-engine.mjs
+site/app.html

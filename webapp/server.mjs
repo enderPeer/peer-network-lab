@@ -260,6 +260,7 @@ function hasControlChars(act) {
 }
 
 const SECURITY_HEADERS = {
+  'Access-Control-Allow-Origin': '*', // see CORS note at the request handler
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
@@ -1012,9 +1013,25 @@ async function handleBotApi(req, res, url, ip) {
   json(res, 404, { error: 'no such endpoint: POST /api/v1/' + p + ' — GET /api/v1 lists them all' });
 }
 
+// The app now has a stable home (GitHub Pages) while the host itself lives on
+// a throwaway tunnel domain, so the page and the API are different origins and
+// the browser demands CORS. Opening reads to any origin costs nothing: the act
+// log is public by design and already served to anyone who asks. Writes stay
+// exactly as guarded as before — a PIN-secured handle still needs its PIN, the
+// rate limiters still apply, and an unsecured handle was already claimable by
+// anyone who knew its name. What this does NOT do is grant a browser any
+// authority it did not already have.
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
+  if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
   if (req.method === 'GET' && url.pathname === '/api/acts') {
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
     const since = Math.max(0, Number(url.searchParams.get('since') ?? 0) || 0);

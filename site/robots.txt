@@ -1,0 +1,10 @@
+# Peer Network — everything here is meant to be found and read.
+User-agent: *
+Allow: /
+
+# The app itself is a single-page application; there is nothing for a crawler
+# to index inside it, and crawling it wastes both our bandwidth and yours.
+Disallow: /app.html
+Disallow: /host.json
+
+Sitemap: https://enderpeer.github.io/peer-network-lab/sitemap.xml
