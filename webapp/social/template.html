@@ -184,6 +184,21 @@ table.standings tr.me td { background: var(--ember-soft); }
 table.standings tr:not(:first-child) { cursor: pointer; }
 table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 
+/* jump-to-content */
+.chron-jump { cursor: pointer; border-radius: 6px; padding-left: 6px; margin-left: -6px; }
+.chron-jump:hover { background: var(--card-2); }
+.jump-hint { font-size: 10.5px; color: var(--ember); font-weight: 600; white-space: nowrap; }
+.focus-wrap { border: 2px solid var(--ember); border-radius: 14px; padding: 4px; margin-bottom: 14px; scroll-margin-top: 70px; }
+.focus-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 10px 6px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ember); font-weight: 700; }
+.focus-hit { background: var(--ember-soft); border-radius: 8px; outline: 1px solid var(--ember); }
+body[data-mode='liquid'] .focus-wrap { border-color: var(--lq-accent); border-radius: 6px; }
+body[data-mode='liquid'] .focus-bar { color: var(--lq-accent); }
+body[data-mode='liquid'] .focus-hit { background: color-mix(in srgb, var(--lq-accent) 12%, transparent); outline-color: var(--lq-accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .focus-wrap { animation: focusIn 0.35s ease-out; }
+  @keyframes focusIn { from { box-shadow: 0 0 0 6px var(--ember-soft); } to { box-shadow: 0 0 0 0 transparent; } }
+}
+
 /* threaded replies */
 .comments .nested, .lq-comments .nested { margin-left: 22px; border-left: 2px solid var(--line); padding-left: 10px; }
 .comment .grow, .lq-comment .grow { flex: 1; min-width: 0; }
@@ -498,6 +513,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
   var feedLimit = 30;    // windowed rendering — raised by "show more"
   var composeMedia = null, composeQuote = null; // pending composer attachments
+  var focusNode = null;  // jump target from the Record/Alerts — pinned atop the feed
   var netScope = 'social', netMinW = 0, netView = null; // network tab: filter + viewport
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
@@ -707,8 +723,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           l0.faucet(id, 10);
           l0safe(function () { l0.transfer('op', id, 2, 'live'); });
         });
-        chron.push({ who: 'alice', line: 'posted Photo — seed world' });
-        chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world' });
+        chron.push({ who: 'alice', line: 'posted Photo — seed world', to: 'photo' });
+        chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world', to: 'comment' });
       } else if (a.t === 'register') {
         addActor(a.id, a.handle, a.seed, 0, a.epoch);
         if (a.pinHash) pinHash[a.id] = a.pinHash;
@@ -774,7 +790,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         debit(a.author); weighHome(a.author, a.a, 1);
         creators[cid] = a.author; payloads[cid] = a.text;
         if (a.media && a.media.length) mediaMeta[cid] = a.media;
-        chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2) });
+        chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2), to: cid });
         // Quote reference: one Reference hyper act (A-leg into the post, Full-tier
         // citation T-leg to the target) — its own θ-debit.
         if (a.ref && g.nodes.get(a.ref) && ledgerById[a.author] && ledgerById[a.author].burnBal >= THETA) {
@@ -784,7 +800,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: a.ref, pd: 0.9, pi: 0.8, epoch: certsSoFar }
           );
           debit(a.author); weighHome(a.author, 0.8, 0.9);
-          chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation' });
+          chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation', to: a.ref });
         }
         // @mentions: References whose target is the person's Profile (max 3, priced).
         var mentioned = parseMentions(a.text, handles);
@@ -799,7 +815,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           // def:epoch:standing-recipient-resolution — a positive Reference to a
           // Profile compiles a person-vouch to that actor (cam's spec review).
           debit(a.author); vouch(a.author, mid, 0.7, 0.8);
-          chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) + ' — person-vouch compiled' });
+          chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) + ' — person-vouch compiled', to: cid });
         }
       } else if (a.t === 'opinion') {
         counter++;
@@ -808,7 +824,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
         if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
         else weighHome(a.author, a.p, a.r);
-        chron.push({ who: a.author, line: (owner ? 'vouched on ' + (handles[owner] || owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3) });
+        chron.push({ who: a.author, line: (owner ? 'vouched on ' + (handles[owner] || owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3), to: a.target });
       } else if (a.t === 'review') {
         counter++;
         var cmid = 'c' + counter;
@@ -820,7 +836,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         debit(a.author); weighHome(a.author, a.e, a.f);
         creators[cmid] = a.author; payloads[cmid] = a.text;
         reviewMeta[cmid] = { e: a.e, f: a.f };
-        chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs' });
+        chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs', to: cmid });
       } else if (a.t === 'tag') {
         counter++;
         var tid = typeNode(a.name);
@@ -829,7 +845,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r, epoch: certsSoFar }
         );
         debit(a.author); weighHome(a.author, a.r, a.c);
-        chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name });
+        chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name, to: a.target });
       } else if (a.t === 'closeEpoch') {
         var cells0 = compileCells(bundles, selfCells);
         var solved0 = E.solveStanding(ledgers, cells0, { tilt: 1 });
@@ -1114,6 +1130,57 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
     });
     return wrap;
+  }
+
+  // ── Jump-to-content: any node id resolves to the post that shows it ──
+  function parentOfComment(st, cid) {
+    var e = st.g.edges.find(function (x) { return x.family === 'ReviewT' && x.tgt === cid; });
+    return e ? e.src : null;
+  }
+  /** Walk Comment → its target until a displayable post (or nothing) is reached. */
+  function resolvePost(st, nodeId) {
+    var cur = nodeId, seen = {};
+    while (cur && !seen[cur]) {
+      seen[cur] = 1;
+      var n = st.g.nodes.get(cur);
+      if (!n) return null;
+      if (n.kind === 'Comment') { cur = parentOfComment(st, cur); continue; }
+      return st.payloads[cur] ? cur : null;
+    }
+    return null;
+  }
+  function jumpTo(st, nodeId) {
+    if (!nodeId || !resolvePost(st, nodeId)) { toast('That act has no post to open — it moved units or closed a period.'); return; }
+    focusNode = nodeId;
+    if (mode === 'geek') tab = 'feed'; else lqView = 'feed';
+    render();
+    setTimeout(function () {
+      var el = document.querySelector('.focus-wrap');
+      if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, 40);
+  }
+  /** The pinned card: the resolved post, with the jumped-to comment highlighted. */
+  function focusCard(st, liquid) {
+    if (!focusNode) return null;
+    var post = resolvePost(st, focusNode);
+    if (!post) { focusNode = null; return null; }
+    var isComment = (st.g.nodes.get(focusNode) || {}).kind === 'Comment';
+    var card = liquid
+      ? lqPost(st, st.g.nodes.get(post), null)
+      : postCard(st, { node: st.g.nodes.get(post), relevance: 0, bfsWeight: 0, amplifier: 1, contentNorm: 0, jumped: true }, null, 1);
+    if (isComment) {
+      // mark the specific comment that was clicked
+      var bodies = card.querySelectorAll(liquid ? '.lq-comment' : '.comment');
+      var want = (st.payloads[focusNode] || '').slice(0, 40);
+      for (var i = 0; i < bodies.length; i++) {
+        if (bodies[i].textContent.indexOf(want) >= 0) { bodies[i].classList.add('focus-hit'); break; }
+      }
+    }
+    return h('div', { class: 'focus-wrap' },
+      h('div', { class: 'focus-bar' },
+        h('span', { text: isComment ? 'jumped to a comment' : 'jumped to a post' }),
+        h('button', { class: liquid ? 'lq-pill' : 'btn small ghost', text: 'close', onclick: function () { focusNode = null; render(); } })),
+      card);
   }
 
   /** ReferenceT edges out of a post: quoted contents + mentioned persons. */
@@ -1475,6 +1542,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (n.kind === 'dm') {
         row.style.cursor = 'pointer';
         row.addEventListener('click', function () { chatPeer = n.who; lqView = 'chats'; render(); });
+      } else if (n.target && resolvePost(st, n.target)) {
+        row.style.cursor = 'pointer';
+        row.appendChild(h('span', { class: 'jump-hint', text: '↗' }));
+        row.addEventListener('click', function () { jumpTo(st, n.target); });
       }
       box.appendChild(row);
     });
@@ -1484,6 +1555,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   function lqFeed(st) {
     var box = h('div', {});
+    var focusedLq = focusCard(st, true);
+    if (focusedLq) box.appendChild(focusedLq);
     var text = h('textarea', { class: 'lq-input', placeholder: 'Share something… (@name mentions, each reference costs a spark)' });
     var fileIn = h('input', { type: 'file', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'lq-actions', style: 'margin-top:8px' });
@@ -1990,6 +2063,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         } })));
 
     var wrap = h('div', {});
+    var focused = focusCard(st, false);
+    if (focused) wrap.appendChild(focused);
     wrap.appendChild(composer);
     var cogra = feedMode === 'cogra';
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
@@ -2473,6 +2548,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (n.kind === 'dm') {
         row.style.cursor = 'pointer';
         row.addEventListener('click', function () { chatPeer = n.who; tab = 'chat'; render(); });
+      } else if (n.target && resolvePost(st, n.target)) {
+        row.style.cursor = 'pointer';
+        row.appendChild(h('span', { class: 'jump-hint', text: '↗ open' }));
+        row.addEventListener('click', function () { jumpTo(st, n.target); });
       }
       wrap.appendChild(row);
     });
@@ -2740,7 +2819,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var chron = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'chronicle — the append-only record' }), h('div', { class: 'chron' }));
     var host = chron.lastChild;
     st.chron.slice().reverse().forEach(function (c) {
-      host.appendChild(h('div', {}, c.who ? h('b', {}, st.handles[c.who] + ' ') : '', c.line));
+      var jumpable = c.to && resolvePost(st, c.to);
+      var row = h('div', { class: jumpable ? 'chron-jump' : '' },
+        c.who ? h('b', {}, st.handles[c.who] + ' ') : '', c.line,
+        jumpable ? h('span', { class: 'jump-hint', text: ' ↗ open' }) : null);
+      if (jumpable) row.addEventListener('click', function () { jumpTo(st, c.to); });
+      host.appendChild(row);
     });
     wrap.appendChild(chron);
     if (st.epochHistory.length) {
