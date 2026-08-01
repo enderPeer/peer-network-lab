@@ -131,6 +131,18 @@ const MEDIA_MAX_VIDEO = 25 * 1024 * 1024;
 const MEDIA_MAX_OTHER = 12 * 1024 * 1024; // audio + generic attachments
 const MEDIA_STORE_CAP = 300 * 1024 * 1024;
 const mediaLimiter = makeLimiter(10, 60_000); // 10 uploads/min/IP
+
+// ── Call signaling: ephemeral mailboxes, deliberately NOT acts ──────────────
+// A call is negotiated (SDP/ICE) through the host but carried peer-to-peer;
+// nothing about it enters the public record. Mailboxes live in memory only,
+// expire fast, and are drained by the recipient. Auth mirrors /api/act: a
+// PIN-secured handle must present its PIN both to send and to collect.
+const SIGNAL_KINDS = new Set(['ring', 'accept', 'ice', 'hangup', 'decline']);
+const SIGNAL_TTL = 90_000;      // undelivered signals evaporate
+const SIGNAL_BOX_CAP = 64;      // per-recipient queue bound
+const SIGNAL_PAYLOAD_MAX = 16_384; // SDP with candidates stays well under this
+const signalBoxes = new Map();  // handle id -> [{from, kind, payload, ts}]
+const signalLimiter = makeLimiter(240, 60_000); // ICE bursts + 1s in-call polling
 function mediaDirSize() {
   let s = 0;
   try { for (const f of readdirSync(MEDIA_DIR)) s += statSync(join(MEDIA_DIR, f)).size; } catch {}
@@ -154,7 +166,9 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  // microphone=(self): voice calls decode/capture on the page itself; camera
+  // stays closed until video calls are a designed feature, not a side effect.
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
   // img-src/media-src must allow blob: — host-served media is fetched and
   // rendered from object URLs; data: covers the local sandbox's inline images.
   'Content-Security-Policy':
@@ -365,6 +379,49 @@ const server = createServer((req, res) => {
       if ((act.t === 'register' || act.t === 'setPin') && act.pinHash) pinIndex.set(act.id, act.pinHash);
       if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
       json(res, 200, { acts: acts.slice(Math.min(since, acts.length)), since: Math.min(since, acts.length), total: acts.length });
+    });
+    return;
+  }
+  if (req.method === 'POST' && (url.pathname === '/api/signal' || url.pathname === '/api/signal/poll')) {
+    if (!signalLimiter(ip)) { json(res, 429, { error: 'signaling limit — slow down' }); return; }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > SIGNAL_PAYLOAD_MAX * 2) req.destroy(); });
+    req.on('end', () => {
+      let msg;
+      try { msg = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      const idOk = (v) => typeof v === 'string' && v.length > 0 && v.length <= 24;
+      const now = Date.now();
+      const sweep = (box) => box.filter((s) => now - s.ts < SIGNAL_TTL);
+
+      if (url.pathname === '/api/signal/poll') {
+        // Collecting your mailbox requires the same proof as acting as you —
+        // otherwise anyone could silently swallow your incoming calls.
+        if (!idOk(msg.who)) { json(res, 400, { error: 'bad handle' }); return; }
+        const aerr = authError({ t: 'dm', from: msg.who, auth: typeof msg.auth === 'string' ? msg.auth : '' });
+        if (aerr) {
+          if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
+          json(res, 401, { error: aerr }); return;
+        }
+        const box = sweep(signalBoxes.get(msg.who) ?? []);
+        signalBoxes.delete(msg.who);
+        json(res, 200, { signals: box });
+        return;
+      }
+
+      if (!idOk(msg.from) || !idOk(msg.to) || msg.from === msg.to) { json(res, 400, { error: 'bad endpoints' }); return; }
+      if (!SIGNAL_KINDS.has(msg.kind)) { json(res, 400, { error: 'unknown signal kind' }); return; }
+      const payload = msg.payload === undefined ? null : msg.payload;
+      if (payload !== null && JSON.stringify(payload).length > SIGNAL_PAYLOAD_MAX) { json(res, 413, { error: 'signal too large' }); return; }
+      const aerr = authError({ t: 'dm', from: msg.from, auth: typeof msg.auth === 'string' ? msg.auth : '' });
+      if (aerr) {
+        if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
+        json(res, 401, { error: aerr }); return;
+      }
+      const box = sweep(signalBoxes.get(msg.to) ?? []);
+      if (box.length >= SIGNAL_BOX_CAP) box.shift();
+      box.push({ from: msg.from, kind: msg.kind, payload, ts: now });
+      signalBoxes.set(msg.to, box);
+      json(res, 200, { ok: true });
     });
     return;
   }

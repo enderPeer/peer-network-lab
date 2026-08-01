@@ -149,6 +149,19 @@ button { font-family: var(--body); cursor: pointer; }
 
 .post-media { display: block; max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; margin: 8px 0 4px; background: rgba(127,127,127,0.08); }
 .post-audio { display: block; width: 100%; margin: 4px 0; }
+/* Call dock: fixed dark panel, deliberately theme-independent — it floats
+   above both frontends and must never be rebuilt by render() mid-call. */
+#call-dock { position: fixed; right: 16px; bottom: 16px; z-index: 400; }
+#call-dock audio { display: none; }
+.call-panel { background: #211d1a; color: #efe9df; border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 12px 14px; min-width: 230px; box-shadow: 0 10px 34px rgba(0,0,0,0.5); font-size: 14px; }
+.call-panel .c-title { font-weight: 700; margin-bottom: 2px; }
+.call-panel .c-sub { font-size: 11px; opacity: 0.6; margin-bottom: 9px; }
+.call-panel .c-row { display: flex; gap: 8px; }
+.call-btn { border: 1px solid rgba(255,255,255,0.22); background: transparent; color: #efe9df; border-radius: 8px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 13px; }
+.call-btn.yes { background: #2e7d4f; border-color: #2e7d4f; color: #fff; }
+.call-btn.no { background: #a33d2f; border-color: #a33d2f; color: #fff; }
+.call-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4caf7a; margin-right: 7px; animation: callpulse 1.6s infinite; }
+@keyframes callpulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.3 } }
 .audio-wrap { margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 4px; background: var(--card-2); }
 .audio-wave { display: block; width: 100%; height: 44px; cursor: pointer; }
 .audio-wrap.wave-none .audio-wave { display: none; }
@@ -648,6 +661,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         world = { acts: d.acts };
         render();
         setInterval(pollRemote, 5000);
+        setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
       })
       .catch(function () { render(); });
   }
@@ -1560,6 +1574,256 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     root.appendChild(wrap);
   }
 
+  // ── Voice calls: negotiated through the host, carried peer-to-peer ────────
+  // Signaling (SDP/ICE) travels through ephemeral host mailboxes — never acts,
+  // never persisted. The voice itself flows browser-to-browser over WebRTC; the
+  // network only introduces the two ends. The call dock lives OUTSIDE the
+  // render root: render() rebuilds the app wholesale and must not tear down
+  // the live audio element mid-call.
+  var call = null; // {me, peer, dir, state, pc, stream, audio, t0, muted, pendingIce, offer, timer, tick}
+  var signalAuthBad = false; // back off after a 401 until identity changes
+  var signalWhoLast = null;
+  var signalTickN = 0;
+
+  function handleName(id) { try { return replay().handles[id] || id; } catch (e) { return id; } }
+  function fmtDur(s) { return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+
+  function signalSend(kind, to, payload) {
+    if (!REMOTE) return;
+    var me = (call && call.me) || who;
+    fetch('/api/signal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: me, to: to, kind: kind, payload: payload || null, auth: pins[me] || '' }),
+    }).catch(function () {});
+  }
+
+  function signalTick() {
+    if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
+    if (!REMOTE || !who || signalAuthBad || offline) return;
+    if (!call) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
+    if (lastPinHash[who] && !pins[who]) return; // secured handle without its PIN cannot collect
+    fetch('/api/signal/poll', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ who: who, auth: pins[who] || '' }),
+    }).then(function (r) {
+      if (r.status === 401) { signalAuthBad = true; throw 0; }
+      if (!r.ok) throw 0;
+      return r.json();
+    }).then(function (d) { (d.signals || []).forEach(onSignal); }).catch(function () {});
+  }
+
+  function onSignal(s) {
+    if (s.kind === 'ring') {
+      if (call) { signalSend('decline', s.from, { reason: 'busy' }); return; }
+      call = { me: who, peer: s.from, dir: 'in', state: 'ringing', offer: s.payload, pendingIce: [], muted: false };
+      startRingtone();
+      call.timer = setTimeout(function () {
+        if (call && call.state === 'ringing') endCall(false, 'Missed call from ' + handleName(s.from));
+      }, 30000);
+      callUI();
+      return;
+    }
+    if (!call || s.from !== call.peer) return; // stale signal from a dead call
+    if (s.kind === 'accept' && call.dir === 'out' && call.pc) {
+      call.state = 'connecting'; callUI();
+      call.pc.setRemoteDescription(s.payload).then(flushIce)
+        .catch(function () { endCall(false, 'Call setup failed.'); });
+    } else if (s.kind === 'ice') {
+      if (call.pc && call.pc.remoteDescription) call.pc.addIceCandidate(s.payload).catch(function () {});
+      else call.pendingIce.push(s.payload);
+    } else if (s.kind === 'hangup' || s.kind === 'decline') {
+      endCall(false, s.kind === 'decline'
+        ? (s.payload && s.payload.reason === 'busy' ? handleName(call.peer) + ' is on another call.' : handleName(call.peer) + ' declined.')
+        : null);
+    }
+  }
+
+  function flushIce() {
+    if (!call || !call.pc) return;
+    call.pendingIce.splice(0).forEach(function (c) { call.pc.addIceCandidate(c).catch(function () {}); });
+  }
+
+  function getMic() {
+    if (!window.RTCPeerConnection || !window.isSecureContext ||
+        !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return Promise.reject(new Error('unsupported'));
+    }
+    return navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+
+  function makePc() {
+    var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    pc.onicecandidate = function (ev) {
+      if (ev.candidate && call) signalSend('ice', call.peer, JSON.parse(JSON.stringify(ev.candidate)));
+    };
+    pc.ontrack = function (ev) {
+      if (!call) return;
+      call.audio.srcObject = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
+      call.audio.play().catch(function () {});
+    };
+    pc.onconnectionstatechange = function () {
+      if (!call || !call.pc) return;
+      var cs = call.pc.connectionState;
+      if (cs === 'connected' && call.state !== 'live') {
+        call.state = 'live'; call.t0 = Date.now(); clearTimeout(call.timer); callUI();
+      } else if (cs === 'failed') {
+        endCall(true, 'Connection failed — the two networks could not find a direct path.');
+      } else if (cs === 'disconnected') {
+        setTimeout(function () {
+          if (call && call.pc && call.pc.connectionState === 'disconnected') endCall(true, 'Connection lost.');
+        }, 4000);
+      }
+    };
+    return pc;
+  }
+
+  function startCall(peer) {
+    if (!REMOTE) { toast('Calls need the hosted network — the local sandbox has no one on the other end.'); return; }
+    if (call) { toast('One call at a time.'); return; }
+    if (!peer || peer === who) return;
+    call = { me: who, peer: peer, dir: 'out', state: 'ringing', pendingIce: [], muted: false };
+    callUI();
+    getMic().then(function (stream) {
+      if (!call) { stream.getTracks().forEach(function (t) { t.stop(); }); return null; }
+      call.stream = stream;
+      call.pc = makePc();
+      stream.getTracks().forEach(function (t) { call.pc.addTrack(t, stream); });
+      return call.pc.createOffer().then(function (o) {
+        return call.pc.setLocalDescription(o).then(function () { return o; });
+      });
+    }).then(function (offer) {
+      if (!call || !offer) return;
+      signalSend('ring', call.peer, { type: offer.type, sdp: offer.sdp });
+      call.timer = setTimeout(function () {
+        if (call && call.state !== 'live') endCall(true, 'No answer.');
+      }, 32000);
+    }).catch(function (e) {
+      endCall(false, e && e.message === 'unsupported'
+        ? 'Calling needs microphone access over HTTPS — this context has neither.'
+        : 'Microphone unavailable — check browser permissions.');
+    });
+  }
+
+  function acceptCall() {
+    if (!call || call.dir !== 'in' || call.state !== 'ringing') return;
+    stopRingtone();
+    clearTimeout(call.timer);
+    call.state = 'connecting'; callUI();
+    getMic().then(function (stream) {
+      if (!call) { stream.getTracks().forEach(function (t) { t.stop(); }); return null; }
+      call.stream = stream;
+      call.pc = makePc();
+      stream.getTracks().forEach(function (t) { call.pc.addTrack(t, stream); });
+      return call.pc.setRemoteDescription(call.offer).then(flushIce)
+        .then(function () { return call.pc.createAnswer(); })
+        .then(function (a) { return call.pc.setLocalDescription(a).then(function () { return a; }); });
+    }).then(function (answer) {
+      if (!call || !answer) return;
+      signalSend('accept', call.peer, { type: answer.type, sdp: answer.sdp });
+    }).catch(function (e) {
+      endCall(true, e && e.message === 'unsupported'
+        ? 'Calling needs microphone access over HTTPS — this context has neither.'
+        : 'Microphone unavailable — check browser permissions.');
+    });
+  }
+
+  function endCall(notifyPeer, note) {
+    if (!call) return;
+    stopRingtone();
+    clearTimeout(call.timer);
+    clearInterval(call.tick);
+    if (notifyPeer) signalSend(call.dir === 'in' && call.state === 'ringing' ? 'decline' : 'hangup', call.peer, null);
+    if (call.pc) { try { call.pc.close(); } catch (e) {} }
+    if (call.stream) call.stream.getTracks().forEach(function (t) { t.stop(); });
+    var dur = call.t0 ? Math.round((Date.now() - call.t0) / 1000) : 0;
+    call = null;
+    callUI();
+    if (note) toast(note + (dur ? ' · ' + fmtDur(dur) : ''));
+    else if (dur) toast('Call ended · ' + fmtDur(dur));
+  }
+
+  function toggleMute() {
+    if (!call || !call.stream) return;
+    call.muted = !call.muted;
+    call.stream.getAudioTracks().forEach(function (t) { t.enabled = !call.muted; });
+    callUI();
+  }
+
+  // Gentle double-beep ring — WebAudio, no asset. May stay silent if the
+  // browser refuses audio without a gesture; the dock still shows the call.
+  var ringCtx = null, ringInt = null;
+  function startRingtone() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ringCtx = ringCtx || new AC();
+      if (ringCtx.state === 'suspended') ringCtx.resume().catch(function () {});
+      var beep = function () {
+        if (!ringCtx || !call) return;
+        [587, 740].forEach(function (f, i) {
+          var o = ringCtx.createOscillator(), g = ringCtx.createGain();
+          o.type = 'sine'; o.frequency.value = f;
+          var t = ringCtx.currentTime + i * 0.22;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.045, t + 0.03);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+          o.connect(g); g.connect(ringCtx.destination);
+          o.start(t); o.stop(t + 0.2);
+        });
+      };
+      beep();
+      ringInt = setInterval(beep, 2400);
+    } catch (e) {}
+  }
+  function stopRingtone() { clearInterval(ringInt); ringInt = null; }
+
+  function callUI() {
+    var dock = document.getElementById('call-dock');
+    if (!call) { if (dock) dock.remove(); return; }
+    if (!dock) {
+      dock = h('div', { id: 'call-dock' });
+      document.body.appendChild(dock);
+    }
+    if (!call.audio) {
+      call.audio = h('audio', { autoplay: '' });
+      dock.appendChild(call.audio); // persistent — panel rebuilds around it
+    }
+    var panel = dock.querySelector('.call-panel');
+    if (panel) panel.remove();
+    panel = h('div', { class: 'call-panel' });
+    var name = handleName(call.peer);
+    if (call.state === 'ringing' && call.dir === 'out') {
+      panel.appendChild(h('div', { class: 'c-title', text: 'Calling ' + name + '…' }));
+      panel.appendChild(h('div', { class: 'c-sub', text: 'voice is peer-to-peer — nothing enters the record' }));
+      panel.appendChild(h('div', { class: 'c-row' },
+        h('button', { class: 'call-btn no', text: 'Hang up', onclick: function () { endCall(true, null); } })));
+    } else if (call.state === 'ringing' && call.dir === 'in') {
+      panel.appendChild(h('div', { class: 'c-title', text: name + ' is calling' }));
+      panel.appendChild(h('div', { class: 'c-sub', text: 'voice is peer-to-peer — nothing enters the record' }));
+      panel.appendChild(h('div', { class: 'c-row' },
+        h('button', { class: 'call-btn yes', text: 'Accept', onclick: acceptCall }),
+        h('button', { class: 'call-btn no', text: 'Decline', onclick: function () { endCall(true, null); } })));
+    } else if (call.state === 'connecting') {
+      panel.appendChild(h('div', { class: 'c-title', text: 'Connecting to ' + name + '…' }));
+      panel.appendChild(h('div', { class: 'c-sub', text: 'finding a direct path between your networks' }));
+      panel.appendChild(h('div', { class: 'c-row' },
+        h('button', { class: 'call-btn no', text: 'Hang up', onclick: function () { endCall(true, null); } })));
+    } else { // live
+      var durEl = h('span', { class: 'num', text: fmtDur(call.t0 ? Math.round((Date.now() - call.t0) / 1000) : 0) });
+      panel.appendChild(h('div', { class: 'c-title' }, h('span', { class: 'call-live-dot' }), name, ' · ', durEl));
+      panel.appendChild(h('div', { class: 'c-sub', text: 'live — peer-to-peer, unrecorded' }));
+      panel.appendChild(h('div', { class: 'c-row' },
+        h('button', { class: 'call-btn', text: call.muted ? 'Unmute' : 'Mute', onclick: toggleMute }),
+        h('button', { class: 'call-btn no', text: 'Hang up', onclick: function () { endCall(true, null); } })));
+      if (!call.tick) {
+        call.tick = setInterval(function () {
+          if (call && call.t0) durEl.textContent = fmtDur(Math.round((Date.now() - call.t0) / 1000));
+        }, 1000);
+      }
+    }
+    dock.appendChild(panel);
+  }
+
   var chatPeer = null; // open thread in the chats view
 
   function lqChats(st) {
@@ -1598,7 +1862,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('div', { style: 'display:flex; align-items:center; gap:10px' },
         h('button', { class: 'lq-pill', text: '← Chats', onclick: function () { chatPeer = null; render(); } }),
         avatar(st.handles[chatPeer], 'lq-ava s'),
-        h('span', { class: 'lq-name', text: st.handles[chatPeer] || chatPeer })));
+        h('span', { class: 'lq-name', text: st.handles[chatPeer] || chatPeer }),
+        h('button', { class: 'lq-pill hot', text: '☎ Call', style: 'margin-left:auto',
+          onclick: function () { startCall(chatPeer); } })));
     var tEl = h('div', { class: 'lq-thread' });
     if (!thread.length) tEl.appendChild(h('p', { class: 'lq-note', text: 'Say hello — every message is a priced act.' }));
     thread.forEach(function (m) {
@@ -2826,7 +3092,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('button', { class: 'btn small ghost', text: '← all chats', onclick: function () { chatPeer = null; render(); } }),
         avatar(st.handles[chatPeer], 'avatar s'),
         h('b', { text: st.handles[chatPeer] || chatPeer }),
-        h('span', { class: 'standing-chip', text: fmt(credibility(st, chatPeer), 3) })));
+        h('span', { class: 'standing-chip', text: fmt(credibility(st, chatPeer), 3) }),
+        h('button', { class: 'btn small ghost', text: '☎ call', style: 'margin-left:auto',
+          onclick: function () { startCall(chatPeer); } })));
     var tEl = h('div', { class: 'chat-thread' });
     if (!thread.length) tEl.appendChild(h('p', { class: 'smallnote', text: 'Say hello — every message is a priced act (−θ).' }));
     thread.forEach(function (m) {
