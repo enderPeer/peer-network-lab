@@ -151,6 +151,37 @@ describe('CoGra structural rules', () => {
   });
 });
 
+describe('CoGra references (quote/embed/mention)', () => {
+  it('content-intrinsic citation: endorsing a quote-post endorses what it cites', () => {
+    const g = world();
+    // x authors post c1 AND its reference to c2 (quote) — content-intrinsic
+    op(g, 'x', 'c1'); // x's publish-stance stand-in
+    g.appendHyper(
+      { id: 'rfA1', family: 'ReferenceA', src: 'x', tgt: 'c1', pd: 0.8, pi: 0.9, tauOverride: 0 },
+      { id: 'rfT1', family: 'ReferenceT', src: 'c1', tgt: 'c2', pd: 0.9, pi: 0.8, tauOverride: 0 },
+    );
+    op(g, 'u', 'prof_x'); // u backs x
+    const hops = buildHops(g, opts({ c1: 'x' }));
+    // free carrier→target hop exists (citation is part of the content)
+    expect((hops.get('c1') ?? []).some((h) => h.to === 'c2')).toBe(true);
+    const s = scoreCandidate(hops, 'u', 'c2', 0);
+    expect(s.paths.length).toBeGreaterThan(0);
+    expect(s.paths[0]!.nodes).toContain('c1');
+  });
+
+  it('initiator-owned citation: a stranger’s reference reaches the target only through them', () => {
+    const g = world();
+    op(g, 'b', 'c1'); // b owns c1's stance context; creator of c1 is b
+    g.appendHyper(
+      { id: 'rfA2', family: 'ReferenceA', src: 'x', tgt: 'c1', pd: 0.8, pi: 0.9, tauOverride: 0 },
+      { id: 'rfT2', family: 'ReferenceT', src: 'c1', tgt: 'c2', pd: 0.9, pi: 0.8, tauOverride: 0 },
+    );
+    const hops = buildHops(g, opts({ c1: 'b' }));
+    expect((hops.get('c1') ?? []).some((h) => h.to === 'c2')).toBe(false); // no switchboard
+    expect((hops.get('x') ?? []).some((h) => h.to === 'c2')).toBe(true);   // composite via author
+  });
+});
+
 describe('CoGra over the Appendix F reference graph', () => {
   it('ranks Photo for Bob from his own position, with no standing amplifier', () => {
     const g = referenceGraph();

@@ -7,7 +7,8 @@
 // Run: node server.mjs [port]   (default 5210)
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,6 +80,22 @@ const ACT_FIELDS = {
   transferL0: ['t', 'from', 'to', 'x', 'cls'],
   closeCycle: ['t'],
 };
+// post gains optional reference + media fields
+ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media'];
+
+// ── Media store: content-addressed payload carriage (never scored) ──
+const MEDIA_DIR = resolve(DATA_DIR, 'media');
+mkdirSync(MEDIA_DIR, { recursive: true });
+const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']);
+const MEDIA_MAX_IMAGE = 2 * 1024 * 1024;
+const MEDIA_MAX_VIDEO = 12 * 1024 * 1024;
+const MEDIA_STORE_CAP = 300 * 1024 * 1024;
+const mediaLimiter = makeLimiter(10, 60_000); // 10 uploads/min/IP
+function mediaDirSize() {
+  let s = 0;
+  try { for (const f of readdirSync(MEDIA_DIR)) s += statSync(join(MEDIA_DIR, f)).size; } catch {}
+  return s;
+}
 function sanitize(act) {
   const keep = ACT_FIELDS[act.t] || [];
   const clean = {};
@@ -159,6 +176,14 @@ function validate(act) {
       break;
     case 'post':
       if (!str(act.author, 24) || !str(act.text, 1000) || !inR(act.a)) return 'bad post';
+      if (act.ref !== undefined && !str(act.ref, 40)) return 'bad reference';
+      if (act.media !== undefined) {
+        if (!Array.isArray(act.media) || act.media.length > 2) return 'bad media';
+        for (const m of act.media) {
+          if (!m || typeof m !== 'object' || !/^[a-f0-9]{64}$/.test(m.h ?? '') || !MEDIA_TYPES.has(m.m)) return 'bad media entry';
+          if (!existsSync(join(MEDIA_DIR, m.h))) return 'unknown media hash — upload first';
+        }
+      }
       break;
     case 'opinion':
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.p) || !inR(act.r)) return 'bad opinion';
@@ -195,7 +220,62 @@ const server = createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/acts') {
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
     const since = Math.max(0, Number(url.searchParams.get('since') ?? 0) || 0);
-    json(res, 200, { acts: acts.slice(since), total: acts.length });
+    const body = JSON.stringify({ acts: acts.slice(since), total: acts.length });
+    const wantsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '') && body.length > 1024;
+    if (wantsGzip) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Content-Encoding': 'gzip', ...SECURITY_HEADERS });
+      res.end(gzipSync(Buffer.from(body)));
+    } else {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+      res.end(body);
+    }
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/media') {
+    if (!mediaLimiter(ip)) { json(res, 429, { error: 'upload limit — try again in a minute' }); return; }
+    const mime = (req.headers['content-type'] ?? '').split(';')[0].trim();
+    if (!MEDIA_TYPES.has(mime)) { json(res, 415, { error: 'unsupported media type' }); return; }
+    const cap = mime.startsWith('video/') ? MEDIA_MAX_VIDEO : MEDIA_MAX_IMAGE;
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > cap) { req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (size === 0 || size > cap) { json(res, 413, { error: 'media too large' }); return; }
+      if (mediaDirSize() + size > MEDIA_STORE_CAP) { json(res, 507, { error: 'media store full — test instance capacity reached' }); return; }
+      const buf = Buffer.concat(chunks);
+      const hash = createHash('sha256').update(buf).digest('hex');
+      const file = join(MEDIA_DIR, hash);
+      if (!existsSync(file)) {
+        writeFileSync(file, buf);
+        writeFileSync(file + '.meta', JSON.stringify({ mime, size }));
+      }
+      json(res, 200, { h: hash, m: mime, size });
+    });
+    return;
+  }
+  if (req.method === 'GET' && /^\/api\/media\/[a-f0-9]{64}$/.test(url.pathname)) {
+    const hash = url.pathname.slice('/api/media/'.length);
+    const file = join(MEDIA_DIR, hash);
+    try {
+      const meta = JSON.parse(readFileSync(file + '.meta', 'utf8'));
+      const buf = readFileSync(file);
+      // content-addressed ⇒ immutable: clients and proxies may cache forever
+      res.writeHead(200, {
+        'Content-Type': meta.mime,
+        'Content-Length': buf.length,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        ETag: '"' + hash.slice(0, 16) + '"',
+        ...SECURITY_HEADERS,
+      });
+      res.end(buf);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('not found');
+    }
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/act') {

@@ -72,6 +72,16 @@ export const FAMILIES: Record<string, FamilySpec> = {
     family: 'ReviewT', domain: 'Epistemic', promoted: false, tier: 'marginal',
     paramLabels: ['effort f', 'enthusiasm e'], signForced: false, vouchCandidate: false,
   },
+  ReferenceA: {
+    // authorship leg into the citing artifact (Marginal)
+    family: 'ReferenceA', domain: 'Epistemic', promoted: false, tier: 'marginal',
+    paramLabels: ['endorsement e', 'fidelity f'], signForced: false, vouchCandidate: false,
+  },
+  ReferenceT: {
+    // citation leg from the citing artifact to the target (Full tier)
+    family: 'ReferenceT', domain: 'Tribal', promoted: false, tier: 'full',
+    paramLabels: ['fidelity f', 'endorsement e'], signForced: false, vouchCandidate: false,
+  },
   TagA: {
     family: 'TagA', domain: 'Epistemic', promoted: false, tier: 'marginal',
     paramLabels: ['relevance r', 'confidence c'], signForced: false, vouchCandidate: false,

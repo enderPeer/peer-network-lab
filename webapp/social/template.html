@@ -151,6 +151,18 @@ button { font-family: var(--body); cursor: pointer; }
 .mini-form { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .mini-form input[type='text'], .mini-form input[type='password'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
 
+.post-media { display: block; max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; margin: 8px 0 4px; background: rgba(127,127,127,0.08); }
+.quote-embed { border-left: 3px solid var(--ember); background: var(--card-2); border-radius: 8px; padding: 8px 12px; margin: 8px 0 4px; cursor: pointer; }
+.quote-embed .q-head { font-size: 11.5px; color: var(--muted); }
+.quote-embed .q-head b { color: var(--ink); }
+.quote-embed .q-text { font-size: 13px; line-height: 1.5; }
+body[data-mode='liquid'] .quote-embed { background: var(--lq-glass-2); border-left-color: var(--lq-accent); border-radius: 12px; }
+body[data-mode='liquid'] .quote-embed .q-text { color: var(--lq-ink); }
+.mention-chip { font-size: 11.5px; color: var(--ember); background: var(--ember-soft); border-radius: 9px; padding: 2px 9px; }
+body[data-mode='liquid'] .mention-chip { color: var(--lq-accent); background: color-mix(in srgb, var(--lq-accent) 12%, transparent); }
+.compose-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 3px 9px; color: var(--muted); }
+.compose-chip button { border: 0; background: transparent; color: var(--bad); cursor: pointer; font-size: 13px; padding: 0 2px; }
+
 .comments { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 4px; }
 .comment { display: flex; gap: 8px; padding: 7px 0; align-items: flex-start; }
 .comment .c-body { font-size: 13px; line-height: 1.5; }
@@ -447,7 +459,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_PINS = 'peer-sandbox-pins-v1';
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
-  var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra'
+  var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new'
+  var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
+  var feedLimit = 30;    // windowed rendering — raised by "show more"
+  var composeMedia = null, composeQuote = null; // pending composer attachments
   var mode = 'liquid';
   var pins = {};
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
@@ -593,6 +608,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var ledgers = [], ledgerById = {}, handles = {}, kReg = {}, creators = {}, payloads = {};
     var bundles = {}, selfCells = [], deltaActs = {}, epochHistory = [], chron = [];
     var reviewMeta = {}; // commentNodeId -> {e, f}
+    var mediaMeta = {};  // contentId -> [{h, m} | {d, m}]
     var pinHash = {};
     var counter = 0;
     var certsSoFar = 0; // certificates issued before the current act (CoGra epoch age)
@@ -696,7 +712,32 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
         debit(a.author); weighHome(a.author, a.a, 1);
         creators[cid] = a.author; payloads[cid] = a.text;
+        if (a.media && a.media.length) mediaMeta[cid] = a.media;
         chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2) });
+        // Quote reference: one Reference hyper act (A-leg into the post, Full-tier
+        // citation T-leg to the target) — its own θ-debit.
+        if (a.ref && g.nodes.get(a.ref) && ledgerById[a.author] && ledgerById[a.author].burnBal >= THETA) {
+          counter++;
+          g.appendHyper(
+            { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.8, pi: 0.9, epoch: certsSoFar },
+            { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: a.ref, pd: 0.9, pi: 0.8, epoch: certsSoFar }
+          );
+          debit(a.author); weighHome(a.author, 0.8, 0.9);
+          chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation' });
+        }
+        // @mentions: References whose target is the person's Profile (max 3, priced).
+        var mentioned = parseMentions(a.text, handles);
+        for (var mi = 0; mi < mentioned.length; mi++) {
+          var mid = mentioned[mi];
+          if (mid === a.author || !ledgerById[a.author] || ledgerById[a.author].burnBal < THETA) continue;
+          counter++;
+          g.appendHyper(
+            { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.7, pi: 0.8, epoch: certsSoFar },
+            { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: 'prof_' + mid, pd: 0.8, pi: 0.7, epoch: certsSoFar }
+          );
+          debit(a.author); weighHome(a.author, 0.7, 0.8);
+          chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) });
+        }
       } else if (a.t === 'opinion') {
         counter++;
         var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
@@ -765,7 +806,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
       deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),
       epochHistory: epochHistory, chron: chron, epochNow: epochNow,
-      reviewMeta: reviewMeta, pinHash: pinHash, l0: l0,
+      reviewMeta: reviewMeta, mediaMeta: mediaMeta, pinHash: pinHash, l0: l0,
     };
   }
 
@@ -788,10 +829,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var st = replay();
     var l = st.ledgerById[actorId];
     if (!l) return;
-    if (l.burnBal < THETA) {
+    var nActs = actCost(actObj, st);
+    if (l.burnBal < nActs * THETA) {
       toast(mode === 'liquid'
-        ? 'Out of energy — recharge to keep acting.'
-        : 'W1 refuses: reserve ' + l.burnBal.toFixed(3) + ' < θ ' + THETA.toFixed(4) + ' — burn reserve to act.');
+        ? (nActs > 1 ? 'This costs ' + nActs + ' sparks (post + references) — not enough energy.' : 'Out of energy — recharge to keep acting.')
+        : 'W1 refuses: this is ' + nActs + ' act' + (nActs === 1 ? '' : 's') + ' at θ ' + THETA.toFixed(4) + ' each; reserve ' + l.burnBal.toFixed(3) + ' is short.');
       return;
     }
     Object.keys(st.xById).forEach(function (id) { prevX[id] = st.xById[id]; });
@@ -878,6 +920,116 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .filter(function (c) { return c.text; });
   }
   function credibility(st, id) { return NU * (st.xById[id] || 0); }
+
+  // ── References ──
+  function parseMentions(text, handles) {
+    var slugToId = {};
+    for (var id in handles) {
+      slugToId[(handles[id] || '').toLowerCase().replace(/[^a-z0-9]/g, '')] = id;
+    }
+    var out = [], seen = {}, m;
+    var re = /@([a-zA-Z0-9_]{1,16})/g;
+    while ((m = re.exec(text)) !== null && out.length < 3) {
+      var id2 = slugToId[m[1].toLowerCase().replace(/[^a-z0-9]/g, '')];
+      if (id2 && !seen[id2]) { seen[id2] = 1; out.push(id2); }
+    }
+    return out;
+  }
+  /** ReferenceT edges out of a post: quoted contents + mentioned persons. */
+  function refsOf(st, cid) {
+    var quotes = [], mentions = [];
+    st.g.edges.forEach(function (e) {
+      if (e.family !== 'ReferenceT' || e.src !== cid) return;
+      if (e.tgt.indexOf('prof_') === 0) mentions.push(e.tgt.slice(5));
+      else quotes.push(e.tgt);
+    });
+    return { quotes: quotes, mentions: mentions };
+  }
+  /** θ-cost of an act (posts may carry a quote + mentions, each its own act). */
+  function actCost(act, st) {
+    if (act.t !== 'post') return 1;
+    var n = 1;
+    if (act.ref) n++;
+    n += parseMentions(act.text || '', st.handles).filter(function (id) { return id !== act.author; }).length;
+    return n;
+  }
+
+  // ── Media: content-addressed payload, rendered + cached on the viewer's device ──
+  var mediaURL = {}; // hash -> objectURL (in-memory)
+  function idbOpen() {
+    return new Promise(function (res2, rej) {
+      if (!window.indexedDB) { rej(new Error('no idb')); return; }
+      var rq = indexedDB.open('peer-media', 1);
+      rq.onupgradeneeded = function () { rq.result.createObjectStore('blobs'); };
+      rq.onsuccess = function () { res2(rq.result); };
+      rq.onerror = function () { rej(rq.error); };
+    });
+  }
+  function idbGet(h) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (res2) {
+        var rq = db.transaction('blobs').objectStore('blobs').get(h);
+        rq.onsuccess = function () { res2(rq.result || null); };
+        rq.onerror = function () { res2(null); };
+      });
+    }).catch(function () { return null; });
+  }
+  function idbPut(h, blob) {
+    idbOpen().then(function (db) {
+      db.transaction('blobs', 'readwrite').objectStore('blobs').put(blob, h);
+    }).catch(function () {});
+  }
+  /** Resolve a media entry to a src, preferring the local IndexedDB cache. */
+  function attachMedia(el, entry) {
+    if (entry.d) { el.src = entry.d; return; } // local-mode inline data URL
+    var h = entry.h;
+    if (mediaURL[h]) { el.src = mediaURL[h]; return; }
+    idbGet(h).then(function (blob) {
+      if (blob) {
+        mediaURL[h] = URL.createObjectURL(blob);
+        el.src = mediaURL[h];
+        return;
+      }
+      fetch('/api/media/' + h).then(function (r) { if (!r.ok) throw 0; return r.blob(); }).then(function (b) {
+        idbPut(h, b);
+        mediaURL[h] = URL.createObjectURL(b);
+        el.src = mediaURL[h];
+      }).catch(function () { el.alt = 'media unavailable'; });
+    });
+  }
+  function mediaEl(entry) {
+    var isVideo = (entry.m || '').indexOf('video/') === 0;
+    var el;
+    if (isVideo) {
+      el = h('video', { class: 'post-media', controls: '', preload: 'metadata', playsinline: '' });
+    } else {
+      el = h('img', { class: 'post-media', loading: 'lazy', decoding: 'async', alt: 'post media' });
+    }
+    attachMedia(el, entry);
+    return el;
+  }
+  /** Downscale an image file on-device (canvas), return a JPEG blob ≤ ~1280px. */
+  function downscaleImage(file) {
+    return new Promise(function (res2, rej) {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        var scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+        var cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * scale);
+        cv.height = Math.round(img.height * scale);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (b) { b ? res2(b) : rej(new Error('encode failed')); }, 'image/jpeg', 0.82);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('not an image')); };
+      img.src = url;
+    });
+  }
+  function uploadMedia(blob, mime) {
+    return fetch('/api/media', { method: 'POST', headers: { 'Content-Type': mime }, body: blob })
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || 'upload failed'); return d; }); });
+  }
 
   // ── CoGra ranking (Layer-2 readout; formula-complete per cogra feed-ranking.md) ──
   function cograFeed(st, viewer) {
@@ -1066,22 +1218,66 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   function lqFeed(st) {
     var box = h('div', {});
-    var text = h('textarea', { class: 'lq-input', placeholder: 'Share something…' });
+    var text = h('textarea', { class: 'lq-input', placeholder: 'Share something… (@name mentions, each reference costs a spark)' });
+    var fileIn = h('input', { type: 'file', accept: 'image/*,video/mp4,video/webm', style: 'display:none' });
+    var chips = h('div', { class: 'lq-actions', style: 'margin-top:8px' });
+    function renderChips() {
+      chips.innerHTML = '';
+      if (composeQuote) {
+        chips.appendChild(h('span', { class: 'compose-chip' }, '↪ quoting ' + (st.handles[st.creators[composeQuote]] || 'post'),
+          h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
+      }
+      if (composeMedia) {
+        chips.appendChild(h('span', { class: 'compose-chip' }, (composeMedia.m.indexOf('video/') === 0 ? '🎬 video' : '🖼 image') + ' attached',
+          h('button', { text: '×', onclick: function () { composeMedia = null; renderChips(); } })));
+      }
+    }
+    renderChips();
+    fileIn.addEventListener('change', function () {
+      var f = fileIn.files && fileIn.files[0];
+      if (!f) return;
+      handleMediaPick(f, function (entry) { composeMedia = entry; renderChips(); });
+      fileIn.value = '';
+    });
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
-      text,
+      text, chips,
       h('div', { class: 'lq-actions' },
         h('button', { class: 'lq-pill hot', onclick: function () {
           var t = text.value.trim();
-          if (!t) { toast('Write something first.'); return; }
-          tryAct(who, { t: 'post', author: who, text: t, a: 0.8 }, 'Shared. Every post costs a spark of energy.');
-        } }, icon('bolt'), 'Share'))));
+          if (!t && !composeMedia) { toast('Write something first.'); return; }
+          var act = { t: 'post', author: who, text: t || '·', a: 0.8 };
+          if (composeQuote) act.ref = composeQuote;
+          if (composeMedia) act.media = [composeMedia];
+          tryAct(who, act, 'Shared. Every post costs a spark of energy.');
+          composeQuote = null; composeMedia = null;
+        } }, icon('bolt'), 'Share'),
+        h('button', { class: 'lq-pill', onclick: function () { fileIn.click(); } }, icon('tag'), 'Media'),
+        fileIn),
+      h('div', { class: 'lq-actions', style: 'margin-top:10px' },
+        h('button', { class: 'lq-pill' + (lqSort === 'foryou' ? ' hot' : ''), text: 'For you', onclick: function () { lqSort = 'foryou'; feedLimit = 30; render(); } }),
+        h('button', { class: 'lq-pill' + (lqSort === 'new' ? ' hot' : ''), text: 'Newest', onclick: function () { lqSort = 'new'; feedLimit = 30; render(); } }))));
+
+    var shown = 0;
+    if (lqSort === 'new') {
+      var newest = [];
+      st.g.edges.forEach(function (e) {
+        if (e.family === 'Publish' && st.payloads[e.tgt]) newest.push({ node: st.g.nodes.get(e.tgt), idx: e.appendIndex });
+      });
+      newest.sort(function (a, b) { return b.idx - a.idx; });
+      newest.slice(0, feedLimit).forEach(function (r) { box.appendChild(lqPost(st, r.node, null)); });
+      shown = Math.min(newest.length, feedLimit);
+      if (newest.length > feedLimit) box.appendChild(lqMore(newest.length - feedLimit));
+      if (!newest.length) box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'lq-note', text: 'Nothing here yet — be the first to share.' })));
+      return box;
+    }
 
     var scores = cograFeed(st, who);
     // §9.2 friend-fresh reordering: fresh posts from directly-backed authors first.
     var fresh = [], rest = [];
     scores.forEach(function (s) { (isFriendFresh(st, who, s.node.id) ? fresh : rest).push(s); });
     var ranked = fresh.concat(rest);
-    ranked.forEach(function (s) { box.appendChild(lqPost(st, s.node, s)); });
+    ranked.slice(0, feedLimit).forEach(function (s) { box.appendChild(lqPost(st, s.node, s)); });
+    shown = Math.min(ranked.length, feedLimit);
 
     var seen = {};
     ranked.forEach(function (s) { seen[s.node.id] = 1; });
@@ -1089,14 +1285,44 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     st.g.nodes.forEach(function (n) {
       if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
     });
-    if (horizon.length) {
+    if (horizon.length && shown < feedLimit) {
       box.appendChild(h('p', { class: 'lq-note', style: 'text-align:center; margin:18px 0 4px', text: '· new to you — react to pull them into your feed ·' }));
-      horizon.forEach(function (n) { box.appendChild(lqPost(st, n, null)); });
+      horizon.slice(0, feedLimit - shown).forEach(function (n) { box.appendChild(lqPost(st, n, null)); });
     }
-    if (!ranked.length && !horizon.length) {
+    var total = ranked.length + horizon.length;
+    if (total > feedLimit) box.appendChild(lqMore(total - feedLimit));
+    if (!total) {
       box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'lq-note', text: 'Nothing here yet — be the first to share.' })));
     }
     return box;
+  }
+
+  function lqMore(remaining) {
+    return h('div', { style: 'text-align:center; margin:14px 0' },
+      h('button', { class: 'lq-pill', text: 'Show more (' + remaining + ')', onclick: function () { feedLimit += 30; render(); } }));
+  }
+
+  function handleMediaPick(f, done) {
+    if (f.type.indexOf('video/') === 0) {
+      if (!REMOTE) { toast('Videos need the shared network host.'); return; }
+      if (f.size > 12 * 1024 * 1024) { toast('Video too large — 12 MB max.'); return; }
+      toast('Uploading video…');
+      uploadMedia(f, f.type).then(function (d) { done({ h: d.h, m: d.m }); toast('Video ready.'); })
+        .catch(function (e) { toast(String(e.message || e)); });
+      return;
+    }
+    downscaleImage(f).then(function (blob) {
+      if (REMOTE) {
+        return uploadMedia(blob, 'image/jpeg').then(function (d) { done({ h: d.h, m: d.m }); toast('Image ready — downscaled on your device.'); });
+      }
+      var fr = new FileReader();
+      fr.onload = function () {
+        if (fr.result.length > 300 * 1024) { toast('Image too large for the local sandbox.'); return; }
+        done({ d: fr.result, m: 'image/jpeg' });
+        toast('Image attached (local).');
+      };
+      fr.readAsDataURL(blob);
+    }).catch(function () { toast('Could not read that file as an image.'); });
   }
 
   function lqPost(st, n, score) {
@@ -1116,8 +1342,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2))),
         sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
       h('div', { class: 'lq-body', text: st.payloads[n.id] || '' }));
-    if (tags.length) {
+    (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
+    var refs = refsOf(st, n.id);
+    if (refs.quotes.length) {
+      var q = refs.quotes[0];
+      card.appendChild(h('div', { class: 'quote-embed', onclick: function () { toast('Quoted post by ' + (st.handles[st.creators[q]] || '—') + '.'); } },
+        h('div', { class: 'q-head' }, '↪ ', h('b', {}, st.handles[st.creators[q]] || '—')),
+        h('div', { class: 'q-text', text: (st.payloads[q] || '').slice(0, 140) })));
+    }
+    if (refs.mentions.length || tags.length) {
       var tr = h('div', { class: 'lq-tagrow' });
+      refs.mentions.forEach(function (mid) { tr.appendChild(h('span', { class: 'mention-chip', text: '@' + (st.handles[mid] || mid) })); });
       tags.forEach(function (t) { tr.appendChild(h('span', { class: 'lq-tag', text: t })); });
       card.appendChild(tr);
     }
@@ -1166,6 +1401,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           } }, icon('tag'), 'Tag'));
       });
     } }, icon('tag'), 'Tag'));
+    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
+      composeQuote = n.id;
+      lqView = 'feed'; lqSort = lqSort; render();
+      toast('Quoting — write your post and share. The reference is a priced act of its own.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } }, icon('bubble'), 'Quote'));
     if (author && author !== who) {
       actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
         toggle(function () { return lqEndorseSheet(st, author); });
@@ -1370,15 +1611,35 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function feedTab(st) {
-    var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored)' });
+    var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored; @name mentions and quotes are priced Reference acts)' });
     var att = slider('attachment', 0.8);
+    var fileIn = h('input', { type: 'file', accept: 'image/*,video/mp4,video/webm', style: 'display:none' });
+    var chips = h('div', { class: 'row' });
+    function renderChips() {
+      chips.innerHTML = '';
+      if (composeQuote) chips.appendChild(h('span', { class: 'compose-chip' }, '↪ quoting ' + (st.handles[st.creators[composeQuote]] || 'post'),
+        h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
+      if (composeMedia) chips.appendChild(h('span', { class: 'compose-chip' }, (composeMedia.m.indexOf('video/') === 0 ? 'video' : 'image') + ' attached',
+        h('button', { text: '×', onclick: function () { composeMedia = null; renderChips(); } })));
+    }
+    renderChips();
+    fileIn.addEventListener('change', function () {
+      var f2 = fileIn.files && fileIn.files[0];
+      if (f2) handleMediaPick(f2, function (entry) { composeMedia = entry; renderChips(); });
+      fileIn.value = '';
+    });
     var composer = h('div', { class: 'card composer' },
-      h('p', { class: 'eyebrow', text: 'publish' }), text,
+      h('p', { class: 'eyebrow', text: 'publish' }), text, chips,
       h('div', { class: 'row' }, att.row,
+        h('button', { class: 'btn small', text: '+ media', onclick: function () { fileIn.click(); } }), fileIn,
         h('button', { class: 'btn primary', text: 'Post · −θ', onclick: function () {
           var t = text.value.trim();
-          if (!t) { toast('Write something — the payload is yours, the husk is the network’s.'); return; }
-          tryAct(who, { t: 'post', author: who, text: t, a: att.value() }, 'Posted. Publish mints the Content node; attachment is its genesis stance.');
+          if (!t && !composeMedia) { toast('Write something — the payload is yours, the husk is the network’s.'); return; }
+          var act = { t: 'post', author: who, text: t || '·', a: att.value() };
+          if (composeQuote) act.ref = composeQuote;
+          if (composeMedia) act.media = [composeMedia];
+          tryAct(who, act, 'Posted. Publish mints the Content node; references append as their own acts.');
+          composeQuote = null; composeMedia = null;
         } })));
 
     var wrap = h('div', {});
@@ -1386,14 +1647,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var cogra = feedMode === 'cogra';
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
       h('div', { class: 'panel-head', style: 'margin-bottom:6px' },
-        h('p', { class: 'eyebrow', style: 'margin:0', text: cogra
-          ? 'CoGra Σ σ(π)·m(π)·f(Δt) — k-disjoint paths, no standing, balance × taint'
-          : 'L1 default — S = W · (1 + standing/ν) · ‖T‖F' }),
+        h('p', { class: 'eyebrow', style: 'margin:0', text: feedMode === 'new'
+          ? 'chronological — authoritative append order, no ranking'
+          : cogra
+            ? 'CoGra Σ σ(π)·m(π)·f(Δt) — k-disjoint paths, no standing, balance × taint'
+            : 'L1 default — S = W · (1 + standing/ν) · ‖T‖F' }),
         h('div', { class: 'tabs' },
-          h('button', { class: cogra ? '' : 'on', text: 'L1', onclick: function () { feedMode = 'l1'; render(); } }),
-          h('button', { class: cogra ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; render(); } }))));
+          h('button', { class: feedMode === 'l1' ? 'on' : '', text: 'L1', onclick: function () { feedMode = 'l1'; feedLimit = 30; render(); } }),
+          h('button', { class: feedMode === 'cogra' ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; feedLimit = 30; render(); } }),
+          h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }))));
     var ranked, maxRel;
-    if (cogra) {
+    if (feedMode === 'new') {
+      var newest = [];
+      st.g.edges.forEach(function (e) {
+        if (e.family === 'Publish' && st.payloads[e.tgt]) newest.push({ node: st.g.nodes.get(e.tgt), idx: e.appendIndex });
+      });
+      newest.sort(function (a2, b2) { return b2.idx - a2.idx; });
+      ranked = newest.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
+      maxRel = 1;
+    } else if (cogra) {
       var scores = cograFeed(st, who);
       maxRel = scores.length ? Math.max.apply(null, scores.map(function (s) { return Math.abs(s.S); })) : 1;
       ranked = scores.map(function (s) {
@@ -1408,7 +1680,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs from your own position, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
     }
     wrap.appendChild(head);
-    ranked.forEach(function (f, i) { wrap.appendChild(postCard(st, f, i + 1, maxRel)); });
+    ranked.slice(0, feedLimit).forEach(function (f, i) { wrap.appendChild(postCard(st, f, i + 1, maxRel)); });
+    if (ranked.length > feedLimit) {
+      wrap.appendChild(h('div', { style: 'text-align:center; margin:12px 0' },
+        h('button', { class: 'btn', text: 'Show more (' + (ranked.length - feedLimit) + ')', onclick: function () { feedLimit += 30; render(); } })));
+    }
 
     var seen = {};
     ranked.forEach(function (f) { seen[f.node.id] = 1; });
@@ -1439,12 +1715,23 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         deltaChip(author, st),
         h('span', { class: 'kindtag', text: 'post' })),
       h('div', { class: 'body', text: st.payloads[n.id] || '' }));
-    if (tags.length) {
+    (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
+    var refs = refsOf(st, n.id);
+    if (refs.quotes.length) {
+      var q = refs.quotes[0];
+      card.appendChild(h('div', { class: 'quote-embed' },
+        h('div', { class: 'q-head' }, '↪ Reference (content-intrinsic, Full-tier T-leg) · ', h('b', {}, st.handles[st.creators[q]] || '—')),
+        h('div', { class: 'q-text', text: (st.payloads[q] || '').slice(0, 140) })));
+    }
+    if (refs.mentions.length || tags.length) {
       var tr = h('div', { class: 'tagrow' });
+      refs.mentions.forEach(function (mid) { tr.appendChild(h('span', { class: 'mention-chip', text: '@' + (st.handles[mid] || mid) })); });
       tags.forEach(function (t) { tr.appendChild(h('span', { class: 'tagchip', text: t })); });
       card.appendChild(tr);
     }
-    if (f.cogra) {
+    if (f.newest) {
+      card.appendChild(h('div', { class: 'mech', text: 'append #' + n.id.slice(1) + ' — chronological view, unranked' }));
+    } else if (f.cogra) {
       var mech = h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.cogra.S, 4) }),
         '  =  Σ over ' + f.cogra.paths.length + ' disjoint path' + (f.cogra.paths.length === 1 ? '' : 's'));
       card.appendChild(mech);
@@ -1516,6 +1803,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
               'Tagged #' + nm + ' — a hyper act into the commons: names are owned by no one.');
           } }));
       });
+    } }));
+    actions.appendChild(h('button', { class: 'btn small', text: 'Quote', onclick: function () {
+      composeQuote = n.id;
+      render();
+      toast('Quoting — compose your post above; the Reference is a priced act of its own.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } }));
     if (author && author !== who) {
       actions.appendChild(h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(author); } }));

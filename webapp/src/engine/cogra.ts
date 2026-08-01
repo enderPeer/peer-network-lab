@@ -49,7 +49,7 @@ export const COGRA_DEFAULTS: CograConfig = { k: 5, gamma: 1, chi: 1e-4, halfLife
 /** Families that never enter feed traversal. */
 const NEVER_TRAVERSED = new Set(['SelfDeclaration', 'SelfReputation', 'Registration', 'Control']);
 /** Hyper T-leg families (channel-gated) and their A-leg partners. */
-const T_LEGS: Record<string, string> = { ReviewT: 'ReviewA', TagT: 'TagA' };
+const T_LEGS: Record<string, string> = { ReviewT: 'ReviewA', TagT: 'TagA', ReferenceT: 'ReferenceA' };
 
 export interface Hop {
   from: string;
