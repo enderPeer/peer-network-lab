@@ -148,7 +148,11 @@ button { font-family: var(--body); cursor: pointer; }
 .mini-form input[type='text'], .mini-form input[type='password'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
 
 .post-media { display: block; max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; margin: 8px 0 4px; background: rgba(127,127,127,0.08); }
-.post-audio { display: block; width: 100%; margin: 8px 0 4px; }
+.post-audio { display: block; width: 100%; margin: 4px 0; }
+.audio-wrap { margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 4px; background: var(--card-2); }
+.audio-wave { display: block; width: 100%; height: 44px; cursor: pointer; }
+.audio-wrap.wave-none .audio-wave { display: none; }
+body[data-mode='liquid'] .audio-wrap { background: var(--lq-sunk); border-color: var(--lq-rule); border-radius: 4px; }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 11px; margin: 8px 0 4px; color: var(--ink); text-decoration: none; background: var(--card-2); }
 .file-chip:hover { border-color: var(--ember); }
 body[data-mode='liquid'] .file-chip { background: var(--lq-glass-2); border-color: var(--lq-edge); color: var(--lq-ink); border-radius: 12px; }
@@ -1222,6 +1226,79 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     el.addEventListener('error', function () { el.classList.add('media-failed'); }, { once: true });
     el.src = '/api/media/' + entry.h;
   }
+  // ── Audio waveform: real peaks, decoded on the listener's own hardware ──
+  var wavePeaks = {}; // media key -> Float32Array of bucket peaks (per session)
+  function audioViz(entry) {
+    var key = entry.h || 'inline';
+    var wrap = h('div', { class: 'audio-wrap' });
+    var cv = h('canvas', { class: 'audio-wave' });
+    var au = h('audio', { class: 'post-audio', controls: '', preload: 'metadata' });
+    attachMedia(au, entry);
+    wrap.appendChild(cv);
+    wrap.appendChild(au);
+
+    var peaks = wavePeaks[key] || null;
+    function draw() {
+      var w = cv.clientWidth || 320, hgt = 44;
+      var dpr = window.devicePixelRatio || 1;
+      cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr);
+      cv.style.height = hgt + 'px';
+      var ctx = cv.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, hgt);
+      var css = getComputedStyle(document.body);
+      var accent = (css.getPropertyValue('--ember') || '#C24D2C').trim();
+      var muted = (css.getPropertyValue('--line-2') || '#999').trim();
+      var mid = hgt / 2;
+      if (!peaks) { // still decoding: a flat rule, not a fake waveform
+        ctx.strokeStyle = muted; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
+        return;
+      }
+      var played = au.duration ? au.currentTime / au.duration : 0;
+      var n = peaks.length;
+      var bw = w / n;
+      for (var i = 0; i < n; i++) {
+        var amp = Math.max(1.5, peaks[i] * (mid - 2));
+        ctx.fillStyle = (i / n) <= played ? accent : muted;
+        ctx.fillRect(i * bw, mid - amp, Math.max(1, bw * 0.62), amp * 2);
+      }
+    }
+    function load() {
+      if (peaks) { draw(); return; }
+      var url = entry.d || ('/api/media/' + entry.h);
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { draw(); return; }
+      fetch(url).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+        var ac = new AC();
+        return ac.decodeAudioData(buf).then(function (audio) {
+          var ch = audio.getChannelData(0);
+          var N = 128, out = new Float32Array(N), step = Math.floor(ch.length / N) || 1;
+          var peak = 0;
+          for (var b = 0; b < N; b++) {
+            var mx = 0, start = b * step, end = Math.min(ch.length, start + step);
+            for (var s = start; s < end; s++) { var v = ch[s] < 0 ? -ch[s] : ch[s]; if (v > mx) mx = v; }
+            out[b] = mx; if (mx > peak) peak = mx;
+          }
+          if (peak > 0) for (var k = 0; k < N; k++) out[k] /= peak; // normalise
+          wavePeaks[key] = out; peaks = out;
+          try { ac.close(); } catch (e) {}
+          draw();
+        });
+      }).catch(function () { wrap.classList.add('wave-none'); });
+    }
+    au.addEventListener('timeupdate', draw);
+    au.addEventListener('play', draw);
+    cv.addEventListener('click', function (ev) {
+      if (!au.duration) return;
+      var rect = cv.getBoundingClientRect();
+      au.currentTime = ((ev.clientX - rect.left) / rect.width) * au.duration;
+      draw();
+    });
+    setTimeout(function () { draw(); load(); }, 0);
+    return wrap;
+  }
+
   function mediaEl(entry) {
     var m = entry.m || '';
     var el;
@@ -1229,8 +1306,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       el = h('video', { class: 'post-media', controls: '', preload: 'metadata', playsinline: '' });
       attachMedia(el, entry);
     } else if (m.indexOf('audio/') === 0) {
-      el = h('audio', { class: 'post-audio', controls: '', preload: 'metadata' });
-      attachMedia(el, entry);
+      return audioViz(entry);
     } else if (m.indexOf('image/') === 0) {
       el = h('img', { class: 'post-media', loading: 'lazy', decoding: 'async', alt: 'post media' });
       attachMedia(el, entry);
@@ -1670,8 +1746,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', csv: 'text/plain', json: 'application/json',
     zip: 'application/zip',
   };
+  // Browsers name the same bytes differently (Windows .zip →
+  // application/x-zip-compressed, Safari .m4a → audio/x-m4a). Fold to canonical.
+  var MIME_ALIASES = {
+    'application/x-zip-compressed': 'application/zip', 'application/x-zip': 'application/zip',
+    'multipart/x-zip': 'application/zip', 'application/x-compressed': 'application/zip',
+    'audio/mp3': 'audio/mpeg', 'audio/mpeg3': 'audio/mpeg', 'audio/x-mpeg': 'audio/mpeg',
+    'audio/x-m4a': 'audio/mp4', 'audio/m4a': 'audio/mp4',
+    'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav', 'audio/vnd.wave': 'audio/wav',
+    'audio/x-flac': 'audio/flac', 'audio/vorbis': 'audio/ogg',
+    'image/jpg': 'image/jpeg', 'image/pjpeg': 'image/jpeg', 'image/x-png': 'image/png',
+    'video/x-m4v': 'video/mp4', 'video/mov': 'video/quicktime', 'video/x-quicktime': 'video/quicktime',
+    'text/csv': 'text/plain', 'text/markdown': 'text/plain',
+  };
   function sniffMime(f) {
-    if (f.type && f.type !== 'application/octet-stream') return f.type;
+    var t = (f.type || '').toLowerCase();
+    if (t && t !== 'application/octet-stream') return MIME_ALIASES[t] || t;
     var ext = (f.name || '').split('.').pop().toLowerCase();
     return EXT_MIME[ext] || 'application/octet-stream';
   }

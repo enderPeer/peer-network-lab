@@ -94,6 +94,38 @@ const MEDIA_TYPES = new Set([
   'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/webm',
   'application/pdf', 'text/plain', 'application/json', 'application/zip', 'application/octet-stream',
 ]);
+/**
+ * Browsers disagree on type names for the same bytes — Windows Chrome sends
+ * application/x-zip-compressed for a .zip, Safari audio/x-m4a, some tools
+ * audio/mp3 or image/jpg. Fold the aliases onto the canonical type instead of
+ * rejecting real files.
+ */
+const MIME_ALIASES = {
+  'application/x-zip-compressed': 'application/zip',
+  'application/x-zip': 'application/zip',
+  'multipart/x-zip': 'application/zip',
+  'application/x-compressed': 'application/zip',
+  'audio/mp3': 'audio/mpeg',
+  'audio/mpeg3': 'audio/mpeg',
+  'audio/x-mpeg': 'audio/mpeg',
+  'audio/x-m4a': 'audio/mp4',
+  'audio/m4a': 'audio/mp4',
+  'audio/x-wav': 'audio/wav',
+  'audio/wave': 'audio/wav',
+  'audio/vnd.wave': 'audio/wav',
+  'audio/x-flac': 'audio/flac',
+  'audio/vorbis': 'audio/ogg',
+  'image/jpg': 'image/jpeg',
+  'image/pjpeg': 'image/jpeg',
+  'image/x-png': 'image/png',
+  'video/x-m4v': 'video/mp4',
+  'video/mov': 'video/quicktime',
+  'video/x-quicktime': 'video/quicktime',
+  'text/csv': 'text/plain',
+  'text/markdown': 'text/plain',
+};
+const canonicalMime = (m) => MIME_ALIASES[m] ?? m;
+
 const MEDIA_MAX_IMAGE = 6 * 1024 * 1024;  // HEIC originals upload as-is
 const MEDIA_MAX_VIDEO = 25 * 1024 * 1024;
 const MEDIA_MAX_OTHER = 12 * 1024 * 1024; // audio + generic attachments
@@ -256,8 +288,8 @@ const server = createServer((req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/api/media') {
     if (!mediaLimiter(ip)) { json(res, 429, { error: 'upload limit — try again in a minute' }); return; }
-    const mime = (req.headers['content-type'] ?? '').split(';')[0].trim();
-    if (!MEDIA_TYPES.has(mime)) { json(res, 415, { error: 'unsupported media type' }); return; }
+    const mime = canonicalMime((req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase());
+    if (!MEDIA_TYPES.has(mime)) { json(res, 415, { error: 'unsupported media type: ' + mime }); return; }
     const cap = mime.startsWith('video/') ? MEDIA_MAX_VIDEO
       : mime.startsWith('image/') ? MEDIA_MAX_IMAGE : MEDIA_MAX_OTHER;
     const chunks = [];
