@@ -331,7 +331,14 @@ function authError(act) {
 
 function validate(act) {
   if (!act || typeof act !== 'object' || !ACT_KINDS.has(act.t)) return 'unknown act kind';
-  if (JSON.stringify(act).length > MAX_ACT_BYTES) return 'act too large';
+  // The per-field checks name their limits; this one used to say only "act too
+  // large", which reads as broken content one layer up from where the length
+  // actually is. Same courtesy here: what was sent, and what fits.
+  const actBytes = JSON.stringify(act).length;
+  if (actBytes > MAX_ACT_BYTES) {
+    return 'act too large: ' + actBytes + ' bytes serialised, the limit is ' + MAX_ACT_BYTES
+      + '. Text fields cap at 1000 characters (500 for messages); if you are under that, an attachment or reference list is the cause.';
+  }
   if (acts.length >= MAX_ACTS) return 'log full — test instance capacity reached';
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
   const inR = (v) => num(v) && v >= -1 && v <= 1;
