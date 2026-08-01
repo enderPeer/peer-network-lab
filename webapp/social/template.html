@@ -465,6 +465,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var feedLimit = 30;    // windowed rendering — raised by "show more"
   var composeMedia = null, composeQuote = null; // pending composer attachments
   var netScope = 'social', netMinW = 0, netView = null; // network tab: filter + viewport
+  var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
   var mode = 'liquid';
   var pins = {};
@@ -761,8 +762,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.7, pi: 0.8, epoch: certsSoFar },
             { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: 'prof_' + mid, pd: 0.8, pi: 0.7, epoch: certsSoFar }
           );
-          debit(a.author); weighHome(a.author, 0.7, 0.8);
-          chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) });
+          // def:epoch:standing-recipient-resolution — a positive Reference to a
+          // Profile compiles a person-vouch to that actor (cam's spec review).
+          debit(a.author); vouch(a.author, mid, 0.7, 0.8);
+          chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) + ' — person-vouch compiled' });
         }
       } else if (a.t === 'opinion') {
         counter++;
@@ -1172,6 +1175,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function switchTo(id, st) {
+    viewAs = null; // perspective resets with identity
     var hash = st.pinHash[id];
     if (!hash) { who = id; save(); render(); return; }
     if (pins[id]) {
@@ -1852,6 +1856,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('button', { class: feedMode === 'l1' ? 'on' : '', text: 'L1', onclick: function () { feedMode = 'l1'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'cogra' ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }))));
+    // View-as (community request): rank the feed from any identity's position — read-only.
+    var vu = viewAs && st.ledgerById[viewAs] ? viewAs : who;
+    var vaSel = h('select', {});
+    vaSel.appendChild(h('option', { value: '', text: 'viewing as: me' }));
+    st.ledgers.forEach(function (l) {
+      if (l.id === who) return;
+      var o = h('option', { value: l.id, text: 'viewing as: ' + st.handles[l.id] });
+      if (viewAs === l.id) o.selected = true;
+      vaSel.appendChild(o);
+    });
+    vaSel.addEventListener('change', function () { viewAs = vaSel.value || null; feedLimit = 30; render(); });
+    head.appendChild(h('div', { style: 'display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px' },
+      vaSel,
+      vu !== who ? h('span', { class: 'gate pass', text: 'read-only — acting stays you' }) : null));
     var ranked, maxRel;
     if (feedMode === 'new') {
       var newest = [];
@@ -1862,13 +1880,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       ranked = newest.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
       maxRel = 1;
     } else if (cogra) {
-      var scores = cograFeed(st, who);
+      var scores = cograFeed(st, vu);
       maxRel = scores.length ? Math.max.apply(null, scores.map(function (s) { return Math.abs(s.S); })) : 1;
       ranked = scores.map(function (s) {
         return { node: s.node, relevance: s.S, bfsWeight: 0, amplifier: 0, contentNorm: 0, cogra: s };
       });
     } else {
-      var feed = E.rankFeed(st.g, who, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
+      var feed = E.rankFeed(st.g, vu, function (id) { return credibility(st, id); }, function (nid) { return st.creators[nid] || null; });
       ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
       maxRel = ranked.length ? ranked[0].relevance : 1;
     }
