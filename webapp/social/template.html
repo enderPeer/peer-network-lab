@@ -143,7 +143,7 @@ button { font-family: var(--body); cursor: pointer; }
 .post .body { font-size: 14.5px; line-height: 1.55; margin: 8px 0; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
-.post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); }
+.post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
 .post .mech b { color: var(--ink); font-weight: 600; }
 .rankbar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 7px; overflow: hidden; }
 .rankbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--ember)); transition: width 0.5s ease; }
@@ -370,6 +370,28 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
 
 /* ═══ MOBILE OPTIMIZATION ═══ */
 button, .btn, .lq-pill { touch-action: manipulation; }
+
+/* compact geek identity strip — desktop hides it, mobile leads with it */
+.geek-strip { display: none; }
+.net-hint { display: none; }
+@media (max-width: 1010px) {
+  /* content first on single-column geek: feed, then standings, then identity */
+  .cols .geek-center { order: 1; }
+  .cols .rail-right { order: 2; }
+  .cols .rail-left { order: 3; }
+  .geek-strip {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 9px 12px; margin-bottom: 12px; box-shadow: var(--shadow);
+  }
+  .cols { gap: 12px; }
+  .netwrap { -webkit-overflow-scrolling: touch; }
+  .geek-strip .g-handle { font-weight: 700; font-size: 13.5px; white-space: nowrap; }
+  .geek-strip .g-gauge { flex: 1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 40px; }
+  .geek-strip .g-gauge i { display: block; height: 100%; background: linear-gradient(90deg, var(--ember), var(--ember-hot)); }
+  .geek-strip .num { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .net-hint { display: block; }
+}
 @media (max-width: 560px) {
   .shell { padding: 0 10px 30px; }
   .lq-shell { padding: 10px 10px calc(96px + env(safe-area-inset-bottom, 0px)); }
@@ -1239,10 +1261,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
+    // Compact identity strip: leads the page on mobile, hidden on desktop.
+    shell.appendChild(h('div', { class: 'geek-strip' },
+      avatar(st.handles[who], 'avatar s'),
+      h('span', { class: 'g-handle', text: st.handles[who] + (st.pinHash[who] ? ' 🔒' : '') }),
+      h('span', { class: 'standing-chip', text: fmt(NU * myX, 3) }),
+      deltaChip(who, st),
+      h('span', { class: 'g-gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
+      h('span', { class: 'num', text: Math.floor(me.burnBal / THETA) + ' acts' }),
+      h('button', { class: 'btn small', text: 'Burn +1', onclick: function () {
+        pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Burned 1.00 reserve.'); });
+      } })));
     shell.appendChild(h('div', { class: 'cols' },
-      h('div', { class: 'rail' }, idCard(st, me, myX, rate), aboutCard()),
-      center,
-      h('div', { class: 'rail' }, standingsCard(st), epochCard(st))));
+      h('div', { class: 'rail rail-left' }, idCard(st, me, myX, rate), aboutCard()),
+      h('div', { class: 'geek-center' }, center),
+      h('div', { class: 'rail rail-right' }, standingsCard(st), epochCard(st))));
     shell.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
     root.appendChild(shell);
   }
@@ -1461,7 +1494,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function netTab(st) {
     var wrap = h('div', {});
     var card = h('div', { class: 'card netwrap' },
-      h('p', { class: 'eyebrow', text: 'the action graph — stroke = damped weight · click an edge' }));
+      h('p', { class: 'eyebrow', text: 'the action graph — stroke = damped weight · click an edge' }),
+      h('p', { class: 'smallnote net-hint', text: 'drag sideways to pan · tap an edge to open its tensor' }));
     var svg = sv('svg', { id: 'netsvg', viewBox: '0 0 780 490' });
     var pos = nodePos(st);
     var marker = sv('marker', { id: 'arr', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '6.5', markerHeight: '6.5', orient: 'auto-start-reverse' });
