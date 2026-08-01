@@ -5,7 +5,7 @@
 //      imports, so the page and the bot API can never disagree about state
 //   4. emits public/peer-engine.mjs, the engine as a Node module for the host
 // Usage: node social/assemble.mjs [outFile]
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,9 +38,17 @@ mkdirSync(dirname(enginePath), { recursive: true });
 writeFileSync(enginePath, nodeBundle.outputFiles[0].text, 'utf8');
 
 // .cjs so the host can require() it unambiguously (this package is type:module);
-// the page just inlines its text, so the extension is irrelevant there.
-const replay = readFileSync(resolve(here, 'replay.cjs'), 'utf8');
-if (replay.includes('</script')) throw new Error('replay.cjs contains </script — cannot inline');
+// the page just inlines its text, so the extension is irrelevant there. It is
+// minified for the page exactly as the engine is — the readable source is the
+// file itself, and every visitor was paying for its comments over the wire.
+// transform(), not build(): build() sees module.exports, decides the file is
+// CommonJS and wraps it in its own module scope — which makes the UMD take the
+// CJS branch and never publish window.PeerReplay. transform() only minifies.
+const replaySrc = readFileSync(resolve(here, 'replay.cjs'), 'utf8');
+const replayMin = await transform(replaySrc, { minify: true, loader: 'js' });
+const replay = replayMin.code;
+if (!/PeerReplay/.test(replay)) throw new Error('minified replay lost its global — the page would not boot');
+if (replay.includes('</script')) throw new Error('replay bundle contains </script — cannot inline');
 
 const template = readFileSync(resolve(here, 'template.html'), 'utf8');
 if (!template.includes('/*__ENGINE__*/')) throw new Error('template marker missing');
@@ -50,5 +58,6 @@ mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, template
   .replace('/*__ENGINE__*/', () => engine)
   .replace('/*__REPLAY__*/', () => replay), 'utf8');
-console.log('wrote', out, '(engine', engine.length, '+ replay', replay.length, 'bytes)');
+console.log('wrote', out, '(engine', engine.length, '+ replay', replay.length,
+  'bytes; replay source', replaySrc.length, '→', replay.length, ')');
 console.log('wrote', enginePath, '(node engine', nodeBundle.outputFiles[0].text.length, 'bytes)');

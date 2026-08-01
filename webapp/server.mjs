@@ -685,6 +685,22 @@ function applyAct(act, auth, ip) {
   return { ok: true, index: acts.length - 1 };
 }
 
+// Wrap, compress and hash the built page once per build, not once per visitor.
+// Keyed on mtime+size so a rebuild is picked up without restarting the host.
+let pageCache = null;
+function pageDoc() {
+  const stat = statSync(PAGE);
+  const key = stat.mtimeMs + ':' + stat.size;
+  if (pageCache && pageCache.key === key) return pageCache;
+  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+    + '<meta name="theme-color" content="#131110"></head><body>'
+    + readFileSync(PAGE, 'utf8') + '</body></html>';
+  const gz = gzipSync(Buffer.from(html), { level: 9 });
+  pageCache = { key, html, gz, etag: '"' + createHash('sha256').update(html).digest('hex').slice(0, 16) + '"' };
+  return pageCache;
+}
+
 function readBody(req, cap) {
   return new Promise((resolve_) => {
     let b = '';
@@ -1148,9 +1164,32 @@ const server = createServer((req, res) => {
   }
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
     try {
-      const page = readFileSync(PAGE);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
-      res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#131110"></head><body>' + page.toString() + '</body></html>');
+      const doc = pageDoc();
+      // The page is a quarter of a megabyte of inlined engine and app source,
+      // and it was going out raw on every single load — over a tunnel, on
+      // phones. Gzip cuts it by roughly four fifths, and an ETag means a
+      // reload that changes nothing costs one 304 instead of the whole page.
+      const inm = req.headers['if-none-match'];
+      if (inm && inm === doc.etag) {
+        res.writeHead(304, { ETag: doc.etag, 'Cache-Control': 'no-cache', ...SECURITY_HEADERS });
+        res.end();
+        return;
+      }
+      const head = {
+        'Content-Type': 'text/html; charset=utf-8',
+        // no-cache, not no-store: revalidate every load, but allow the 304.
+        'Cache-Control': 'no-cache',
+        ETag: doc.etag,
+        Vary: 'Accept-Encoding',
+        ...SECURITY_HEADERS,
+      };
+      if (/\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
+        res.writeHead(200, { ...head, 'Content-Encoding': 'gzip', 'Content-Length': doc.gz.length });
+        res.end(doc.gz);
+      } else {
+        res.writeHead(200, { ...head, 'Content-Length': Buffer.byteLength(doc.html) });
+        res.end(doc.html);
+      }
     } catch {
       res.writeHead(500); res.end('build missing — run: npm run build:social');
     }

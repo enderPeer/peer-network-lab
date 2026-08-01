@@ -35,6 +35,50 @@ function parseMentions(text, handles) {
   return out;
 }
 
+/**
+ * One closed epoch, with its certificate deferred.
+ *
+ * Solving standing here — inside the replay loop, once per epoch, over every
+ * cell accumulated so far — was ~89% of replay time and the reason cost grew
+ * roughly n²: a longer log means both more epochs and a costlier solve each.
+ * Nothing downstream reads the result; the graph, the ledgers and the final
+ * solve are untouched by it, only `epochHistory.length` is consumed (as CoGra's
+ * certificate count and as epochNow), and stamp/headroom/pass are rendered on
+ * exactly one screen. So the inputs are snapshotted cheaply and the certificate
+ * is settled on first read: identical numbers, paid for by whoever looks.
+ */
+function deferEpoch(E, epochNo, ledgers, cells, deltaActs) {
+  var snapLedgers = ledgers.map(function (l) {
+    return { id: l.id, burnBal: l.burnBal, actCount: l.actCount };
+  });
+  var snapDmap = new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; }));
+  var actTotal = Object.keys(deltaActs).reduce(function (s, k) { return s + deltaActs[k]; }, 0);
+  var settled = null;
+  function settle() {
+    if (!settled) {
+      var sv = E.solveStanding(snapLedgers, cells, { tilt: 1 });
+      settled = E.evaluateGates(snapLedgers, sv.x, snapDmap);
+    }
+    return settled;
+  }
+  var record = { epoch: epochNo, acts: actTotal };
+  Object.defineProperties(record, {
+    stamp: { enumerable: true, get: function () { return settle().epochStamp; } },
+    headroom: { enumerable: true, get: function () { return settle().headroom; } },
+    pass: { enumerable: true, get: function () { return settle().allPass; } },
+  });
+  var chron = { who: null };
+  Object.defineProperty(chron, 'line', {
+    enumerable: true,
+    get: function () {
+      var g = settle();
+      return 'epoch ' + epochNo + ' closed · stamp ' + g.epochStamp.toFixed(3)
+        + ' · ' + (g.allPass ? 'certificate accepted' : 'wall/door failed');
+    },
+  });
+  return { record: record, chron: chron };
+}
+
 function compileCells(bundles, selfCells) {
   var out = (selfCells || []).slice();
   for (var k in bundles) {
@@ -322,16 +366,23 @@ function replayUncached(acts) {
     } else if (a.t === 'deleteAccount') {
       chron.push({ who: a.id, line: 'account deleted — content redacted, handle stays reserved' });
     } else if (a.t === 'closeEpoch') {
-      var cells0 = compileCells(bundles, selfCells);
-      var solved0 = E.solveStanding(ledgers, cells0, { tilt: 1 });
-      var dmap0 = new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; }));
-      var g0 = E.evaluateGates(ledgers, solved0.x, dmap0);
-      epochHistory.push({
-        epoch: a.epoch,
-        acts: Object.keys(deltaActs).reduce(function (s, k) { return s + deltaActs[k]; }, 0),
-        stamp: g0.epochStamp, headroom: g0.headroom, pass: g0.allPass,
-      });
-      chron.push({ who: null, line: 'epoch ' + a.epoch + ' closed · stamp ' + g0.epochStamp.toFixed(3) + ' · ' + (g0.allPass ? 'certificate accepted' : 'wall/door failed') });
+      // The certificate for a closed epoch is a full standing solve, and it
+      // used to run here, inside the loop — once per epoch, over every cell
+      // accumulated so far. That single line was ~89% of replay time and the
+      // whole reason cost grew ~n²: more acts meant both more epochs and a
+      // costlier solve each.
+      //
+      // Nothing downstream consumes it. The graph, the ledgers and the final
+      // solve are unaffected; only epochHistory.length is read (as CoGra's
+      // certificate count and as epochNow), and stamp/headroom/pass are read
+      // by exactly one screen. So snapshot the cheap inputs and settle the
+      // certificate on first access — same numbers, paid for only by whoever
+      // actually looks at them.
+      // Built in its own function: `var` is function-scoped, so snapshotting
+      // inline would give every epoch's getter the LAST epoch's data.
+      var ep = deferEpoch(E, a.epoch, ledgers, compileCells(bundles, selfCells), deltaActs);
+      epochHistory.push(ep.record);
+      chron.push(ep.chron);
       deltaActs = {};
       certsSoFar++;
     }
