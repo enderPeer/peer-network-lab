@@ -72,6 +72,16 @@ export const FAMILIES: Record<string, FamilySpec> = {
     family: 'ReviewT', domain: 'Epistemic', promoted: false, tier: 'marginal',
     paramLabels: ['effort f', 'enthusiasm e'], signForced: false, vouchCandidate: false,
   },
+  SendA: {
+    // message authorship leg into the Chat (Relational, promoted Full)
+    family: 'SendA', domain: 'Relational', promoted: true, tier: 'full',
+    paramLabels: ['directness d', 'intensity i'], signForced: false, vouchCandidate: false,
+  },
+  SendT: {
+    // minting leg Chat → Message (Minimal, marginal)
+    family: 'SendT', domain: 'Minimal', promoted: false, tier: 'marginal',
+    paramLabels: ['intensity i', 'directness d'], signForced: false, vouchCandidate: false,
+  },
   ReferenceA: {
     // authorship leg into the citing artifact (Marginal)
     family: 'ReferenceA', domain: 'Epistemic', promoted: false, tier: 'marginal',

@@ -19,7 +19,7 @@ const LOG = resolve(DATA_DIR, 'acts.jsonl');
 const PORT = Number(process.argv[2] ?? 5210);
 
 const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
-  'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle']);
+  'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 
@@ -79,6 +79,8 @@ const ACT_FIELDS = {
   redeem: ['t', 'id', 'x'],
   transferL0: ['t', 'from', 'to', 'x', 'cls'],
   closeCycle: ['t'],
+  setPin: ['t', 'id', 'pinHash'],
+  dm: ['t', 'from', 'to', 'text'],
 };
 // post gains optional reference + media fields
 ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media'];
@@ -148,7 +150,7 @@ function hashPin(id, pin, likeStored) {
 
 function authError(act) {
   const actor = act.t === 'register' ? null
-    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem'].includes(act.t) ? act.id : null));
+    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin'].includes(act.t) ? act.id : null));
   if (!actor) return null; // closeEpoch/closeCycle are communal; register is checked for uniqueness only
   const stored = pinIndex.get(actor);
   if (!stored) return null;
@@ -209,6 +211,13 @@ function validate(act) {
       if (act.cls !== undefined && act.cls !== 'live' && act.cls !== 'tlock') return 'bad class';
       break;
     case 'closeCycle':
+      break;
+    case 'setPin':
+      if (!str(act.id, 24)) return 'bad id';
+      if (!(/^[a-f0-9]{64}$/.test(act.pinHash ?? '') || /^fnv[0-9a-f]{1,8}$/.test(act.pinHash ?? ''))) return 'bad pin hash';
+      break;
+    case 'dm':
+      if (!str(act.from, 24) || !str(act.to, 24) || !str(act.text, 500)) return 'bad message';
       break;
   }
   return null;
@@ -304,6 +313,7 @@ const server = createServer((req, res) => {
       acts.push(act);
       persist(act);
       if (act.t === 'register' && act.pinHash) pinIndex.set(act.id, act.pinHash);
+      if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
       json(res, 200, { acts: acts.slice(Math.min(since, acts.length)), since: Math.min(since, acts.length), total: acts.length });
     });
     return;
