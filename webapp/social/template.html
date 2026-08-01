@@ -95,7 +95,19 @@ button { font-family: var(--body); cursor: pointer; }
 .switcher select { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 
 .cols { display: grid; grid-template-columns: 256px minmax(0, 1fr) 296px; gap: 16px; align-items: start; }
-@media (max-width: 1010px) { .cols { grid-template-columns: 1fr; } .rail { position: static; } }
+/* minmax(0,…) everywhere a track holds user content: a plain 1fr floors at
+   min-content, so one unbroken 1000-character word would stretch the whole
+   page and push the controls off-screen. Anyone can post such a word. */
+@media (max-width: 1010px) { .cols { grid-template-columns: minmax(0, 1fr); } .rail { position: static; } }
+.cols > * { min-width: 0; }
+/* Structural backstop: whatever a peer posts, the page itself never widens —
+   an oversized child scrolls inside its own card instead. */
+html, body { overflow-x: hidden; }
+.post, .card, .lq-card, .chat-msg, .lq-msg { max-width: 100%; }
+.post .body, .c-body, .lq-body, .q-text, .chat-msg, .lq-msg, .chat-row .smallnote,
+.lq-peer .lq-sub, .lq-alert, .alert-row, .chron-row, .toast {
+  overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+}
 .rail { position: sticky; top: 62px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
@@ -536,6 +548,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_WHO = 'peer-sandbox-who-v2';
   var LS_MODE = 'peer-sandbox-mode-v1';
   var LS_PINS = 'peer-sandbox-pins-v1';
+  var LS_VIEW = 'peer-sandbox-view-v1';
+  // Which tab and which sort you were on survives a reload. Nothing here is
+  // protocol state — purely where you were standing.
+  var GEEK_TABS = ['feed', 'chat', 'alerts', 'net', 'econ', 'ledger', 'guide'];
+  var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
   var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new'
@@ -557,6 +574,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // old localStorage copy.)
   try { localStorage.removeItem(LS_PINS); } catch (e) {}
   try { var p0 = JSON.parse(sessionStorage.getItem(LS_PINS)); if (p0 && typeof p0 === 'object') pins = p0; } catch (e) {}
+  try {
+    var v0 = JSON.parse(localStorage.getItem(LS_VIEW));
+    if (v0 && typeof v0 === 'object') {
+      if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
+      if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
+      if (['l1', 'cogra', 'new'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
+      if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
+      if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
+    }
+  } catch (e) {}
 
   function epochOf() {
     var n = 1;
@@ -564,11 +591,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return n;
   }
 
+  // Cheap enough to run on every render, which is how it stays honest: any
+  // navigation re-renders, so nothing has to remember to persist itself.
+  function saveView() {
+    try {
+      localStorage.setItem(LS_VIEW, JSON.stringify({
+        tab: tab, lqView: lqView, feedMode: feedMode, lqSort: lqSort, netScope: netScope,
+      }));
+    } catch (e) { /* private mode */ }
+  }
+
   function save() {
     try {
       if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
       localStorage.setItem(LS_WHO, JSON.stringify(who));
       localStorage.setItem(LS_MODE, JSON.stringify(mode));
+      saveView();
       sessionStorage.setItem(LS_PINS, JSON.stringify(pins));
     } catch (e) { /* private mode */ }
   }
@@ -1609,6 +1647,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var st = replay();
     // If this identity was deleted (possibly from another device), log out.
     if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
+    saveView(); // where you are standing survives a reload
     root.innerHTML = '';
     document.getElementById('overlay').innerHTML = '';
     if (mode === 'liquid') {
