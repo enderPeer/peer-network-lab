@@ -19,3 +19,4 @@ dist/
 # --- local scratch: graph-export downloads, probe scratch tests ---
 peer-graph-*.json
 webapp/tests/_*.test.ts
+webapp/public/peer-engine.mjs

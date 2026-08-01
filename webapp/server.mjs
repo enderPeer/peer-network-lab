@@ -3,6 +3,7 @@
 //   GET  /            → the assembled sandbox page
 //   GET  /api/acts    → { acts } (optionally ?since=N for the tail)
 //   POST /api/act     → append one validated act, returns the full log
+//   GET  /api/v1      → self-describing API for bots and AI agents (see below)
 // Persistence: server-data/acts.jsonl (one JSON act per line).
 // Run: node server.mjs [port]   (default 5210)
 import { createServer } from 'node:http';
@@ -11,6 +12,7 @@ import { gzipSync } from 'node:zlib';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, unlinkSync, statSync, renameSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, 'public/peer-social-preview.html');
@@ -429,6 +431,571 @@ function validate(act) {
   return null;
 }
 
+// ══ Bot / AI API ═══════════════════════════════════════════════════════════
+// A bot should not have to reimplement the protocol to read a post. The host
+// therefore runs the SAME replay the browser runs — social/replay.cjs, inlined
+// into the page and required here — so a feed fetched over HTTP and a feed
+// rendered on screen come from one implementation. Both artifacts are produced
+// by `npm run build:social`; if they are missing the bot API answers 503 and
+// the rest of the host keeps working.
+let engineMod = null, replayMod = null, engineErr = null;
+try {
+  const require_ = createRequire(import.meta.url);
+  replayMod = require_('./social/replay.cjs');
+} catch (e) { engineErr = 'replay module missing: ' + e.message; }
+
+async function ensureEngine() {
+  if (engineMod || engineErr) return engineMod;
+  try {
+    engineMod = await import(new URL('public/peer-engine.mjs', import.meta.url).href);
+    if (typeof engineMod.THETA === 'number') THETA_ = engineMod.THETA;
+  } catch (e) {
+    engineErr = 'engine bundle missing — run: npm run build:social (' + e.message + ')';
+  }
+  return engineMod;
+}
+
+// Replaying 300+ acts costs real work; the log is append-only, so length keys it.
+let stateCache = { len: -1, st: null, R: null };
+async function worldState() {
+  const E = await ensureEngine();
+  if (!E || !replayMod) return null;
+  if (stateCache.len === acts.length && stateCache.st) return stateCache.st;
+  if (!stateCache.R) stateCache.R = replayMod.create(E);
+  const st = stateCache.R.replay(acts);
+  stateCache = { len: acts.length, st, R: stateCache.R };
+  return st;
+}
+
+// Synchronous balance lookup for the W1 gate. Replay itself is synchronous —
+// only loading the engine is async — so once it is up we can settle solvency
+// inside the request. Returns null when the engine is unavailable, and the
+// gate then fails OPEN: a missing build must not silence the whole network.
+let THETA_ = 0.0528066; // replaced by the engine's constant once loaded
+function solvency(actorId) {
+  if (!engineMod || !replayMod) return null;
+  if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+  if (stateCache.len !== acts.length || !stateCache.st) {
+    stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+  }
+  const l = stateCache.st.ledgerById[actorId];
+  return l ? l.burnBal : null;
+}
+
+const isDeleted = (st, id) => !!(st.deleted && st.deleted[id]);
+const nameOf = (st, id) => (st.handles && st.handles[id]) || id;
+
+// One post/comment, flattened for a consumer that has no graph.
+function contentView(st, cid) {
+  const author = st.creators[cid];
+  if (!author || st.payloads[cid] === undefined) return null;
+  const node = st.g.nodes.get(cid) || {};
+  const reactions = [];
+  const comments = [];
+  for (const e of st.g.edges) {
+    if (e.family === 'Opinion' && e.tgt === cid) {
+      reactions.push({ by: e.src, byHandle: nameOf(st, e.src), polarity: e.pd, reaction: e.pi });
+    } else if (e.family === 'ReviewT' && e.src === cid && st.payloads[e.tgt] !== undefined) {
+      comments.push(e.tgt);
+    }
+  }
+  const meta = st.postMeta && st.postMeta[cid];
+  return {
+    id: cid,
+    kind: node.kind === 'Comment' ? 'comment' : 'post',
+    author, authorHandle: nameOf(st, author),
+    text: st.payloads[cid] || '',
+    media: (st.mediaMeta[cid] || []).map((m) => ({
+      url: m.h ? '/api/media/' + m.h : null, type: m.m, name: m.n ?? null,
+    })),
+    reactions, commentIds: comments,
+    edited: !!(meta && meta.edited),
+    actIndex: meta ? meta.idx : null,
+  };
+}
+
+function threadOf(st, cid, depth) {
+  const v = contentView(st, cid);
+  if (!v) return null;
+  v.comments = (depth > 0 ? v.commentIds : []).map((c) => threadOf(st, c, depth - 1)).filter(Boolean);
+  delete v.commentIds;
+  return v;
+}
+
+// Rank a feed by calling the very same engine entry points the UI calls, with
+// the same arguments. Hand-rolling a "close enough" ranking here would recreate
+// the divergence this whole shared-replay arrangement exists to prevent.
+function rankFeed(st, E, viewer, sort, limit) {
+  const personOf = (id) => (id && id.indexOf('prof_') === 0 ? id.slice(5) : id);
+  const creatorOf = (id) => st.creators[id] || null;
+
+  if (sort === 'new') {
+    const out = [];
+    for (const e of st.g.edges) {
+      if (e.family === 'Publish' && st.payloads[e.tgt] !== undefined) out.push({ cid: e.tgt, i: e.appendIndex });
+    }
+    out.sort((a, b) => b.i - a.i);
+    return out.slice(0, limit)
+      .map((r) => ({ ...contentView(st, r.cid), score: null, why: 'chronological, unranked' }))
+      .filter((x) => x.id);
+  }
+
+  if (sort === 'cogra') {
+    const scored = E.cograRank(st.g, viewer, st.epochHistory.length, {
+      personOf, creatorOf,
+      candidates: (nd) => nd.kind === 'Content' && !!st.payloads[nd.id],
+    }) || [];
+    return scored.slice(0, limit).map((s) => ({
+      ...contentView(st, s.node.id),
+      score: s.S,
+      why: s.paths.length + ' disjoint path' + (s.paths.length === 1 ? '' : 's') + ' carrying it to you',
+      paths: s.paths.map((p) => ({
+        magnitude: p.m, sign: p.sigma, recency: p.f,
+        via: p.nodes.map((n) => nameOf(st, n)),
+      })),
+    })).filter((x) => x.id);
+  }
+
+  // Layer-1 default — identical call to the geek feed's E.rankFeed(...)
+  const entries = E.rankFeed(st.g, viewer, (id) => E.NU * (st.xById[id] || 0), creatorOf);
+  return entries
+    .filter((f) => st.payloads[f.node.id] !== undefined)
+    .slice(0, limit)
+    .map((f) => ({
+      ...contentView(st, f.node.id),
+      score: f.relevance,
+      why: 'BFS weight ' + f.bfsWeight.toFixed(4) + ' × standing amplifier '
+        + f.amplifier.toFixed(3) + ' × content norm ' + f.contentNorm.toFixed(3),
+    }))
+    .filter((x) => x.id);
+}
+
+// The document an agent GETs to learn the whole API without prior knowledge.
+const API_DOC = {
+  name: 'Peer Network bot API',
+  version: 'v1',
+  what: 'A social network whose feed, standing and economy are replayable mathematics rather than engagement heuristics. This API gives bots the derived state directly, so you never have to replay the protocol yourself.',
+  howItWorks: {
+    acts: 'Everything anyone does is an act appended to a public log. There are no private records; a direct message is an act like any other.',
+    cost: 'Every act debits θ = 0.0528066 from your burn balance and raises your act count N. Your commitment rate is balance/N: acting dilutes it, burning reserve restores it. Run out and the host refuses the act with 402 (gate W1) — POST /api/v1/burn to convert reserve into energy. Recovery acts and corrections are never gated, so you can always climb back.',
+    standing: 'Standing is transported, never minted. Vouching for someone moves your own rate toward them and can lower it. Nothing you do to yourself creates standing.',
+    feed: 'Your feed is computed from YOUR position in the graph. Two accounts see different feeds from the same log, and both are checkable.',
+    honesty: 'The numbers this API returns come from the same replay the web client runs — not a parallel implementation.',
+  },
+  auth: {
+    how: 'PIN-secured handles pass their PIN as the "pin" field on write calls. Reads need no auth: the log is public.',
+    warning: 'This is a test network. A PIN is not cryptographic identity, and nothing here is private. Do not post secrets.',
+  },
+  quickstart: [
+    '1. GET /api/v1/peers to see who exists.',
+    '2. POST /api/v1/register {handle, pin} to create your bot an identity.',
+    '3. GET /api/v1/whoami?as=<id> to see your energy and standing.',
+    '4. GET /api/v1/feed?as=<id> for your ranked feed, already scored and explained.',
+    '5. POST /api/v1/post {as, pin, text} to say something.',
+    '6. Poll GET /api/v1/events?since=<cursor> to follow what changes.',
+  ],
+  endpoints: [
+    { method: 'GET', path: '/api/v1', purpose: 'this document' },
+    { method: 'GET', path: '/api/v1/state', purpose: 'network summary: actor count, epoch, act cursor' },
+    { method: 'GET', path: '/api/v1/peers', purpose: 'every actor with handle, standing, rate and whether it is PIN-secured' },
+    { method: 'GET', path: '/api/v1/whoami?as=ID', purpose: 'your standing, energy, how many acts you can still afford, and your wall status' },
+    { method: 'GET', path: '/api/v1/feed?as=ID&sort=cogra|l1|new&limit=N', purpose: 'ranked feed for that identity, each item carrying its score and why it ranked' },
+    { method: 'GET', path: '/api/v1/post/CID?depth=N', purpose: 'one post with its reactions and comment thread' },
+    { method: 'GET', path: '/api/v1/alerts?as=ID', purpose: 'what happened to you: reactions, comments, mentions, quotes, messages, calls' },
+    { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
+    { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync.' },
+    { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
+    { method: 'POST', path: '/api/v1/post', purpose: 'publish', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media' } },
+    { method: 'POST', path: '/api/v1/comment', purpose: 'comment on a post OR on another comment', body: { as: 'id', pin: 'string', target: 'content id', text: 'string ≤1000', enthusiasm: 'optional -1..1', effort: 'optional -1..1' } },
+    { method: 'POST', path: '/api/v1/react', purpose: 'react to content, or vouch for a person by targeting prof_<id>', body: { as: 'id', pin: 'string', target: 'content id or prof_id', polarity: 'optional -1..1', reaction: 'optional -1..1' } },
+    { method: 'POST', path: '/api/v1/tag', purpose: 'tag content into the commons', body: { as: 'id', pin: 'string', target: 'content id', name: 'string ≤20' } },
+    { method: 'POST', path: '/api/v1/message', purpose: 'direct message (public in the log, like everything)', body: { as: 'id', pin: 'string', to: 'id', text: 'string ≤500' } },
+    { method: 'POST', path: '/api/v1/burn', purpose: 'convert reserve into energy so you can keep acting', body: { as: 'id', pin: 'string' } },
+  ],
+  limits: {
+    acts: '20 per minute per IP', reads: '600 per minute per IP',
+    registrations: '8 per hour per IP', postText: 1000, messageText: 500,
+  },
+  errors: 'Every refusal returns {error} with a sentence saying what is wrong and, where a number is involved, what the limit is and what you sent.',
+  etiquette: 'Bots are welcome as participants, not as megaphones. Acting costs energy by design; a bot that posts constantly dilutes its own rate until the network stops listening to it. Read before you write.',
+};
+
+/**
+ * The one path by which anything enters the log. Both POST /api/act and the
+ * bot API call this, so a bot cannot be validated more loosely, authenticated
+ * differently, or exempted from the economy — there is no second door.
+ * `act` must already be sanitized. Returns {error, code} or {ok:true, index}.
+ */
+// W1 solvency, the spec's per-act gate. Until now only the browser refused a
+// drained author; the host accepted anything and let the balance run negative,
+// so "every act costs energy" was true of the arithmetic but not of the rules —
+// any script could talk forever. These kinds are gated. Recovery acts (burn,
+// deposit, redeem) and free corrections must stay open, or a drained handle
+// could never climb out.
+const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call']);
+
+function applyAct(act, auth, ip) {
+  const err = validate(act);
+  if (err) return { error: err, code: err === 'handle already registered' ? 409 : 400 };
+  // A deleted account is gone as an actor — nothing more can be done as it.
+  const actorId = act.author ?? act.from ?? act.id;
+  if (actorId && deletedIds.has(actorId)) return { error: 'this account was deleted', code: 410 };
+  if (act.to && deletedIds.has(act.to)) return { error: 'that account was deleted', code: 410 };
+  const aerr = authError({ ...act, auth });
+  if (aerr) {
+    if (!pinFailLimiter(ip)) return { error: 'too many PIN attempts — locked for a few minutes', code: 429 };
+    return { error: aerr, code: 401 };
+  }
+  if (W1_GATED.has(act.t) && solvency && actorId) {
+    const bal = solvency(actorId);
+    if (bal !== null && bal < THETA_) {
+      return {
+        code: 402,
+        error: 'out of energy: balance ' + bal.toFixed(4) + ' is below the θ ' + THETA_.toFixed(4)
+          + ' this act costs. Burn reserve to continue — every act dilutes your commitment rate, that is the point.',
+      };
+    }
+  }
+  act.ts = Date.now(); // server clock is the arbiter of the edit window
+  if (act.t === 'post') act.rmen = parseMentionsSrv(act.text, handlesAt(acts.length));
+  acts.push(act);
+  persist(act);
+  if ((act.t === 'register' || act.t === 'setPin') && act.pinHash) pinIndex.set(act.id, act.pinHash);
+  if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
+  // Deletion/edit reach back into the stored log: content bytes leave the
+  // file, structure (line count, ids, θ-parity fields) stays.
+  if (act.t === 'editPost') {
+    const orig = acts[act.target];
+    orig.text = act.text; orig.edited = true;
+    rewriteLog();
+  } else if (act.t === 'deletePost') {
+    redactPostAct(acts[act.target], act.target);
+    rewriteLog(); gcMedia();
+  } else if (act.t === 'deleteAccount') {
+    deletedIds.add(act.id);
+    for (let ai = 1; ai < acts.length; ai++) {
+      const a = acts[ai];
+      if (a.t === 'post' && a.author === act.id && !a.redacted) redactPostAct(a, ai);
+      else if ((a.t === 'review' && a.author === act.id) || (a.t === 'dm' && (a.from === act.id || a.to === act.id))) {
+        if (a.text) { a.text = ''; a.redacted = true; }
+      }
+    }
+    rewriteLog(); gcMedia();
+  }
+  return { ok: true, index: acts.length - 1 };
+}
+
+function readBody(req, cap) {
+  return new Promise((resolve_) => {
+    let b = '';
+    req.on('data', (c) => { b += c; if (b.length > cap) req.destroy(); });
+    req.on('end', () => { try { resolve_(JSON.parse(b || '{}')); } catch { resolve_(null); } });
+    req.on('error', () => resolve_(null));
+  });
+}
+
+async function handleBotApi(req, res, url, ip) {
+  const p = url.pathname.replace(/^\/api\/v1\/?/, '');
+  const q = url.searchParams;
+
+  if (req.method === 'GET' && p === '') { json(res, 200, API_DOC); return; }
+
+  if (req.method === 'GET' && !readLimiter(ip)) { json(res, 429, { error: 'slow down — 600 reads per minute' }); return; }
+
+  const st = await worldState();
+  if (!st) { json(res, 503, { error: engineErr || 'protocol engine unavailable — run: npm run build:social' }); return; }
+
+  const asId = q.get('as');
+  const needAs = () => {
+    if (!asId) { json(res, 400, { error: 'pass ?as=<your handle id>, e.g. as=u_yourbot. GET /api/v1/peers lists ids.' }); return false; }
+    if (!st.ledgerById[asId]) { json(res, 404, { error: 'no such handle: ' + asId + ' — GET /api/v1/peers for the list' }); return false; }
+    if (isDeleted(st, asId)) { json(res, 410, { error: 'that account was deleted' }); return false; }
+    return true;
+  };
+
+  // ── reads ────────────────────────────────────────────────────────────────
+  if (req.method === 'GET' && p === 'state') {
+    json(res, 200, {
+      actors: st.ledgers.filter((l) => !l.deleted).length,
+      posts: Object.keys(st.payloads).length,
+      edges: st.g.edges.length,
+      epoch: st.epochNow,
+      cursor: acts.length,
+      theta: (await ensureEngine()).THETA,
+      nu: (await ensureEngine()).NU,
+      safetyWall: (await ensureEngine()).SAFE_FLOOR,
+      note: 'cursor is the act-log length; pass it to /api/v1/events?since=cursor to follow along.',
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && p === 'peers') {
+    const NU_ = (await ensureEngine()).NU;
+    json(res, 200, {
+      peers: st.ledgers.filter((l) => !l.deleted).map((l) => ({
+        id: l.id, handle: nameOf(st, l.id),
+        standing: NU_ * (st.xById[l.id] || 0), // ν · x*, the number the UI shows
+        reducedX: st.xById[l.id] || 0,
+        rate: l.burnBal / Math.max(l.actCount, 1),
+        energy: l.burnBal, acts: l.actCount,
+        secured: !!st.pinHash[l.id],
+      })).sort((a, b) => b.standing - a.standing),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && p === 'whoami') {
+    if (!needAs()) return;
+    const E = await ensureEngine();
+    const l = st.ledgerById[asId];
+    const rate = l.burnBal / Math.max(l.actCount, 1);
+    // Two different numbers are both called "standing" in casual speech, and
+    // they differ by ν = 0.1. The safety wall is compared against the REDUCED
+    // coordinate, so returning only the displayed one would let a bot think it
+    // is safely above a wall it is actually under. Return both, named.
+    const x = st.xById[asId] || 0;
+    json(res, 200, {
+      id: asId, handle: nameOf(st, asId),
+      standing: E.NU * x,
+      reducedX: x,
+      energy: l.burnBal, acts: l.actCount, rate,
+      actsAffordable: Math.floor(l.burnBal / E.THETA),
+      secured: !!st.pinHash[asId],
+      canAct: l.burnBal >= E.THETA,
+      aboveSafetyWall: x >= E.SAFE_FLOOR,
+      safetyWall: E.SAFE_FLOOR,
+      meaning: 'standing = ν · reducedX is the number others see. The W2a safety wall compares reducedX against safetyWall, not standing.',
+      warning: l.burnBal < E.THETA * 5
+        ? 'Low energy: POST /api/v1/burn to convert reserve into energy, or the network will refuse your next acts.'
+        : (x < E.SAFE_FLOOR ? 'You are under the safety wall: your acts still record, but your standing no longer carries weight for others. Burn reserve to climb back.' : null),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && p === 'feed') {
+    if (!needAs()) return;
+    const sort = q.get('sort') || 'cogra';
+    if (['cogra', 'l1', 'new'].indexOf(sort) < 0) {
+      json(res, 400, { error: 'sort must be cogra, l1 or new — got ' + sort }); return;
+    }
+    const limit = Math.min(Math.max(Number(q.get('limit')) || 20, 1), 100);
+    const E = await ensureEngine();
+    const items = rankFeed(st, E, asId, sort, limit);
+    // Cold start is real and must not read as "the network is empty": a new
+    // account has no graph position, so nothing reaches it until it acts. The
+    // UI shows these as "new to you"; a bot needs the same door or it has
+    // nothing to react to and can never earn a feed.
+    const seen = {};
+    items.forEach((i) => { seen[i.id] = 1; });
+    const beyond = [];
+    if (items.length < limit) {
+      for (const nid in st.payloads) {
+        if (seen[nid] || st.creators[nid] === asId) continue;
+        const v = contentView(st, nid);
+        if (v) beyond.push(v);
+        if (beyond.length >= limit - items.length) break;
+      }
+    }
+    json(res, 200, {
+      as: asId, sort, cursor: acts.length,
+      explains: sort === 'cogra' ? 'score is S = Σ over k node-disjoint paths of sign × magnitude × recency'
+        : sort === 'l1' ? 'score is BFS weight × standing amplifier × content norm'
+        : 'no score: newest first',
+      items,
+      beyondHorizon: beyond,
+      beyondHorizonMeans: beyond.length
+        ? 'Nothing in the graph connects you to these yet, so they carry no score. React to one and it pulls its author into your reachable set — that is how a new account earns a feed.'
+        : null,
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && p.startsWith('post/')) {
+    const cid = p.slice(5);
+    const depth = Math.min(Math.max(Number(q.get('depth')) || 3, 0), 8);
+    const v = threadOf(st, cid, depth);
+    if (!v) { json(res, 404, { error: 'no content ' + cid + ' — it may have been deleted, or the id is wrong' }); return; }
+    json(res, 200, v);
+    return;
+  }
+
+  if (req.method === 'GET' && p === 'alerts') {
+    if (!needAs()) return;
+    const mine = {};
+    for (const nid in st.creators) if (st.creators[nid] === asId) mine[nid] = 1;
+    const out = [];
+    for (const e of st.g.edges) {
+      let who = null, kind = null, target = null;
+      if (e.family === 'Opinion' && e.src !== asId) {
+        if (e.tgt === 'prof_' + asId) { who = e.src; kind = 'vouched for you'; }
+        else if (mine[e.tgt]) { who = e.src; kind = 'reacted to your post'; target = e.tgt; }
+      } else if (e.family === 'ReviewA' && e.src !== asId && mine[e.tgt]) {
+        who = e.src; kind = 'commented on your post'; target = e.tgt;
+      } else if (e.family === 'TagA' && e.src !== asId && mine[e.tgt]) {
+        who = e.src; kind = 'tagged your post'; target = e.tgt;
+      } else if (e.family === 'ReferenceT' && e.src !== asId) {
+        if (e.tgt === 'prof_' + asId) { who = st.creators[e.src]; kind = 'mentioned you'; target = e.src; }
+        else if (mine[e.tgt]) { who = st.creators[e.src]; kind = 'quoted your post'; target = e.src; }
+      }
+      if (who && who !== asId && st.handles[who]) {
+        out.push({ from: who, fromHandle: nameOf(st, who), what: kind, target, at: e.appendIndex });
+      }
+    }
+    // One ordering, not two. The UI offsets message alerts by +100000, which
+    // puts every message above every reaction forever — so a bot that gets
+    // messages would stop seeing reactions entirely. Here both are ordered by
+    // the act index they actually came from.
+    for (const m of st.dms) {
+      if (m.to !== asId) continue;
+      out.push({
+        from: m.from, fromHandle: nameOf(st, m.from),
+        what: m.call ? 'called you (' + m.call.outcome + ')' : 'messaged you',
+        text: m.call ? null : m.text, at: m.idx,
+      });
+    }
+    out.sort((a, b) => b.at - a.at);
+    json(res, 200, {
+      as: asId, alerts: out.slice(0, 50),
+      note: '"at" is the act-log index the alert came from; the same scale as the /api/v1/events cursor.',
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && p === 'inbox') {
+    if (!needAs()) return;
+    const threads = {};
+    for (const m of st.dms) {
+      if (m.from !== asId && m.to !== asId) continue;
+      const peer = m.from === asId ? m.to : m.from;
+      (threads[peer] = threads[peer] || []).push({
+        from: m.from, mine: m.from === asId,
+        text: m.call ? null : m.text,
+        call: m.call || null, at: m.idx,
+      });
+    }
+    json(res, 200, {
+      as: asId,
+      threads: Object.keys(threads).map((peer) => ({
+        peer, peerHandle: nameOf(st, peer), messages: threads[peer],
+      })),
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && p === 'events') {
+    const since = Math.max(0, Number(q.get('since')) || 0);
+    const limit = Math.min(Math.max(Number(q.get('limit')) || 50, 1), 200);
+    const slice = acts.slice(since, since + limit);
+    json(res, 200, {
+      since, cursor: Math.min(since + slice.length, acts.length), more: since + slice.length < acts.length,
+      events: slice.map((a, i) => {
+        const who = a.author ?? a.from ?? a.id ?? null;
+        const say = {
+          post: 'published a post', review: 'commented', opinion: 'reacted', tag: 'tagged',
+          dm: 'sent a message', call: 'made a call', register: 'joined', burn: 'burned reserve for energy',
+          burnL0: 'burned credits into attestation', deposit: 'deposited reserve', redeem: 'redeemed credits',
+          transferL0: 'transferred credits', setPin: 'secured their handle', editPost: 'edited a post',
+          deletePost: 'deleted a post', deleteAccount: 'deleted their account',
+          closeEpoch: 'the epoch closed', closeCycle: 'the economic cycle closed', seedWorld: 'the world was seeded',
+        }[a.t] || a.t;
+        return {
+          at: since + i, kind: a.t,
+          who, whoHandle: who ? nameOf(st, who) : null,
+          what: say,
+          text: a.redacted ? null : (a.text ?? null),
+          target: a.target ?? null,
+        };
+      }),
+    });
+    return;
+  }
+
+  // ── writes ───────────────────────────────────────────────────────────────
+  if (req.method !== 'POST') { json(res, 404, { error: 'no such endpoint: ' + req.method + ' /api/v1/' + p + ' — GET /api/v1 lists them all' }); return; }
+  if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most 20 acts per minute from one place' }); return; }
+
+  const body = await readBody(req, MAX_ACT_BYTES * 2);
+  if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
+  const pin = typeof body.pin === 'string' ? body.pin : '';
+  const me = typeof body.as === 'string' ? body.as : '';
+
+  const submit = (raw) => {
+    const out = applyAct(sanitize(raw), pin, ip);
+    if (out.error) { json(res, out.code, { error: out.error }); return; }
+    const l = st.ledgerById[me];
+    json(res, 200, {
+      ok: true, actIndex: out.index, cursor: acts.length,
+      energyBefore: l ? l.burnBal : null,
+      note: 'This cost θ. GET /api/v1/whoami?as=' + me + ' for your new balance.',
+    });
+  };
+
+  if (p === 'register') {
+    const handle = typeof body.handle === 'string' ? body.handle.trim() : '';
+    if (!handle) { json(res, 400, { error: 'handle is required' }); return; }
+    const id = 'u_' + handle.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (id === 'u_') { json(res, 400, { error: 'handle must contain letters or digits' }); return; }
+    if (!registerLimiter(ip)) { json(res, 429, { error: 'registration limit reached — try again in an hour' }); return; }
+    const raw = { t: 'register', id, handle, seed: 1, epoch: st.epochNow };
+    if (body.pin) {
+      if (String(body.pin).length < 4) { json(res, 400, { error: 'pin must be at least 4 characters' }); return; }
+      raw.pinHash = createHash('sha256').update(id + ':' + body.pin, 'utf8').digest('hex');
+    }
+    const out = applyAct(sanitize(raw), '', ip);
+    if (out.error) { json(res, out.code, { error: out.error }); return; }
+    json(res, 200, {
+      ok: true, id, handle, secured: !!raw.pinHash, actIndex: out.index,
+      next: 'GET /api/v1/whoami?as=' + id + ' — and keep your pin, it cannot be recovered.',
+      warning: raw.pinHash ? null : 'You registered without a PIN. Anyone can act as this handle, and you cannot delete or edit. Register again with a pin if that matters.',
+    });
+    return;
+  }
+
+  if (!me) { json(res, 400, { error: 'pass "as": your handle id, e.g. {"as":"u_yourbot","pin":"…"}' }); return; }
+  if (!st.ledgerById[me]) { json(res, 404, { error: 'no such handle: ' + me + ' — POST /api/v1/register first' }); return; }
+
+  const num = (v, d) => (typeof v === 'number' && isFinite(v) && v >= -1 && v <= 1 ? v : d);
+
+  if (p === 'post') {
+    const text = typeof body.text === 'string' ? body.text : '';
+    if (!text.trim() && !body.attachment) { json(res, 400, { error: 'text or attachment is required' }); return; }
+    const raw = { t: 'post', author: me, text: text.trim() || '·', a: num(body.attachment_strength, 0.8) };
+    if (body.quote) raw.ref = String(body.quote);
+    if (body.attachment) raw.media = [body.attachment];
+    submit(raw); return;
+  }
+  if (p === 'comment') {
+    if (!body.target) { json(res, 400, { error: 'target is required: the content id you are commenting on' }); return; }
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) { json(res, 400, { error: 'text is required' }); return; }
+    submit({ t: 'review', author: me, target: String(body.target), e: num(body.enthusiasm, 0.7), f: num(body.effort, 0.8), text });
+    return;
+  }
+  if (p === 'react') {
+    if (!body.target) { json(res, 400, { error: 'target is required: a content id, or prof_<id> to vouch for a person' }); return; }
+    submit({ t: 'opinion', author: me, target: String(body.target), p: num(body.polarity, 0.8), r: num(body.reaction, 0.8) });
+    return;
+  }
+  if (p === 'tag') {
+    const name = typeof body.name === 'string' ? body.name.trim().replace(/^#/, '') : '';
+    if (!body.target || !name) { json(res, 400, { error: 'target and name are required' }); return; }
+    submit({ t: 'tag', author: me, target: String(body.target), name, r: num(body.relevance, 0.8), c: num(body.confidence, 0.8) });
+    return;
+  }
+  if (p === 'message') {
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!body.to || !text) { json(res, 400, { error: 'to and text are required' }); return; }
+    submit({ t: 'dm', from: me, to: String(body.to), text });
+    return;
+  }
+  if (p === 'burn') {
+    submit({ t: 'burn', id: me, amt: 1 });
+    return;
+  }
+
+  json(res, 404, { error: 'no such endpoint: POST /api/v1/' + p + ' — GET /api/v1 lists them all' });
+}
+
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
@@ -513,43 +1080,8 @@ const server = createServer((req, res) => {
       if (act.t === 'register' && !registerLimiter(ip)) {
         json(res, 429, { error: 'registration limit reached — try again in an hour' }); return;
       }
-      const err = validate(act);
-      if (err) { json(res, err === 'handle already registered' ? 409 : 400, { error: err }); return; }
-      // A deleted account is gone as an actor — nothing more can be done as it.
-      const actorId = act.author ?? act.from ?? act.id;
-      if (actorId && deletedIds.has(actorId)) { json(res, 410, { error: 'this account was deleted' }); return; }
-      if (act.to && deletedIds.has(act.to)) { json(res, 410, { error: 'that account was deleted' }); return; }
-      const aerr = authError({ ...act, auth });
-      if (aerr) {
-        if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
-        json(res, 401, { error: aerr }); return;
-      }
-      act.ts = Date.now(); // server clock is the arbiter of the edit window
-      if (act.t === 'post') act.rmen = parseMentionsSrv(act.text, handlesAt(acts.length));
-      acts.push(act);
-      persist(act);
-      if ((act.t === 'register' || act.t === 'setPin') && act.pinHash) pinIndex.set(act.id, act.pinHash);
-      if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
-      // Deletion/edit reach back into the stored log: content bytes leave the
-      // file, structure (line count, ids, θ-parity fields) stays.
-      if (act.t === 'editPost') {
-        const orig = acts[act.target];
-        orig.text = act.text; orig.edited = true;
-        rewriteLog();
-      } else if (act.t === 'deletePost') {
-        redactPostAct(acts[act.target], act.target);
-        rewriteLog(); gcMedia();
-      } else if (act.t === 'deleteAccount') {
-        deletedIds.add(act.id);
-        for (let ai = 1; ai < acts.length; ai++) {
-          const a = acts[ai];
-          if (a.t === 'post' && a.author === act.id && !a.redacted) redactPostAct(a, ai);
-          else if ((a.t === 'review' && a.author === act.id) || (a.t === 'dm' && (a.from === act.id || a.to === act.id))) {
-            if (a.text) { a.text = ''; a.redacted = true; }
-          }
-        }
-        rewriteLog(); gcMedia();
-      }
+      const out = applyAct(act, auth, ip);
+      if (out.error) { json(res, out.code, { error: out.error }); return; }
       json(res, 200, { acts: acts.slice(Math.min(since, acts.length)), since: Math.min(since, acts.length), total: acts.length });
     });
     return;
@@ -608,6 +1140,10 @@ const server = createServer((req, res) => {
       signalBoxes.set(msg.to, box);
       json(res, 200, { ok: true });
     });
+    return;
+  }
+  if (url.pathname === '/api/v1' || url.pathname.startsWith('/api/v1/')) {
+    handleBotApi(req, res, url, ip);
     return;
   }
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
