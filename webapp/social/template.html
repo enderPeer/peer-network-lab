@@ -148,6 +148,10 @@ button { font-family: var(--body); cursor: pointer; }
 .mini-form input[type='text'], .mini-form input[type='password'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
 
 .post-media { display: block; max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; margin: 8px 0 4px; background: rgba(127,127,127,0.08); }
+.post-audio { display: block; width: 100%; margin: 8px 0 4px; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 11px; margin: 8px 0 4px; color: var(--ink); text-decoration: none; background: var(--card-2); }
+.file-chip:hover { border-color: var(--ember); }
+body[data-mode='liquid'] .file-chip { background: var(--lq-glass-2); border-color: var(--lq-edge); color: var(--lq-ink); border-radius: 12px; }
 .quote-embed { border-left: 3px solid var(--ember); background: var(--card-2); border-radius: 8px; padding: 8px 12px; margin: 8px 0 4px; cursor: pointer; }
 .quote-embed .q-head { font-size: 11.5px; color: var(--muted); }
 .quote-embed .q-head b { color: var(--ink); }
@@ -179,6 +183,15 @@ table.standings td.r, table.standings th.r { text-align: right; }
 table.standings tr.me td { background: var(--ember-soft); }
 table.standings tr:not(:first-child) { cursor: pointer; }
 table.standings tr:not(:first-child):hover td { background: var(--card-2); }
+
+/* geek chats */
+.chat-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.chat-row:hover { background: var(--card-2); }
+.chat-row .grow { flex: 1; min-width: 0; }
+.chat-thread { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 6px 0; }
+.chat-msg { max-width: 78%; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; font-size: 13.5px; align-self: flex-start; }
+.chat-msg.mine { align-self: flex-end; background: var(--ember-soft); border-color: rgba(194,77,44,0.3); }
+.chat-msg .m-meta { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
 
 .chron { font-size: 12.5px; color: var(--muted); }
 .chron > div { padding: 7px 0; border-top: 1px dashed var(--line); line-height: 1.5; }
@@ -1103,32 +1116,56 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
   }
   function mediaEl(entry) {
-    var isVideo = (entry.m || '').indexOf('video/') === 0;
+    var m = entry.m || '';
     var el;
-    if (isVideo) {
+    if (m.indexOf('video/') === 0) {
       el = h('video', { class: 'post-media', controls: '', preload: 'metadata', playsinline: '' });
-    } else {
+      attachMedia(el, entry);
+    } else if (m.indexOf('audio/') === 0) {
+      el = h('audio', { class: 'post-audio', controls: '', preload: 'metadata' });
+      attachMedia(el, entry);
+    } else if (m.indexOf('image/') === 0) {
       el = h('img', { class: 'post-media', loading: 'lazy', decoding: 'async', alt: 'post media' });
+      attachMedia(el, entry);
+    } else {
+      // generic attachment: a download chip (content-addressed, immutable)
+      var name = entry.n || 'attachment';
+      el = h('a', { class: 'file-chip', href: entry.d || ('/api/media/' + entry.h), download: name }, '📎 ' + name);
     }
-    attachMedia(el, entry);
     return el;
   }
-  /** Downscale an image file on-device (canvas), return a JPEG blob ≤ ~1280px. */
+  /**
+   * Decode + downscale an image on-device → JPEG blob ≤ ~1280px.
+   * createImageBitmap first (wider codec support, EXIF-aware), <img> fallback.
+   */
+  function decodeToCanvas(file) {
+    function viaBitmap() {
+      if (!window.createImageBitmap) return Promise.reject(new Error('no createImageBitmap'));
+      return createImageBitmap(file).then(function (bmp) {
+        return { w: bmp.width, h: bmp.height, draw: function (ctx, w2, h2) { ctx.drawImage(bmp, 0, 0, w2, h2); } };
+      });
+    }
+    function viaImg() {
+      return new Promise(function (res2, rej) {
+        var img = new Image();
+        var url = URL.createObjectURL(file);
+        img.onload = function () { res2({ w: img.width, h: img.height, draw: function (ctx, w2, h2) { ctx.drawImage(img, 0, 0, w2, h2); URL.revokeObjectURL(url); } }); };
+        img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('decode failed')); };
+        img.src = url;
+      });
+    }
+    return viaBitmap().catch(viaImg);
+  }
   function downscaleImage(file) {
-    return new Promise(function (res2, rej) {
-      var img = new Image();
-      var url = URL.createObjectURL(file);
-      img.onload = function () {
-        var scale = Math.min(1, 1280 / Math.max(img.width, img.height));
-        var cv = document.createElement('canvas');
-        cv.width = Math.round(img.width * scale);
-        cv.height = Math.round(img.height * scale);
-        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        URL.revokeObjectURL(url);
+    return decodeToCanvas(file).then(function (src) {
+      var scale = Math.min(1, 1280 / Math.max(src.w, src.h));
+      var cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(src.w * scale));
+      cv.height = Math.max(1, Math.round(src.h * scale));
+      src.draw(cv.getContext('2d'), cv.width, cv.height);
+      return new Promise(function (res2, rej) {
         cv.toBlob(function (b) { b ? res2(b) : rej(new Error('encode failed')); }, 'image/jpeg', 0.82);
-      };
-      img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('not an image')); };
-      img.src = url;
+      });
     });
   }
   function uploadMedia(blob, mime) {
@@ -1416,7 +1453,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function lqFeed(st) {
     var box = h('div', {});
     var text = h('textarea', { class: 'lq-input', placeholder: 'Share something… (@name mentions, each reference costs a spark)' });
-    var fileIn = h('input', { type: 'file', accept: 'image/*,video/mp4,video/webm', style: 'display:none' });
+    var fileIn = h('input', { type: 'file', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'lq-actions', style: 'margin-top:8px' });
     function renderChips() {
       chips.innerHTML = '';
@@ -1425,7 +1462,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
       }
       if (composeMedia) {
-        chips.appendChild(h('span', { class: 'compose-chip' }, (composeMedia.m.indexOf('video/') === 0 ? '🎬 video' : '🖼 image') + ' attached',
+        chips.appendChild(h('span', { class: 'compose-chip' }, (composeMedia.m.indexOf('video/') === 0 ? '🎬 video' : composeMedia.m.indexOf('audio/') === 0 ? '🎵 audio' : composeMedia.m.indexOf('image/') === 0 ? '🖼 image' : '📎 ' + (composeMedia.n || 'file')) + ' attached',
           h('button', { text: '×', onclick: function () { composeMedia = null; renderChips(); } })));
       }
     }
@@ -1499,27 +1536,68 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('button', { class: 'lq-pill', text: 'Show more (' + remaining + ')', onclick: function () { feedLimit += 30; render(); } }));
   }
 
+  // Kind detection by MIME first, file extension as fallback (mobile browsers
+  // often deliver an empty or exotic f.type — .mov, .heic, .m4a …).
+  var EXT_MIME = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+    avif: 'image/avif', heic: 'image/heic', heif: 'image/heif',
+    mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', ogv: 'video/ogg',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', oga: 'audio/ogg',
+    ogg: 'audio/ogg', flac: 'audio/flac', weba: 'audio/webm',
+    pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', csv: 'text/plain', json: 'application/json',
+    zip: 'application/zip',
+  };
+  function sniffMime(f) {
+    if (f.type && f.type !== 'application/octet-stream') return f.type;
+    var ext = (f.name || '').split('.').pop().toLowerCase();
+    return EXT_MIME[ext] || 'application/octet-stream';
+  }
+  var MB = 1024 * 1024;
   function handleMediaPick(f, done) {
-    if (f.type.indexOf('video/') === 0) {
-      if (!REMOTE) { toast('Videos need the shared network host.'); return; }
-      if (f.size > 12 * 1024 * 1024) { toast('Video too large — 12 MB max.'); return; }
-      toast('Uploading video…');
-      uploadMedia(f, f.type).then(function (d) { done({ h: d.h, m: d.m }); toast('Video ready.'); })
-        .catch(function (e) { toast(String(e.message || e)); });
+    var mime = sniffMime(f);
+    var kind = mime.indexOf('image/') === 0 ? 'image'
+      : mime.indexOf('video/') === 0 ? 'video'
+      : mime.indexOf('audio/') === 0 ? 'audio' : 'file';
+
+    if (kind === 'image') {
+      toast('Preparing image…');
+      downscaleImage(f).then(function (blob) {
+        if (REMOTE) {
+          return uploadMedia(blob, 'image/jpeg').then(function (d) {
+            done({ h: d.h, m: d.m });
+            toast('Image ready — downscaled and re-encoded on your device.');
+          });
+        }
+        var fr = new FileReader();
+        fr.onload = function () {
+          if (fr.result.length > 300 * 1024) { toast('Image too large for the local sandbox.'); return; }
+          done({ d: fr.result, m: 'image/jpeg' });
+          toast('Image attached (local).');
+        };
+        fr.readAsDataURL(blob);
+      }).catch(function () {
+        // Codec this browser cannot decode (often iPhone HEIC): store the
+        // original bytes — content is payload, and Safari still displays it.
+        if (REMOTE && f.size <= 6 * MB) {
+          toast('This browser can’t re-encode ' + (mime.split('/')[1] || 'that format') + ' — uploading the original.');
+          uploadMedia(f, mime).then(function (d) {
+            done({ h: d.h, m: d.m, n: f.name });
+            toast('Uploaded as-is. Note: some browsers can’t display ' + (mime.split('/')[1] || 'this format') + '.');
+          }).catch(function (e) { toast(String(e.message || e)); });
+        } else {
+          toast('Could not decode that image here (' + (mime || 'unknown type') + '). Try a JPEG/PNG, or on iPhone set the camera to “Most Compatible”.');
+        }
+      });
       return;
     }
-    downscaleImage(f).then(function (blob) {
-      if (REMOTE) {
-        return uploadMedia(blob, 'image/jpeg').then(function (d) { done({ h: d.h, m: d.m }); toast('Image ready — downscaled on your device.'); });
-      }
-      var fr = new FileReader();
-      fr.onload = function () {
-        if (fr.result.length > 300 * 1024) { toast('Image too large for the local sandbox.'); return; }
-        done({ d: fr.result, m: 'image/jpeg' });
-        toast('Image attached (local).');
-      };
-      fr.readAsDataURL(blob);
-    }).catch(function () { toast('Could not read that file as an image.'); });
+    if (!REMOTE) { toast(kind === 'video' ? 'Videos need the shared network host.' : kind === 'audio' ? 'Audio needs the shared network host.' : 'File attachments need the shared network host.'); return; }
+    var cap = kind === 'video' ? 25 * MB : 12 * MB;
+    if (f.size > cap) { toast((kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'File') + ' too large — ' + Math.round(cap / MB) + ' MB max.'); return; }
+    toast('Uploading ' + kind + '…');
+    uploadMedia(f, mime).then(function (d) {
+      done({ h: d.h, m: d.m, n: f.name });
+      toast(kind.charAt(0).toUpperCase() + kind.slice(1) + ' ready.');
+    }).catch(function (e) { toast(String(e.message || e)); });
   }
 
   function lqPost(st, n, score) {
@@ -1741,13 +1819,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
+      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'), tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
-    var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
+    var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
@@ -1813,7 +1891,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function feedTab(st) {
     var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored; @name mentions and quotes are priced Reference acts)' });
     var att = slider('attachment', 0.8);
-    var fileIn = h('input', { type: 'file', accept: 'image/*,video/mp4,video/webm', style: 'display:none' });
+    var fileIn = h('input', { type: 'file', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'row' });
     function renderChips() {
       chips.innerHTML = '';
@@ -2315,6 +2393,68 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         matView(e.pv, 'path view · det ' + fmt(det, 4))));
   }
 
+  // Geek chats — the same dm acts and threads as simple mode, lab styling.
+  function chatTab(st) {
+    var wrap = h('div', {});
+    var threads = dmThreads(st, who);
+    if (chatPeer && !st.ledgerById[chatPeer]) chatPeer = null;
+
+    if (!chatPeer) {
+      var card = h('div', { class: 'card' },
+        h('p', { class: 'eyebrow', text: 'direct messages — Send acts in the public record, θ-priced, not private' }));
+      var peers = Object.keys(threads);
+      peers.sort(function (a, b) { return threads[b][threads[b].length - 1].idx - threads[a][threads[a].length - 1].idx; });
+      if (!peers.length) card.appendChild(h('p', { class: 'smallnote', text: 'No conversations yet — start one below or from a profile.' }));
+      peers.forEach(function (p) {
+        var last = threads[p][threads[p].length - 1];
+        var row = h('div', { class: 'chat-row' },
+          avatar(st.handles[p], 'avatar s'),
+          h('div', { class: 'grow' },
+            h('b', { text: st.handles[p] || p }),
+            h('div', { class: 'smallnote', text: (last.from === who ? 'you: ' : '') + last.text.slice(0, 60) })));
+        row.addEventListener('click', function () { chatPeer = p; render(); });
+        card.appendChild(row);
+      });
+      var startSel = h('select', {});
+      st.ledgers.forEach(function (l) {
+        if (l.id !== who) startSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+      });
+      card.appendChild(h('div', { class: 'mini-form' }, startSel,
+        h('button', { class: 'btn small primary', text: 'Open chat', onclick: function () { chatPeer = startSel.value; render(); } })));
+      wrap.appendChild(card);
+      return wrap;
+    }
+
+    var thread = threads[chatPeer] || [];
+    var card2 = h('div', { class: 'card' },
+      h('div', { style: 'display:flex; align-items:center; gap:10px; margin-bottom:8px' },
+        h('button', { class: 'btn small ghost', text: '← all chats', onclick: function () { chatPeer = null; render(); } }),
+        avatar(st.handles[chatPeer], 'avatar s'),
+        h('b', { text: st.handles[chatPeer] || chatPeer }),
+        h('span', { class: 'standing-chip', text: fmt(credibility(st, chatPeer), 3) })));
+    var tEl = h('div', { class: 'chat-thread' });
+    if (!thread.length) tEl.appendChild(h('p', { class: 'smallnote', text: 'Say hello — every message is a priced act (−θ).' }));
+    thread.forEach(function (m) {
+      tEl.appendChild(h('div', { class: 'chat-msg' + (m.from === who ? ' mine' : '') },
+        h('span', { class: 'm-meta num', text: (m.from === who ? 'you' : st.handles[m.from] || m.from) + ' · act #' + m.idx }),
+        h('div', {}, m.text)));
+    });
+    card2.appendChild(tEl);
+    var input = h('input', { type: 'text', placeholder: 'Message… (−θ)', maxlength: '500', style: 'flex:1' });
+    function send() {
+      var t = input.value.trim();
+      if (!t) return;
+      tryAct(who, { t: 'dm', from: who, to: chatPeer, text: t }, null);
+      input.value = '';
+    }
+    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') send(); });
+    card2.appendChild(h('div', { class: 'mini-form' }, input,
+      h('button', { class: 'btn small primary', text: 'Send · −θ', onclick: send })));
+    wrap.appendChild(card2);
+    setTimeout(function () { tEl.scrollTop = tEl.scrollHeight; }, 30);
+    return wrap;
+  }
+
   function econTab(st) {
     var l0 = st.l0;
     var w = l0.bal(who);
@@ -2624,7 +2764,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       drawer.appendChild(h('div', { class: 'sect' },
         h('button', { class: 'btn small', text: 'Chat with ' + st.handles[id], onclick: function () {
           close();
-          mode = 'liquid'; lqView = 'chats'; chatPeer = id; save(); render();
+          chatPeer = id;
+          if (mode === 'geek') { tab = 'chat'; } else { lqView = 'chats'; }
+          save(); render();
         } })));
       var p = slider('support', 0.7), r = slider('conviction', 0.7);
       drawer.appendChild(h('div', { class: 'sect' },

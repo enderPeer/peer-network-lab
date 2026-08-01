@@ -88,9 +88,15 @@ ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media'];
 // ── Media store: content-addressed payload carriage (never scored) ──
 const MEDIA_DIR = resolve(DATA_DIR, 'media');
 mkdirSync(MEDIA_DIR, { recursive: true });
-const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']);
-const MEDIA_MAX_IMAGE = 2 * 1024 * 1024;
-const MEDIA_MAX_VIDEO = 12 * 1024 * 1024;
+const MEDIA_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/heic', 'image/heif',
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/ogg',
+  'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/webm',
+  'application/pdf', 'text/plain', 'application/json', 'application/zip', 'application/octet-stream',
+]);
+const MEDIA_MAX_IMAGE = 6 * 1024 * 1024;  // HEIC originals upload as-is
+const MEDIA_MAX_VIDEO = 25 * 1024 * 1024;
+const MEDIA_MAX_OTHER = 12 * 1024 * 1024; // audio + generic attachments
 const MEDIA_STORE_CAP = 300 * 1024 * 1024;
 const mediaLimiter = makeLimiter(10, 60_000); // 10 uploads/min/IP
 function mediaDirSize() {
@@ -183,6 +189,7 @@ function validate(act) {
         if (!Array.isArray(act.media) || act.media.length > 2) return 'bad media';
         for (const m of act.media) {
           if (!m || typeof m !== 'object' || !/^[a-f0-9]{64}$/.test(m.h ?? '') || !MEDIA_TYPES.has(m.m)) return 'bad media entry';
+          if (m.n !== undefined && (typeof m.n !== 'string' || m.n.length > 80)) return 'bad media name';
           if (!existsSync(join(MEDIA_DIR, m.h))) return 'unknown media hash — upload first';
         }
       }
@@ -244,7 +251,8 @@ const server = createServer((req, res) => {
     if (!mediaLimiter(ip)) { json(res, 429, { error: 'upload limit — try again in a minute' }); return; }
     const mime = (req.headers['content-type'] ?? '').split(';')[0].trim();
     if (!MEDIA_TYPES.has(mime)) { json(res, 415, { error: 'unsupported media type' }); return; }
-    const cap = mime.startsWith('video/') ? MEDIA_MAX_VIDEO : MEDIA_MAX_IMAGE;
+    const cap = mime.startsWith('video/') ? MEDIA_MAX_VIDEO
+      : mime.startsWith('image/') ? MEDIA_MAX_IMAGE : MEDIA_MAX_OTHER;
     const chunks = [];
     let size = 0;
     req.on('data', (c) => {
@@ -279,6 +287,9 @@ const server = createServer((req, res) => {
         'Cache-Control': 'public, max-age=31536000, immutable',
         ETag: '"' + hash.slice(0, 16) + '"',
         ...SECURITY_HEADERS,
+        // stored bytes are untrusted payload: never let them script or navigate
+        'Content-Security-Policy': 'sandbox',
+        'Content-Disposition': meta.mime.startsWith('image/') || meta.mime.startsWith('video/') || meta.mime.startsWith('audio/') ? 'inline' : 'attachment',
       });
       res.end(buf);
     } catch {
@@ -312,7 +323,7 @@ const server = createServer((req, res) => {
       }
       acts.push(act);
       persist(act);
-      if (act.t === 'register' && act.pinHash) pinIndex.set(act.id, act.pinHash);
+      if ((act.t === 'register' || act.t === 'setPin') && act.pinHash) pinIndex.set(act.id, act.pinHash);
       if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
       json(res, 200, { acts: acts.slice(Math.min(since, acts.length)), since: Math.min(since, acts.length), total: acts.length });
     });
