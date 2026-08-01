@@ -693,6 +693,23 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var pinHash = {};
     var counter = 0;
     var certsSoFar = 0; // certificates issued before the current act (CoGra epoch age)
+
+    // ── Deletion pre-scan ──────────────────────────────────────────────────
+    // Replay is a pure function of the whole log, so deletions are retroactive.
+    // A muted act keeps FULL counter and θ parity — content ids ('c167') are
+    // minted by the counter and later acts reference them, and balance-gated
+    // branches depend on every prior debit — but leaves no payload, no edges,
+    // no vouches and no chron line. Muting cascades: a comment on deleted
+    // content is muted too, which mutes replies to it, in log order.
+    var deletedActors = {}, deletedPostIdx = {};
+    for (var pre = 0; pre < world.acts.length; pre++) {
+      var pact = world.acts[pre];
+      if (pact.t === 'deleteAccount') deletedActors[pact.id] = true;
+      else if (pact.t === 'deletePost') deletedPostIdx[pact.target] = true;
+    }
+    var mutedContent = {}; // content ids whose acts are muted
+    var actContent = {};   // act index -> content id (posts only; edit targets)
+    var postMeta = {};     // cid -> {idx, ts, edited} for the edit/delete UI
     // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
     // every attestation increment feeds the actor's residual burn balance.
     var l0 = new E.AttestationLedger({ E0: 100, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
@@ -722,6 +739,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     for (var i = 0; i < world.acts.length; i++) {
       var a = world.acts[i];
+      var mutedA = !!(deletedActors[a.author] || deletedActors[a.from] || deletedActors[a.id] ||
+        deletedPostIdx[i] || (typeof a.target === 'string' && mutedContent[a.target]) ||
+        (a.t === 'dm' && deletedActors[a.to]));
       if (a.t === 'seedWorld') {
         addActor('alice', 'Alice', 3, 10, 0);
         addActor('bob', 'Bob', 2, 8, 0);
@@ -754,39 +774,41 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       } else if (a.t === 'register') {
         addActor(a.id, a.handle, a.seed, 0, a.epoch);
         if (a.pinHash) pinHash[a.id] = a.pinHash;
-        g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
-        debit(a.id); weighHome(a.id, 1, 1);
+        if (!mutedA) g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
+        debit(a.id); if (!mutedA) weighHome(a.id, 1, 1);
         // Layer-0 onboarding: external-reserve faucet + operator starter grant.
+        // Muted actors keep full economic parity — only visibility goes.
         l0.faucet(a.id, 10);
         l0safe(function () { l0.transfer('op', a.id, 2, 'live'); });
-        chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
+        if (mutedA) ledgerById[a.id].deleted = true;
+        else chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
       } else if (a.t === 'burn') {
         // legacy faucet-burn (pre-economy acts in the shared log)
         ledgerById[a.id].burnBal += a.amt;
-        chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
+        if (!mutedA) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
       } else if (a.t === 'deposit') {
-        if (l0safe(function () { l0.deposit(a.id, a.amt); return true; })) {
+        if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !mutedA) {
           chron.push({ who: a.id, line: 'deposited ' + a.amt.toFixed(2) + ' reserve → escrow (mints at the next cycle boundary)' });
         }
       } else if (a.t === 'burnL0') {
         var dA = l0safe(function () { return l0.burn(a.id, a.x); });
         if (dA != null && ledgerById[a.id]) {
           ledgerById[a.id].burnBal += dA; // the L1 seam: attestation is burn_val
-          chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
+          if (!mutedA) chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
         }
       } else if (a.t === 'redeem') {
         var pay = l0safe(function () { return l0.redeem(a.id, a.x); });
-        if (pay != null) {
+        if (pay != null && !mutedA) {
           chron.push({ who: a.id, line: 'redeemed ' + a.x.toFixed(2) + ' live units → ' + pay.toFixed(3) + ' reserve (floor-preserving)' });
         }
       } else if (a.t === 'transferL0') {
-        if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; })) {
+        if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; }) && !mutedA) {
           chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + (handles[a.to] || a.to) });
         }
       } else if (a.t === 'setPin') {
         if (ledgerById[a.id] && a.pinHash) {
           pinHash[a.id] = a.pinHash; // newest wins — add or change
-          chron.push({ who: a.id, line: 'secured the handle with a PIN' });
+          if (!mutedA) chron.push({ who: a.id, line: 'secured the handle with a PIN' });
         }
       } else if (a.t === 'dm') {
         if (ledgerById[a.from] && ledgerById[a.to] && ledgerById[a.from].burnBal >= THETA) {
@@ -798,12 +820,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           counter++;
           var msgId = 'm' + counter;
           g.addNode({ id: msgId, kind: 'Message', label: 'Message' });
-          g.appendHyper(
-            { id: 'snA' + counter, family: 'SendA', src: a.from, tgt: chatId, pd: 0.8, pi: 0.8, epoch: certsSoFar },
-            { id: 'snT' + counter, family: 'SendT', src: chatId, tgt: msgId, pd: 0.8, pi: 0.8, epoch: certsSoFar }
-          );
-          debit(a.from); weighHome(a.from, 0.8, 0.8);
-          dms.push({ from: a.from, to: a.to, text: a.text, idx: i });
+          if (!mutedA) {
+            g.appendHyper(
+              { id: 'snA' + counter, family: 'SendA', src: a.from, tgt: chatId, pd: 0.8, pi: 0.8, epoch: certsSoFar },
+              { id: 'snT' + counter, family: 'SendT', src: chatId, tgt: msgId, pd: 0.8, pi: 0.8, epoch: certsSoFar }
+            );
+          }
+          debit(a.from); if (!mutedA) weighHome(a.from, 0.8, 0.8);
+          if (!mutedA) dms.push({ from: a.from, to: a.to, text: a.text, idx: i });
         }
       } else if (a.t === 'closeCycle') {
         var cyc = l0.closeCycle();
@@ -811,67 +835,103 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       } else if (a.t === 'post') {
         counter++;
         var cid = 'c' + counter;
-        g.addNode({ id: cid, kind: 'Content', label: 'Post ' + counter });
-        g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
-        debit(a.author); weighHome(a.author, a.a, 1);
-        creators[cid] = a.author; payloads[cid] = a.text;
-        if (a.media && a.media.length) mediaMeta[cid] = a.media;
-        chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2), to: cid });
+        actContent[i] = cid;
+        if (mutedA) mutedContent[cid] = true;
+        g.addNode({ id: cid, kind: 'Content', label: mutedA ? '[deleted]' : 'Post ' + counter });
+        if (!mutedA) g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
+        debit(a.author); if (!mutedA) weighHome(a.author, a.a, 1);
+        if (!mutedA) {
+          creators[cid] = a.author; payloads[cid] = a.text;
+          if (a.media && a.media.length) mediaMeta[cid] = a.media;
+          postMeta[cid] = { idx: i, ts: a.ts, edited: !!a.edited };
+          chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2), to: cid });
+        }
         // Quote reference: one Reference hyper act (A-leg into the post, Full-tier
         // citation T-leg to the target) — its own θ-debit.
         if (a.ref && g.nodes.get(a.ref) && ledgerById[a.author] && ledgerById[a.author].burnBal >= THETA) {
           counter++;
-          g.appendHyper(
-            { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.8, pi: 0.9, epoch: certsSoFar },
-            { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: a.ref, pd: 0.9, pi: 0.8, epoch: certsSoFar }
-          );
-          debit(a.author); weighHome(a.author, 0.8, 0.9);
-          chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation', to: a.ref });
+          if (!mutedA) {
+            g.appendHyper(
+              { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.8, pi: 0.9, epoch: certsSoFar },
+              { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: a.ref, pd: 0.9, pi: 0.8, epoch: certsSoFar }
+            );
+          }
+          debit(a.author); if (!mutedA) weighHome(a.author, 0.8, 0.9);
+          if (!mutedA) chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation', to: a.ref });
         }
         // @mentions: References whose target is the person's Profile (max 3, priced).
-        var mentioned = parseMentions(a.text, handles);
+        // The server stamps rmen (resolved ids) on accepted posts so redaction
+        // can blank text without shifting the counter; parse only legacy acts.
+        var mentioned = a.rmen !== undefined ? a.rmen : parseMentions(a.text, handles);
         for (var mi = 0; mi < mentioned.length; mi++) {
           var mid = mentioned[mi];
           if (mid === a.author || !ledgerById[a.author] || ledgerById[a.author].burnBal < THETA) continue;
           counter++;
-          g.appendHyper(
-            { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.7, pi: 0.8, epoch: certsSoFar },
-            { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: 'prof_' + mid, pd: 0.8, pi: 0.7, epoch: certsSoFar }
-          );
+          if (!mutedA) {
+            g.appendHyper(
+              { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.7, pi: 0.8, epoch: certsSoFar },
+              { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: 'prof_' + mid, pd: 0.8, pi: 0.7, epoch: certsSoFar }
+            );
+          }
           // def:epoch:standing-recipient-resolution — a positive Reference to a
           // Profile compiles a person-vouch to that actor (cam's spec review).
-          debit(a.author); vouch(a.author, mid, 0.7, 0.8);
-          chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) + ' — person-vouch compiled', to: cid });
+          debit(a.author);
+          if (!mutedA) {
+            vouch(a.author, mid, 0.7, 0.8);
+            chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) + ' — person-vouch compiled', to: cid });
+          }
         }
       } else if (a.t === 'opinion') {
         counter++;
-        var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
+        if (!mutedA) {
+          var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
+          var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
+          if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
+          else weighHome(a.author, a.p, a.r);
+          chron.push({ who: a.author, line: (owner ? 'vouched on ' + (handles[owner] || owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3), to: a.target });
+        }
         debit(a.author);
-        var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
-        if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
-        else weighHome(a.author, a.p, a.r);
-        chron.push({ who: a.author, line: (owner ? 'vouched on ' + (handles[owner] || owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3), to: a.target });
       } else if (a.t === 'review') {
         counter++;
         var cmid = 'c' + counter;
-        g.addNode({ id: cmid, kind: 'Comment', label: 'Review ' + counter });
-        g.appendHyper(
-          { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f, epoch: certsSoFar },
-          { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
-        );
-        debit(a.author); weighHome(a.author, a.e, a.f);
-        creators[cmid] = a.author; payloads[cmid] = a.text;
-        reviewMeta[cmid] = { e: a.e, f: a.f };
-        chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs', to: cmid });
+        if (mutedA) mutedContent[cmid] = true; // cascades to replies on this comment
+        g.addNode({ id: cmid, kind: 'Comment', label: mutedA ? '[deleted]' : 'Review ' + counter });
+        if (!mutedA) {
+          g.appendHyper(
+            { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f, epoch: certsSoFar },
+            { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
+          );
+          weighHome(a.author, a.e, a.f);
+          creators[cmid] = a.author; payloads[cmid] = a.text;
+          reviewMeta[cmid] = { e: a.e, f: a.f };
+          chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs', to: cmid });
+        }
+        debit(a.author);
       } else if (a.t === 'tag') {
         counter++;
         var tid = typeNode(a.name);
-        g.appendHyper(
-          { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c, epoch: certsSoFar },
-          { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r, epoch: certsSoFar }
-        );
-        debit(a.author); weighHome(a.author, a.r, a.c);
-        chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name, to: a.target });
+        if (!mutedA) {
+          g.appendHyper(
+            { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c, epoch: certsSoFar },
+            { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r, epoch: certsSoFar }
+          );
+          weighHome(a.author, a.r, a.c);
+          chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name, to: a.target });
+        }
+        debit(a.author);
+      } else if (a.t === 'editPost') {
+        // Applies only inside the server-enforced 5-minute window; replay just
+        // swaps the payload of the (still-visible) target.
+        var ecid = actContent[a.target];
+        if (ecid && !mutedContent[ecid] && payloads[ecid] !== undefined) {
+          payloads[ecid] = a.text;
+          if (postMeta[ecid]) postMeta[ecid].edited = true;
+          chron.push({ who: a.author, line: 'edited a post — within the 5-minute window', to: ecid });
+        }
+      } else if (a.t === 'deletePost') {
+        chron.push({ who: a.author, line: 'deleted a post — content redacted from the served record' });
+      } else if (a.t === 'deleteAccount') {
+        chron.push({ who: a.id, line: 'account deleted — content redacted, handle stays reserved' });
       } else if (a.t === 'closeEpoch') {
         var cells0 = compileCells(bundles, selfCells);
         var solved0 = E.solveStanding(ledgers, cells0, { tilt: 1 });
@@ -888,6 +948,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
     }
 
+    // Deleted actors leave the standings solve entirely: their vouches (given
+    // and received) and self-cells are dropped before compilation.
+    for (var bk in bundles) {
+      if (deletedActors[bundles[bk].src] || deletedActors[bundles[bk].rcp]) delete bundles[bk];
+    }
+    selfCells = selfCells.filter(function (sc) { return !deletedActors[sc.src]; });
+
     var cells = compileCells(bundles, selfCells);
     var solved = E.solveStanding(ledgers, cells, { tilt: 1 });
     var xById = {};
@@ -895,7 +962,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var epochNow = epochHistory.length + 1;
     for (var id2 in ledgerById) {
-      if (id2 === 'alice') continue;
+      if (id2 === 'alice' || deletedActors[id2]) continue;
       var S = NU * (xById[id2] || 0);
       var bond = S / (NU + S);
       var tenure = 1 - 1 / (epochNow - kReg[id2] + 1);
@@ -906,12 +973,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
 
     lastPinHash = pinHash;
+    // Raw handles stayed intact for mention determinism; the UI sees '[deleted]'.
+    var dispHandles = {};
+    for (var hk in handles) dispHandles[hk] = deletedActors[hk] ? '[deleted]' : handles[hk];
     return {
-      g: g, ledgers: ledgers, ledgerById: ledgerById, handles: handles, creators: creators,
+      g: g, ledgers: ledgers, ledgerById: ledgerById, handles: dispHandles, creators: creators,
       payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
       deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),
       epochHistory: epochHistory, chron: chron, epochNow: epochNow,
       reviewMeta: reviewMeta, mediaMeta: mediaMeta, dms: dms, pinHash: pinHash, l0: l0,
+      deleted: deletedActors, postMeta: postMeta,
     };
   }
 
@@ -1462,7 +1533,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var out = [];
     for (var i = world.acts.length - 1; i >= 0 && out.length < max; i--) {
       var a = world.acts[i];
-      if (a.t === 'register' && st.ledgerById[a.id]) out.push(a.id);
+      if (a.t === 'register' && st.ledgerById[a.id] && !st.ledgerById[a.id].deleted) out.push(a.id);
     }
     return out;
   }
@@ -1491,6 +1562,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function render() {
     document.body.setAttribute('data-mode', mode);
     var st = replay();
+    // If this identity was deleted (possibly from another device), log out.
+    if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
     root.innerHTML = '';
     document.getElementById('overlay').innerHTML = '';
     if (mode === 'liquid') {
@@ -1829,7 +1902,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function lqChats(st) {
     var box = h('div', {});
     var threads = dmThreads(st, who);
-    if (chatPeer && !st.ledgerById[chatPeer]) chatPeer = null;
+    if (chatPeer && (!st.ledgerById[chatPeer] || st.ledgerById[chatPeer].deleted)) chatPeer = null;
     if (!chatPeer) {
       var card = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Chats' }));
       var peers = Object.keys(threads);
@@ -1849,7 +1922,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
       var startSel = h('select', { class: 'lq-input', style: 'width:auto; flex:1' });
       st.ledgers.forEach(function (l) {
-        if (l.id !== who) startSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+        if (l.id !== who && !l.deleted) startSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
       });
       card.appendChild(h('div', { class: 'lq-sheet' }, startSel,
         h('button', { class: 'lq-pill hot', text: 'Open chat', onclick: function () { chatPeer = startSel.value; render(); } })));
@@ -2093,7 +2166,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         avatar(st.handles[author], 'lq-ava s'),
         h('div', {},
           h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
-          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2))),
+          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2),
+            (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : '')),
         sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
       h('div', { class: 'lq-body', text: st.payloads[n.id] || '' }));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
@@ -2158,8 +2232,65 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         toggle(function () { return lqEndorseSheet(st, author); });
       } }, icon('star'), 'Back ' + (st.handles[author] || '')));
     }
+    var ownCtlL = ownPostControls(st, n.id, toggle, false);
+    if (ownCtlL) actions.appendChild(ownCtlL);
     card.appendChild(actions);
     return card;
+  }
+
+  // ── Own-post controls: edit inside the 5-minute window, delete any time ──
+  // The server is the arbiter (its clock stamps ts, its validate enforces the
+  // window and authorship); these buttons only show what will be accepted.
+  function ownPostControls(st, cid, toggle, geek) {
+    var pm = st.postMeta[cid];
+    if (!pm || st.creators[cid] !== who) return null;
+    var frag = document.createDocumentFragment();
+    var btnC = geek ? 'btn small' : 'lq-pill';
+    var leftMs = pm.ts ? 5 * 60 * 1000 - (Date.now() - pm.ts) : -1;
+    if (leftMs > 0) {
+      frag.appendChild(h('button', { class: btnC, text: 'Edit · ' + fmtDur(Math.ceil(leftMs / 1000)) + ' left', onclick: function () {
+        toggle(function () {
+          var txt = h('textarea', geek ? {} : { class: 'lq-input', style: 'width:100%; min-height:70px' });
+          txt.value = st.payloads[cid] || '';
+          return h('div', { class: geek ? 'mini-form' : 'lq-sheet' }, txt,
+            h('button', { class: geek ? 'btn small primary' : 'lq-pill hot', text: 'Save edit', onclick: function () {
+              var t2 = txt.value.trim();
+              if (!t2) { toast('Empty text deletes nothing — use Delete for that.'); return; }
+              tryAct(who, { t: 'editPost', author: who, target: pm.idx, text: t2 },
+                'Edited — the served record now carries the new text; the old bytes left the log.');
+            } }));
+        });
+      } }));
+    }
+    var delBtn = h('button', { class: btnC, text: 'Delete' });
+    delBtn.addEventListener('click', function () {
+      if (delBtn.dataset.arm !== '1') {
+        delBtn.dataset.arm = '1';
+        delBtn.textContent = 'Really delete? · permanent';
+        setTimeout(function () { if (delBtn.dataset.arm === '1') { delBtn.dataset.arm = '0'; delBtn.textContent = 'Delete'; } }, 4000);
+        return;
+      }
+      tryAct(who, { t: 'deletePost', author: who, target: pm.idx },
+        'Post deleted — content redacted from the served record. The θ it burned stays burned.');
+    });
+    frag.appendChild(delBtn);
+    return frag;
+  }
+
+  function deleteAccountFlow(st) {
+    var name = st.handles[who] || who;
+    var ok = window.confirm('Delete the account “' + name + '”?\n\n' +
+      '· your posts, comments and messages are redacted from the served record\n' +
+      '· your vouches and standing leave the solve\n' +
+      '· burned reserve is NOT refunded — destruction is permanent by design\n' +
+      '· the handle stays reserved forever and cannot be re-registered\n\n' +
+      'This cannot be undone.');
+    if (!ok) return;
+    pushAct({ t: 'deleteAccount', id: who }, function () {
+      toast('Account deleted. The record keeps only redacted stubs; the handle stays reserved.');
+      delete pins[who];
+      who = null; save(); render();
+    });
   }
 
   function lqEndorseSheet(st, target) {
@@ -2177,6 +2308,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function lqPeers(st) {
     var box = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Peers' }));
     st.ledgers.slice().sort(function (a, b) { return credibility(st, b.id) - credibility(st, a.id); }).forEach(function (l) {
+      if (l.deleted) return;
       var row = h('div', { class: 'lq-peer' },
         avatar(st.handles[l.id], 'lq-ava s'),
         h('div', { class: 'grow' },
@@ -2230,7 +2362,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           pushAct({ t: 'deposit', id: who, amt: 5 }, function () { toast('5 reserve escrowed — your receipt units mint at the next cycle boundary.'); });
         } }, icon('bolt'), 'Deposit 5 reserve'),
         h('button', { class: 'lq-pill', text: 'Switch identity', onclick: function () { who = null; save(); render(); } }),
-        h('button', { class: 'lq-pill', text: st.pinHash[who] ? 'Change PIN' : 'Set a PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } })),
+        h('button', { class: 'lq-pill', text: st.pinHash[who] ? 'Change PIN' : 'Set a PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
+        h('button', { class: 'lq-pill', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
       h('p', { class: 'lq-note', text: 'Energy is real destruction: you deposit reserve, receive receipt credits at the cycle mint, and burning a credit destroys it forever — that irreversible loss is what your influence is made of. Geek mode → Economy shows the full machinery.' })));
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
       h('h2', { text: 'Under the hood' }),
@@ -2283,6 +2416,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var sel = h('select', { onchange: function () { var v = sel.value; sel.value = who; switchTo(v, st); } });
     Object.keys(st.handles).forEach(function (id) {
+      if (st.deleted[id]) return;
       var o = h('option', { value: id, text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') });
       if (id === who) o.selected = true;
       sel.appendChild(o);
@@ -2384,7 +2518,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             toast('Burned 1.00 reserve. Burn raises your rate — it is the only way in.');
           });
         } }),
-        h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } })),
+        h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
+        h('button', { class: 'btn small ghost', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
       h('p', { class: 'smallnote', text: 'Every act costs θ and raises N — acting dilutes your rate. Endorsements transport rates; nothing mints standing.' }));
   }
 
@@ -2457,7 +2592,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var vaSel = h('select', {});
     vaSel.appendChild(h('option', { value: '', text: 'viewing as: me' }));
     st.ledgers.forEach(function (l) {
-      if (l.id === who) return;
+      if (l.id === who || l.deleted) return;
       var o = h('option', { value: l.id, text: 'viewing as: ' + st.handles[l.id] });
       if (viewAs === l.id) o.selected = true;
       vaSel.appendChild(o);
@@ -2523,7 +2658,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('b', { text: st.handles[author] || '—' }),
         h('span', { class: 'standing-chip', text: fmt(credibility(st, author), 3) }),
         deltaChip(author, st),
-        h('span', { class: 'kindtag', text: 'post' })),
+        h('span', { class: 'kindtag', text: 'post' }),
+        (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null),
       h('div', { class: 'body', text: st.payloads[n.id] || '' }));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);
@@ -2614,6 +2750,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (author && author !== who) {
       actions.appendChild(h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(author); } }));
     }
+    var ownCtl = ownPostControls(st, n.id, toggle, true);
+    if (ownCtl) actions.appendChild(ownCtl);
     card.appendChild(actions);
     return card;
   }
@@ -2712,7 +2850,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       edges: st.g.edges.map(function (e) {
         return { id: e.id, family: e.family, src: e.src, tgt: e.tgt, pd: e.pd, pi: e.pi, tau: e.tau, epoch: e.epoch, weight: e.weight, sign: e.sign, detScore: e.score };
       }),
-      standings: st.ledgers.map(function (l) { return { id: l.id, burnBal: l.burnBal, actCount: l.actCount, x: st.xById[l.id] || 0 }; }),
+      standings: st.ledgers.filter(function (l) { return !l.deleted; }).map(function (l) { return { id: l.id, burnBal: l.burnBal, actCount: l.actCount, x: st.xById[l.id] || 0 }; }),
     };
     st.g.nodes.forEach(function (n) { data.nodes.push({ id: n.id, kind: n.kind, label: n.label }); });
     var blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
@@ -2766,7 +2904,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var targetSel = h('select', {});
     targetSel.appendChild(h('option', { value: '', text: 'explain my reach to…' }));
     var cands = [];
-    st.ledgers.forEach(function (l) { if (l.id !== me) cands.push({ id: l.id, label: '👤 ' + st.handles[l.id] }); });
+    st.ledgers.forEach(function (l) { if (l.id !== me && !l.deleted) cands.push({ id: l.id, label: '👤 ' + st.handles[l.id] }); });
     st.g.nodes.forEach(function (n) {
       if (n.kind === 'Content' && st.payloads[n.id]) {
         cands.push({ id: n.id, label: '▪ ' + (st.payloads[n.id] || '').slice(0, 34) });
@@ -3058,7 +3196,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function chatTab(st) {
     var wrap = h('div', {});
     var threads = dmThreads(st, who);
-    if (chatPeer && !st.ledgerById[chatPeer]) chatPeer = null;
+    if (chatPeer && (!st.ledgerById[chatPeer] || st.ledgerById[chatPeer].deleted)) chatPeer = null;
 
     if (!chatPeer) {
       var card = h('div', { class: 'card' },
@@ -3078,7 +3216,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
       var startSel = h('select', {});
       st.ledgers.forEach(function (l) {
-        if (l.id !== who) startSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+        if (l.id !== who && !l.deleted) startSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
       });
       card.appendChild(h('div', { class: 'mini-form' }, startSel,
         h('button', { class: 'btn small primary', text: 'Open chat', onclick: function () { chatPeer = startSel.value; render(); } })));
@@ -3147,7 +3285,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var amtT = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
     var peerSel = h('select', {});
     st.ledgers.forEach(function (l) {
-      if (l.id !== who) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+      if (l.id !== who && !l.deleted) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
     });
     function num(inp, dflt) { var v = parseFloat(inp.value); return isFinite(v) && v > 0 ? v : dflt; }
 
@@ -3357,6 +3495,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var table = h('table', { class: 'standings' },
       h('tr', {}, h('th', { text: 'peer' }), h('th', { class: 'r', text: 'rate' }), h('th', { class: 'r', text: 'standing' }), h('th', { text: '' })));
     st.ledgers.slice().sort(function (a, b) { return (st.xById[b.id] || 0) - (st.xById[a.id] || 0); }).forEach(function (l) {
+      if (l.deleted) return;
       var row = h('tr', { class: l.id === who ? 'me' : '' },
         h('td', {}, st.handles[l.id] + (st.pinHash[l.id] ? ' 🔒' : ''), ' ', deltaChip(l.id, st)),
         h('td', { class: 'r num', text: fmt(l.burnBal / Math.max(l.actCount, 1), 3) }),
