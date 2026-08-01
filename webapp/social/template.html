@@ -162,6 +162,9 @@ button { font-family: var(--body); cursor: pointer; }
 .call-btn.no { background: #a33d2f; border-color: #a33d2f; color: #fff; }
 .call-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4caf7a; margin-right: 7px; animation: callpulse 1.6s infinite; }
 @keyframes callpulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.3 } }
+.call-panel.ringing { animation: ringpulse 1.1s infinite; border-color: #4caf7a; min-width: 260px; }
+@keyframes ringpulse { 0%, 100% { box-shadow: 0 10px 34px rgba(0,0,0,0.5); } 50% { box-shadow: 0 10px 34px rgba(0,0,0,0.5), 0 0 0 6px rgba(76,175,122,0.25); } }
+.chat-call { text-align: center; font-size: 12px; opacity: 0.75; margin: 6px 0; }
 .audio-wrap { margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 4px; background: var(--card-2); }
 .audio-wave { display: block; width: 100%; height: 44px; cursor: pointer; }
 .audio-wrap.wave-none .audio-wave { display: none; }
@@ -662,6 +665,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         render();
         setInterval(pollRemote, 5000);
         setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
+        // Background tabs get throttled — poll the moment the tab comes back,
+        // so an incoming call shows immediately instead of one interval late.
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) signalTick(true); });
+        window.addEventListener('focus', function () { signalTick(true); });
       })
       .catch(function () { render(); });
   }
@@ -919,6 +926,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name, to: a.target });
         }
         debit(a.author);
+      } else if (a.t === 'call') {
+        // Recorded by the caller after the call ended; the voice itself was
+        // peer-to-peer and never touched the record. Priced like a dm.
+        if (ledgerById[a.from] && ledgerById[a.to] && ledgerById[a.from].burnBal >= THETA) {
+          debit(a.from);
+          if (!mutedA) {
+            dms.push({ from: a.from, to: a.to, text: '', call: { outcome: a.outcome, dur: a.dur || 0 }, idx: i });
+            var cline = a.outcome === 'completed' ? '☎ call with ' + (handles[a.to] || a.to) + ' · ' + Math.floor((a.dur || 0) / 60) + ':' + ('0' + ((a.dur || 0) % 60)).slice(-2)
+              : a.outcome === 'missed' ? '☎ called ' + (handles[a.to] || a.to) + ' — no answer'
+              : a.outcome === 'declined' ? '☎ called ' + (handles[a.to] || a.to) + ' — declined'
+              : '☎ call to ' + (handles[a.to] || a.to) + ' failed to connect';
+            chron.push({ who: a.from, line: cline });
+          }
+        }
       } else if (a.t === 'editPost') {
         // Applies only inside the server-enforced 5-minute window; replay just
         // swaps the payload of the (still-visible) target.
@@ -1125,7 +1146,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
     });
     st.dms.forEach(function (m) {
-      if (m.to === me) out.push({ who: m.from, kind: 'dm', text: m.text, idx: 100000 + m.idx });
+      if (m.to !== me) return;
+      if (m.call) {
+        out.push({ who: m.from, kind: 'call', text: m.call.outcome === 'completed' ? 'call · ' + fmtDur(m.call.dur) : m.call.outcome + ' call', idx: 100000 + m.idx });
+      } else {
+        out.push({ who: m.from, kind: 'dm', text: m.text, idx: 100000 + m.idx });
+      }
     });
     out.sort(function (a, b) { return b.idx - a.idx; });
     return out.slice(0, 40);
@@ -1142,6 +1168,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var NOTIF_VERB = {
     vouch: 'backed you', react: 'reacted to your post', comment: 'commented on your post',
     tag: 'tagged your post', mention: 'mentioned you', quote: 'quoted your post', dm: 'messaged you',
+    call: '☎ called you —',
   };
 
   // ── Direct messages ──
@@ -1653,13 +1680,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // network only introduces the two ends. The call dock lives OUTSIDE the
   // render root: render() rebuilds the app wholesale and must not tear down
   // the live audio element mid-call.
-  var call = null; // {me, peer, dir, state, pc, stream, audio, t0, muted, pendingIce, offer, timer, tick}
+  var call = null; // {me, peer, dir, state, pc, stream, audio, t0, muted, pendingIce, offer, timer, tick, rang}
   var signalAuthBad = false; // back off after a 401 until identity changes
   var signalWhoLast = null;
   var signalTickN = 0;
+  var seenRingSids = {}; // rings persist server-side across polls; dedup here
 
   function handleName(id) { try { return replay().handles[id] || id; } catch (e) { return id; } }
   function fmtDur(s) { return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function callLabel(c) {
+    return c.outcome === 'completed' ? '☎ Call · ' + fmtDur(c.dur)
+      : c.outcome === 'missed' ? '☎ Missed call'
+      : c.outcome === 'declined' ? '☎ Call declined'
+      : '☎ Call failed';
+  }
 
   function signalSend(kind, to, payload) {
     if (!REMOTE) return;
@@ -1670,10 +1704,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }).catch(function () {});
   }
 
-  function signalTick() {
+  function signalTick(force) {
     if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
-    if (!call) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
+    if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
     if (lastPinHash[who] && !pins[who]) return; // secured handle without its PIN cannot collect
     fetch('/api/signal/poll', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1687,6 +1721,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   function onSignal(s) {
     if (s.kind === 'ring') {
+      // Rings are re-delivered every poll until answered — process each once.
+      if (s.sid) {
+        if (seenRingSids[s.sid]) return;
+        seenRingSids[s.sid] = true;
+      }
       if (call) { signalSend('decline', s.from, { reason: 'busy' }); return; }
       call = { me: who, peer: s.from, dir: 'in', state: 'ringing', offer: s.payload, pendingIce: [], muted: false };
       startRingtone();
@@ -1707,7 +1746,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } else if (s.kind === 'hangup' || s.kind === 'decline') {
       endCall(false, s.kind === 'decline'
         ? (s.payload && s.payload.reason === 'busy' ? handleName(call.peer) + ' is on another call.' : handleName(call.peer) + ' declined.')
-        : null);
+        : null,
+        s.kind === 'decline' ? 'declined' : null);
     }
   }
 
@@ -1740,7 +1780,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (cs === 'connected' && call.state !== 'live') {
         call.state = 'live'; call.t0 = Date.now(); clearTimeout(call.timer); callUI();
       } else if (cs === 'failed') {
-        endCall(true, 'Connection failed — the two networks could not find a direct path.');
+        endCall(true, 'Connection failed — the two networks could not find a direct path.', 'failed');
       } else if (cs === 'disconnected') {
         setTimeout(function () {
           if (call && call.pc && call.pc.connectionState === 'disconnected') endCall(true, 'Connection lost.');
@@ -1767,6 +1807,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }).then(function (offer) {
       if (!call || !offer) return;
       signalSend('ring', call.peer, { type: offer.type, sdp: offer.sdp });
+      call.rang = true; // an outcome act is recorded only for calls that rang
       call.timer = setTimeout(function () {
         if (call && call.state !== 'live') endCall(true, 'No answer.');
       }, 32000);
@@ -1800,7 +1841,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
   }
 
-  function endCall(notifyPeer, note) {
+  function endCall(notifyPeer, note, outcomeOverride) {
     if (!call) return;
     stopRingtone();
     clearTimeout(call.timer);
@@ -1809,6 +1850,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (call.pc) { try { call.pc.close(); } catch (e) {} }
     if (call.stream) call.stream.getTracks().forEach(function (t) { t.stop(); });
     var dur = call.t0 ? Math.round((Date.now() - call.t0) / 1000) : 0;
+    // The caller records the outcome as a priced act — the call becomes part
+    // of the record and the chat thread. Only calls that actually rang count,
+    // and only the calling side writes (single writer, no duplicates).
+    if (call.dir === 'out' && call.rang) {
+      var outcome = outcomeOverride || (call.t0 ? 'completed' : 'missed');
+      pushAct({ t: 'call', from: call.me, to: call.peer, outcome: outcome, dur: dur }, null);
+    }
     call = null;
     callUI();
     if (note) toast(note + (dur ? ' · ' + fmtDur(dur) : ''));
@@ -1863,7 +1911,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     var panel = dock.querySelector('.call-panel');
     if (panel) panel.remove();
-    panel = h('div', { class: 'call-panel' });
+    panel = h('div', { class: 'call-panel' + (call.state === 'ringing' && call.dir === 'in' ? ' ringing' : '') });
     var name = handleName(call.peer);
     if (call.state === 'ringing' && call.dir === 'out') {
       panel.appendChild(h('div', { class: 'c-title', text: 'Calling ' + name + '…' }));
@@ -1916,7 +1964,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           avatar(st.handles[p], 'lq-ava s'),
           h('div', { class: 'grow' },
             h('div', { class: 'lq-name', text: st.handles[p] || p }),
-            h('div', { class: 'lq-sub', text: (last.from === who ? 'you: ' : '') + last.text.slice(0, 44) })));
+            h('div', { class: 'lq-sub', text: last.call ? callLabel(last.call) : (last.from === who ? 'you: ' : '') + last.text.slice(0, 44) })));
         row.addEventListener('click', function () { chatPeer = p; render(); });
         card.appendChild(row);
       });
@@ -1941,6 +1989,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var tEl = h('div', { class: 'lq-thread' });
     if (!thread.length) tEl.appendChild(h('p', { class: 'lq-note', text: 'Say hello — every message is a priced act.' }));
     thread.forEach(function (m) {
+      if (m.call) {
+        tEl.appendChild(h('div', { class: 'chat-call', text: (m.from === who ? '' : st.handles[m.from] + ' · ') + callLabel(m.call) }));
+        return;
+      }
       tEl.appendChild(h('div', { class: 'lq-msg' + (m.from === who ? ' mine' : '') },
         h('span', { class: 'm-meta', text: (m.from === who ? 'you' : st.handles[m.from] || m.from) + ' · #' + m.idx }),
         m.text));
@@ -1972,7 +2024,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('b', { text: st.handles[n.who] || n.who }), ' ',
           h('span', { class: 'a-verb', text: NOTIF_VERB[n.kind] || n.kind }),
           n.text ? h('div', { class: 'lq-sub', text: '“' + n.text.slice(0, 60) + '”' }) : null));
-      if (n.kind === 'dm') {
+      if (n.kind === 'dm' || n.kind === 'call') {
         row.style.cursor = 'pointer';
         row.addEventListener('click', function () { chatPeer = n.who; lqView = 'chats'; render(); });
       } else if (n.target && resolvePost(st, n.target)) {
@@ -3178,7 +3230,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             h('span', { class: 'smallnote', text: NOTIF_VERB[n.kind] || n.kind }),
             h('span', { class: 'rank-chip', style: 'margin-left:6px', text: '#' + n.idx })),
           n.text ? h('div', { class: 'smallnote', text: '“' + n.text.slice(0, 110) + '”' }) : null));
-      if (n.kind === 'dm') {
+      if (n.kind === 'dm' || n.kind === 'call') {
         row.style.cursor = 'pointer';
         row.addEventListener('click', function () { chatPeer = n.who; tab = 'chat'; render(); });
       } else if (n.target && resolvePost(st, n.target)) {
@@ -3210,7 +3262,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           avatar(st.handles[p], 'avatar s'),
           h('div', { class: 'grow' },
             h('b', { text: st.handles[p] || p }),
-            h('div', { class: 'smallnote', text: (last.from === who ? 'you: ' : '') + last.text.slice(0, 60) })));
+            h('div', { class: 'smallnote', text: last.call ? callLabel(last.call) : (last.from === who ? 'you: ' : '') + last.text.slice(0, 60) })));
         row.addEventListener('click', function () { chatPeer = p; render(); });
         card.appendChild(row);
       });
@@ -3236,6 +3288,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var tEl = h('div', { class: 'chat-thread' });
     if (!thread.length) tEl.appendChild(h('p', { class: 'smallnote', text: 'Say hello — every message is a priced act (−θ).' }));
     thread.forEach(function (m) {
+      if (m.call) {
+        tEl.appendChild(h('div', { class: 'chat-call', text: (m.from === who ? '' : st.handles[m.from] + ' · ') + callLabel(m.call) + ' · act #' + m.idx }));
+        return;
+      }
       tEl.appendChild(h('div', { class: 'chat-msg' + (m.from === who ? ' mine' : '') },
         h('span', { class: 'm-meta num', text: (m.from === who ? 'you' : st.handles[m.from] || m.from) + ' · act #' + m.idx }),
         h('div', {}, m.text)));

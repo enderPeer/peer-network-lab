@@ -20,7 +20,7 @@ const PORT = Number(process.argv[2] ?? 5210);
 
 const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
-  'editPost', 'deletePost', 'deleteAccount']);
+  'editPost', 'deletePost', 'deleteAccount', 'call']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -87,6 +87,7 @@ const ACT_FIELDS = {
 // post gains optional reference + media fields
 ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media'];
 ACT_FIELDS.editPost = ['t', 'author', 'target', 'text'];
+ACT_FIELDS.call = ['t', 'from', 'to', 'outcome', 'dur'];
 ACT_FIELDS.deletePost = ['t', 'author', 'target'];
 ACT_FIELDS.deleteAccount = ['t', 'id'];
 
@@ -214,10 +215,12 @@ const mediaLimiter = makeLimiter(10, 60_000); // 10 uploads/min/IP
 // PIN-secured handle must present its PIN both to send and to collect.
 const SIGNAL_KINDS = new Set(['ring', 'accept', 'ice', 'hangup', 'decline']);
 const SIGNAL_TTL = 90_000;      // undelivered signals evaporate
+const SIGNAL_RING_TTL = 45_000; // a stale ring must not pop up minutes later
 const SIGNAL_BOX_CAP = 64;      // per-recipient queue bound
 const SIGNAL_PAYLOAD_MAX = 16_384; // SDP with candidates stays well under this
-const signalBoxes = new Map();  // handle id -> [{from, kind, payload, ts}]
+const signalBoxes = new Map();  // handle id -> [{sid, from, kind, payload, ts}]
 const signalLimiter = makeLimiter(240, 60_000); // ICE bursts + 1s in-call polling
+let signalSeq = 1; // sids let clients dedup re-delivered rings
 function mediaDirSize() {
   let s = 0;
   try { for (const f of readdirSync(MEDIA_DIR)) s += statSync(join(MEDIA_DIR, f)).size; } catch {}
@@ -376,6 +379,13 @@ function validate(act) {
       if (!acts.some((a) => a.t === 'register' && a.id === act.id)) return 'unknown handle';
       if (deletedIds.has(act.id)) return 'already deleted';
       break;
+    case 'call':
+      // The caller's client records the outcome after the call ends; the voice
+      // itself was peer-to-peer and never touched the host.
+      if (!str(act.from, 24) || !str(act.to, 24) || act.from === act.to) return 'bad call';
+      if (!['completed', 'missed', 'declined', 'failed'].includes(act.outcome)) return 'bad outcome';
+      if (act.dur !== undefined && (!Number.isInteger(act.dur) || act.dur < 0 || act.dur > 86400)) return 'bad duration';
+      break;
   }
   return null;
 }
@@ -514,7 +524,7 @@ const server = createServer((req, res) => {
       try { msg = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
       const idOk = (v) => typeof v === 'string' && v.length > 0 && v.length <= 24;
       const now = Date.now();
-      const sweep = (box) => box.filter((s) => now - s.ts < SIGNAL_TTL);
+      const sweep = (box) => box.filter((s) => now - s.ts < (s.kind === 'ring' ? SIGNAL_RING_TTL : SIGNAL_TTL));
 
       if (url.pathname === '/api/signal/poll') {
         // Collecting your mailbox requires the same proof as acting as you —
@@ -526,7 +536,11 @@ const server = createServer((req, res) => {
           json(res, 401, { error: aerr }); return;
         }
         const box = sweep(signalBoxes.get(msg.who) ?? []);
-        signalBoxes.delete(msg.who);
+        // Rings persist across polls: a second open tab of the same handle
+        // must not silently swallow an incoming call. Clients dedup by sid;
+        // rings leave the box on accept/decline/hangup or by TTL.
+        const rings = box.filter((s) => s.kind === 'ring');
+        if (rings.length) signalBoxes.set(msg.who, rings); else signalBoxes.delete(msg.who);
         json(res, 200, { signals: box });
         return;
       }
@@ -540,9 +554,18 @@ const server = createServer((req, res) => {
         if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
         json(res, 401, { error: aerr }); return;
       }
-      const box = sweep(signalBoxes.get(msg.to) ?? []);
+      let box = sweep(signalBoxes.get(msg.to) ?? []);
+      // Ending a call clears its pending rings so no tab keeps ringing:
+      // caller hangup removes their rings from the callee's box; a callee's
+      // accept/decline removes the caller's rings from the callee's own box.
+      if (msg.kind === 'hangup') {
+        box = box.filter((s) => !(s.kind === 'ring' && s.from === msg.from));
+      } else if (msg.kind === 'accept' || msg.kind === 'decline') {
+        const own = sweep(signalBoxes.get(msg.from) ?? []).filter((s) => !(s.kind === 'ring' && s.from === msg.to));
+        if (own.length) signalBoxes.set(msg.from, own); else signalBoxes.delete(msg.from);
+      }
       if (box.length >= SIGNAL_BOX_CAP) box.shift();
-      box.push({ from: msg.from, kind: msg.kind, payload, ts: now });
+      box.push({ sid: signalSeq++, from: msg.from, kind: msg.kind, payload, ts: now });
       signalBoxes.set(msg.to, box);
       json(res, 200, { ok: true });
     });
