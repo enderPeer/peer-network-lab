@@ -123,8 +123,15 @@ function parseMentionsSrv(text, handles) {
 }
 // Handle map as it stood before act index i — mention resolution is
 // position-dependent (you cannot mention someone not yet registered).
+// The client's replay materialises four seed-world actors before any register
+// act (its seedWorld branch). They ARE mentionable, so the server's map must
+// contain them too — otherwise retroactive rmen stamping silently drops a
+// mention of @Alice/@Bob/@Carol/@Dave, and with it one counter increment and
+// one θ-debit, which shifts every later content id and re-points stored
+// references at the wrong posts.
+const SEED_HANDLES = { alice: 'Alice', bob: 'Bob', carol: 'Carol', dave: 'Dave' };
 function handlesAt(idx) {
-  const h = {};
+  const h = { ...SEED_HANDLES };
   for (let i = 0; i < idx && i < acts.length; i++) {
     if (acts[i].t === 'register') h[acts[i].id] = acts[i].handle;
   }
@@ -147,16 +154,26 @@ function rewriteLog() {
 }
 
 // Drop media blobs no surviving act references.
+// Upload happens when a file is picked; the post act arrives only when the
+// composer hits Share. A blob with no act yet may therefore be a perfectly
+// live draft — someone else's — so young files are never collected.
+const MEDIA_GC_GRACE_MS = 60 * 60 * 1000;
 function gcMedia() {
   const referenced = new Set();
   for (const a of acts) {
     if (Array.isArray(a.media)) for (const m of a.media) if (m && m.h) referenced.add(m.h);
   }
+  const now = Date.now();
   try {
     for (const f of readdirSync(MEDIA_DIR)) {
       const hash = f.replace(/\.meta$/, '');
       if (!/^[a-f0-9]{64}$/.test(hash)) continue;
-      if (!referenced.has(hash)) { try { unlinkSync(join(MEDIA_DIR, f)); } catch { /* best-effort */ } }
+      if (referenced.has(hash)) continue;
+      const file = join(MEDIA_DIR, f);
+      try {
+        if (now - statSync(file).mtimeMs < MEDIA_GC_GRACE_MS) continue; // pending draft
+        unlinkSync(file);
+      } catch { /* best-effort */ }
     }
   } catch { /* best-effort */ }
 }
@@ -285,12 +302,25 @@ function hashPin(id, pin, likeStored) {
   return createHash('sha256').update(id + ':' + pin, 'utf8').digest('hex');
 }
 
+// Acts that destroy or rewrite existing content are irreversible: a deleted
+// account can never be re-registered, redacted bytes are gone, and an edit
+// overwrites the stored post. An unsecured handle is claimable by anyone who
+// knows its id, so for these kinds "no PIN on file" must mean REFUSED, not
+// waved through — otherwise a stranger can erase someone else's account with a
+// single request. Ordinary acts keep the old permissive behaviour.
+const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount']);
+
 function authError(act) {
   const actor = act.t === 'register' ? null
     : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'deleteAccount'].includes(act.t) ? act.id : null));
   if (!actor) return null; // closeEpoch/closeCycle are communal; register is checked for uniqueness only
   const stored = pinIndex.get(actor);
-  if (!stored) return null;
+  if (!stored) {
+    if (PIN_REQUIRED.has(act.t)) {
+      return 'this handle has no PIN — set one before deleting or editing, otherwise anyone could do it in your name';
+    }
+    return null;
+  }
   const pin = typeof act.auth === 'string' ? act.auth : '';
   if (!pin || hashPin(actor, pin, stored) !== stored) return 'this handle is PIN-secured — wrong or missing PIN';
   return null;

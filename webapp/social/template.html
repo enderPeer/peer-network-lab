@@ -176,6 +176,8 @@ body[data-mode='liquid'] .file-chip { background: var(--lq-glass-2); border-colo
 .quote-embed .q-head { font-size: 11.5px; color: var(--muted); }
 .quote-embed .q-head b { color: var(--ink); }
 .quote-embed .q-text { font-size: 13px; line-height: 1.5; }
+.quote-embed.gone { border-left-color: var(--line-2); cursor: default; }
+.quote-embed.gone .q-text { font-style: italic; color: var(--muted); }
 body[data-mode='liquid'] .quote-embed { background: var(--lq-glass-2); border-left-color: var(--lq-accent); border-radius: 12px; }
 body[data-mode='liquid'] .quote-embed .q-text { color: var(--lq-ink); }
 .mention-chip { font-size: 11.5px; color: var(--ember); background: var(--ember-soft); border-radius: 9px; padding: 2px 9px; }
@@ -722,12 +724,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var l0 = new E.AttestationLedger({ E0: 100, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
     function l0safe(fn) { try { return fn(); } catch (e) { return null; } }
 
-    function addActor(id, handle, burn, count, epoch) {
-      g.addNode({ id: id, kind: 'Actor', label: handle });
-      g.addNode({ id: 'prof_' + id, kind: 'Profile', label: handle });
+    // `handles` keeps the REAL handle — mention slugs resolve against it and
+    // must stay deterministic forever. Node labels are what humans see, so a
+    // deleted actor is labelled '[deleted]' there and nowhere leaks its name
+    // into the graph view or the JSON export.
+    function addActor(id, handle, burn, count, epoch, label) {
+      var lab = label || handle;
+      g.addNode({ id: id, kind: 'Actor', label: lab });
+      g.addNode({ id: 'prof_' + id, kind: 'Profile', label: lab });
       var l = { id: id, burnBal: burn, actCount: count };
       ledgers.push(l); ledgerById[id] = l; handles[id] = handle; kReg[id] = epoch;
     }
+    // Name for human-readable chronicle text: never the real handle of a
+    // deleted account — the Record is served to everyone.
+    function dispName(id) { return deletedActors[id] ? '[deleted]' : (handles[id] || id); }
     function debit(id) { var l = ledgerById[id]; l.burnBal -= THETA; l.actCount += 1; deltaActs[id] = (deltaActs[id] || 0) + 1; }
     function vouch(author, target, p, r) {
       var key = author + '>' + target;
@@ -779,7 +789,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         chron.push({ who: 'alice', line: 'posted Photo — seed world', to: 'photo' });
         chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world', to: 'comment' });
       } else if (a.t === 'register') {
-        addActor(a.id, a.handle, a.seed, 0, a.epoch);
+        addActor(a.id, a.handle, a.seed, 0, a.epoch, mutedA ? '[deleted]' : a.handle);
         if (a.pinHash) pinHash[a.id] = a.pinHash;
         if (!mutedA) g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
         debit(a.id); if (!mutedA) weighHome(a.id, 1, 1);
@@ -810,7 +820,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         }
       } else if (a.t === 'transferL0') {
         if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; }) && !mutedA) {
-          chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + (handles[a.to] || a.to) });
+          chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + dispName(a.to) });
         }
       } else if (a.t === 'setPin') {
         if (ledgerById[a.id] && a.pinHash) {
@@ -885,7 +895,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           debit(a.author);
           if (!mutedA) {
             vouch(a.author, mid, 0.7, 0.8);
-            chron.push({ who: a.author, line: 'mentioned ' + (handles[mid] || mid) + ' — person-vouch compiled', to: cid });
+            chron.push({ who: a.author, line: 'mentioned ' + dispName(mid) + ' — person-vouch compiled', to: cid });
           }
         }
       } else if (a.t === 'opinion') {
@@ -895,7 +905,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
           if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
           else weighHome(a.author, a.p, a.r);
-          chron.push({ who: a.author, line: (owner ? 'vouched on ' + (handles[owner] || owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3), to: a.target });
+          chron.push({ who: a.author, line: (owner ? 'vouched on ' + dispName(owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3), to: a.target });
         }
         debit(a.author);
       } else if (a.t === 'review') {
@@ -933,10 +943,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           debit(a.from);
           if (!mutedA) {
             dms.push({ from: a.from, to: a.to, text: '', call: { outcome: a.outcome, dur: a.dur || 0 }, idx: i });
-            var cline = a.outcome === 'completed' ? '☎ call with ' + (handles[a.to] || a.to) + ' · ' + Math.floor((a.dur || 0) / 60) + ':' + ('0' + ((a.dur || 0) % 60)).slice(-2)
-              : a.outcome === 'missed' ? '☎ called ' + (handles[a.to] || a.to) + ' — no answer'
-              : a.outcome === 'declined' ? '☎ called ' + (handles[a.to] || a.to) + ' — declined'
-              : '☎ call to ' + (handles[a.to] || a.to) + ' failed to connect';
+            var cline = a.outcome === 'completed' ? '☎ call with ' + dispName(a.to) + ' · ' + Math.floor((a.dur || 0) / 60) + ':' + ('0' + ((a.dur || 0) % 60)).slice(-2)
+              : a.outcome === 'missed' ? '☎ called ' + dispName(a.to) + ' — no answer'
+              : a.outcome === 'declined' ? '☎ called ' + dispName(a.to) + ' — declined'
+              : '☎ call to ' + dispName(a.to) + ' failed to connect';
             chron.push({ who: a.from, line: cline });
           }
         }
@@ -1027,7 +1037,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var l = st.ledgerById[actorId];
     if (!l) return;
     var nActs = actCost(actObj, st);
-    if (l.burnBal < nActs * THETA) {
+    if (nActs > 0 && l.burnBal < nActs * THETA) {
       toast(mode === 'liquid'
         ? (nActs > 1 ? 'This costs ' + nActs + ' sparks (post + references) — not enough energy.' : 'Out of energy — recharge to keep acting.')
         : 'W1 refuses: this is ' + nActs + ' act' + (nActs === 1 ? '' : 's') + ' at θ ' + THETA.toFixed(4) + ' each; reserve ' + l.burnBal.toFixed(3) + ' is short.');
@@ -1319,6 +1329,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
   /** θ-cost of an act (posts may carry a quote + mentions, each its own act). */
   function actCost(act, st) {
+    // Corrections are free: replay charges no θ for them, so the W1 gate must
+    // not refuse a drained author the right to delete or fix their own post.
+    if (act.t === 'editPost' || act.t === 'deletePost' || act.t === 'deleteAccount') return 0;
     if (act.t !== 'post') return 1;
     var n = 1;
     if (act.ref) n++;
@@ -1517,6 +1530,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function switchTo(id, st) {
+    if (st.deleted && st.deleted[id]) { toast('That account was deleted.'); return; }
     viewAs = null; // perspective resets with identity
     var hash = st.pinHash[id];
     if (!hash) { who = id; save(); render(); return; }
@@ -1550,6 +1564,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (!(handleText || '').trim()) { toast('Type your handle first.'); return; }
     var id = findIdentity(handleText, st);
     if (!id) { toast('No handle “' + handleText.trim() + '” on this network — create it below.'); return; }
+    if (st.deleted[id]) {
+      toast('That account was deleted. The handle stays reserved and cannot be used again.');
+      return;
+    }
     if (!st.pinHash[id] && id.indexOf('u_') === 0) {
       toast('Heads up: this handle has no PIN, so anyone can use it. Re-register a new one with a PIN to claim it properly.');
     }
@@ -2226,9 +2244,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
       var q = refs.quotes[0];
-      card.appendChild(h('div', { class: 'quote-embed', onclick: function () { toast('Quoted post by ' + (st.handles[st.creators[q]] || '—') + '.'); } },
-        h('div', { class: 'q-head' }, '↪ ', h('b', {}, st.handles[st.creators[q]] || '—')),
-        h('div', { class: 'q-text', text: (st.payloads[q] || '').slice(0, 140) })));
+      var qGone = st.payloads[q] === undefined;
+      card.appendChild(h('div', { class: 'quote-embed' + (qGone ? ' gone' : ''), onclick: function () { if (!qGone) toast('Quoted post by ' + (st.handles[st.creators[q]] || '—') + '.'); } },
+        h('div', { class: 'q-head' }, '↪ ', h('b', {}, qGone ? '[deleted]' : (st.handles[st.creators[q]] || '—'))),
+        h('div', { class: 'q-text', text: qGone ? 'This post was deleted. The reference stays in the record.' : (st.payloads[q] || '').slice(0, 140) })));
     }
     if (refs.mentions.length || tags.length) {
       var tr = h('div', { class: 'lq-tagrow' });
@@ -2298,9 +2317,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (!pm || st.creators[cid] !== who) return null;
     var frag = document.createDocumentFragment();
     var btnC = geek ? 'btn small' : 'lq-pill';
+    // Without a PIN the server refuses these acts, and rightly so — say that
+    // here instead of offering a button that will bounce.
+    if (!st.pinHash[who]) {
+      frag.appendChild(h('button', { class: btnC, text: '🔒 Set a PIN to edit or delete', onclick: function () { setPinFlow(st, false); } }));
+      return frag;
+    }
     var leftMs = pm.ts ? 5 * 60 * 1000 - (Date.now() - pm.ts) : -1;
     if (leftMs > 0) {
-      frag.appendChild(h('button', { class: btnC, text: 'Edit · ' + fmtDur(Math.ceil(leftMs / 1000)) + ' left', onclick: function () {
+      var editBtn = h('button', { class: btnC, text: 'Edit · ' + fmtDur(Math.ceil(leftMs / 1000)) + ' left', onclick: function () {
         toggle(function () {
           var txt = h('textarea', geek ? {} : { class: 'lq-input', style: 'width:100%; min-height:70px' });
           txt.value = st.payloads[cid] || '';
@@ -2312,7 +2337,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
                 'Edited — the served record now carries the new text; the old bytes left the log.');
             } }));
         });
-      } }));
+      } });
+      frag.appendChild(editBtn);
+      // The window drains in real time; render() may not run again before it
+      // closes, so the label ticks itself and the button leaves at zero.
+      var tick = setInterval(function () {
+        if (!editBtn.isConnected) { clearInterval(tick); return; }
+        var ms = 5 * 60 * 1000 - (Date.now() - pm.ts);
+        if (ms <= 0) { clearInterval(tick); editBtn.remove(); return; }
+        editBtn.textContent = 'Edit · ' + fmtDur(Math.ceil(ms / 1000)) + ' left';
+      }, 1000);
     }
     var delBtn = h('button', { class: btnC, text: 'Delete' });
     delBtn.addEventListener('click', function () {
@@ -2331,6 +2365,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   function deleteAccountFlow(st) {
     var name = st.handles[who] || who;
+    if (!st.pinHash[who]) {
+      toast('Set a PIN first — an unsecured handle must not be deletable, or anyone could erase it in your name.');
+      setPinFlow(st, false);
+      return;
+    }
     var ok = window.confirm('Delete the account “' + name + '”?\n\n' +
       '· your posts, comments and messages are redacted from the served record\n' +
       '· your vouches and standing leave the solve\n' +
@@ -2717,9 +2756,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
       var q = refs.quotes[0];
-      card.appendChild(h('div', { class: 'quote-embed' },
-        h('div', { class: 'q-head' }, '↪ Reference (content-intrinsic, Full-tier T-leg) · ', h('b', {}, st.handles[st.creators[q]] || '—')),
-        h('div', { class: 'q-text', text: (st.payloads[q] || '').slice(0, 140) })));
+      var qGone2 = st.payloads[q] === undefined;
+      card.appendChild(h('div', { class: 'quote-embed' + (qGone2 ? ' gone' : '') },
+        h('div', { class: 'q-head' }, '↪ Reference (content-intrinsic, Full-tier T-leg) · ', h('b', {}, qGone2 ? '[deleted]' : (st.handles[st.creators[q]] || '—'))),
+        h('div', { class: 'q-text', text: qGone2 ? 'Deleted — the edge stays, the payload is redacted.' : (st.payloads[q] || '').slice(0, 140) })));
     }
     if (refs.mentions.length || tags.length) {
       var tr = h('div', { class: 'tagrow' });
