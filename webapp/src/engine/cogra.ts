@@ -180,6 +180,19 @@ export function buildHops(graph: RawGraph, opts: BuildOpts): Map<string, Hop[]> 
     });
   }
 
+  // A-legs of hyper acts fold per (author, carrier, family) too — the spec nets
+  // hyper legs per-leg, so a bundle zeroed by counter-records must kill its
+  // composite continuations as well (no zero-jail bypass through raw legs).
+  const aFold = new Map<string, { pd: number; pi: number }>();
+  for (const { a } of tLegs) {
+    if (!a) continue;
+    const k = a.src + '|' + a.tgt + '|' + a.family;
+    const f = aFold.get(k) ?? { pd: 0, pi: 0 };
+    f.pd += a.pd;
+    f.pi += a.pi;
+    aFold.set(k, f);
+  }
+
   // Channel-gated T-legs.
   for (const { t, a } of tLegs) {
     const author = a ? a.src : null;
@@ -193,11 +206,16 @@ export function buildHops(graph: RawGraph, opts: BuildOpts): Map<string, Hop[]> 
         epoch: t.epoch ?? 0, key: t.id,
       });
     } else if (author && a) {
-      // initiator-owned: reachable only through the leg's author
+      // initiator-owned: reachable only through the leg's author, at the
+      // author's FOLDED leg weight — a (0,0)-netted bundle carries nothing.
+      const f = aFold.get(a.src + '|' + a.tgt + '|' + a.family)!;
+      const fpd = clip(f.pd);
+      const fpi = clip(f.pi);
+      const aWeight = fpd === 0 || fpi === 0 ? 0 : foldedWeight(a.family, fpd, fpi, a.tau);
       push({
-        from: author, to: t.tgt, weight: a.weight * t.weight,
-        pdSign: (Math.sign(a.pd) || 1) * (Math.sign(t.pd) || 1),
-        piNegative: a.pi < 0 || t.pi < 0,
+        from: author, to: t.tgt, weight: aWeight * t.weight,
+        pdSign: (Math.sign(fpd) || 1) * (Math.sign(t.pd) || 1),
+        piNegative: fpi < 0 || t.pi < 0,
         epoch: Math.max(a.epoch ?? 0, t.epoch ?? 0), key: a.id + '+' + t.id,
       });
     }

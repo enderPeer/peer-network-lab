@@ -182,6 +182,27 @@ describe('CoGra references (quote/embed/mention)', () => {
   });
 });
 
+describe('CoGra zero-jail closes composite channels (probe P7)', () => {
+  it('a (0,0)-netted A-leg bundle kills its initiator-owned continuations', () => {
+    const g = world();
+    op(g, 'u', 'prof_x'); // u backs x
+    // x reviews stranger content c1 twice: +0.7/+0.7 then the counter −0.7/−0.7
+    g.appendHyper(
+      { id: 'rvA1', family: 'ReviewA', src: 'x', tgt: 'c1', pd: 0.7, pi: 0.7, tauOverride: 0 },
+      { id: 'rvT1', family: 'ReviewT', src: 'c1', tgt: 'c2', pd: 0.7, pi: 0.7, tauOverride: 0 },
+    );
+    g.appendHyper(
+      { id: 'rvA2', family: 'ReviewA', src: 'x', tgt: 'c1', pd: -0.7, pi: -0.7, tauOverride: 0 },
+      { id: 'rvT2', family: 'ReviewT', src: 'c1', tgt: 'c2', pd: 0.7, pi: 0.7, tauOverride: 0 },
+    );
+    const hops = buildHops(g, opts({ c1: 'b' })); // creator b ≠ author x → initiator-owned
+    const composites = (hops.get('x') ?? []).filter((h2) => h2.to === 'c2');
+    expect(composites.length).toBe(0); // folded to (0,0) ⇒ no live composite hop
+    const s = scoreCandidate(hops, 'u', 'c2', 0);
+    expect(s.paths.length).toBe(0); // jail holds end to end
+  });
+});
+
 describe('CoGra over the Appendix F reference graph', () => {
   it('ranks Photo for Bob from his own position, with no standing amplifier', () => {
     const g = referenceGraph();
