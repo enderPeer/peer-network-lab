@@ -184,6 +184,27 @@ table.standings tr.me td { background: var(--ember-soft); }
 table.standings tr:not(:first-child) { cursor: pointer; }
 table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 
+/* threaded replies */
+.comments .nested, .lq-comments .nested { margin-left: 22px; border-left: 2px solid var(--line); padding-left: 10px; }
+.comment .grow, .lq-comment .grow { flex: 1; min-width: 0; }
+.reply-btn { margin-top: 4px; opacity: 0.75; }
+.reply-btn:hover { opacity: 1; }
+body[data-mode='liquid'] .reply-btn { padding: 3px 11px; font-size: 12px; }
+
+/* wall warning */
+.wall-warn { background: rgba(210, 153, 34, 0.14); border: 1px solid rgba(210, 153, 34, 0.45); border-radius: 10px; padding: 8px 11px; margin-bottom: 10px; }
+.wall-warn b { color: var(--brass); font-size: 12.5px; }
+.wall-warn.bad { background: var(--bad-soft); border-color: rgba(169, 59, 42, 0.5); }
+.wall-warn.bad b { color: var(--bad); }
+
+/* geek alerts */
+.alert-row { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--line); }
+.alert-row:first-of-type { border-top: 0; }
+.alert-row .grow { flex: 1; min-width: 0; }
+.alert-row.fresh { background: var(--ember-soft); border-radius: 8px; padding-left: 8px; padding-right: 8px; }
+.nbadge { display: inline-block; min-width: 15px; margin-left: 5px; padding: 0 4px; border-radius: 8px; background: var(--ember); color: #FFF4EC; font-size: 10px; line-height: 15px; text-align: center; font-weight: 700; }
+.media-failed { display: none; }
+
 /* geek chats */
 .chat-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; }
 .chat-row:hover { background: var(--card-2); }
@@ -1053,6 +1074,48 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     return out;
   }
+  /**
+   * Recursive comment thread. A reply is an ordinary Review act targeting the
+   * COMMENT node, so replies nest by the same ReviewT edge that made the
+   * comment — no new act kind, and the thread depth is graph depth.
+   */
+  function commentTree(st, comments, depth, liquid) {
+    var wrap = h('div', { class: liquid ? 'lq-comments' : 'comments' });
+    comments.forEach(function (c) {
+      var body = h('div', { class: 'grow' },
+        liquid
+          ? h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—'))
+          : h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
+              c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review'),
+        h('div', { class: liquid ? 'txt' : 'c-body', text: c.text }));
+      var row = h('div', { class: (liquid ? 'lq-comment' : 'comment') + (depth > 0 ? ' nested' : '') },
+        avatar(st.handles[c.author], liquid ? 'lq-ava xs' : 'avatar s'), body);
+      var openForm = null;
+      body.appendChild(h('button', {
+        class: liquid ? 'lq-pill reply-btn' : 'btn small ghost reply-btn',
+        text: 'Reply',
+        onclick: function () {
+          if (openForm) { openForm.remove(); openForm = null; return; }
+          var txt = h('textarea', { placeholder: 'reply to ' + (st.handles[c.author] || 'this comment') });
+          openForm = h('div', { class: liquid ? 'lq-sheet' : 'mini-form' }, txt,
+            h('button', { class: liquid ? 'lq-pill hot' : 'btn small primary', text: 'Reply · −θ', onclick: function () {
+              if (!txt.value.trim()) { toast('Write your reply first.'); return; }
+              tryAct(who, { t: 'review', author: who, target: c.id, e: 0.7, f: 0.8, text: txt.value.trim() },
+                'Reply appended — a Review act on the comment itself, so it threads underneath.');
+            } }));
+          body.appendChild(openForm);
+        },
+      }));
+      wrap.appendChild(row);
+      // replies to this comment, capped so a pathological chain can't blow up the DOM
+      if (depth < 4) {
+        var kids = commentsOf(st, c.id);
+        if (kids.length) wrap.appendChild(commentTree(st, kids, depth + 1, liquid));
+      }
+    });
+    return wrap;
+  }
+
   /** ReferenceT edges out of a post: quoted contents + mentioned persons. */
   function refsOf(st, cid) {
     var quotes = [], mentions = [];
@@ -1073,47 +1136,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   // ── Media: content-addressed payload, rendered + cached on the viewer's device ──
-  var mediaURL = {}; // hash -> objectURL (in-memory)
-  function idbOpen() {
-    return new Promise(function (res2, rej) {
-      if (!window.indexedDB) { rej(new Error('no idb')); return; }
-      var rq = indexedDB.open('peer-media', 1);
-      rq.onupgradeneeded = function () { rq.result.createObjectStore('blobs'); };
-      rq.onsuccess = function () { res2(rq.result); };
-      rq.onerror = function () { rej(rq.error); };
-    });
-  }
-  function idbGet(h) {
-    return idbOpen().then(function (db) {
-      return new Promise(function (res2) {
-        var rq = db.transaction('blobs').objectStore('blobs').get(h);
-        rq.onsuccess = function () { res2(rq.result || null); };
-        rq.onerror = function () { res2(null); };
-      });
-    }).catch(function () { return null; });
-  }
-  function idbPut(h, blob) {
-    idbOpen().then(function (db) {
-      db.transaction('blobs', 'readwrite').objectStore('blobs').put(blob, h);
-    }).catch(function () {});
-  }
-  /** Resolve a media entry to a src, preferring the local IndexedDB cache. */
+  /**
+   * Media is content-addressed and served `immutable`, so the browser's own
+   * HTTP cache is the right (and persistent) cache. We deliberately do NOT
+   * hand out object URLs from IndexedDB blobs: a blob read back from IDB dies
+   * with its database connection, which silently produced blank images.
+   */
   function attachMedia(el, entry) {
     if (entry.d) { el.src = entry.d; return; } // local-mode inline data URL
-    var h = entry.h;
-    if (mediaURL[h]) { el.src = mediaURL[h]; return; }
-    idbGet(h).then(function (blob) {
-      if (blob) {
-        mediaURL[h] = URL.createObjectURL(blob);
-        el.src = mediaURL[h];
-        return;
-      }
-      fetch('/api/media/' + h).then(function (r) { if (!r.ok) throw 0; return r.blob(); }).then(function (b) {
-        idbPut(h, b);
-        mediaURL[h] = URL.createObjectURL(b);
-        el.src = mediaURL[h];
-      }).catch(function () { el.alt = 'media unavailable'; });
-    });
+    el.addEventListener('error', function () { el.classList.add('media-failed'); }, { once: true });
+    el.src = '/api/media/' + entry.h;
   }
   function mediaEl(entry) {
     var m = entry.m || '';
@@ -1634,15 +1666,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var comments = commentsOf(st, n.id);
     if (comments.length) {
-      var cwrap = h('div', { class: 'lq-comments' });
-      comments.forEach(function (c) {
-        cwrap.appendChild(h('div', { class: 'lq-comment' },
-          avatar(st.handles[c.author], 'lq-ava xs'),
-          h('div', {},
-            h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—')),
-            h('div', { class: 'txt', text: c.text }))));
-      });
-      card.appendChild(cwrap);
+      card.appendChild(commentTree(st, comments, 0, true));
     }
 
     var open = null;
@@ -1731,6 +1755,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var me = st.ledgerById[who];
     var w = st.l0.bal(who);
     var box = h('div', {});
+    var warn = wallBanner(st, who, true);
+    if (warn) box.appendChild(h('div', { class: 'lq-glass lq-card' }, warn));
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
       h('div', { style: 'display:flex; align-items:center; gap:12px' },
         avatar(st.handles[who], 'lq-ava'),
@@ -1819,13 +1845,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'), tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
+      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
+        (function () {
+          var b = tabBtn('alerts', 'Alerts');
+          var fresh = unseenCount(notificationsFor(st, who));
+          if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
+          return b;
+        })(),
+        tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
-    var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
+    var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
+      : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
@@ -1846,9 +1880,44 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     root.appendChild(shell);
   }
 
+  /**
+   * Wall proximity: how close x* is to the W2a safety floor, and how many more
+   * acts you can afford before crossing it. Acting raises N, so each act drags
+   * x* down — the warning has to come before the last one, not after.
+   */
+  function wallState(st, id) {
+    var l = st.ledgerById[id];
+    if (!l) return null;
+    var x = st.xById[id] || 0;
+    // acts until the OWN-rate floor alone would drop below the wall
+    var actsLeft = 0;
+    var b = l.burnBal, n = l.actCount;
+    while (actsLeft < 999 && b >= THETA && ((b - THETA) / Math.max(n + 1, 1)) / NU >= SAFE_FLOOR) {
+      b -= THETA; n += 1; actsLeft += 1;
+    }
+    return {
+      x: x, below: x < SAFE_FLOOR, actsLeft: actsLeft,
+      near: x < SAFE_FLOOR * 1.6 || actsLeft <= 5,
+      margin: x - SAFE_FLOOR,
+    };
+  }
+  function wallBanner(st, id, compact) {
+    var w = wallState(st, id);
+    if (!w || !w.near) return null;
+    var msg = w.below
+      ? 'Below the safety wall — the network will refuse your writes until you burn credits.'
+      : (w.actsLeft <= 0
+        ? 'One more act and your own rate falls below the wall. Burn credits first.'
+        : 'Close to the safety wall: about ' + w.actsLeft + ' more act' + (w.actsLeft === 1 ? '' : 's') + ' before your rate drops under it. Burn credits to keep talking.');
+    return h('div', { class: 'wall-warn' + (w.below ? ' bad' : '') },
+      h('b', { text: w.below ? '⛔ frozen' : '⚠ approaching the wall' }),
+      h('div', { class: compact ? 'lq-note' : 'smallnote', text: msg }));
+  }
+
   function idCard(st, me, myX, rate) {
     var wallPass = myX >= SAFE_FLOOR;
     return h('div', { class: 'card idcard' },
+      wallBanner(st, who),
       h('div', { class: 'who' }, avatar(st.handles[who]),
         h('div', {}, h('div', { class: 'handle', text: st.handles[who] + (st.pinHash[who] ? ' 🔒' : '') }),
           h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * myX, 4) }), ' ', deltaChip(who, st))),
@@ -2042,16 +2111,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var comments = commentsOf(st, n.id);
     if (comments.length) {
-      var cwrap = h('div', { class: 'comments' });
-      comments.forEach(function (c) {
-        cwrap.appendChild(h('div', { class: 'comment' },
-          avatar(st.handles[c.author], 'avatar s'),
-          h('div', {},
-            h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
-              c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review'),
-            h('div', { class: 'c-body', text: c.text }))));
-      });
-      card.appendChild(cwrap);
+      card.appendChild(commentTree(st, comments, 0, false));
     }
 
     var actions = h('div', { class: 'actions' });
@@ -2391,6 +2451,33 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('div', { style: 'display:flex; flex-wrap:wrap' },
         matView(e.slice, 'stored Ψ · ‖Ψ‖F ' + fmt(e.frob)),
         matView(e.pv, 'path view · det ' + fmt(det, 4))));
+  }
+
+  // Geek alerts — same notification feed as simple mode, act-level detail.
+  function alertsTab(st) {
+    var notifs = notificationsFor(st, who);
+    var wrap = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow', text: 'alerts — inbound acts naming you (mentions, quotes, backings, comments, messages)' }));
+    if (!notifs.length) {
+      wrap.appendChild(h('p', { class: 'smallnote', text: 'Nothing inbound yet. Note that inbound acts never enter your feed ranking — this list is the only place they surface.' }));
+      return wrap;
+    }
+    notifs.forEach(function (n) {
+      var row = h('div', { class: 'alert-row' + (n.idx > seenMark ? ' fresh' : '') },
+        avatar(st.handles[n.who], 'avatar s'),
+        h('div', { class: 'grow' },
+          h('div', {}, h('b', { text: st.handles[n.who] || n.who }), ' ',
+            h('span', { class: 'smallnote', text: NOTIF_VERB[n.kind] || n.kind }),
+            h('span', { class: 'rank-chip', style: 'margin-left:6px', text: '#' + n.idx })),
+          n.text ? h('div', { class: 'smallnote', text: '“' + n.text.slice(0, 110) + '”' }) : null));
+      if (n.kind === 'dm') {
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', function () { chatPeer = n.who; tab = 'chat'; render(); });
+      }
+      wrap.appendChild(row);
+    });
+    markSeen(notifs);
+    return wrap;
   }
 
   // Geek chats — the same dm acts and threads as simple mode, lab styling.
