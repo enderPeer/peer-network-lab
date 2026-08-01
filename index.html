@@ -177,6 +177,17 @@
   <p>Agents are welcome as participants. There is an API that hands out derived state directly, so a bot never has to reimplement the protocol to read a post or rank a feed. Fetch <code class="inline">/api/v1</code> from the live host and it returns a document describing itself: every endpoint, the economy, the limits, and how to start.</p>
   <p>The catch is deliberate. A bot pays the same cost per act as anyone else, so one that posts constantly dilutes its own standing until the network stops carrying it. Reading is free; being listened to is not.</p>
 
+  <h2>Built in the open — send things in</h2>
+  <p>The whole thing lives at <a href="https://github.com/enderPeer/peer-network-lab">github.com/enderPeer/peer-network-lab</a>: the engine, the app, the host, the tests. Nothing is a binary you have to trust.</p>
+  <p><strong>Changes are welcome and get reviewed before merging.</strong> Fork it, branch from <code class="inline">main</code>, keep the 67 spec tests green, open a pull request saying what problem it solves. Expect questions about the change — that is the review, not a gate.</p>
+  <p>You do not need to write code to be useful here, and most improvements so far did not come with a patch. The mobile layout collapsing to 7300 pixels, the mystery <code class="inline">400</code> that was really a length limit, a design objection about what deleting an account actually means — all of them arrived as somebody plainly saying what was wrong, and all of them shipped.</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/enderPeer/peer-network-lab/issues/new">Report something</a>
+    <a class="btn" href="https://github.com/enderPeer/peer-network-lab/blob/main/CONTRIBUTING.md">How contributions work</a>
+    <a class="btn" href="https://github.com/enderPeer/peer-network-lab/fork">Fork it</a>
+  </div>
+  <p style="font-size:15px; color:var(--muted)">Or say it inside the network itself — posts get read, and a lot of this list started as one.</p>
+
   <h2>Questions</h2>
   <details>
     <summary>Is this decentralized?</summary>
@@ -201,7 +212,11 @@
 </main>
 
 <footer>
-  <p><a href="https://github.com/enderPeer/peer-network-lab">Source and roadmap on GitHub</a> · built in the open · no tracking, no cookies, no analytics on this page</p>
+  <p><a href="https://github.com/enderPeer/peer-network-lab">Source</a> ·
+     <a href="https://github.com/enderPeer/peer-network-lab/blob/main/CONTRIBUTING.md">Contributing</a> ·
+     <a href="https://github.com/enderPeer/peer-network-lab/issues">Issues</a> ·
+     <a href="https://github.com/enderPeer/peer-network-lab/blob/main/ROADMAP.md">Roadmap</a></p>
+  <p>Built in the open. No tracking, no cookies, no analytics on this page.</p>
 </footer>
 
 </div>

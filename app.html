@@ -104,10 +104,19 @@ button { font-family: var(--body); cursor: pointer; }
    an oversized child scrolls inside its own card instead. */
 html, body { overflow-x: hidden; }
 .post, .card, .lq-card, .chat-msg, .lq-msg { max-width: 100%; }
-.post .body, .c-body, .lq-body, .q-text, .chat-msg, .lq-msg, .chat-row .smallnote,
-.lq-peer .lq-sub, .lq-alert, .alert-row, .chron-row, .toast {
-  overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+/* Applied to the CONTAINERS, not to a list of text classes. overflow-wrap
+   inherits, so every piece of peer-written text inside a card is covered —
+   including the ones nobody thought of. The first version of this rule
+   enumerated class names and missed .txt, the comment body in simple mode,
+   which a tester found within the hour: a single 1000-character word still
+   blew that column out to 7200px. Enumerating was the bug. */
+.post, .card, .lq-card, .comment, .lq-comment, .lq-comments, .chat-thread, .lq-thread,
+.chat-row, .lq-peer, .lq-alert, .alert-row, .chron-row, .toast, .quote-embed {
+  overflow-wrap: anywhere; word-break: break-word;
 }
+/* Flex and grid children default to min-width:auto, which refuses to shrink
+   below their content. Without this the wrap above cannot take effect. */
+.post *, .card *, .lq-card *, .comment *, .lq-comment *, .grow { min-width: 0; }
 .rail { position: sticky; top: 62px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
@@ -152,6 +161,13 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+.contribute { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
+.contribute p { margin: 4px 0 9px; }
+.contribute .row { display: flex; flex-wrap: wrap; gap: 7px; }
+.contribute a.btn { text-decoration: none; }
+.ref-link { font: inherit; font-family: var(--mono); font-size: 0.92em; color: var(--ember); background: var(--ember-soft); border: 0; border-radius: 4px; padding: 0 4px; cursor: pointer; }
+.ref-link:hover { background: var(--ember); color: #fff; }
+body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0,0,0,0.05); }
 .charcount { display: block; text-align: right; font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 .charcount.near { color: var(--ember); }
 .charcount.over { color: var(--bad); font-weight: 700; }
@@ -967,7 +983,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           ? h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—'))
           : h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
               c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review'),
-        h('div', { class: liquid ? 'txt' : 'c-body', text: c.text }));
+        h.apply(null, [liquid ? 'div' : 'div', { class: liquid ? 'txt' : 'c-body' }].concat(richText(st, c.text))));
       var row = h('div', { class: (liquid ? 'lq-comment' : 'comment') + (depth > 0 ? ' nested' : '') },
         avatar(st.handles[c.author], liquid ? 'lq-ava xs' : 'avatar s'), body);
       var openForm = null;
@@ -1013,6 +1029,31 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     return null;
   }
+  /**
+   * Render peer-written text with its content references made clickable.
+   *
+   * People cite each other by id — "c193, ah so annoying to need to go and look
+   * these refs up" — and the network already knows exactly what c193 is. Text
+   * nodes and buttons only, never innerHTML: this is other people's writing.
+   */
+  function refButton(st, cid, label) {
+    return h('button', { class: 'ref-link', text: label, title: 'Open ' + cid,
+      onclick: function () { jumpTo(st, cid); } });
+  }
+  function richText(st, s) {
+    var out = [], re = /\bc\d+\b/g, last = 0, m;
+    s = String(s == null ? '' : s);
+    while ((m = re.exec(s)) !== null) {
+      if (m.index > last) out.push(s.slice(last, m.index));
+      // only link what actually exists and is still readable
+      if (st.payloads[m[0]] !== undefined) out.push(refButton(st, m[0], m[0]));
+      else out.push(m[0]);
+      last = m.index + m[0].length;
+    }
+    if (last < s.length) out.push(s.slice(last));
+    return out.length ? out : [s];
+  }
+
   function jumpTo(st, nodeId) {
     if (!nodeId || !resolvePost(st, nodeId)) { toast('That act has no post to open — it moved units or closed a period.'); return; }
     focusNode = nodeId;
@@ -1980,7 +2021,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2),
             (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : '')),
         sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
-      h('div', { class: 'lq-body', text: st.payloads[n.id] || '' }));
+      h.apply(null, ['div', { class: 'lq-body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
@@ -2368,7 +2409,23 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           : h('button', { class: 'btn small', text: 'Reset world', onclick: function () {
               if (!confirm('Reset this browser’s network to the seed world?')) return;
               world = { acts: [{ t: 'seedWorld' }] }; who = null; prevX = {}; save(); render();
-            } })));
+            } })),
+      contributeNote());
+  }
+
+  /**
+   * The invitation, placed where people already are. Most of what has been
+   * fixed here started as somebody in the network saying plainly that
+   * something was wrong — so say out loud that this is a thing you can do.
+   */
+  function contributeNote() {
+    return h('div', { class: 'contribute' },
+      h('b', { text: 'Found something wrong, or want to change it?' }),
+      h('p', { class: 'smallnote', text: 'Say so in a post — that is how the mobile layout, the length limits and the deletion rules all got fixed. Or send code: fork, keep the 67 tests green, open a pull request. Everything is reviewed before it merges.' }),
+      h('div', { class: 'row' },
+        h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab', target: '_blank', rel: 'noopener' }, 'Source on GitHub'),
+        h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab/issues/new', target: '_blank', rel: 'noopener' }, 'Report an issue'),
+        h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab/blob/main/CONTRIBUTING.md', target: '_blank', rel: 'noopener' }, 'How to contribute')));
   }
 
   function feedTab(st) {
@@ -2504,7 +2561,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         deltaChip(author, st),
         h('span', { class: 'kindtag', text: 'post' }),
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null),
-      h('div', { class: 'body', text: st.payloads[n.id] || '' }));
+      h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
