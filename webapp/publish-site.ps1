@@ -43,22 +43,38 @@ $cfg = [ordered]@{
   updated = $stamp
   note    = 'Written by publish-site.ps1. An empty url means no shared host is published; the app then runs entirely in your browser.'
 }
-$cfg | ConvertTo-Json | Set-Content (Join-Path $site 'host.json') -Encoding utf8
+# WriteAllText with an explicit no-BOM encoder: PowerShell 5.1's -Encoding utf8
+# emits a byte-order mark, and a BOM in front of JSON breaks strict parsers.
+[System.IO.File]::WriteAllText(
+  (Join-Path $site 'host.json'),
+  ($cfg | ConvertTo-Json),
+  (New-Object System.Text.UTF8Encoding $false))
 if ($HostUrl) { Write-Output "host.json -> $HostUrl" } else { Write-Output 'host.json -> (none; sandbox only)' }
 
 # 3. Push the site folder to gh-pages via a detached worktree, so nothing about
 #    the working tree or the main branch is disturbed.
 $wt = Join-Path $env:TEMP ('peer-ghpages-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-git -C $repo fetch origin gh-pages 2>$null | Out-Null
-$hasBranch = (git -C $repo ls-remote --heads origin gh-pages) -ne $null -and (git -C $repo ls-remote --heads origin gh-pages).Length -gt 0
+
+# ls-remote is the safe probe: it prints nothing and succeeds when the branch is
+# absent, whereas `fetch` on a missing ref is a hard failure that would abort
+# the whole script on the very first publish.
+$remoteRef = git -C $repo ls-remote --heads origin gh-pages
+$hasBranch = -not [string]::IsNullOrWhiteSpace(($remoteRef -join ''))
 
 if ($hasBranch) {
-  git -C $repo worktree add --detach $wt origin/gh-pages | Out-Host
+  git -C $repo fetch origin gh-pages | Out-Host
+  git -C $repo worktree add --detach $wt FETCH_HEAD | Out-Host
 } else {
   Write-Output 'gh-pages does not exist yet - creating it'
   git -C $repo worktree add --detach $wt | Out-Host
-  git -C $wt checkout --orphan gh-pages | Out-Host
-  git -C $wt rm -rf . 2>$null | Out-Null
+  Push-Location $wt
+  try {
+    git checkout --orphan gh-pages | Out-Host
+    # An orphan checkout still carries the index from main; empty it so the
+    # published branch contains only the site.
+    git reset --hard | Out-Null
+    Get-ChildItem $wt -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force
+  } finally { Pop-Location }
 }
 
 try {
