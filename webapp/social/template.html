@@ -520,7 +520,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function pushAct(act, onOk) {
-    var actor = act.author || (act.t === 'burn' || act.t === 'register' ? act.id : null);
+    var actor = act.author || act.from ||
+      (act.t === 'closeEpoch' || act.t === 'closeCycle' ? null : act.id) || null;
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
     if (!REMOTE) {
       delete act.auth;
@@ -595,6 +596,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var pinHash = {};
     var counter = 0;
     var certsSoFar = 0; // certificates issued before the current act (CoGra epoch age)
+    // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
+    // every attestation increment feeds the actor's residual burn balance.
+    var l0 = new E.AttestationLedger({ E0: 100, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
+    function l0safe(fn) { try { return fn(); } catch (e) { return null; } }
 
     function addActor(id, handle, burn, count, epoch) {
       g.addNode({ id: id, kind: 'Actor', label: handle });
@@ -641,6 +646,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         creators.photo = 'alice'; creators.comment = 'bob'; creators.sneakers = 'bob'; creators.streetart = 'carol';
         payloads.photo = SEED_POSTS.photo; payloads.comment = SEED_POSTS.comment;
         reviewMeta.comment = { e: 0.7, f: 0.8 };
+        // Layer-0 seed: residents get an external-reserve faucet and a starter
+        // grant of live units from the operator (the genesis holder).
+        ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
+          l0.faucet(id, 10);
+          l0safe(function () { l0.transfer('op', id, 2, 'live'); });
+        });
         chron.push({ who: 'alice', line: 'posted Photo — seed world' });
         chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world' });
       } else if (a.t === 'register') {
@@ -648,10 +659,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         if (a.pinHash) pinHash[a.id] = a.pinHash;
         g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
         debit(a.id); weighHome(a.id, 1, 1);
-        chron.push({ who: a.id, line: 'registered · burned ' + a.seed.toFixed(2) + ' reserve · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
+        // Layer-0 onboarding: external-reserve faucet + operator starter grant.
+        l0.faucet(a.id, 10);
+        l0safe(function () { l0.transfer('op', a.id, 2, 'live'); });
+        chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
       } else if (a.t === 'burn') {
+        // legacy faucet-burn (pre-economy acts in the shared log)
         ledgerById[a.id].burnBal += a.amt;
-        chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve' });
+        chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
+      } else if (a.t === 'deposit') {
+        if (l0safe(function () { l0.deposit(a.id, a.amt); return true; })) {
+          chron.push({ who: a.id, line: 'deposited ' + a.amt.toFixed(2) + ' reserve → escrow (mints at the next cycle boundary)' });
+        }
+      } else if (a.t === 'burnL0') {
+        var dA = l0safe(function () { return l0.burn(a.id, a.x); });
+        if (dA != null && ledgerById[a.id]) {
+          ledgerById[a.id].burnBal += dA; // the L1 seam: attestation is burn_val
+          chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
+        }
+      } else if (a.t === 'redeem') {
+        var pay = l0safe(function () { return l0.redeem(a.id, a.x); });
+        if (pay != null) {
+          chron.push({ who: a.id, line: 'redeemed ' + a.x.toFixed(2) + ' live units → ' + pay.toFixed(3) + ' reserve (floor-preserving)' });
+        }
+      } else if (a.t === 'transferL0') {
+        if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; })) {
+          chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + (handles[a.to] || a.to) });
+        }
+      } else if (a.t === 'closeCycle') {
+        var cyc = l0.closeCycle();
+        chron.push({ who: null, line: 'L0 cycle ' + l0.cycle + ' processed · minted ' + cyc.minted.toFixed(2) + ' receipt units · settled floor φ ' + cyc.floor.toFixed(4) + (l0.cycle === 10 ? ' · maturity conversion: all time-locked units are now live' : '') });
       } else if (a.t === 'post') {
         counter++;
         var cid = 'c' + counter;
@@ -728,7 +765,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
       deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),
       epochHistory: epochHistory, chron: chron, epochNow: epochNow,
-      reviewMeta: reviewMeta, pinHash: pinHash,
+      reviewMeta: reviewMeta, pinHash: pinHash, l0: l0,
     };
   }
 
@@ -1175,6 +1212,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   function lqYou(st) {
     var me = st.ledgerById[who];
+    var w = st.l0.bal(who);
     var box = h('div', {});
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
       h('div', { style: 'display:flex; align-items:center; gap:12px' },
@@ -1187,12 +1225,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(me.burnBal, 2) }), 'energy'),
         h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: String(me.actCount) }), 'actions'),
         h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) }), 'actions left')),
+      h('div', { class: 'lq-stat-row' },
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.live, 2) }), 'credits'),
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.tlock, 2) }), 'locked'),
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.reserve, 2) }), 'reserve'),
+        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(st.l0.floor(), 3) }), 'floor φ')),
       h('div', { class: 'lq-actions' },
         h('button', { class: 'lq-pill hot', onclick: function () {
-          pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Recharged. Commitment in, energy up.'); });
-        } }, icon('bolt'), 'Recharge energy'),
+          if (w.live < 1) { toast('No credits to burn — deposit reserve first; it mints at the next cycle.'); return; }
+          pushAct({ t: 'burnL0', id: who, x: 1 }, function () { toast('Burned 1 credit — destroyed forever, attested at the settled floor. Energy up.'); });
+        } }, icon('bolt'), 'Burn 1 credit → energy'),
+        h('button', { class: 'lq-pill', onclick: function () {
+          if (w.reserve < 5) { toast('Not enough reserve.'); return; }
+          pushAct({ t: 'deposit', id: who, amt: 5 }, function () { toast('5 reserve escrowed — your receipt units mint at the next cycle boundary.'); });
+        } }, icon('bolt'), 'Deposit 5 reserve'),
         h('button', { class: 'lq-pill', text: 'Switch identity', onclick: function () { who = null; save(); render(); } })),
-      h('p', { class: 'lq-note', text: 'Everything you do here spends a little energy and slightly dilutes your credibility rate — that’s the point: acting is a commitment, and backing someone lends them yours.' })));
+      h('p', { class: 'lq-note', text: 'Energy is real destruction: you deposit reserve, receive receipt credits at the cycle mint, and burning a credit destroys it forever — that irreversible loss is what your influence is made of. Geek mode → Economy shows the full machinery.' })));
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
       h('h2', { text: 'Under the hood' }),
       h('p', { class: 'lq-note', text: 'This whole app runs a formally specified protocol — every number you see is replayable mathematics. The geek view exposes the machinery: tensors on every edge, the trust-transport solve, epoch gates, the live network graph.' }),
@@ -1253,13 +1301,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
+      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
-    var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
+    var center = tab === 'feed' ? feedTab(st) : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
@@ -1593,6 +1641,95 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         matView(e.pv, 'path view · det ' + fmt(det, 4))));
   }
 
+  function econTab(st) {
+    var l0 = st.l0;
+    var w = l0.bal(who);
+    var op = l0.bal('op');
+    var escrowTotal = l0.escrow.reduce(function (s, e) { return s + e.amount; }, 0);
+    var wrap = h('div', {});
+
+    wrap.appendChild(h('div', { class: 'card' },
+      h('h2', { text: 'Layer 0 — the reserve receipt' }),
+      h('div', { class: 'kv' },
+        h('span', { text: 'reserve pool Ω' }), h('b', { class: 'num', text: fmt(l0.omega, 3) }),
+        h('span', { text: 'live Y_L' }), h('b', { class: 'num', text: fmt(l0.yLive, 3) }),
+        h('span', { text: 'time-locked Y_T' }), h('b', { class: 'num', text: fmt(l0.yLock, 3) })),
+      h('div', { class: 'kv' },
+        h('span', { text: 'floor φ = Ω/Y' }), h('b', { class: 'num', text: fmt(l0.floor(), 4) }),
+        h('span', { text: 'settled φ' }), h('b', { class: 'num', text: fmt(l0.settledFloor, 4) }),
+        h('span', { text: 'cycle k' }), h('b', { class: 'num', text: l0.cycle + ' (' + (l0.bootstrapping ? 'bootstrapping, maturity at 10' : 'normal phase') + ')' })),
+      h('div', { class: 'kv' },
+        h('span', { text: 'escrow Q' }), h('b', { class: 'num', text: fmt(escrowTotal, 2) }),
+        h('span', { text: 'A_max = E₀·ln(1/(1−ζ))' }), h('b', { class: 'num', text: fmt(l0.attestCap, 2) }),
+        h('span', { text: 'operator' }), h('b', { class: 'num', text: fmt(op.live, 1) + ' L · ' + fmt(op.tlock, 1) + ' T' })),
+      h('p', { class: 'smallnote', text: 'One conserved receipt, two redemption classes. The floor only ever rises: burning destroys supply against an unchanged pool; issuance mints at the pre-issuance floor; redemption pays out at it. ζ = f = 0.5 (spec placeholders). Every burn credits the attestation A at the settled floor — and A is exactly the burn value Layer 1 reads.' })));
+
+    var amtD = h('input', { type: 'text', placeholder: '5', style: 'width:60px', inputmode: 'decimal' });
+    var amtB = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+    var amtR = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+    var amtT = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+    var peerSel = h('select', {});
+    st.ledgers.forEach(function (l) {
+      if (l.id !== who) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+    });
+    function num(inp, dflt) { var v = parseFloat(inp.value); return isFinite(v) && v > 0 ? v : dflt; }
+
+    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Your wallet' }),
+      h('div', { class: 'kv' },
+        h('span', { text: 'external reserve' }), h('b', { class: 'num', text: fmt(w.reserve, 3) }),
+        h('span', { text: 'live' }), h('b', { class: 'num', text: fmt(w.live, 3) }),
+        h('span', { text: 'time-locked' }), h('b', { class: 'num', text: fmt(w.tlock, 3) }),
+        h('span', { text: 'attestation A' }), h('b', { class: 'num', text: fmt(w.attest, 3) })),
+      h('div', { class: 'mini-form' }, amtD,
+        h('button', { class: 'btn small primary', text: 'Deposit → escrow', onclick: function () {
+          var x = num(amtD, 5);
+          if (w.reserve < x) { toast('Not enough external reserve.'); return; }
+          pushAct({ t: 'deposit', id: who, amt: x }, function () { toast('Escrowed. Mints at the next cycle boundary: (1−f)·ζ live + (1−f)·(1−ζ) time-locked to you, fee to the operator.'); });
+        } })),
+      h('div', { class: 'mini-form' }, amtB,
+        h('button', { class: 'btn small primary', text: 'Burn live → attestation', onclick: function () {
+          var x = num(amtB, 1);
+          if (w.live < x) { toast('Not enough live units.'); return; }
+          pushAct({ t: 'burnL0', id: who, x: x }, function () { toast('Destroyed forever. Attestation credited at the settled floor — this is your Layer-1 burn value.'); });
+        } })),
+      h('div', { class: 'mini-form' }, amtR,
+        h('button', { class: 'btn small', text: 'Redeem live → reserve', onclick: function () {
+          var x = num(amtR, 1);
+          if (w.live < x) { toast('Not enough live units.'); return; }
+          pushAct({ t: 'redeem', id: who, x: x }, function () { toast('Redeemed at the floor — exits value, never lowers φ.'); });
+        } })),
+      h('div', { class: 'mini-form' }, amtT, peerSel,
+        h('button', { class: 'btn small', text: 'Send live units', onclick: function () {
+          var x = num(amtT, 1);
+          if (!peerSel.value) { toast('No peer to send to.'); return; }
+          if (w.live < x) { toast('Not enough live units.'); return; }
+          pushAct({ t: 'transferL0', from: who, to: peerSel.value, x: x, cls: 'live' }, function () { toast('Transferred — class-internal, touches no Ω, φ, or A.'); });
+        } })),
+      h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close L0 cycle ' + l0.cycle + ' (process escrow, settle floor)', onclick: function () {
+        pushAct({ t: 'closeCycle' }, function () { toast('Cycle boundary: escrow minted at the pre-issuance floor, settlement committed.'); });
+      } }),
+      h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
+
+    var table = h('table', { class: 'standings' },
+      h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
+    var addrs = [];
+    l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
+    addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
+    addrs.forEach(function (r) {
+      table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
+        h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
+        h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
+        h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
+        h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
+        h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
+    });
+    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Addresses' }), table,
+      h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
+    return wrap;
+  }
+
   function guideTab(st) {
     function jump(label, toTab) {
       return h('button', { class: 'btn small ghost jump', text: label + ' →', onclick: function () { tab = toTab; render(); } });
@@ -1653,6 +1790,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       sect('Epochs: stamping the record', false,
         P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (right rail) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in the Record tab.'),
         P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'ledger'))),
+
+      sect('The economy: Layer 0 (Peer Attestation)', false,
+        P('Reserve is no longer a faucet — it is a ', B('full-reserve receipt system'), ' beneath the network. You hold external reserve, deposit it into the pool, and receive receipt units at the next ', B('cycle boundary'), ': (1−f)·ζ live + (1−f)·(1−ζ) time-locked, with fee f to the operator (ζ = f = 0.5, spec placeholders).'),
+        F('φ = Ω / (Y_L + Y_T)   — the redemption floor; it only ever rises'),
+        P(B('Burning is real destruction.'), ' burn(x) destroys x live units against an unchanged pool — the floor rises for everyone left — and credits your ', B('attestation'), ' A += x·φ at the settled floor. That attestation is exactly the burn value Layer 1 reads: your standing rate is built from irreversibly destroyed value, nothing else.'),
+        P(B('Redemption'), ' pays x·φ reserve back and never lowers the floor. ', B('Time-locked units'), ' exist only during bootstrapping and convert to live in one relabel at maturity (cycle 10). Capacity before deposits is bounded: A_max = E₀·ln(1/(1−ζ)).'),
+        P('Try it in the ', B('Economy tab'), ': deposit, close a cycle, burn, watch φ ratchet. ', jump('open economy', 'econ'))),
 
       sect('Reading the Network tab', false,
         P('Nodes: ', B('circles'), ' are Actors, ', B('diamonds'), ' Profiles, ', B('rounded boxes'), ' artifacts (Content, Comments, Types, Items). Every edge is an act’s projection; ', B('stroke width'), ' is its damped weight.'),

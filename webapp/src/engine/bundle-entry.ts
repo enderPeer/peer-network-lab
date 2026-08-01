@@ -8,6 +8,7 @@ export * from './graph';
 export * from './traversal';
 export * from './feed';
 export * from './standing';
+export * from './attestation';
 export * from './can';
 export * from './cogra';
 export * from './fixtures';

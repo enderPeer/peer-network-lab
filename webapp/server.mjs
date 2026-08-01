@@ -17,7 +17,8 @@ const DATA_DIR = resolve(here, 'server-data');
 const LOG = resolve(DATA_DIR, 'acts.jsonl');
 const PORT = Number(process.argv[2] ?? 5210);
 
-const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch']);
+const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
+  'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 
@@ -72,6 +73,11 @@ const ACT_FIELDS = {
   review: ['t', 'author', 'target', 'e', 'f', 'text'],
   tag: ['t', 'author', 'target', 'name', 'r', 'c'],
   closeEpoch: ['t', 'epoch'],
+  deposit: ['t', 'id', 'amt'],
+  burnL0: ['t', 'id', 'x'],
+  redeem: ['t', 'id', 'x'],
+  transferL0: ['t', 'from', 'to', 'x', 'cls'],
+  closeCycle: ['t'],
 };
 function sanitize(act) {
   const keep = ACT_FIELDS[act.t] || [];
@@ -124,8 +130,9 @@ function hashPin(id, pin, likeStored) {
 }
 
 function authError(act) {
-  const actor = act.t === 'register' ? null : (act.author ?? (act.t === 'burn' ? act.id : null));
-  if (!actor) return null; // closeEpoch is communal; register is checked for uniqueness only
+  const actor = act.t === 'register' ? null
+    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem'].includes(act.t) ? act.id : null));
+  if (!actor) return null; // closeEpoch/closeCycle are communal; register is checked for uniqueness only
   const stored = pinIndex.get(actor);
   if (!stored) return null;
   const pin = typeof act.auth === 'string' ? act.auth : '';
@@ -164,6 +171,19 @@ function validate(act) {
       break;
     case 'closeEpoch':
       if (!num(act.epoch)) return 'bad epoch';
+      break;
+    case 'deposit':
+      if (!str(act.id, 24) || !num(act.amt) || act.amt <= 0 || act.amt > 1000) return 'bad deposit';
+      break;
+    case 'burnL0':
+    case 'redeem':
+      if (!str(act.id, 24) || !num(act.x) || act.x <= 0 || act.x > 10000) return 'bad amount';
+      break;
+    case 'transferL0':
+      if (!str(act.from, 24) || !str(act.to, 24) || !num(act.x) || act.x <= 0 || act.x > 10000) return 'bad transfer';
+      if (act.cls !== undefined && act.cls !== 'live' && act.cls !== 'tlock') return 'bad class';
+      break;
+    case 'closeCycle':
       break;
   }
   return null;
