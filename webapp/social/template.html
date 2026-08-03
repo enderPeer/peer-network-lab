@@ -161,6 +161,10 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+.hop-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
+.hop-chip.far { opacity: 0.55; border-style: dashed; }
+.react-count { color: var(--ember); font-size: 11.5px; }
+body[data-mode='liquid'] .react-count { color: var(--lq-accent); }
 .contribute { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
 .contribute p { margin: 4px 0 9px; }
 .contribute .row { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -973,30 +977,92 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * COMMENT node, so replies nest by the same ReviewT edge that made the
    * comment — no new act kind, and the thread depth is graph depth.
    */
+  // How many reactions a comment (or any node) carries, and their net stance.
+  // A comment is a node like any other, so an Opinion act can target it — the
+  // data path testers confirmed works; this reads it back.
+  /**
+   * Hop distance from the viewer, memoised per replay. Requested by cam:
+   * "note the min hop-distance everything 1,2,3,4 or more than 4, so I can
+   * see what comments are linked, and what are too far away". The feed reaches
+   * four hops, so anything past that is genuinely out of range rather than
+   * merely weak — a distinction "no BFS path from you yet" could not make.
+   */
+  var hopCache = { st: null, who: null, map: null };
+  function hopsFrom(st, nodeId) {
+    if (hopCache.st !== st || hopCache.who !== who) {
+      hopCache = { st: st, who: who, map: who ? E.hopDistance(st.g, who) : new Map() };
+    }
+    var d = hopCache.map.get(nodeId);
+    return d === undefined ? null : d;
+  }
+  function hopChip(st, nodeId, liquid) {
+    if (!who) return null;
+    var d = hopsFrom(st, nodeId);
+    return h('span', {
+      class: 'hop-chip' + (d === null ? ' far' : ''),
+      title: d === null
+        ? 'Beyond four hops — outside the depth your feed traverses. React to something closer and the graph pulls it into range.'
+        : d + ' hop' + (d === 1 ? '' : 's') + ' from you through routable edges',
+      text: d === null ? '>4 hops' : d + ' hop' + (d === 1 ? '' : 's'),
+    });
+  }
+
+  function reactionsOn(st, nodeId) {
+    var n = 0, net = 0;
+    st.g.edges.forEach(function (e) {
+      if (e.family === 'Opinion' && e.tgt === nodeId) { n++; net += e.pd; }
+    });
+    return { n: n, net: net };
+  }
+
   function commentTree(st, comments, depth, liquid) {
     var wrap = h('div', { class: liquid ? 'lq-comments' : 'comments' });
     comments.forEach(function (c) {
+      var rx = reactionsOn(st, c.id);
       var body = h('div', { class: 'grow' },
         liquid
-          ? h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—'))
+          ? h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—'),
+              rx.n ? h('span', { class: 'react-count', text: ' ♥ ' + rx.n }) : null)
           : h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
-              c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review'),
+              c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review',
+              rx.n ? h('span', { class: 'react-count', text: ' · ♥ ' + rx.n + (rx.net < 0 ? ' (net −)' : '') }) : null,
+              ' ', hopChip(st, c.id, false)),
         h.apply(null, [liquid ? 'div' : 'div', { class: liquid ? 'txt' : 'c-body' }].concat(richText(st, c.text))));
       var row = h('div', { class: (liquid ? 'lq-comment' : 'comment') + (depth > 0 ? ' nested' : '') },
         avatar(st.handles[c.author], liquid ? 'lq-ava xs' : 'avatar s'), body);
       var openForm = null;
+      // React on the comment itself — cam's ask, confirmed on the data side by
+      // feedback2000. An Opinion act targeting the Comment node.
+      if (c.author !== who) {
+        body.appendChild(h('button', {
+          class: liquid ? 'lq-pill' : 'btn small ghost',
+          text: '♥ React',
+          onclick: function () {
+            tryAct(who, { t: 'opinion', author: who, target: c.id, p: 0.8, r: 0.8 },
+              'Reacted to the comment — an Opinion act on the Comment node, so it weighs like any reaction and wires you to this branch.');
+          },
+        }));
+      }
       body.appendChild(h('button', {
         class: liquid ? 'lq-pill reply-btn' : 'btn small ghost reply-btn',
         text: 'Reply',
         onclick: function () {
           if (openForm) { openForm.remove(); openForm = null; return; }
           var txt = h('textarea', { placeholder: 'reply to ' + (st.handles[c.author] || 'this comment') });
-          openForm = h('div', { class: liquid ? 'lq-sheet' : 'mini-form' }, txt,
-            h('button', { class: liquid ? 'lq-pill hot' : 'btn small primary', text: 'Reply · −θ', onclick: function () {
+          var body2 = null;
+          if (!liquid) {
+            // Geek mode gets the stance sliders on a reply too — cam noted the
+            // comment form gave no params. e = enthusiasm, f = effort.
+            var e2 = slider('enthusiasm', 0.7), f2 = slider('effort', 0.8);
+            body2 = { e: e2, f: f2, rows: [e2.row, f2.row] };
+          }
+          openForm = h.apply(null, [liquid ? 'div' : 'div', { class: liquid ? 'lq-sheet' : 'mini-form' }, txt]
+            .concat(body2 ? body2.rows : [])
+            .concat([h('button', { class: liquid ? 'lq-pill hot' : 'btn small primary', text: 'Reply · −θ', onclick: function () {
               if (!txt.value.trim()) { toast('Write your reply first.'); return; }
-              tryAct(who, { t: 'review', author: who, target: c.id, e: 0.7, f: 0.8, text: txt.value.trim() },
+              tryAct(who, { t: 'review', author: who, target: c.id, e: body2 ? body2.e.value() : 0.7, f: body2 ? body2.f.value() : 0.8, text: txt.value.trim() },
                 'Reply appended — a Review act on the comment itself, so it threads underneath.');
-            } }));
+            } })]));
           body.appendChild(openForm);
         },
       }));
@@ -2558,7 +2624,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('span', { class: 'standing-chip', text: fmt(credibility(st, author), 3) }),
         deltaChip(author, st),
         h('span', { class: 'kindtag', text: 'post' }),
-        (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null),
+        (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
+        hopChip(st, n.id, false)),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);

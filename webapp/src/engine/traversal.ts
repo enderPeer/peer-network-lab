@@ -13,6 +13,39 @@ export interface CoverRegisters {
  * s = +1 preserves parity; s = −1 swaps registers. No pruning threshold.
  * On an all-positive graph the pos register equals the feed-ranking BFS state.
  */
+/**
+ * Minimum number of routable hops from `sourceId` to every node within `depth`.
+ *
+ * The signed double cover answers "how strongly does this reach me"; it cannot
+ * answer "how far away is it", because a weight of zero is indistinguishable
+ * from out-of-range. Readers asked for the distance itself: whether a thing is
+ * one hop off or sits beyond the horizon entirely. Same edge-admissibility rule
+ * as the cover (routing-inert zero-determinant edges are skipped), so a node
+ * that appears here is a node the feed could in principle reach.
+ *
+ * Nodes further than `depth` are simply absent from the map.
+ */
+export function hopDistance(
+  graph: RawGraph,
+  sourceId: string,
+  depth = FEED_DEPTH,
+): Map<string, number> {
+  const dist = new Map<string, number>([[sourceId, 0]]);
+  let frontier = new Set<string>([sourceId]);
+  for (let d = 1; d <= depth && frontier.size; d++) {
+    const next = new Set<string>();
+    for (const e of graph.edges) {
+      if (e.weight <= 0) continue;
+      if (!frontier.has(e.src)) continue;
+      if (dist.has(e.tgt)) continue; // first arrival is the minimum
+      dist.set(e.tgt, d);
+      next.add(e.tgt);
+    }
+    frontier = next;
+  }
+  return dist;
+}
+
 export function doubleCoverBFS(
   graph: RawGraph,
   sourceId: string,
