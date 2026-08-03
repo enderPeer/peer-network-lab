@@ -273,19 +273,65 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
    100dvh rather than 100vh — on mobile browsers vh includes the address bar
    that is about to slide away, so vh leaves a strip of the next video peeking
    and the snap fights the user. dvh is the box that actually exists. */
-.reels { height: 100dvh; overflow-y: auto; scroll-snap-type: y mandatory;
-  margin: 0 -14px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+/* scroll-snap-type: y proximity, not mandatory.
+   Mandatory fights every gesture that is not a full swipe — a small drag gets
+   yanked back, which reads as the page being stuck. Proximity snaps when you
+   are close and lets you scrub when you are not. scroll-snap-stop: always on
+   the sections still guarantees a flick never skips a video. */
+.reels { height: 100dvh; overflow-y: auto; scroll-snap-type: y proximity;
+  margin: 0 -14px; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain; scroll-behavior: smooth; }
 @supports not (height: 100dvh) { .reels { height: 100vh; } }
 .reel { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always;
   background: #000; display: flex; align-items: center; justify-content: center; }
 .reel-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+/* The overlay must not swallow taps meant for the video: only the controls
+   and the text inside it are interactive. Before this, the whole bottom third
+   of the screen was one big play/pause target and the sound button sat inside
+   it — reaching for sound paused the video instead. */
 .reel-info { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px;
-  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(transparent, rgba(0,0,0,.78)); pointer-events: auto; }
+  /* Generous, because a mobile toolbar covers the bottom of a 100dvh box while
+     it is on screen and env() does not account for it. Text clipped behind a
+     toolbar is the same bug as a button hiding behind one. */
+  padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(transparent, rgba(0,0,0,.82)); pointer-events: none; }
+.reel-info > * { pointer-events: auto; }
 .reel-text { margin: 8px 0; font-size: 14px; line-height: 1.35; }
-.reel-sound { margin-top: 8px; background: rgba(0,0,0,.55); color: var(--ink);
-  border: 1px solid rgba(255,255,255,.28); border-radius: 999px;
-  padding: 7px 14px; font: inherit; font-size: 12px; cursor: pointer; }
+
+
+/* One control style, used top and bottom. 44px is the smallest target a
+   thumb hits reliably, and these sit above the video rather than inside a
+   region that also handles taps. */
+.reel-btn { min-height: 44px; background: rgba(0,0,0,.6); color: var(--ink);
+  border: 1px solid rgba(255,255,255,.32); border-radius: 999px;
+  padding: 10px 18px; font: inherit; font-size: 13px; cursor: pointer;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.reel-btn.on { background: rgba(216,178,106,.92); color: #17140f; border-color: transparent; font-weight: 600; }
+
+/* The exit bar is sticky INSIDE the scroller, so it rides along every snap
+   instead of scrolling away with the first video. Without it there is no way
+   back on a phone: the reels box owns the screen and contains its own
+   scrolling, so the tab bar is off-screen entirely. */
+/* FIXED, not sticky.
+   Sticky put the bar inside the scroller's flow, where a negative margin was
+   needed to stop it eating a video's height — and that pushed it 544px down
+   the screen instead. The reels view owns the whole viewport anyway, so the
+   controls belong to the viewport, not to the list. */
+.reel-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(rgba(0,0,0,.75), transparent); pointer-events: none; }
+.reel-bar > * { pointer-events: auto; }
+.reel-exit { font-weight: 600; }
+
+/* Sound sits on a fixed right rail at thumb height.
+   In the bottom overlay it measured 43px BELOW the visible area — a mobile
+   browser's toolbar covers the bottom of a 100dvh box while it is still
+   showing, so anything anchored to the bottom of the video is exactly where a
+   phone cannot reach. Fixed to the viewport, above the fold of that toolbar,
+   it is always there. */
+.reel-rail { position: fixed; right: 12px; z-index: 30;
+  bottom: calc(28% + env(safe-area-inset-bottom, 0px)); }
 
 /* Music: a list you run down, and one player that stays put. */
 .player { position: sticky; top: 0; z-index: 5; background: var(--card);
@@ -3676,7 +3722,30 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // a lane is a filter over the same content nodes, newest first, and every
   // card still opens the same post in the same thread.
 
-  /** Content carrying media of a given kind, newest first. */
+  /**
+   * The order the feed would put things in, as a lookup from content id to
+   * position — so a lane can be sorted the same way without duplicating any
+   * ranking. The three modes are the same three the main feed offers, because
+   * a lane that could only ever show newest-first was a different product
+   * pretending to be a filter.
+   */
+  function laneOrder(st) {
+    var vu = viewAs && st.ledgerById[viewAs] ? viewAs : who;
+    var pos = {};
+    try {
+      if (feedMode === 'cogra') {
+        cograFeed(st, vu).forEach(function (sc, i) { pos[sc.node.id] = i; });
+      } else if (feedMode === 'l1') {
+        E.rankFeed(st.g, vu, function (id) { return credibility(st, id); },
+          function (nid) { return st.creators[nid] || null; })
+          .filter(function (f) { return f.relevance > 0; })
+          .forEach(function (f, i) { pos[f.node.id] = i; });
+      }
+    } catch (e) { /* ranking is best-effort here; newest is always available */ }
+    return pos;
+  }
+
+  /** Content carrying media of a given kind, in the current feed order. */
   function laneItems(st, kind) {
     var out = [];
     for (var cid in st.mediaMeta) {
@@ -3695,7 +3764,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (!hit) continue;
       out.push({ cid: cid, entry: hit, by: st.creators[cid], text: st.payloads[cid] || '', idx: meta.idx, ts: meta.ts });
     }
-    out.sort(function (a, b) { return b.idx - a.idx; });
+    if (feedMode === 'new') {
+      out.sort(function (a, b) { return b.idx - a.idx; });
+    } else {
+      // Ranked first, in feed order; anything the ranking cannot reach falls
+      // to the end newest-first rather than vanishing — a lane that hides
+      // what your graph position cannot see would be lying about what exists.
+      var pos = laneOrder(st);
+      out.sort(function (a, b) {
+        var pa = pos[a.cid], pb = pos[b.cid];
+        if (pa === undefined && pb === undefined) return b.idx - a.idx;
+        if (pa === undefined) return 1;
+        if (pb === undefined) return -1;
+        return pa - pb;
+      });
+    }
     return out;
   }
 
@@ -3752,23 +3835,45 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('p', { class: 'smallnote', text: 'Attach one to a post and it appears here. Anything under a minute works best in this view.' })));
       return wrap;
     }
+    // One shared mute state. Turning sound on for a video and having it come
+    // back off at the next one is the thing that makes people give up.
+    var reelsMuted = true;
+    var soundButtons = [];
+    function setMuted(m) {
+      reelsMuted = m;
+      soundButtons.forEach(function (b) {
+        b.textContent = m ? '🔇 Sound off' : '🔊 Sound on';
+        b.className = 'reel-btn' + (m ? '' : ' on');
+      });
+      wrap.querySelectorAll('video').forEach(function (vv) { vv.muted = m; });
+    }
+
+    // The way out, pinned to the top and above everything. The reels box owns
+    // the whole screen and contains its own scrolling, so on a phone the tab
+    // bar is off-screen and there was no way back — you had to guess that
+    // scrolling up past the first video would do it, and it did not.
+    var exit = h('button', { class: 'reel-btn reel-exit', text: '‹ Back' });
+    exit.onclick = function () { feedLane = 'all'; saveView(); render(); };
+    wrap.appendChild(h('div', { class: 'reel-bar' }, exit, h('span', { class: 'grow' }),
+      h('span', { class: 'smallnote', text: items.length + ' video' + (items.length === 1 ? '' : 's') })));
+    // The one control people reach for, at thumb height on the right rail.
+    var soundRail = h('button', { class: 'reel-btn', text: '🔇 Sound off' });
+    soundRail.onclick = function () { setMuted(!reelsMuted); };
+    soundButtons.push(soundRail);
+    wrap.appendChild(h('div', { class: 'reel-rail' }, soundRail));
+
     items.slice(0, feedLimit).forEach(function (item) {
       var v = h('video', { class: 'reel-video', loop: '', playsinline: '', preload: 'metadata' });
       v.muted = true;
       attachMedia(v, item.entry);
       var sect = h('section', { class: 'reel' }, v);
-      var sound = h('button', { class: 'reel-sound', text: '🔇 tap for sound' });
-      sound.onclick = function (ev) {
-        ev.stopPropagation();
-        v.muted = !v.muted;
-        sound.textContent = v.muted ? '🔇 tap for sound' : '🔊 sound on';
-        v.play().catch(function () {});
-      };
-      sect.onclick = function () { if (v.paused) v.play().catch(function () {}); else v.pause(); };
+      // Tapping the VIDEO pauses. The controls are fixed to the viewport and
+      // outside this element, so reaching for sound can no longer pause the
+      // thing you wanted to hear.
+      v.onclick = function () { if (v.paused) v.play().catch(function () {}); else v.pause(); };
       var info = h('div', { class: 'reel-info' },
         laneByline(st, item),
-        item.text ? h('p', { class: 'reel-text', text: item.text.slice(0, 220) }) : null,
-        sound);
+        item.text ? h('p', { class: 'reel-text', text: item.text.slice(0, 220) }) : null);
       sect.appendChild(info);
       wrap.appendChild(sect);
       // Play whichever reel is actually on screen, pause the rest. Without
@@ -3776,7 +3881,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (window.IntersectionObserver) {
         var io = new IntersectionObserver(function (entries) {
           entries.forEach(function (e) {
-            if (e.isIntersecting) v.play().catch(function () {});
+            if (e.isIntersecting) { v.muted = reelsMuted; v.play().catch(function () {}); }
             else v.pause();
           });
         }, { threshold: 0.6 });
