@@ -28,6 +28,11 @@ while ($true) {
     Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
       Where-Object { $_.CommandLine -match 'server\.mjs' } |
       ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -Confirm:$false } catch {} }
+    # The token lives in a file in the (gitignored) data directory, so a restart
+    # from here does not silently drop the admin panel - and no path exists by
+    # which the token could reach the repository.
+    $tokFile = Join-Path $logDir 'operator-token.txt'
+    if (Test-Path $tokFile) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tokFile -Raw).Trim() }
     Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `
       -RedirectStandardOutput (Join-Path $logDir 'host.log') -RedirectStandardError (Join-Path $logDir 'host.err.log')
   }

@@ -6,7 +6,8 @@
 # NOTE: ASCII-only on purpose - Windows PowerShell 5.1 misparses BOM-less UTF-8 scripts.
 param(
   # URL of the primary host to mirror. Empty = this host IS the primary.
-  # The role is written to server-dataole.json, which server.mjs reads on
+  # The role is written to server-data
+ole.json, which server.mjs reads on
   # every boot - so watchdog restarts keep the role without carrying any
   # environment. A mirror syncs log+media from the primary and refuses writes.
   [string]$MirrorOf = ''
@@ -28,6 +29,12 @@ $role = [ordered]@{
 [System.IO.File]::WriteAllText((Join-Path $logDir 'role.json'), ($role | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
 if ($MirrorOf) { Write-Output "role: read-only MIRROR of $MirrorOf" } else { Write-Output 'role: PRIMARY (accepts writes)' }
 
+# The operator token lives in a file in the (gitignored) data directory, not in
+# this script and not in a checked-in config. Every place that starts the host
+# reads it from there, so a watchdog restart does not silently drop the admin
+# panel - and there is no path by which the token reaches the repository.
+$tokFile = Join-Path $logDir 'operator-token.txt'
+if (Test-Path $tokFile) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tokFile -Raw).Trim() }
 Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `
   -RedirectStandardOutput (Join-Path $logDir 'host.log') -RedirectStandardError (Join-Path $logDir 'host.err.log')
 Start-Sleep -Seconds 2
