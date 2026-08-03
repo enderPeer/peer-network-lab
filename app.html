@@ -1341,6 +1341,111 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   // ── PIN management ──
+
+  /**
+   * Turn a PIN into what gets stored in the PUBLIC log.
+   *
+   * The old form was sha256(id + ':' + pin), which is not a secret at all when
+   * the input is four digits: ten thousand hashes, computed offline where no
+   * rate limit exists. PBKDF2 with a random per-account salt makes each guess
+   * cost the same as one login, and the salt stops one table from covering
+   * every account at once. It does not make four digits strong — nothing does,
+   * which is why the panel below offers a passkey.
+   *
+   * Falls back to the old hash only where WebCrypto is absent (a plain-http
+   * context), because a login that cannot happen at all is worse than a weak
+   * one — and the host upgrades those the next time the owner signs in.
+   */
+  var PIN_ITER = 210000;
+  function derivePinHash(pin) {
+    if (!(window.crypto && crypto.subtle && window.isSecureContext)) {
+      return sha256hex(who + ':' + pin);
+    }
+    var salt = crypto.getRandomValues(new Uint8Array(16));
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pin), { name: 'PBKDF2' }, false, ['deriveBits'])
+      .then(function (key) {
+        return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt, iterations: PIN_ITER, hash: 'SHA-256' }, key, 256);
+      })
+      .then(function (bits) {
+        var hex = function (buf) {
+          return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+            return ('0' + b.toString(16)).slice(-2);
+          }).join('');
+        };
+        return 'pbkdf2$' + PIN_ITER + '$' + hex(salt.buffer) + '$' + hex(bits);
+      })
+      .catch(function () { return sha256hex(who + ':' + pin); });
+  }
+
+  // ── Passkeys ───────────────────────────────────────────────────────────
+  var passkeySupported = !!(window.PublicKeyCredential && navigator.credentials && window.isSecureContext);
+
+  function b64urlToBytes(s2) {
+    var pad = s2.replace(/-/g, '+').replace(/_/g, '/');
+    while (pad.length % 4) pad += '=';
+    var raw = atob(pad);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function bytesToB64url(buf) {
+    var bin = '';
+    var arr = new Uint8Array(buf);
+    for (var i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  /**
+   * Create a passkey for this handle. The device asks for Face ID, a
+   * fingerprint or the screen lock; the private half never leaves it, and the
+   * browser refuses to sign for any origin but this one — which is what makes
+   * it survive a convincing fake login page.
+   */
+  function addPasskey(st) {
+    if (!REMOTE) { toast('Passkeys need the hosted network.'); return; }
+    if (!passkeySupported) {
+      toast('This browser or context cannot make a passkey. It needs HTTPS and a device with a screen lock.');
+      return;
+    }
+    withUnlock(function () {
+      fetch(API + '/api/auth/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ as: who }),
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        return navigator.credentials.create({
+          publicKey: {
+            challenge: b64urlToBytes(d.challenge),
+            rp: { id: d.rpId, name: 'Peer Network' },
+            user: { id: b64urlToBytes(bytesToB64url(new TextEncoder().encode(who))), name: st.handles[who] || who, displayName: st.handles[who] || who },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -8 }],
+            authenticatorSelection: { userVerification: 'preferred', residentKey: 'preferred' },
+            timeout: 60000,
+            attestation: 'none',
+          },
+        }).then(function (cred) {
+          return fetch(API + '/api/auth/passkey', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              as: who, challenge: d.challenge, auth: pins[who] || '',
+              label: (navigator.platform || 'this device').slice(0, 40),
+              response: {
+                clientDataJSON: bytesToB64url(cred.response.clientDataJSON),
+                attestationObject: bytesToB64url(cred.response.attestationObject),
+              },
+            }),
+          }).then(function (r2) { return r2.json().then(function (b) { return { ok: r2.ok, b: b }; }); });
+        });
+      }).then(function (res) {
+        if (!res.ok) { toast(res.b.error || 'The host refused the passkey.'); return; }
+        toast('Passkey added. It cannot be guessed and cannot be cracked from the log — and it will not sign for a page pretending to be this site.');
+        render();
+      }).catch(function (e) {
+        toast(e && e.name === 'NotAllowedError' ? 'Cancelled.' : 'Could not create a passkey here.');
+      });
+    });
+  }
+
   function setPinFlow(st, isChange) {
     var title = isChange ? 'Change your PIN' : 'Secure this handle';
     var sub = isChange
@@ -1349,7 +1454,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     pinDialog(title, sub).then(function (pin) {
       if (pin == null) { render(); return; }
       if (pin.length < 4) { toast('PIN needs at least 4 characters.'); render(); return; }
-      sha256hex(who + ':' + pin).then(function (hx) {
+      derivePinHash(pin).then(function (hx) {
         pushAct({ t: 'setPin', id: who, pinHash: hx }, function () {
           pins[who] = pin; save();
           toast(isChange ? 'PIN changed. The previous PIN no longer works.' : 'Handle secured. Keep this PIN — there is no recovery.');
