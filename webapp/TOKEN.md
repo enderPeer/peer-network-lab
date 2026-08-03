@@ -36,14 +36,50 @@ Three things shape it, all inherited from poolsite:
   same creator is worth `1/(1 + 0.3·(n−1))`. Ten nudges from one friend lose to
   one nudge from ten people — by a factor the test pins at more than 2×.
 - **The commitment gate.** A weigher's influence scales by `λ(α̂) = α̂/(1+α̂)`
-  and is **zero below α̂ = 0.2**, where `α̂ = (burn/acts)/ν` is the same reduced
-  rate the protocol gates writing on. An account that never burned cannot
-  weigh; an account that spammed its rate away stops weighing. A swarm of empty
-  accounts distributes nothing.
+  and is **zero below α̂ = 0.2**. The rate is computed from burn the account
+  **acquired**, never from the grant handed out at registration — see below.
+  An account that never burned weighs nothing at all.
 - **Self-engagement never counts.**
 
 Rounding dust and epochs nobody engaged in **carry over**, so nothing is lost —
 the next real epoch pays out the accumulated pool.
+
+### What the gate does and does not stop
+
+An adversarial review of this economy found one serious defect and it is fixed,
+but the honest picture is worth stating with numbers rather than adjectives.
+
+**Fixed: the registration grant was being read as commitment.** Registering
+hands out burn so a newcomer can act at all. That grant put a fresh account at
+α̂ = 9.47 against a gate of 0.2, and made it weigh λ = 0.90 — *more* than a real
+participant who had burned three times and posted fifteen times (λ = 0.65). The
+weighting rewarded freshness over commitment, exactly backwards. Measured:
+**twenty free registrations captured 55.9% of an epoch** from twenty burned,
+active users. Weight now comes from burn the account acquired, so those twenty
+registrations capture **0.0%**. There is a test.
+
+**Not fixed, because it cannot be here: identity is cheap.** If the puppets
+*also* burn, they weigh again — measured at **59.6%** for twenty puppets. This
+is not a defect in the port; it is what poolsite's λ does. λ has diminishing
+returns *per account*, so splitting one stake across many accounts beats
+concentrating it. In poolsite, burn cost real money, which is what made that
+acceptable. Here `burn` is a faucet, so the cost is a registration.
+
+Three things follow, and none of them are hidden:
+
+- On this test network, PEER distribution is **farmable by anyone willing to
+  register accounts**. It is play money, and it is labelled play money.
+- The defence that does work is the one already in the protocol: **pair
+  damping** limits what any single account can push toward any single creator,
+  so an attacker needs breadth, not repetition.
+- The structural fix, if this economy ever needed to be sybil-resistant, is to
+  make weight **linear in committed value rather than saturating per identity**
+  — then splitting a stake across twenty accounts weighs exactly what holding
+  it in one weighs. That is a different economy from poolsite's, so it is not
+  what was ported; it is written down here so the choice is visible.
+
+**None of this touches standing.** Every number above is about who receives
+minted play money. Nobody's reputation moved, because no balance can reach it.
 
 ### It applies retroactively, and that is deliberate
 

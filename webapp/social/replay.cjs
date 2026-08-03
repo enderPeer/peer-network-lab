@@ -198,6 +198,7 @@ function replayUncached(acts) {
   var btcClaimed = {};
   var pools = {};        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
   var tokenDist = [];    // per epoch: { epoch, minted, carried, to: {id: amt} }
+  var earnedBurn = {};   // burn an account acquired, EXCLUDING the register grant
   var tokenCarry = 0;
   var tokEpochN = 0;
   var epochEngage = [];  // {actor, creator, base} since the last close
@@ -352,6 +353,7 @@ function replayUncached(acts) {
     } else if (a.t === 'burn') {
       // legacy faucet-burn (pre-economy acts in the shared log)
       ledgerById[a.id].burnBal += a.amt;
+      earnedBurn[a.id] = (earnedBurn[a.id] || 0) + a.amt;
       if (!payloadGone) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
     } else if (a.t === 'deposit') {
       if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !payloadGone) {
@@ -361,6 +363,7 @@ function replayUncached(acts) {
       var dA = l0safe(function () { return l0.burn(a.id, a.x); });
       if (dA != null && ledgerById[a.id]) {
         ledgerById[a.id].burnBal += dA; // the L1 seam: attestation is burn_val
+        earnedBurn[a.id] = (earnedBurn[a.id] || 0) + dA;
         if (!payloadGone) chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
       }
     } else if (a.t === 'redeem') {
@@ -720,8 +723,18 @@ function replayUncached(acts) {
         var ev = epochEngage[te];
         var al = ledgerById[ev.actor];
         if (!al || al.actCount === 0) continue;
-        var ahat = (al.burnBal / al.actCount) / NU;
-        if (ahat < TOK_RHO) continue;                    // gate: no rate, no weight
+        // Weight comes from burn the account ACQUIRED, never from the
+        // registration grant. Registering hands out burnBal so a newcomer can
+        // act at all; treating that as evidence of commitment made a fresh
+        // puppet weigh MORE than a real participant (measured: alpha-hat 9.47
+        // against 1.83, and twenty free registrations took 55.9% of an epoch
+        // from twenty burned, active users). A grant is a starter, not a
+        // stake. An account that has burned nothing now weighs nothing.
+        var earned = earnedBurn[ev.actor] || 0;
+        if (earned <= 0) continue;
+        var spent = THETA * al.actCount;
+        var ahat = (Math.max(0, earned - spent) / al.actCount) / NU;
+        if (ahat < TOK_RHO) continue;                    // gate: no commitment, no weight
         // A creator who later deleted their account still earned their share.
         // Skipping them here would silently re-cut every OTHER creator's slice
         // of an epoch that closed long ago — the same defect as a deletion that

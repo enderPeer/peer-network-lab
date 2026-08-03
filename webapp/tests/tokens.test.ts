@@ -326,3 +326,62 @@ describe('the emission schedule is a ceiling, not a target', () => {
     expect(st.tokens.supply.PEER + st.tokens.carry).toBeCloseTo(12 * 5000, 6);
   });
 });
+
+describe('deletion stays scoring-neutral even when token acts are in the log', () => {
+  it('leaves every standing and every epoch certificate exactly reproducible', () => {
+    // An attack agent found this the same way the probe did: if a token act is
+    // skipped when its author is later deleted, its θ-debit vanishes with it —
+    // which moves that actor's rate, and with it the solved standings and an
+    // already-published epoch certificate. The property this whole system
+    // rests on is that a certificate still reproduces from the log afterwards.
+    const base = [...world('al', 'bo'),
+      post('al', 'P'),
+      { t: 'btcClaim', author: 'u_bo' },
+      { t: 'assetCreate', author: 'u_bo', sym: 'BYE', name: 'leaving soon', supply: 100 },
+      like('bo', 'c1'),
+      close(),
+    ];
+    const before = replay(base);
+    const after = replay([...base, { t: 'deleteAccount', id: 'u_bo' }]);
+
+    // the departed actor's own ledger is untouched: their acts still happened
+    expect(after.ledgerById.u_bo.actCount).toBe(before.ledgerById.u_bo.actCount);
+    expect(after.ledgerById.u_bo.burnBal).toBeCloseTo(before.ledgerById.u_bo.burnBal, 12);
+
+    // nobody else's standing moves
+    for (const id of Object.keys(before.xById)) {
+      expect(after.xById[id]).toBeCloseTo(before.xById[id], 12);
+    }
+    // and the certificate still reproduces
+    expect(after.epochHistory[0].stamp).toBeCloseTo(before.epochHistory[0].stamp, 12);
+    expect(after.epochHistory[0].pass).toBe(before.epochHistory[0].pass);
+  });
+});
+
+describe('the registration grant is a starter, not a stake', () => {
+  it('gives a never-burned account no distribution weight at all', () => {
+    // Measured before the fix: a fresh account sat at α̂ 9.47 against the
+    // gate's 0.2 and out-weighed a burned, active user (λ 0.90 vs 0.65), so
+    // twenty free registrations took 55.9% of an epoch from twenty real
+    // participants. Registering hands out burn so a newcomer CAN act; that is
+    // not evidence they committed anything.
+    const acts: Record<string, unknown>[] = [{ t: 'seedWorld' },
+      { t: 'register', id: 'u_atk', handle: 'atk', seed: 1, epoch: 0 },
+      { t: 'burn', id: 'u_atk', amt: 1 },
+      post('atk', 'mine'),
+    ];
+    for (let i = 0; i < 20; i++) {
+      acts.push({ t: 'register', id: 'u_p' + i, handle: 'p' + i, seed: 1, epoch: 0 });
+      acts.push(like('p' + i, 'c1'));
+    }
+    acts.push(close());
+    const st = replay(acts);
+    expect(st.tokens.dist[0].minted).toBe(0);
+    expect(st.tokens.carry).toBe(5000);
+  });
+
+  it('still pays an account that actually burned', () => {
+    const acts = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
+    expect(replay(acts).tokens.bal.PEER.u_al).toBe(5000);
+  });
+});
