@@ -2113,6 +2113,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function broadcastStart(title, withVideo) {
     if (!REMOTE) { toast('Streaming needs the hosted network.'); return; }
     if (live) { toast('You are already live.'); return; }
+    // Mirror of watchStart's guard. Without it, Join clicked during the async
+    // camera/act window here left both states set at once, and stray ICE from
+    // one connection could land against the other.
+    if (watching) watchStop();
     if (!navigator.mediaDevices || !window.isSecureContext) {
       toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
     }
