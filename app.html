@@ -215,6 +215,14 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
   background: #211d1a; color: #efe9df; border: 1px solid rgba(255,255,255,0.16); border-radius: 12px;
   padding: 12px 14px; box-shadow: 0 10px 34px rgba(0,0,0,0.5); font-size: 13.5px; line-height: 1.45; }
 .a2hs b { display: block; margin-bottom: 3px; }
+/* A paid placement must be unmistakable at a glance, and must not borrow the
+   visual language of a ranked post — no rank chip, no relevance bar, and a
+   left edge in a colour nothing else in the feed uses. */
+.ad-card { border-style: dashed; border-color: var(--muted, #4a443f); position: relative; }
+.ad-card::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px;
+  border-radius: 12px 0 0 12px; background: #8a7a4a; }
+.ad-tag { font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 4px;
+  background: #8a7a4a; color: #17140f; font-weight: 700; }
 .a2hs .row { display: flex; gap: 8px; margin-top: 9px; }
 .a2hs button { border: 1px solid rgba(255,255,255,0.22); background: transparent; color: #efe9df;
   border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -631,7 +639,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 <script>
 "use strict";var PeerEngine=(()=>{var V=Object.defineProperty;var ve=Object.getOwnPropertyDescriptor;var Me=Object.getOwnPropertyNames;var Ee=Object.prototype.hasOwnProperty;var Ce=(e,t)=>{for(var r in t)V(e,r,{get:t[r],enumerable:!0})},we=(e,t,r,i)=>{if(t&&typeof t=="object"||typeof t=="function")for(let n of Me(t))!Ee.call(e,n)&&n!==r&&V(e,n,{get:()=>t[n],enumerable:!(i=ve(t,n))||i.enumerable});return e};var Re=e=>we(V({},"__esModule",{value:!0}),e);var Ue={};Ce(Ue,{ACT_EXPONENT:()=>K,AttestationLedger:()=>re,BETA:()=>M,COGRA_DEFAULTS:()=>ne,DEPTH_MASS:()=>j,DOMAIN_MASKS:()=>v,ETA:()=>y,FAMILIES:()=>R,FEED_DEPTH:()=>D,HALF_FLOOR:()=>S,HOP_MAX:()=>z,KAPPA_SELF:()=>U,L0_DEFAULTS:()=>ue,NU:()=>C,OMEGA_DOMAIN:()=>Ae,OPERATOR:()=>te,PART_FLOOR:()=>B,POL_FLOOR:()=>ie,Q:()=>ee,REFERENCE_CREATORS:()=>We,REFERENCE_EPOCH:()=>je,REFERENCE_SEEDS:()=>Ke,RawGraph:()=>I,SAFE_FLOOR:()=>w,THETA:()=>_,TILT_SHAPE:()=>W,baseScoreMatrix:()=>de,binaryEntropy:()=>ae,boltzmann:()=>X,buildHops:()=>ye,canValue:()=>De,cograRank:()=>Ve,coherence:()=>J,contentNorm:()=>se,dampedWeight:()=>N,debitAct:()=>Be,dependencyWeights:()=>ge,det2:()=>H,detScore:()=>O,detSign:()=>Q,doubleCoverBFS:()=>Y,emission:()=>ce,evaluateGates:()=>_e,fpl:()=>E,fpm:()=>x,frobenius:()=>L,hopDistance:()=>Te,mobius:()=>le,pathView:()=>F,rankFeed:()=>Fe,refRate:()=>$,referenceGraph:()=>ze,scoreCandidate:()=>xe,sentimentSlice:()=>T,sigmoid:()=>k,singularValues2:()=>Se,solveStanding:()=>Pe,transmission:()=>fe,transport:()=>Z,vouchAct:()=>me,wallAct:()=>pe});var M=2*Math.log(2),y=.05,S=Math.sqrt(y),C=.1,_=.0528066,w=_/C,ie=1,B=Math.max(ie,w),z=4,D=4,K=.25,W=[1,.5,.25,.125],j=[.5,.25,.125,.125],U=1,Ae=1;function k(e){return 1/(1+Math.exp(-e))}function E(e){return k(M*e)}function x(e){return k(M*Math.abs(e))*Math.tanh(e)}function ae(e){return e<=0||e>=1?0:-e*Math.log(e)-(1-e)*Math.log(1-e)}function X(e){return Math.exp(-M*ae(e))}function J(e){return Math.sqrt(1+e*e)}var v={Tribal:[1,1,1,1],Identity:[1,0,0,1],Epistemic:[0,1,0,1],Economic:[0,0,1,1],Relational:[0,0,1,1],Minimal:[0,0,0,1]};function T(e,t,r){let[i,n,a,s]=r,m=Math.abs(e),l=Math.abs(t);return[[i*x(t*e),n*x(t*m),x(t)],[a*x(l*e),s*E(l*m),E(l)],[x(e),E(m),E(1)]]}function L(e){let t=0;for(let r of e)for(let i of r)t+=i*i;return Math.sqrt(t)}function F(e,t,r,i){let n;if(i==="half")n=[S,S,S,1];else{let[m,l,o,c]=r;n=[m+(1-m)*y,l+(1-l)*y,o+(1-o)*y,c+(1-c)*y]}let a=Math.abs(e),s=Math.abs(t);return[[n[0]*x(t*e),n[1]*x(t*a)],[n[2]*x(s*e),n[3]*E(s*a)]]}function H(e){let t=e[0],r=e[1];return t[0]*r[1]-t[1]*r[0]}function O(e){return Math.sqrt(Math.abs(H(e)))}function Q(e){return H(e)>=0?1:-1}function Se(e){let[t,r]=e[0],[i,n]=e[1],a=(t*t+r*r+i*i+n*n)/2,s=Math.sqrt(Math.max(0,a*a-H(e)**2));return[Math.sqrt(Math.max(0,a+s)),Math.sqrt(Math.max(0,a-s))]}function N(e,t){return e*J(t)*X(t)}var R={Opinion:{family:"Opinion",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["polarity p","reaction r"],signForced:!1,vouchCandidate:!0},Affinity:{family:"Affinity",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["association a","attraction t"],signForced:!1,vouchCandidate:!1},Owner:{family:"Owner",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Publish:{family:"Publish",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Participant:{family:"Participant",domain:"Relational",promoted:!0,tier:"full",paramLabels:["interactivity i","responsibility r"],signForced:!1,vouchCandidate:!1},Registration:{family:"Registration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1},SelfDeclaration:{family:"SelfDeclaration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},SelfReputation:{family:"SelfReputation",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},JoinRequest:{family:"JoinRequest",domain:"Relational",promoted:!0,tier:"half",paramLabels:["urgency u","formality f"],signForced:!1,vouchCandidate:!1},Accept:{family:"Accept",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},Ratify:{family:"Ratify",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},ReviewA:{family:"ReviewA",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["enthusiasm e","effort f"],signForced:!1,vouchCandidate:!1},ReviewT:{family:"ReviewT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["effort f","enthusiasm e"],signForced:!1,vouchCandidate:!1},SendA:{family:"SendA",domain:"Relational",promoted:!0,tier:"full",paramLabels:["directness d","intensity i"],signForced:!1,vouchCandidate:!1},SendT:{family:"SendT",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["intensity i","directness d"],signForced:!1,vouchCandidate:!1},ReferenceA:{family:"ReferenceA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["endorsement e","fidelity f"],signForced:!1,vouchCandidate:!1},ReferenceT:{family:"ReferenceT",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["fidelity f","endorsement e"],signForced:!1,vouchCandidate:!1},TagA:{family:"TagA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["relevance r","confidence c"],signForced:!1,vouchCandidate:!1},TagT:{family:"TagT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["confidence c","relevance r"],signForced:!1,vouchCandidate:!1},Control:{family:"Control",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1}};function ke(e,t){return R[e]?.promoted?v.Tribal:v[t]}var I=class{nodes=new Map;edges=[];preDeg=new Map;addNode(t){return this.nodes.set(t.id,t),this}degree(t){return this.preDeg.get(t)??0}buildRecord(t,r){let i=R[t.family],n=t.domain??i?.domain??"Tribal",a=t.tier??i?.tier??"full",s=ke(t.family,n),m=T(t.pd,t.pi,s),l=F(t.pd,t.pi,s,a),o=O(l),c=i?.signForced?1:Q(l);return{id:t.id,family:t.family,src:t.src,tgt:t.tgt,pd:t.pd,pi:t.pi,domain:n,mask:s,tier:a,tau:r,epoch:t.epoch??0,slice:m,pv:l,frob:L(m),score:o,sign:c,weight:N(o,r),appendIndex:this.edges.length}}bump(t,r=1){this.preDeg.set(t,(this.preDeg.get(t)??0)+r)}append(t){let r=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),i=this.buildRecord(t,r);return this.edges.push(i),this.bump(t.src),this.bump(t.tgt),i}appendHyper(t,r){let i=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),n=r.tauOverride??1-1/(1+Math.max(this.degree(r.src),this.degree(r.tgt))),a=this.buildRecord(t,i);this.edges.push(a);let s=this.buildRecord(r,n);return this.edges.push(s),this.bump(t.src),this.bump(t.tgt),this.bump(r.src),this.bump(r.tgt),[a,s]}outgoing(t){return this.edges.filter(r=>r.src===t)}incoming(t){return this.edges.filter(r=>r.tgt===t)}};function Te(e,t,r=D){let i=new Map([[t,0]]),n=new Set([t]);for(let a=1;a<=r&&n.size;a++){let s=new Set;for(let m of e.edges)m.weight<=0||n.has(m.src)&&(i.has(m.tgt)||(i.set(m.tgt,a),s.add(m.tgt)));n=s}return i}function Y(e,t,r=D){let i=new Map,n=s=>{let m=i.get(s);return m||(m={pos:0,neg:0},i.set(s,m)),m};n(t).pos=1;let a=new Map([[t,{pos:1,neg:0}]]);for(let s=1;s<=r;s++){let m=new Map;for(let l of e.edges){if(l.weight<=0)continue;let o=a.get(l.src);if(!o)continue;let c=m.get(l.tgt);c||(c={pos:0,neg:0},m.set(l.tgt,c)),l.sign>0?(c.pos=Math.max(c.pos,o.pos*l.weight),c.neg=Math.max(c.neg,o.neg*l.weight)):(c.pos=Math.max(c.pos,o.neg*l.weight),c.neg=Math.max(c.neg,o.pos*l.weight))}for(let[l,o]of m){let c=n(l);c.pos=Math.max(c.pos,o.pos),c.neg=Math.max(c.neg,o.neg)}a=m}return i}var Le=new Set(["Opinion","Publish"]);function se(e,t){let r=e.incoming(t).filter(a=>Le.has(a.family));if(r.length===0)return 0;let i=r.reduce((a,s)=>a+s.pd,0)/r.length,n=r.reduce((a,s)=>a+s.pi,0)/r.length;return L(T(i,n,v.Tribal))}function Fe(e,t,r,i){let n=Y(e,t),a=[];for(let s of e.nodes.values()){if(s.kind==="Actor"||s.kind==="Profile")continue;let l=n.get(s.id)?.pos??0;if(l<=0)continue;let o=i(s.id),c=o?1+r(o)/C:1,p=se(e,s.id);a.push({node:s,bfsWeight:l,amplifier:c,contentNorm:p,relevance:l*c*p})}return a.sort((s,m)=>m.relevance-s.relevance),a}function $(e){return e.burnBal/Math.max(e.actCount,1)/C}function ce(e){return Math.min(1,$(e)/w)}function le(e){return e/(1+e)}function ee(e){let t=Math.tanh(e);return k(M*e)*Math.sqrt(t*(1-y*y*t))}var Oe=ee(1);function me(e){return e<=0?0:Math.pow(ee(le(e))/Oe,K)}function pe(e){return me(Math.max(e,w))}function de(e,t){let r=new Map(e.map((a,s)=>[a,s])),i=e.length,n=Array.from({length:i},(a,s)=>Array.from({length:i},(m,l)=>s===l?U:0));for(let a of t){let s=r.get(a.src);if(s===void 0)continue;let m=r.get(a.rcp)??s;n[s][m]+=a.coeff}return n}function Ne(e,t,r,i){let n=e.length,a=[],s=i*W[r-1];for(let m=0;m<n;m++){let l=new Array(n),o=0;for(let c=0;c<n;c++){let p=m===c?e[m][c]:e[m][c]*Math.pow(pe(t[c]),s);l[c]=p,o+=p}for(let c=0;c<n;c++)l[c]/=o;a.push(l)}return a}function Ie(e,t){let r=e.length,i=Array.from({length:r},()=>new Array(r).fill(0));for(let n=0;n<r;n++)for(let a=0;a<r;a++){let s=e[n][a];if(s!==0)for(let m=0;m<r;m++)i[n][m]+=s*t[a][m]}return i}function Z(e,t,r,i){let n=e.length,a=Array.from({length:n},()=>new Array(n).fill(0)),s=null;for(let l=1;l<=z;l++){let o=Ne(e,t,l,i);s=s?Ie(s,o):o;let c=j[l-1];for(let p=0;p<n;p++)for(let u=0;u<n;u++)a[p][u]+=c*s[p][u]}let m=Array.from({length:n},()=>new Array(n).fill(0));for(let l=0;l<n;l++){for(let o=0;o<n;o++)m[l][o]=r[l]*a[l][o];m[l][l]+=1-r[l]}return m}function Pe(e,t,r={}){let{tilt:i=1,maxIter:n=200,tol:a=1e-13}=r,s=e.map(f=>f.id),m=de(s,t),l=e.map($),o=e.map(f=>Math.max(f.actCount,1)),c=e.map(ce),p=l.slice(),u=[p.slice()],d=1/0,b=0,g=Z(m,p,c,i);for(;b<n;){g=Z(m,p,c,i);let f=new Array(s.length);for(let h=0;h<s.length;h++){let P=0,q=0;for(let A=0;A<s.length;A++){let oe=g[A][h]*o[A];P+=oe*l[A],q+=oe}f[h]=q>0?P/q:l[h]}if(d=Math.max(...f.map((h,P)=>Math.abs(h-p[P]))),p=f,u.push(p.slice()),b++,d<a)break}return{ids:s,x:p,pi:g,iterations:b,residual:d,trace:u}}function _e(e,t,r){let i=e.map(p=>({id:p.id,burnBal:p.burnBal,pass:p.burnBal>=0})),n=e.map((p,u)=>({id:p.id,stamp:t[u],delta:r.get(p.id)??0})).filter(p=>p.delta>0).map(p=>({id:p.id,stamp:p.stamp,pass:p.stamp>=w})),a=0,s=0,m=0;e.forEach((p,u)=>{let d=r.get(p.id)??0;d<=0||(a+=d,s+=d*t[u],m+=d*(t[u]-B))});let l=a>0?s/a:0,o=a===0||l>=B,c=i.every(p=>p.pass)&&n.every(p=>p.pass)&&o;return{w1:i,w2a:n,epochStamp:l,headroom:m,w2bPass:o,allPass:c}}function Be(e){return{...e,burnBal:e.burnBal-_,actCount:e.actCount+1}}var ue={E0:100,zeta:.5,fee:.5,maturityCycle:10},te="op",re=class{cfg;omega;yLive=0;yLock=0;cycle=0;settledFloor=1;escrow=[];balances=new Map;constructor(t={}){this.cfg={...ue,...t};let{E0:r,zeta:i}=this.cfg;this.omega=r,this.yLive=i*r,this.yLock=(1-i)*r;let n=this.bal(te);n.live=this.yLive,n.tlock=this.yLock}bal(t){let r=this.balances.get(t);return r||(r={reserve:0,live:0,tlock:0,attest:0},this.balances.set(t,r)),r}get totalSupply(){return this.yLive+this.yLock}floor(){return this.totalSupply>0?this.omega/this.totalSupply:1}get bootstrapping(){return this.cycle<this.cfg.maturityCycle}get attestCap(){return this.cfg.E0*Math.log(1/(1-this.cfg.zeta))}faucet(t,r){this.bal(t).reserve+=r}deposit(t,r){let i=this.bal(t);if(r<=0||i.reserve<r-1e-12)throw new Error("insufficient reserve");i.reserve-=r,this.escrow.push({addr:t,amount:r})}burn(t,r,i=t){let n=this.bal(t);if(r<=0||n.live<r-1e-12)throw new Error("insufficient live units");n.live-=r,this.yLive-=r;let a=r*this.settledFloor;return this.bal(i).attest+=a,a}redeem(t,r){let i=this.bal(t);if(r<=0||i.live<r-1e-12)throw new Error("insufficient live units");let n=r*this.floor();return i.live-=r,this.yLive-=r,this.omega-=n,i.reserve+=n,n}transfer(t,r,i,n="live"){let a=this.bal(t);if(i<=0||a[n]<i-1e-12)throw new Error("insufficient units");a[n]-=i,this.bal(r)[n]+=i}closeCycle(){let t=this.floor(),r=this.escrow.reduce((a,s)=>a+s.amount,0),i=this.cycle+1<this.cfg.maturityCycle,n=0;if(r>0){let a=r/t;n=a;let{fee:s,zeta:m}=this.cfg;for(let o of this.escrow){let c=(1-s)*(o.amount/r)*a,p=this.bal(o.addr);i?(p.live+=c*m,p.tlock+=c*(1-m)):p.live+=c}let l=this.bal(te);i?(l.live+=s*m*a,l.tlock+=s*(1-m)*a,this.yLive+=m*a,this.yLock+=(1-m)*a):(l.live+=s*a,this.yLive+=a),this.omega+=r,this.escrow=[]}if(this.cycle+=1,this.cycle===this.cfg.maturityCycle){for(let a of this.balances.values())a.live+=a.tlock,a.tlock=0;this.yLive+=this.yLock,this.yLock=0}return this.settledFloor=this.floor(),{minted:n,floor:this.settledFloor}}};function fe(e){if(e.length===0)return 0;let t=e.reduce((r,i)=>r+i,0)/e.length;return t/(1+t)}function ge(e){let t=e.reduce((r,i)=>r+i,0);return e.map(r=>t>0?r/t:0)}function De(e){let t=fe(e.childNorms),r=ge(e.childNorms),i=0;for(let n=0;n<r.length;n++)i+=r[n]*(e.childValues[n]??0);return t*i}var ne={k:5,gamma:1,chi:1e-4,halfLifeEpochs:4},He=new Set(["SelfDeclaration","SelfReputation","Registration","Control"]),be={ReviewT:"ReviewA",TagT:"TagA",ReferenceT:"ReferenceA"};function G(e){return Math.max(-1,Math.min(1,e))}function he(e,t,r,i){let n=R[e];if(!n)return 0;let a=n.promoted?v.Tribal:v[n.domain],s=F(t,r,a,n.tier);return N(O(s),i)}function Ge(e){let t=new Map;for(let r of e){let i=r.src+"|"+r.tgt+"|"+r.family,n=t.get(i);n||(n={family:r.family,src:r.src,tgt:r.tgt,pd:0,pi:0,tau:r.tau,epoch:r.epoch??0,weight:0,key:i},t.set(i,n)),n.pd+=r.pd,n.pi+=r.pi,r.appendIndex>=0&&(n.tau=r.tau,n.epoch=Math.max(n.epoch,r.epoch??0))}for(let r of t.values())r.pd=G(r.pd),r.pi=G(r.pi),r.weight=r.pd===0||r.pi===0?0:he(r.family,r.pd,r.pi,r.tau);return t}function ye(e,t){let r=o=>e.nodes.get(o)?.kind??"Content",i=[],n=[];for(let o of e.edges)if(!He.has(o.family))if(be[o.family]){let c=e.edges[o.appendIndex-1];i.push({t:o,a:c&&c.family===be[o.family]?c:null})}else n.push(o);let a=Ge(n),s=new Map,m=o=>{if(o.weight<=0||r(o.from)==="Type")return;let c=t.personOf(o.from),p=t.personOf(o.to);if(c===p)return;let u=s.get(c)??[];u.push({...o,from:c,to:p}),s.set(c,u)};for(let o of a.values())m({from:o.src,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch,key:o.key});let l=new Map;for(let{a:o}of i){if(!o)continue;let c=o.src+"|"+o.tgt+"|"+o.family,p=l.get(c)??{pd:0,pi:0};p.pd+=o.pd,p.pi+=o.pi,l.set(c,p)}for(let{t:o,a:c}of i){let p=c?c.src:null,u=o.src,d=t.creatorOf(u);if(p&&d&&t.personOf(p)===t.personOf(d))m({from:u,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch??0,key:o.id});else if(p&&c){let b=l.get(c.src+"|"+c.tgt+"|"+c.family),g=G(b.pd),f=G(b.pi),h=g===0||f===0?0:he(c.family,g,f,c.tau);m({from:p,to:o.tgt,weight:h*o.weight,pdSign:(Math.sign(g)||1)*(Math.sign(o.pd)||1),piNegative:f<0||o.pi<0,epoch:Math.max(c.epoch??0,o.epoch??0),key:c.id+"+"+o.id})}}return s}function qe(e,t,r,i,n,a){let s=new Map,m=[{node:t,cost:0,keys:"",path:[]}],l=null;for(;m.length;){let c=0;for(let d=1;d<m.length;d++){let b=m[d],g=m[c];(b.cost<g.cost-1e-15||Math.abs(b.cost-g.cost)<=1e-15&&b.keys<g.keys)&&(c=d)}let p=m.splice(c,1)[0],u=s.get(p.node);if(!(u&&(u.cost<p.cost-1e-15||Math.abs(u.cost-p.cost)<=1e-15&&u.keys<=p.keys))){if(s.set(p.node,{cost:p.cost,keys:p.keys}),p.node===r){l=p;break}for(let d of e.get(p.node)??[]){if(i.has(d.to)||n.has(d.key)||p.path.some(g=>g.to===d.to||g.from===d.to))continue;let b=p.cost-Math.log(a*d.weight);m.push({node:d.to,cost:b,keys:p.keys+"/"+d.key,path:p.path.concat(d)})}}}return l?{nodes:[t].concat(l.path.map(c=>c.to)),hops:l.path,m:Math.exp(-l.cost)}:null}function xe(e,t,r,i,n=ne){let a=new Set,s=new Set,m=[];for(let l=0;l<n.k;l++){let o=qe(e,t,r,a,s,n.gamma);if(!o||o.m<n.chi)break;let c=o.hops.reduce((f,h)=>f*h.pdSign,1),p=o.hops.some(f=>f.piNegative),u=c>0&&!p?1:-1,d=o.hops[o.hops.length-1],b=Math.max(0,i-d.epoch),g=n.halfLifeEpochs===1/0?1:Math.pow(.5,b/n.halfLifeEpochs);m.push({nodes:o.nodes,hops:o.hops,m:o.m,sigma:u,f:g,term:u*o.m*g});for(let f of o.nodes.slice(1,-1))a.add(f);for(let f of o.hops)s.add(f.key)}return{S:m.reduce((l,o)=>l+o.term,0),paths:m}}function Ve(e,t,r,i){let n={...ne,...i.cfg??{}},a=ye(e,i),s=i.candidates??(l=>l.kind==="Content"),m=[];for(let l of e.nodes.values()){if(!s(l))continue;let{S:o,paths:c}=xe(a,i.personOf(t),l.id,r,n);c.length!==0&&m.push({node:l,S:o,paths:c})}return m.sort((l,o)=>o.S-l.S),m}function ze(){let e=new I;return e.addNode({id:"alice",kind:"Actor",label:"Alice"}),e.addNode({id:"bob",kind:"Actor",label:"Bob"}),e.addNode({id:"carol",kind:"Actor",label:"Carol"}),e.addNode({id:"dave",kind:"Actor",label:"Dave"}),e.addNode({id:"profA",kind:"Profile",label:"Profile_A"}),e.addNode({id:"photo",kind:"Content",label:"Photo"}),e.addNode({id:"comment",kind:"Comment",label:"Comment"}),e.addNode({id:"streetart",kind:"Type",label:"StreetArt"}),e.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),e.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"profA",pd:1,pi:.75}),e.append({id:"e1r",family:"SelfReputation",src:"profA",tgt:"alice",pd:1,pi:.75}),e.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),e.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),e.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),e.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),e.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),e.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),e.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),e}var Ke=[{id:"alice",burnBal:3,actCount:10},{id:"bob",burnBal:2,actCount:8},{id:"carol",burnBal:4,actCount:12},{id:"dave",burnBal:1,actCount:5}],We={photo:"alice",comment:"bob",streetart:"carol",sneakers:"bob"},je={ledgers:[{id:"alice",burnBal:1.2944,actCount:12},{id:"bob",burnBal:1.2472,actCount:11},{id:"carol",burnBal:1.1472,actCount:10},{id:"dave",burnBal:.2,actCount:2},{id:"eve",burnBal:.9,actCount:8}],cells:[{src:"alice",rcp:"bob",coeff:.8638},{src:"alice",rcp:"carol",coeff:.635},{src:"alice",rcp:"eve",coeff:.3969},{src:"bob",rcp:"carol",coeff:.7742},{src:"bob",rcp:"dave",coeff:.6841},{src:"bob",rcp:"eve",coeff:.5062},{src:"carol",rcp:"dave",coeff:.8085},{src:"carol",rcp:"eve",coeff:.7329},{src:"dave",rcp:"eve",coeff:.772}],deltaActs:new Map([["alice",2],["bob",1],["carol",1],["dave",2],["eve",0]]),expectedX:[1.0786557,1.1051839,1.1201615,1.1159692,1.1171834],expectedEpochStamp:1.102,expectedHeadroom:.615};return Re(Ue);})();
 
-(function(K,A){typeof module=="object"&&module.exports?module.exports=A():K.PeerReplay=A()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function K(A){var j=A.THETA,oe=A.NU,ie={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function ne(b,t){var v={};for(var l in t)v[(t[l]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=l;for(var d=[],w={},p,u=/@([a-zA-Z0-9_]{1,16})/g;(p=u.exec(b))!==null&&d.length<3;){var m=v[p[1].toLowerCase().replace(/[^a-z0-9]/g,"")];m&&!w[m]&&(w[m]=1,d.push(m))}return d}function Ae(b,t,v,l,d){var w=v.map(function(r){return{id:r.id,burnBal:r.burnBal,actCount:r.actCount}}),p=new Map(Object.keys(d).map(function(r){return[r,d[r]]})),u=Object.keys(d).reduce(function(r,B){return r+d[B]},0),m=null;function P(){if(!m){var r=b.solveStanding(w,l,{tilt:1});m=b.evaluateGates(w,r.x,p)}return m}var y={epoch:t,acts:u};Object.defineProperties(y,{stamp:{enumerable:!0,get:function(){return P().epochStamp}},headroom:{enumerable:!0,get:function(){return P().headroom}},pass:{enumerable:!0,get:function(){return P().allPass}}});var _={who:null};return Object.defineProperty(_,"line",{enumerable:!0,get:function(){var r=P();return"epoch "+t+" closed \xB7 stamp "+r.epochStamp.toFixed(3)+" \xB7 "+(r.allPass?"certificate accepted":"wall/door failed")}}),{record:y,chron:_}}function le(b,t){var v=(t||[]).slice();for(var l in b){var d=b[l],w=Math.max(-1,Math.min(1,d.pd)),p=Math.max(-1,Math.min(1,d.pi));if(w>0&&p>0)v.push({src:d.src,rcp:d.rcp,coeff:Math.sqrt(w*p)});else{var u=Math.sqrt(Math.abs(w)*Math.abs(p));u>0&&v.push({src:d.src,rcp:d.src,coeff:u})}}return v}function ke(b){for(var t=new A.RawGraph,v=[],l={},d={},w={},p={},u={},m={},P=[],y={},_=[],r=[],B={},E={},Q=[],V={},i=0,h=0,R={},se={},X=0;X<b.length;X++){var U=b[X];U.t==="deleteAccount"?R[U.id]=!0:U.t==="deletePost"&&(se[U.target]=!0)}var z={},k={},T={},g=new A.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function O(o){try{return o()}catch{return null}}function D(o,c,q,I,Z,J){var Ce=J||c;t.addNode({id:o,kind:"Actor",label:Ce}),t.addNode({id:"prof_"+o,kind:"Profile",label:Ce});var Me={id:o,burnBal:q,actCount:I};v.push(Me),l[o]=Me,d[o]=c,w[o]=Z}function C(o){return R[o]?"[deleted]":d[o]||o}function x(o){var c=l[o];c.burnBal-=j,c.actCount+=1,y[o]=(y[o]||0)+1}function de(o,c,q,I){var Z=o+">"+c,J=m[Z]||(m[Z]={src:o,rcp:c,pd:0,pi:0});J.pd+=q,J.pi+=I}function M(o,c,q){var I=Math.sqrt(Math.abs(c)*Math.abs(q));I>0&&P.push({src:o,rcp:o,coeff:Math.min(1,I)})}function Ne(o){var c="type_"+o.toLowerCase().replace(/[^a-z0-9]/g,"");return t.nodes.get(c)||t.addNode({id:c,kind:"Type",label:"#"+o}),c}for(var a=0;a<b.length;a++){var e=b[a],s=!!(R[e.author]||R[e.from]||R[e.id]||se[a]);if(e.t==="seedWorld")D("alice","Alice",3,10,0),D("bob","Bob",2,8,0),D("carol","Carol",4,12,0),D("dave","Dave",1,5,0),t.addNode({id:"photo",kind:"Content",label:"Photo"}),t.addNode({id:"comment",kind:"Comment",label:"Comment"}),t.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),t.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),t.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),t.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),t.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),t.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),t.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),t.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),t.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),t.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),t.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),p.photo="alice",p.comment="bob",p.sneakers="bob",p.streetart="carol",u.photo=ie.photo,u.comment=ie.comment,B.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(o){g.faucet(o,10),O(function(){g.transfer("op",o,2,"live")})}),r.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),r.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")D(e.id,e.handle,e.seed,0,e.epoch,s?"[deleted]":e.handle),e.pinHash&&(V[e.id]=e.pinHash),t.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),x(e.id),M(e.id,1,1),g.faucet(e.id,10),O(function(){g.transfer("op",e.id,2,"live")}),s?l[e.id].deleted=!0:r.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn")l[e.id].burnBal+=e.amt,s||r.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"});else if(e.t==="deposit")O(function(){return g.deposit(e.id,e.amt),!0})&&!s&&r.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var Y=O(function(){return g.burn(e.id,e.x)});Y!=null&&l[e.id]&&(l[e.id].burnBal+=Y,s||r.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+Y.toFixed(3)+" at settled floor \u03C6 "+g.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var ue=O(function(){return g.redeem(e.id,e.x)});ue!=null&&!s&&r.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+ue.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")O(function(){return g.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!s&&r.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+C(e.to),refs:[{label:C(e.to),id:e.to}]});else if(e.t==="setPin")l[e.id]&&e.pinHash&&(V[e.id]=e.pinHash,s||r.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(l[e.from]&&l[e.to]&&l[e.from].burnBal>=j){var fe=[e.from,e.to].sort(),W="chat_"+fe[0]+"_"+fe[1];t.nodes.get(W)||t.addNode({id:W,kind:"Chat",label:"Chat"}),i++;var pe="m"+i;t.addNode({id:pe,kind:"Message",label:"Message"}),t.appendHyper({id:"snA"+i,family:"SendA",src:e.from,tgt:W,pd:.8,pi:.8,epoch:h},{id:"snT"+i,family:"SendT",src:W,tgt:pe,pd:.8,pi:.8,epoch:h}),x(e.from),M(e.from,.8,.8),s||Q.push({from:e.from,to:e.to,text:e.text,idx:a})}}else if(e.t==="closeCycle"){var he=g.closeCycle();r.push({who:null,line:"L0 cycle "+g.cycle+" processed \xB7 minted "+he.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+he.floor.toFixed(4)+(g.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){i++;var F="c"+i;k[a]=F,s&&(z[F]=!0),t.addNode({id:F,kind:"Content",label:s?"[deleted]":"Stream "+i}),t.append({id:"pub"+i,family:"Publish",src:e.author,tgt:F,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),s||(p[F]=e.author,u[F]=e.text,T[F]={idx:a,ts:e.ts,edited:!1,stream:!0},r.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:F}))}else if(e.t==="post"){var ce=Number.isInteger(e.target)&&k[e.target]!==void 0,n;if(ce)if(n=k[e.target],t.append({id:"pubu"+a,family:"Publish",src:e.author,tgt:n,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),s){z[n]=!0,delete u[n],delete E[n];var ae=t.nodes.get(n);ae&&(ae.label="[deleted]")}else u[n]!==void 0&&(u[n]=e.text,e.media&&e.media.length&&(E[n]=e.media),T[n]&&(T[n].edited=!0),r.push({who:e.author,line:"revised a post \u2014 a further record about it, the original stands",to:n}));else i++,n="c"+i,k[a]=n,s&&(z[n]=!0),t.addNode({id:n,kind:"Content",label:s?"[deleted]":"Post "+i}),t.append({id:"pub"+i,family:"Publish",src:e.author,tgt:n,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),s||(p[n]=e.author,u[n]=e.text,e.media&&e.media.length&&(E[n]=e.media),T[n]={idx:a,ts:e.ts,edited:!!e.edited},r.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:n}));if(ce)continue;e.ref&&t.nodes.get(e.ref)&&l[e.author]&&l[e.author].burnBal>=j&&(i++,t.appendHyper({id:"rfA"+i,family:"ReferenceA",src:e.author,tgt:n,pd:.8,pi:.9,epoch:h},{id:"rfT"+i,family:"ReferenceT",src:n,tgt:e.ref,pd:.9,pi:.8,epoch:h}),x(e.author),M(e.author,.8,.9),s||r.push({who:e.author,line:"referenced "+((t.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var me=e.rmen!==void 0?e.rmen:ne(e.text,d),$=0;$<me.length;$++){var L=me[$];L===e.author||!l[e.author]||l[e.author].burnBal<j||(i++,t.appendHyper({id:"rfA"+i,family:"ReferenceA",src:e.author,tgt:n,pd:.7,pi:.8,epoch:h},{id:"rfT"+i,family:"ReferenceT",src:n,tgt:"prof_"+L,pd:.8,pi:.7,epoch:h}),x(e.author),de(e.author,L,.7,.8),s||r.push({who:e.author,line:"mentioned "+C(L)+" \u2014 person-vouch compiled",to:n,refs:[{label:C(L),id:L}]}))}}else if(e.t==="opinion"){i++;var ve=t.append({id:"op"+i,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:h}),H=e.target.indexOf("prof_")===0?e.target.slice(5):null;H&&H!==e.author?de(e.author,H,e.p,e.r):M(e.author,e.p,e.r),s||r.push({who:e.author,line:(H?"vouched on "+C(H)+"\u2019s profile":"reacted to "+((t.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+ve.tau.toFixed(2)+" \xB7 w "+ve.weight.toFixed(3),to:e.target,refs:H?[{label:C(H),id:H}]:[{label:(t.nodes.get(e.target)||{}).label||e.target,id:e.target}]}),x(e.author)}else if(e.t==="review"){var Pe=Number.isInteger(e.upd)&&k[e.upd]!==void 0,f;Pe?(f=k[e.upd],t.appendHyper({id:"rvAu"+a,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvTu"+a,family:"ReviewT",src:e.target,tgt:f,pd:e.f,pi:e.e,epoch:h}),M(e.author,e.e,e.f),!s&&u[f]!==void 0&&(u[f]=e.text,B[f]={e:e.e,f:e.f},T[f]&&(T[f].edited=!0),r.push({who:e.author,line:"revised a comment \u2014 a further record, the original stands",to:f})),x(e.author)):(i++,f="c"+i,k[a]=f,s&&(z[f]=!0),t.addNode({id:f,kind:"Comment",label:s?"[deleted]":"Review "+i}),t.appendHyper({id:"rvA"+i,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvT"+i,family:"ReviewT",src:e.target,tgt:f,pd:e.f,pi:e.e,epoch:h}),M(e.author,e.e,e.f),s||(p[f]=e.author,u[f]=e.text,B[f]={e:e.e,f:e.f},T[f]={idx:a,ts:e.ts,edited:!1,comment:!0},r.push({who:e.author,line:"reviewed "+((t.nodes.get(e.target)||{}).label||"something since removed")+" \u2192 minted a Comment \xB7 one act, two legs",to:f,refs:[{label:(t.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]})),x(e.author))}else if(e.t==="tag"){i++;var Fe=Ne(e.name);t.appendHyper({id:"tgA"+i,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:h},{id:"tgT"+i,family:"TagT",src:e.target,tgt:Fe,pd:e.c,pi:e.r,epoch:h}),M(e.author,e.r,e.c),s||r.push({who:e.author,line:"tagged "+((t.nodes.get(e.target)||{}).label||"something since removed")+" as #"+e.name,to:e.target,refs:[{label:(t.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]}),x(e.author)}else if(e.t==="call"){if(l[e.from]&&l[e.to]&&l[e.from].burnBal>=j&&(x(e.from),!s)){Q.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:a});var He=e.outcome==="completed"?"\u260E call with "+C(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+C(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+C(e.to)+" \u2014 declined":"\u260E call to "+C(e.to)+" failed to connect";r.push({who:e.from,line:He})}}else if(e.t==="editPost"){var S=k[e.target];S&&!z[S]&&u[S]!==void 0&&(u[S]=e.text,T[S]&&(T[S].edited=!0),r.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:S}))}else if(e.t==="deletePost")r.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")r.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="closeEpoch"){var ge=Ae(A,e.epoch,v,le(m,P),y);_.push(ge.record),r.push(ge.chron),y={},h++}}var be=le(m,P),G=A.solveStanding(v,be,{tilt:1}),ee={};G.ids.forEach(function(o,c){ee[o]=G.x[c]});var we=_.length+1;for(var N in l)if(N!=="alice"){var xe=oe*(ee[N]||0),te=xe/(oe+xe),ye=1-1/(we-w[N]+1);te>0&&(t.append({id:"dec_"+N,family:"SelfDeclaration",src:N,tgt:"prof_"+N,pd:1,pi:te,tauOverride:ye}),t.append({id:"rep_"+N,family:"SelfReputation",src:"prof_"+N,tgt:N,pd:1,pi:te,tauOverride:ye}))}var Te={};for(var re in d)Te[re]=R[re]?"[deleted]":d[re];return{g:t,ledgers:v,ledgerById:l,handles:Te,creators:p,payloads:u,bundles:m,cells:be,solved:G,xById:ee,deltaActs:y,dmap:new Map(Object.keys(y).map(function(o){return[o,y[o]]})),epochHistory:_,chron:r,epochNow:we,reviewMeta:B,mediaMeta:E,dms:Q,pinHash:V,l0:g,deleted:R,postMeta:T,actContent:k}}return{replay:ke,parseMentions:ne}}return{create:K}});
+(function(Be,_){typeof module=="object"&&module.exports?module.exports=_():Be.PeerReplay=_()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function Be(_){var q=_.THETA,Te=_.NU,Ge={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function et(B,r){var w={};for(var s in r)w[(r[s]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=s;for(var h=[],T={},c,f=/@([a-zA-Z0-9_]{1,16})/g;(c=f.exec(B))!==null&&h.length<3;){var g=w[c[1].toLowerCase().replace(/[^a-z0-9]/g,"")];g&&!T[g]&&(T[g]=1,h.push(g))}return h}function kt(B,r,w,s,h){var T=w.map(function(o){return{id:o.id,burnBal:o.burnBal,actCount:o.actCount}}),c=new Map(Object.keys(h).map(function(o){return[o,h[o]]})),f=Object.keys(h).reduce(function(o,k){return o+h[k]},0),g=null;function L(){if(!g){var o=B.solveStanding(T,s,{tilt:1});g=B.evaluateGates(T,o.x,c)}return g}var P={epoch:r,acts:f};Object.defineProperties(P,{stamp:{enumerable:!0,get:function(){return L().epochStamp}},headroom:{enumerable:!0,get:function(){return L().headroom}},pass:{enumerable:!0,get:function(){return L().allPass}}});var Q={who:null};return Object.defineProperty(Q,"line",{enumerable:!0,get:function(){var o=L();return"epoch "+r+" closed \xB7 stamp "+o.epochStamp.toFixed(3)+" \xB7 "+(o.allPass?"certificate accepted":"wall/door failed")}}),{record:P,chron:Q}}function tt(B,r){var w=(r||[]).slice();for(var s in B){var h=B[s],T=Math.max(-1,Math.min(1,h.pd)),c=Math.max(-1,Math.min(1,h.pi));if(T>0&&c>0)w.push({src:h.src,rcp:h.rcp,coeff:Math.sqrt(T*c)});else{var f=Math.sqrt(Math.abs(T)*Math.abs(c));f>0&&w.push({src:h.src,rcp:h.src,coeff:f})}}return w}function Rt(B){for(var r=new _.RawGraph,w=[],s={},h={},T={},c={},f={},g={},L=[],P={},Q=[],o=[],k={},he={},fe={},Me=[],ke={},u=0,m=0,j={},rt={},Re=0;Re<B.length;Re++){var ae=B[Re];ae.t==="deleteAccount"?j[ae.id]=!0:ae.t==="deletePost"&&(rt[ae.target]=!0)}var oe={},N={},S={},x=new _.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function W(t){try{return t()}catch{return null}}function ie(t,i,l,M,Y,re){var Ce=re||i;r.addNode({id:t,kind:"Actor",label:Ce}),r.addNode({id:"prof_"+t,kind:"Profile",label:Ce});var de={id:t,burnBal:l,actCount:M};w.push(de),s[t]=de,h[t]=i,T[t]=Y}function A(t){return j[t]?"[deleted]":h[t]||t}function C(t){var i=s[t];i.burnBal-=q,i.actCount+=1,P[t]=(P[t]||0)+1}function ot(t,i,l,M){var Y=t+">"+i,re=g[Y]||(g[Y]={src:t,rcp:i,pd:0,pi:0});re.pd+=l,re.pi+=M}var Pt=5e3,St=.9,Et=365,it=1825e4,Ot=.2,_t=.3,Pe=.01,Se=1e-9,$={},J={PEER:{name:"Peer epoch token",creator:null},tBTC:{name:"test bitcoin \u2014 sandbox value, backed by nothing",creator:null}},D={PEER:0,tBTC:0},Ee={},K={},Oe=[],ne={},V=0,X=0,se=[];function a(t){return Math.round(t*1e6)/1e6}function E(t,i){return $[t]&&$[t][i]||0}function z(t,i,l){if(l>0){var M=$[t]||($[t]={});M[i]=(M[i]||0)+l}}function G(t,i,l){$[t][i]-=l}function _e(t,i){return t<i?t+"/"+i:i+"/"+t}function nt(t){var i=t.author;if(!s[i])return"unknown actor";if(s[i].burnBal<q)return"not enough energy";if(t.t==="btcClaim")return Ee[i]?"this account already claimed its tBTC \u2014 one claim per account, ever":null;if(t.t==="assetCreate")return/^[A-Z][A-Z0-9]{2,7}$/.test(t.sym||"")?J[t.sym]?"symbol "+t.sym+" is taken":!(t.supply>0)||t.supply>1e9?"supply must be between 0 and 1,000,000,000":typeof t.name!="string"||!t.name.trim()||t.name.length>60?"the asset needs a name, at most 60 characters":null:"symbol must be 3-8 characters, A-Z and digits, starting with a letter";if(t.t==="tokenSend")return J[t.sym]?t.amt>0?s[t.to]?t.to===i?"sending to yourself moves nothing":E(t.sym,i)<t.amt?"balance is "+a(E(t.sym,i))+" "+t.sym+", tried to send "+t.amt:null:"unknown recipient":"amount must be positive":"no such asset: "+t.sym;if(t.t==="poolCreate")return!J[t.symA]||!J[t.symB]?"both assets must exist":t.symA===t.symB?"a pool needs two different assets":K[_e(t.symA,t.symB)]?"the "+_e(t.symA,t.symB)+" pool already exists \u2014 add liquidity to it instead":!(t.amtA>0)||!(t.amtB>0)?"both starting amounts must be positive":E(t.symA,i)<t.amtA?"balance is "+a(E(t.symA,i))+" "+t.symA+", tried to deposit "+t.amtA:E(t.symB,i)<t.amtB?"balance is "+a(E(t.symB,i))+" "+t.symB+", tried to deposit "+t.amtB:Math.sqrt(t.amtA*t.amtB)<=Se*10?"starting liquidity too small":null;var l=K[t.pool];if(t.t==="poolAdd"){if(!l)return"no such pool: "+t.pool;if(!(t.amtA>0)||!(t.amtB>0))return"both amounts must be positive";var M=Math.min(t.amtA/l.resA,t.amtB/l.resB);return E(l.a,i)<M*l.resA||E(l.b,i)<M*l.resB?"not enough balance for that deposit":null}if(t.t==="poolRemove"){if(!l)return"no such pool: "+t.pool;var Y=l.shares[i]||0;return!(t.shares>0)||t.shares>Y+1e-12?"you hold "+a(Y)+" shares of "+t.pool+", tried to remove "+t.shares:null}if(t.t==="poolSwap"){if(!l)return"no such pool: "+t.pool;if(t.sell!==l.a&&t.sell!==l.b)return t.pool+" does not trade "+t.sell;if(!(t.amt>0))return"amount must be positive";if(E(t.sell,i)<t.amt)return"balance is "+a(E(t.sell,i))+" "+t.sell+", tried to sell "+t.amt;var re=t.sell===l.a?l.resA:l.resB,Ce=t.sell===l.a?l.resB:l.resA,de=Ce*(t.amt*.997)/(re+t.amt*.997);return t.minOut!==void 0&&de<t.minOut?"that trade would return "+a(de)+", below your minimum of "+t.minOut+" \u2014 the price moved":null}return"unknown token act"}function O(t,i,l){var M=Math.sqrt(Math.abs(i)*Math.abs(l));M>0&&L.push({src:t,rcp:t,coeff:Math.min(1,M)})}function Nt(t){var i="type_"+t.toLowerCase().replace(/[^a-z0-9]/g,"");return r.nodes.get(i)||r.addNode({id:i,kind:"Type",label:"#"+t}),i}for(var v=0;v<B.length;v++){var e=B[v],n=!!(j[e.author]||j[e.from]||j[e.id]||rt[v]);if(e.t==="seedWorld")ie("alice","Alice",3,10,0),ie("bob","Bob",2,8,0),ie("carol","Carol",4,12,0),ie("dave","Dave",1,5,0),r.addNode({id:"photo",kind:"Content",label:"Photo"}),r.addNode({id:"comment",kind:"Comment",label:"Comment"}),r.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),r.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),r.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),r.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),r.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),r.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),r.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),r.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),r.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),r.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),r.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),c.photo="alice",c.comment="bob",c.sneakers="bob",c.streetart="carol",f.photo=Ge.photo,f.comment=Ge.comment,he.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(t){x.faucet(t,10),W(function(){x.transfer("op",t,2,"live")})}),o.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),o.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")ie(e.id,e.handle,e.seed,0,e.epoch,n?"[deleted]":e.handle),e.pinHash&&(ke[e.id]=e.pinHash),r.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),C(e.id),O(e.id,1,1),x.faucet(e.id,10),W(function(){x.transfer("op",e.id,2,"live")}),n?s[e.id].deleted=!0:o.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn")s[e.id].burnBal+=e.amt,ne[e.id]=(ne[e.id]||0)+e.amt,n||o.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"});else if(e.t==="deposit")W(function(){return x.deposit(e.id,e.amt),!0})&&!n&&o.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var pe=W(function(){return x.burn(e.id,e.x)});pe!=null&&s[e.id]&&(s[e.id].burnBal+=pe,ne[e.id]=(ne[e.id]||0)+pe,n||o.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+pe.toFixed(3)+" at settled floor \u03C6 "+x.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var st=W(function(){return x.redeem(e.id,e.x)});st!=null&&!n&&o.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+st.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")W(function(){return x.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!n&&o.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+A(e.to),refs:[{label:A(e.to),id:e.to}]});else if(e.t==="setPin")s[e.id]&&e.pinHash&&(ke[e.id]=e.pinHash,n||o.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(s[e.from]&&s[e.to]&&s[e.from].burnBal>=q){var lt=[e.from,e.to].sort(),ce="chat_"+lt[0]+"_"+lt[1];r.nodes.get(ce)||r.addNode({id:ce,kind:"Chat",label:"Chat"}),u++;var ut="m"+u;r.addNode({id:ut,kind:"Message",label:"Message"}),r.appendHyper({id:"snA"+u,family:"SendA",src:e.from,tgt:ce,pd:.8,pi:.8,epoch:m},{id:"snT"+u,family:"SendT",src:ce,tgt:ut,pd:.8,pi:.8,epoch:m}),C(e.from),O(e.from,.8,.8),n||Me.push({from:e.from,to:e.to,text:e.text,idx:v})}}else if(e.t==="closeCycle"){var dt=x.closeCycle();o.push({who:null,line:"L0 cycle "+x.cycle+" processed \xB7 minted "+dt.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+dt.floor.toFixed(4)+(x.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){u++;var H="c"+u;N[v]=H,k[H]=e.author,n&&(oe[H]=!0),r.addNode({id:H,kind:"Content",label:n?"[deleted]":"Stream "+u}),r.append({id:"pub"+u,family:"Publish",src:e.author,tgt:H,pd:e.a,pi:1,epoch:m}),C(e.author),O(e.author,e.a,1),n||(c[H]=e.author,f[H]=e.text,S[H]={idx:v,ts:e.ts,edited:!1,stream:!0},o.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:H}))}else if(e.t==="post"){var ht=Number.isInteger(e.target)&&N[e.target]!==void 0,d;if(ht)if(d=N[e.target],r.append({id:"pubu"+v,family:"Publish",src:e.author,tgt:d,pd:e.a,pi:1,epoch:m}),C(e.author),O(e.author,e.a,1),n){oe[d]=!0,delete f[d],delete fe[d];var ft=r.nodes.get(d);ft&&(ft.label="[deleted]")}else f[d]!==void 0&&(f[d]=e.text,e.media&&e.media.length&&(fe[d]=e.media),S[d]&&(S[d].edited=!0),o.push({who:e.author,line:"revised a post \u2014 a further record about it, the original stands",to:d}));else u++,d="c"+u,N[v]=d,k[d]=e.author,n&&(oe[d]=!0),r.addNode({id:d,kind:"Content",label:n?"[deleted]":"Post "+u}),r.append({id:"pub"+u,family:"Publish",src:e.author,tgt:d,pd:e.a,pi:1,epoch:m}),C(e.author),O(e.author,e.a,1),n||(c[d]=e.author,f[d]=e.text,e.media&&e.media.length&&(fe[d]=e.media),S[d]={idx:v,ts:e.ts,edited:!!e.edited},o.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:d}));if(ht)continue;e.ref&&r.nodes.get(e.ref)&&s[e.author]&&s[e.author].burnBal>=q&&(u++,r.appendHyper({id:"rfA"+u,family:"ReferenceA",src:e.author,tgt:d,pd:.8,pi:.9,epoch:m},{id:"rfT"+u,family:"ReferenceT",src:d,tgt:e.ref,pd:.9,pi:.8,epoch:m}),C(e.author),O(e.author,.8,.9),n||o.push({who:e.author,line:"referenced "+((r.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var at=e.rmen!==void 0?e.rmen:et(e.text,h),Ne=0;Ne<at.length;Ne++){var ee=at[Ne];ee===e.author||!s[e.author]||s[e.author].burnBal<q||(u++,r.appendHyper({id:"rfA"+u,family:"ReferenceA",src:e.author,tgt:d,pd:.7,pi:.8,epoch:m},{id:"rfT"+u,family:"ReferenceT",src:d,tgt:"prof_"+ee,pd:.8,pi:.7,epoch:m}),C(e.author),ot(e.author,ee,.7,.8),n||o.push({who:e.author,line:"mentioned "+A(ee)+" \u2014 person-vouch compiled",to:d,refs:[{label:A(ee),id:ee}]}))}}else if(e.t==="opinion"){u++;var pt=r.append({id:"op"+u,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:m}),F=e.target.indexOf("prof_")===0?e.target.slice(5):null;F&&F!==e.author?ot(e.author,F,e.p,e.r):O(e.author,e.p,e.r),!F&&k[e.target]&&k[e.target]!==e.author&&se.push({actor:e.author,creator:k[e.target],base:e.p>=0?1:.3}),n||o.push({who:e.author,line:(F?"vouched on "+A(F)+"\u2019s profile":"reacted to "+((r.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+pt.tau.toFixed(2)+" \xB7 w "+pt.weight.toFixed(3),to:e.target,refs:F?[{label:A(F),id:F}]:[{label:(r.nodes.get(e.target)||{}).label||e.target,id:e.target}]}),C(e.author)}else if(e.t==="review"){var Ht=Number.isInteger(e.upd)&&N[e.upd]!==void 0,p;Ht?(p=N[e.upd],r.appendHyper({id:"rvAu"+v,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:m},{id:"rvTu"+v,family:"ReviewT",src:e.target,tgt:p,pd:e.f,pi:e.e,epoch:m}),O(e.author,e.e,e.f),!n&&f[p]!==void 0&&(f[p]=e.text,he[p]={e:e.e,f:e.f},S[p]&&(S[p].edited=!0),o.push({who:e.author,line:"revised a comment \u2014 a further record, the original stands",to:p})),C(e.author)):(u++,p="c"+u,N[v]=p,k[p]=e.author,n&&(oe[p]=!0),r.addNode({id:p,kind:"Comment",label:n?"[deleted]":"Review "+u}),r.appendHyper({id:"rvA"+u,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:m},{id:"rvT"+u,family:"ReviewT",src:e.target,tgt:p,pd:e.f,pi:e.e,epoch:m}),O(e.author,e.e,e.f),k[e.target]&&k[e.target]!==e.author&&se.push({actor:e.author,creator:k[e.target],base:1.2}),n||(c[p]=e.author,f[p]=e.text,he[p]={e:e.e,f:e.f},S[p]={idx:v,ts:e.ts,edited:!1,comment:!0},o.push({who:e.author,line:"reviewed "+((r.nodes.get(e.target)||{}).label||"something since removed")+" \u2192 minted a Comment \xB7 one act, two legs",to:p,refs:[{label:(r.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]})),C(e.author))}else if(e.t==="tag"){u++;var Ft=Nt(e.name);r.appendHyper({id:"tgA"+u,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:m},{id:"tgT"+u,family:"TagT",src:e.target,tgt:Ft,pd:e.c,pi:e.r,epoch:m}),O(e.author,e.r,e.c),n||o.push({who:e.author,line:"tagged "+((r.nodes.get(e.target)||{}).label||"something since removed")+" as #"+e.name,to:e.target,refs:[{label:(r.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]}),C(e.author)}else if(e.t==="call"){if(s[e.from]&&s[e.to]&&s[e.from].burnBal>=q&&(C(e.from),!n)){Me.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:v});var It=e.outcome==="completed"?"\u260E call with "+A(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+A(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+A(e.to)+" \u2014 declined":"\u260E call to "+A(e.to)+" failed to connect";o.push({who:e.from,line:It})}}else if(e.t==="editPost"){var Z=N[e.target];Z&&!oe[Z]&&f[Z]!==void 0&&(f[Z]=e.text,S[Z]&&(S[Z].edited=!0),o.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:Z}))}else if(e.t==="deletePost")o.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")o.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="btcClaim"||e.t==="assetCreate"||e.t==="tokenSend"||e.t==="poolCreate"||e.t==="poolAdd"||e.t==="poolRemove"||e.t==="poolSwap"){if(nt(e)===null){if(C(e.author),e.t==="btcClaim")Ee[e.author]=!0,z("tBTC",e.author,Pe),D.tBTC=a(D.tBTC+Pe),n||o.push({who:e.author,line:"claimed "+Pe+" tBTC \u2014 sandbox value, one claim per account"});else if(e.t==="assetCreate")J[e.sym]={name:e.name.trim(),creator:e.author},D[e.sym]=e.supply,z(e.sym,e.author,e.supply),n||o.push({who:e.author,line:"minted "+e.supply+" "+e.sym+" \u2014 \u201C"+e.name.trim()+"\u201D \u2014 a fun asset, worth what a pool says it is",refs:[{label:A(e.author),id:e.author}]});else if(e.t==="tokenSend")G(e.sym,e.author,e.amt),z(e.sym,e.to,e.amt),n||o.push({who:e.author,line:"sent "+e.amt+" "+e.sym+" to "+A(e.to),refs:[{label:A(e.to),id:e.to}]});else if(e.t==="poolCreate"){var me=_e(e.symA,e.symB),le=me.split("/")[0],He=me.split("/")[1],ve=le===e.symA?e.amtA:e.amtB,ge=le===e.symA?e.amtB:e.amtA;G(le,e.author,ve),G(He,e.author,ge);var ct=Math.sqrt(ve*ge),Fe={};Fe[e.author]=ct-Se,Fe._locked=Se,K[me]={a:le,b:He,resA:ve,resB:ge,totalShares:ct,shares:Fe,swaps:0,volA:0,volB:0},n||o.push({who:e.author,line:"opened the "+me+" pool with "+a(ve)+" "+le+" + "+a(ge)+" "+He})}else if(e.t==="poolAdd"){var b=K[e.pool],Ie=Math.min(e.amtA/b.resA,e.amtB/b.resB),Le=Ie*b.resA,De=Ie*b.resB;G(b.a,e.author,Le),G(b.b,e.author,De);var mt=Ie*b.totalShares;b.resA+=Le,b.resB+=De,b.totalShares+=mt,b.shares[e.author]=(b.shares[e.author]||0)+mt,n||o.push({who:e.author,line:"added liquidity to "+e.pool+" ("+a(Le)+" "+b.a+" + "+a(De)+" "+b.b+")"})}else if(e.t==="poolRemove"){var R=K[e.pool],vt=e.shares/R.totalShares,qe=vt*R.resA,je=vt*R.resB;R.shares[e.author]-=e.shares,R.totalShares-=e.shares,R.resA-=qe,R.resB-=je,z(R.a,e.author,qe),z(R.b,e.author,je),n||o.push({who:e.author,line:"withdrew from "+e.pool+" ("+a(qe)+" "+R.a+" + "+a(je)+" "+R.b+")"})}else if(e.t==="poolSwap"){var y=K[e.pool],ue=e.sell===y.a,Lt=ue?y.resA:y.resB,Dt=ue?y.resB:y.resA,gt=e.amt*.997,be=Dt*gt/(Lt+gt);G(e.sell,e.author,e.amt),ue?(y.resA+=e.amt,y.resB-=be):(y.resB+=e.amt,y.resA-=be);var bt=ue?y.b:y.a;z(bt,e.author,be),y.swaps++,ue?y.volA+=e.amt:y.volB+=e.amt,n||o.push({who:e.author,line:"swapped "+a(e.amt)+" "+e.sell+" \u2192 "+a(be)+" "+bt+" in "+e.pool})}}}else if(e.t==="closeEpoch"){var yt=kt(_,e.epoch,w,tt(g,L),P);Q.push(yt.record),o.push(yt.chron),P={},m++,X++;for(var qt=D.PEER>=it?0:Math.min(Pt*Math.pow(St,Math.floor((X-1)/Et)),it-D.PEER),ye=a(qt+V),we={},Ke=0,ze={},Ze=0;Ze<se.length;Ze++){var U=se[Ze],xe=s[U.actor];if(!(!xe||xe.actCount===0)){var wt=ne[U.actor]||0;if(!(wt<=0)){var jt=q*xe.actCount,Ue=Math.max(0,wt-jt)/xe.actCount/Te;if(!(Ue<Ot)){var Ye=U.actor+">"+U.creator;ze[Ye]=(ze[Ye]||0)+1;var xt=U.base*(1/(1+_t*(ze[Ye]-1)))*(Ue/(1+Ue));we[U.creator]=(we[U.creator]||0)+xt,Ke+=xt}}}}if(Ke>0&&ye>0){var te=0,Qe={};for(var We in we){var Ae=Math.floor(ye*we[We]/Ke*1e6)/1e6;Ae<=0||(z("PEER",We,Ae),Qe[We]=Ae,te=a(te+Ae))}D.PEER=a(D.PEER+te),V=Math.max(0,a(ye-te)),Oe.push({epoch:X,minted:te,carried:V,to:Qe}),o.push({line:"epoch "+X+" minted "+te+" PEER across "+Object.keys(Qe).length+" creator(s) \u2014 engagement-weighted, \u03B1\u0302-gated, never standing"})}else V=ye,Oe.push({epoch:X,minted:0,carried:V,to:{}});se=[]}}var At=tt(g,L),$e=_.solveStanding(w,At,{tilt:1}),Je={};$e.ids.forEach(function(t,i){Je[t]=$e.x[i]});var Ct=Q.length+1;for(var I in s)if(I!=="alice"){var Bt=Te*(Je[I]||0),Ve=Bt/(Te+Bt),Tt=1-1/(Ct-T[I]+1);Ve>0&&(r.append({id:"dec_"+I,family:"SelfDeclaration",src:I,tgt:"prof_"+I,pd:1,pi:Ve,tauOverride:Tt}),r.append({id:"rep_"+I,family:"SelfReputation",src:"prof_"+I,tgt:I,pd:1,pi:Ve,tauOverride:Tt}))}var Mt={};for(var Xe in h)Mt[Xe]=j[Xe]?"[deleted]":h[Xe];return{g:r,ledgers:w,ledgerById:s,handles:Mt,creators:c,payloads:f,bundles:g,cells:At,solved:$e,xById:Je,deltaActs:P,dmap:new Map(Object.keys(P).map(function(t){return[t,P[t]]})),epochHistory:Q,chron:o,epochNow:Ct,reviewMeta:he,mediaMeta:fe,dms:Me,pinHash:ke,l0:x,deleted:j,postMeta:S,tokens:{bal:$,meta:J,supply:D,claimed:Ee,dist:Oe,carry:V,epochN:X},pools:K,tokenActError:nt,actContent:N}}return{replay:Rt,parseMentions:et}}return{create:Be}});
 
 </script>
 <script>
@@ -1103,6 +1111,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       pollLive();
       setInterval(pollLive, 8000);
       setInterval(reportViews, 4000);
+      pollAds();
+      setInterval(pollAds, 60000);
       window.addEventListener('scroll', function () { reportViews(); }, { passive: true });
       setInterval(pollRemote, 5000);
       setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
@@ -3484,7 +3494,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs from your own position, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
     }
     wrap.appendChild(head);
-    ranked.slice(0, feedLimit).forEach(function (f, i) { wrap.appendChild(postCard(st, f, i + 1, maxRel)); });
+    // One paid placement, after the third ranked item, never woven in deeper.
+    // It is a card the feed carries, not a card the feed ranked: it has no
+    // relevance line because there is no path to it and no score to print.
+    var feedAds = adsFor(st, 'feed');
+    ranked.slice(0, feedLimit).forEach(function (f, i) {
+      wrap.appendChild(postCard(st, f, i + 1, maxRel));
+      if (i === 2 && feedAds.length) wrap.appendChild(adCard(feedAds[0]));
+    });
+    if (ranked.length && ranked.length <= 3 && feedAds.length) wrap.appendChild(adCard(feedAds[0]));
     if (ranked.length > feedLimit) {
       wrap.appendChild(h('div', { style: 'text-align:center; margin:12px 0' },
         h('button', { class: 'btn', text: 'Show more (' + (ranked.length - feedLimit) + ')', onclick: function () { feedLimit += 30; render(); } })));
@@ -3504,6 +3522,101 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
     }
     return wrap;
+  }
+
+  // ── Paid placements ───────────────────────────────────────────────────────
+  // Deliberately built from a different shape than a post. There is no node
+  // id, no author, no relevance decomposition and no react/comment row — not
+  // because those were left off, but because none of them exist: an advert is
+  // not in the act log, so the protocol has nothing to say about it. The card
+  // says so out loud, because a network claiming influence is commitment
+  // cannot quietly sell attention next to it and stay honest.
+  var adList = [];
+
+  /**
+   * Which commons tags has THIS reader engaged with?
+   *
+   * Computed here, in their browser, from the act log their browser already
+   * has — because everything in this network is public, the question is
+   * answerable locally and nobody has to be identified for targeting to work.
+   * The host is never told the answer, no profile is stored anywhere, and this
+   * still works in the offline sandbox where there is no server at all.
+   */
+  function myTags(st) {
+    var out = {};
+    if (!who || !st || !st.g) return out;
+    // Content I acted on: reactions, comments, tags, and my own posts.
+    var mine = {};
+    st.g.edges.forEach(function (e) {
+      if (e.src !== who) return;
+      if (e.family === 'Opinion' || e.family === 'ReviewA' || e.family === 'TagA' || e.family === 'Publish') mine[e.tgt] = 1;
+    });
+    // …and the Type nodes those pieces of content were filed under.
+    st.g.edges.forEach(function (e) {
+      if (e.family !== 'TagT' || !mine[e.src]) return;
+      var n = st.g.nodes.get(e.tgt);
+      var label = (n && n.label ? n.label : e.tgt).toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (label) out[label] = 1;
+    });
+    return out;
+  }
+
+  /**
+   * Does this advert apply to this reader, on this tab? Both halves are
+   * optional: an advert that names nothing shows everywhere, which is the
+   * honest default rather than a hidden one.
+   */
+  function adApplies(ad, st, where) {
+    if (ad.placement && ad.placement.length && ad.placement.indexOf(where) < 0) return null;
+    if (!ad.tags || !ad.tags.length) return { why: null };
+    var mine = myTags(st);
+    for (var i = 0; i < ad.tags.length; i++) {
+      if (mine[ad.tags[i]]) return { why: ad.tags[i] };
+    }
+    return null;
+  }
+
+  /** The advert(s) that apply here, most recent first, at most one. */
+  function adsFor(st, where) {
+    var out = [];
+    for (var i = 0; i < adList.length && out.length < 1; i++) {
+      var m = adApplies(adList[i], st, where);
+      if (m) out.push({ ad: adList[i], why: m.why });
+    }
+    return out;
+  }
+
+  function adCard(entry) {
+    var ad = entry.ad || entry;
+    var card = h('div', { class: 'card ad-card' },
+      h('p', { class: 'eyebrow' }, h('span', { class: 'ad-tag', text: 'PAID PLACEMENT' }), ' · bought, not earned'),
+      h('p', { style: 'margin:6px 0 10px' }, ad.text));
+    var a = h('a', { class: 'btn small', href: ad.url, target: '_blank', rel: 'noopener noreferrer nofollow', text: 'Open link ↗' });
+    card.appendChild(h('div', { class: 'row' }, a));
+    // Say why, always. An advert that can explain itself in one sentence is a
+    // different thing from one that follows you and will not say how it found
+    // you — and the answer here is short because the matching happened on this
+    // device against a public log.
+    if (entry.why) {
+      card.appendChild(h('p', { class: 'smallnote' },
+        'Shown because you have engaged with #' + entry.why + '. That match was made in this browser, from the public log — the host was never told who you are, and no profile of you exists anywhere.'));
+    } else {
+      card.appendChild(h('p', { class: 'smallnote', text: 'Shown to everyone here. This advert names no subject, so nothing about you was consulted.' }));
+    }
+    card.appendChild(h('p', { class: 'smallnote', text: 'This is not an act. It holds no standing, sits outside the graph, and changes nobody’s feed score — including its own, because it has none. Money buys this box and nothing else in the network.' }));
+    return card;
+  }
+  function pollAds() {
+    if (!REMOTE) return;
+    fetch(API + '/api/ads', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.ads)) return;
+        var changed = d.ads.length !== adList.length;
+        adList = d.ads;
+        if (changed) render();
+      })
+      .catch(function () {});
   }
 
   function postCard(st, f, rank, maxRel) {
@@ -4335,6 +4448,231 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
       h('h2', { text: 'Addresses' }), table,
       h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
+    
+    // ── The PEER token and its pools ─────────────────────────────────────────
+    // Tokens are value the epoch mints; standing is reputation the graph
+    // computes. The interface keeps saying that, because a screen where both
+    // appear is exactly where the two would otherwise blur together.
+    var tok = st.tokens, myPools = st.pools;
+    function round6(x) { return Math.round(x * 1e6) / 1e6; }
+    function tbal(sym) { return (tok.bal[sym] && tok.bal[sym][who]) || 0; }
+
+    var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'PEER — the epoch token' }),
+      h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled by their commitment rate λ(α̂) and gated at α̂ ≥ 0.2. Value, never standing: no balance enters any score.' }));
+    var bkv = h('div', { class: 'kv' });
+    var symsAll = Object.keys(tok.meta);
+    for (var ti = 0; ti < symsAll.length; ti++) {
+      var sym0 = symsAll[ti];
+      if (tbal(sym0) > 0 || sym0 === 'PEER' || sym0 === 'tBTC') {
+        bkv.appendChild(h('span', { text: sym0 }));
+        bkv.appendChild(h('b', { class: 'num', text: round6(tbal(sym0)) + '' }));
+      }
+    }
+    tCard.appendChild(bkv);
+    tCard.appendChild(h('p', { class: 'smallnote', text: 'Supply: ' + round6(tok.supply.PEER) + ' PEER minted over ' + tok.epochN + ' epoch(s) · ' + round6(tok.carry) + ' carried to the next · your distributions ride on people engaging with what you make.' }));
+    if (!tok.claimed[who]) {
+      tCard.appendChild(h('div', { class: 'mini-form' },
+        h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC · −θ', onclick: function () {
+          tryAct(who, { t: 'btcClaim', author: who }, 'Claimed 0.01 tBTC — sandbox value, one claim per account, backed by nothing.');
+        } }),
+        h('span', { class: 'smallnote', text: 'test bitcoin: a bitcoin-shaped name on sandbox value. The host holds no keys; nothing here touches the real chain.' })));
+    }
+    var myDist = [];
+    for (var di = 0; di < tok.dist.length; di++) if (tok.dist[di].to[who]) myDist.push(tok.dist[di]);
+    if (myDist.length) {
+      var dl = myDist.slice(-5).map(function (d) { return 'epoch ' + d.epoch + ': +' + d.to[who]; }).join(' · ');
+      tCard.appendChild(h('p', { class: 'smallnote', text: 'Your last distributions — ' + dl }));
+    }
+    wrap.appendChild(tCard);
+
+    // ── pools ──
+    var pCard = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Liquidity pools' }),
+      h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
+    var pids = Object.keys(myPools);
+    if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. Open the first one below — PEER/tBTC is the intended opening pair.' }));
+    pids.forEach(function (pid) {
+      var pl = myPools[pid];
+      var mine = pl.shares[who] || 0;
+      var row = h('div', { class: 'kv' },
+        h('span', { text: pid }), h('b', { class: 'num', text: round6(pl.resA) + ' ' + pl.a + ' / ' + round6(pl.resB) + ' ' + pl.b }),
+        h('span', { text: 'price' }), h('b', { class: 'num', text: '1 ' + pl.a + ' = ' + round6(pl.resB / pl.resA) + ' ' + pl.b }),
+        h('span', { text: 'your share' }), h('b', { class: 'num', text: (pl.totalShares > 0 ? (mine / pl.totalShares * 100).toFixed(2) : '0.00') + '% · ' + pl.swaps + ' swap(s)' }));
+      pCard.appendChild(row);
+
+      var sellSel = h('select', {}, h('option', { value: pl.a, text: 'sell ' + pl.a }), h('option', { value: pl.b, text: 'sell ' + pl.b }));
+      var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
+      var quote = h('span', { class: 'smallnote' });
+      function requote() {
+        var v = parseFloat(amtIn.value);
+        if (!isFinite(v) || v <= 0) { quote.textContent = ''; return; }
+        var inA = sellSel.value === pl.a;
+        var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
+        var out = rout * (v * 0.997) / (rin + v * 0.997);
+        quote.textContent = '→ ' + round6(out) + ' ' + (inA ? pl.b : pl.a) + ' (incl. 0.3% fee)';
+      }
+      amtIn.addEventListener('input', requote);
+      sellSel.addEventListener('change', requote);
+      pCard.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
+        h('button', { class: 'btn small primary', text: 'Swap · −θ', onclick: function () {
+          var v = parseFloat(amtIn.value);
+          if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+          var inA = sellSel.value === pl.a;
+          var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
+          var expect = rout * (v * 0.997) / (rin + v * 0.997);
+          // 2% slippage guard by default: if the pool moved between this
+          // render and the act landing, the act refuses instead of filling
+          // at a price the screen never showed.
+          tryAct(who, { t: 'poolSwap', author: who, pool: pid, sell: sellSel.value, amt: v, minOut: expect * 0.98 }, 'Swapped in ' + pid + '.');
+        } }), quote));
+
+      var addA = h('input', { type: 'text', placeholder: pl.a, style: 'width:80px', inputmode: 'decimal' });
+      var addB = h('input', { type: 'text', placeholder: pl.b, style: 'width:80px', inputmode: 'decimal' });
+      pCard.appendChild(h('div', { class: 'mini-form' }, addA, addB,
+        h('button', { class: 'btn small', text: 'Add liquidity · −θ', onclick: function () {
+          var va = parseFloat(addA.value), vb = parseFloat(addB.value);
+          if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both amounts, please.'); return; }
+          tryAct(who, { t: 'poolAdd', author: who, pool: pid, amtA: va, amtB: vb }, 'Added liquidity to ' + pid + ' (proportional part of what you offered).');
+        } }),
+        mine > 0 ? h('button', { class: 'btn small', text: 'Withdraw all · −θ', onclick: function () {
+          tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: mine }, 'Withdrew your liquidity from ' + pid + '.');
+        } }) : null));
+    });
+
+    var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
+    var npB = h('input', { type: 'text', placeholder: 'tBTC', style: 'width:70px', maxlength: '8' });
+    var npAmtA = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
+    var npAmtB = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
+    pCard.appendChild(h('div', { class: 'mini-form' }, npA, npAmtA, npB, npAmtB,
+      h('button', { class: 'btn small primary', text: 'Open pool · −θ', onclick: function () {
+        var va = parseFloat(npAmtA.value), vb = parseFloat(npAmtB.value);
+        var sa = (npA.value || 'PEER').trim(), sb = (npB.value || 'tBTC').trim();
+        if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both starting amounts, please.'); return; }
+        tryAct(who, { t: 'poolCreate', author: who, symA: sa, symB: sb, amtA: va, amtB: vb }, 'Opened the ' + sa + '/' + sb + ' pool. The starting ratio IS the starting price.');
+      } })));
+    wrap.appendChild(pCard);
+
+    // ── fun assets ──
+    var faSym = h('input', { type: 'text', placeholder: 'SYM (3-8, A-Z0-9)', style: 'width:130px', maxlength: '8' });
+    var faName = h('input', { type: 'text', placeholder: 'what is it?', style: 'flex:1', maxlength: '60' });
+    var faSupply = h('input', { type: 'text', placeholder: 'supply', style: 'width:90px', inputmode: 'decimal' });
+    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Mint a fun asset' }),
+      h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER or tBTC and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
+      h('div', { class: 'mini-form' }, faSym, faName, faSupply,
+        h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
+          var sup = parseFloat(faSupply.value);
+          tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
+        } }))));
+
+    // ── Buy a placement ──────────────────────────────────────────────────────
+    // Deliberately in the economy tab and not the composer: writing a post and
+    // buying a box are different acts, and only one of them is a protocol act.
+    // The form is honest about the order of operations, because the thing that
+    // goes wrong with prepaid advertising is people paying before a human has
+    // read what they wrote.
+    var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Buy a placement' }),
+      h('p', { class: 'smallnote', text: 'A paid box in the feed. It is not an act: it mints nothing, holds no standing, and cannot move any ranking — including its own. Money buys this box and nothing else in the network.' }));
+
+    var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
+    var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
+    var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric' });
+    var adMail = h('input', { type: 'text', placeholder: 'how to reach you', style: 'flex:1', maxlength: '120' });
+    var adOut = h('div', { class: 'smallnote' });
+
+    // Placement: where it may appear.
+    var places = ['feed', 'live', 'record'];
+    var placeBoxes = {};
+    var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'show it in:' }));
+    places.forEach(function (pl) {
+      var cb = h('input', { type: 'checkbox' });
+      placeBoxes[pl] = cb;
+      placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
+    });
+    placeRow.appendChild(h('span', { class: 'smallnote', text: '(none ticked = everywhere)' }));
+
+    // Subject: commons tags. Offered from what the network actually uses, so
+    // nobody targets a tag that does not exist.
+    var known = [];
+    st.g.nodes.forEach(function (n) {
+      if (n.kind === 'Type') {
+        var lab = (n.label || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+        if (lab && known.indexOf(lab) < 0) known.push(lab);
+      }
+    });
+    known.sort();
+    var chosen = {};
+    var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
+    if (!known.length) {
+      tagRow.appendChild(h('span', { class: 'smallnote', text: 'nobody has tagged anything yet, so there is no subject to aim at.' }));
+    }
+    known.slice(0, 24).forEach(function (tg) {
+      var b = h('button', { class: 'btn small ghost', text: '#' + tg });
+      b.onclick = function () {
+        if (chosen[tg]) { delete chosen[tg]; b.className = 'btn small ghost'; }
+        else { chosen[tg] = 1; b.className = 'btn small primary'; }
+      };
+      tagRow.appendChild(b);
+    });
+
+    adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
+    adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adMail));
+    adCard2.appendChild(placeRow);
+    adCard2.appendChild(tagRow);
+    adCard2.appendChild(h('p', { class: 'smallnote', text: 'Naming a subject means the advert is only shown to people who have engaged with that tag — and that match happens in their browser, against the public log, so the host never learns who saw it and no profile of anyone is built. Where you connect from is never used: that data exists for blocking abuse and nothing else.' }));
+    adCard2.appendChild(h('div', { class: 'mini-form persistent' },
+      h('button', { class: 'btn small primary', text: 'Ask for a quote', onclick: function () {
+        var placement = [];
+        places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
+        var tags = Object.keys(chosen);
+        adOut.textContent = 'sending…';
+        fetch(API + '/api/ads', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: adText.value.trim(), url: adUrl.value.trim(),
+            days: parseInt(adDays.value, 10) || 7, contact: adMail.value.trim(),
+            placement: placement, tags: tags,
+          }),
+        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+            adOut.innerHTML = '';
+            if (!res.ok) { adOut.appendChild(h('b', { text: res.d.error || 'refused' })); return; }
+            adOut.appendChild(h('b', { text: 'Quoted. Do NOT pay yet.' }));
+            adOut.appendChild(h('div', { text: 'Your id is ' + res.d.id + '. A person reads every advert before it can be paid for — check back with the button below, and only send when it says approved.' }));
+            adOut.appendChild(h('div', { class: 'mono', style: 'margin-top:6px', text: res.d.amountSats + ' sats (' + res.d.amountBtc + ' BTC)' }));
+            adOut.appendChild(h('div', { class: 'mono', text: 'to ' + res.d.payTo }));
+            adOut.appendChild(h('div', { class: 'smallnote', text: 'Send exactly that amount, not a rounded one: the odd figure is what identifies your advert among everyone paying into the same address.' }));
+          })
+          .catch(function () { adOut.textContent = 'the host did not answer.'; });
+      } }),
+      (function () {
+        var idIn = h('input', { type: 'text', placeholder: 'advert id', style: 'width:120px' });
+        var btn = h('button', { class: 'btn small', text: 'Check status', onclick: function () {
+          var id = idIn.value.trim();
+          if (!id) return;
+          fetch(API + '/api/ads/' + encodeURIComponent(id), { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              adOut.innerHTML = '';
+              if (d.error) { adOut.appendChild(h('b', { text: d.error })); return; }
+              adOut.appendChild(h('b', { text: d.id + ' — ' + d.status }));
+              adOut.appendChild(h('div', { text: d.next || '' }));
+              if (d.payTo) {
+                adOut.appendChild(h('div', { class: 'mono', style: 'margin-top:6px', text: d.amountSats + ' sats to ' + d.payTo }));
+              }
+            })
+            .catch(function () { adOut.textContent = 'the host did not answer.'; });
+        } });
+        return h('span', { class: 'row' }, idIn, btn);
+      })()));
+    adCard2.appendChild(adOut);
+    if (!REMOTE) {
+      adOut.textContent = 'Placements need the hosted network — this browser is running its own private copy.';
+    }
+    wrap.appendChild(adCard2);
+
     return wrap;
   }
 
