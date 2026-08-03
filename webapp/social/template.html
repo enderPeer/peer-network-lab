@@ -663,6 +663,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
     }
+    // #live / #feed / #ledger override the restored view: the installed app's
+    // long-press shortcuts launch with a hash, and a shortcut that opens on
+    // whatever tab was open last is not a shortcut.
+    var h0 = (location.hash || '').slice(1);
+    if (GEEK_TABS.indexOf(h0) >= 0) { tab = h0; lqView = h0 === 'chat' ? 'chats' : (LQ_VIEWS.indexOf(h0) >= 0 ? h0 : lqView); }
   } catch (e) {}
 
   function epochOf() {
@@ -958,27 +963,79 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   var A2HS_KEY = 'peer-a2hs-dismissed-v1';
+
+  // Chromium fires beforeinstallprompt when the app qualifies for install; the
+  // browser then hides its own hint behind a menu nobody opens. Capturing the
+  // event lets the app show a real Install button instead. The listener must
+  // be registered before the event fires — it often fires within seconds of
+  // load — which is why this sits at top level rather than inside boot().
+  var installPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installPrompt = e;
+    offerInstall();
+  });
+  window.addEventListener('appinstalled', function () {
+    installPrompt = null;
+    var c = document.querySelector('.a2hs');
+    if (c) c.remove();
+    toast('Installed. Peer now opens full-screen from your home screen.');
+  });
+
   /**
-   * Safari fires no install event and shows no install button, so an app that
-   * does not say "Share → Add to Home Screen" simply never gets installed.
-   * Shown once, on iOS Safari only, and only when not already installed.
+   * One card, three doors, because no two browsers install the same way:
+   * Chromium exposes a prompt() the button can call; iOS Safari has no event
+   * and no button, only the Share sheet; Firefox on Android installs from its
+   * own menu and fires nothing. Firefox on desktop cannot install a PWA at
+   * all, so it gets silence instead of instructions that go nowhere.
+   * Shown once, and only when not already installed.
    */
   function offerInstall() {
-    if (!isIOS || standalone) return;
+    if (standalone) return;
+    if (document.querySelector('.a2hs')) return;
     try { if (localStorage.getItem(A2HS_KEY)) return; } catch (e) { return; }
-    // Only Safari can install; Chrome/Firefox on iOS cannot add to home screen.
-    if (!/Safari/.test(navigator.userAgent) || /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent)) return;
-    setTimeout(function () {
-      var card = h('div', { class: 'a2hs' },
-        h('b', { text: 'Install Peer on this phone' }),
-        h('div', { text: 'Tap the Share button below, then “Add to Home Screen”. It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.' }),
-        h('div', { class: 'row' },
-          h('button', { text: 'Got it', onclick: function () {
-            try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+    var ua = navigator.userAgent;
+    var kind = null;
+    if (installPrompt) kind = 'prompt';                                   // Chromium, any platform
+    else if (isIOS && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua)) kind = 'ios';
+    else if (/Android/.test(ua) && /Firefox/.test(ua)) kind = 'fxandroid';
+    if (!kind) return;
+    var show = function () {
+      if (standalone || document.querySelector('.a2hs')) return;
+      var body = kind === 'ios'
+        ? 'Tap the Share button below, then “Add to Home Screen”. It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.'
+        : kind === 'fxandroid'
+          ? 'Open the ⋮ menu and choose “Add to Home screen”. It opens full-screen, keeps you signed in, and still works offline with your own private copy of the network.'
+          : 'It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.';
+      var row = h('div', { class: 'row' });
+      if (kind === 'prompt') {
+        row.appendChild(h('button', { text: 'Install', onclick: function () {
+          var p = installPrompt;
+          if (!p) { card.remove(); return; }
+          installPrompt = null;
+          p.prompt();
+          p.userChoice.then(function (choice) {
+            if (choice && choice.outcome === 'accepted') {
+              try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+            }
             card.remove();
-          } })));
+          }).catch(function () { card.remove(); });
+        } }));
+      }
+      row.appendChild(h('button', { text: kind === 'prompt' ? 'Not now' : 'Got it', onclick: function () {
+        try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+        card.remove();
+      } }));
+      var card = h('div', { class: 'a2hs' },
+        h('b', { text: 'Install Peer on this ' + (/Android|iP(hone|od)/.test(ua) ? 'phone' : 'device') }),
+        h('div', { text: body }),
+        row);
       document.body.appendChild(card);
-    }, 4000);
+    };
+    // The Chromium path shows immediately — the event itself is the signal
+    // that the moment is right. The instruction-only paths wait a little so
+    // the first thing a new visitor reads is the app, not a banner.
+    if (kind === 'prompt') show(); else setTimeout(show, 4000);
   }
 
   function boot() {

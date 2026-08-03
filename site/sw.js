@@ -7,7 +7,7 @@
 //
 // The act log is never cached. A stale feed served from disk would be a second
 // source of truth, and this project has paid for those twice already.
-const VERSION = 'peer-shell-v3';
+const VERSION = 'peer-shell-v4';
 const SHELL = [
   './',
   './index.html',
@@ -16,6 +16,8 @@ const SHELL = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-maskable-192.png',
+  './icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (e) => {

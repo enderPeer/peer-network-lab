@@ -79,7 +79,7 @@ const head = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#131110">
 <meta name="description" content="A social network whose feed is mathematics you can check. Influence is commitment, not attention.">
 <link rel="manifest" href="manifest.webmanifest">

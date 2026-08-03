@@ -1436,10 +1436,16 @@ const server = createServer((req, res) => {
     try {
       if (url.pathname === '/manifest.webmanifest') {
         // The published copy uses relative paths under /peer-network-lab/;
-        // served from this host the app lives at the root instead.
+        // served from this host the app lives at the root instead. Everything
+        // URL-shaped has to be rewritten together — an id or shortcut left
+        // relative to app.html would point at a page this origin does not have.
         const m = JSON.parse(readFileSync(join(SITE, 'manifest.webmanifest'), 'utf8'));
         m.start_url = '/';
         m.scope = '/';
+        m.id = '/';
+        if (Array.isArray(m.shortcuts)) {
+          for (const s of m.shortcuts) s.url = s.url.replace(/^\.\/app\.html/, '/');
+        }
         json(res, 200, m);
         return;
       }

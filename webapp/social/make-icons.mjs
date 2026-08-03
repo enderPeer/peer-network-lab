@@ -97,6 +97,7 @@ const icons = [
   ['icon-192.png', 192, 0.62], // manifest
   ['icon-512.png', 512, 0.62], // manifest
   ['icon-maskable-512.png', 512, 0.42], // Android safe zone: mark well inside
+  ['icon-maskable-192.png', 192, 0.42], // Android launchers mostly ask for 192
   ['favicon-32.png', 32, 0.70],
 ];
 console.log('icons:');
