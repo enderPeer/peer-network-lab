@@ -269,90 +269,8 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
 .lane .smallnote { font-size: 10px; }
 .lane.on { border-color: var(--accent, #d8b26a); background: var(--card); }
 
-/* Reels: one video per screen, snapped.
-   100dvh rather than 100vh — on mobile browsers vh includes the address bar
-   that is about to slide away, so vh leaves a strip of the next video peeking
-   and the snap fights the user. dvh is the box that actually exists. */
-/* scroll-snap-type: y proximity, not mandatory.
-   Mandatory fights every gesture that is not a full swipe — a small drag gets
-   yanked back, which reads as the page being stuck. Proximity snaps when you
-   are close and lets you scrub when you are not. scroll-snap-stop: always on
-   the sections still guarantees a flick never skips a video. */
-.reels { height: 100dvh; overflow-y: auto; scroll-snap-type: y proximity;
-  margin: 0 -14px; -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain; scroll-behavior: smooth; }
-@supports not (height: 100dvh) { .reels { height: 100vh; } }
-.reel { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always;
-  background: #000; display: flex; align-items: center; justify-content: center; }
-.reel-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-/* The overlay must not swallow taps meant for the video: only the controls
-   and the text inside it are interactive. Before this, the whole bottom third
-   of the screen was one big play/pause target and the sound button sat inside
-   it — reaching for sound paused the video instead. */
-.reel-info { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px;
-  /* Generous, because a mobile toolbar covers the bottom of a 100dvh box while
-     it is on screen and env() does not account for it. Text clipped behind a
-     toolbar is the same bug as a button hiding behind one. */
-  padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(transparent, rgba(0,0,0,.82)); pointer-events: none; }
-.reel-info > * { pointer-events: auto; }
-.reel-text { margin: 8px 0; font-size: 14px; line-height: 1.35; }
-
-
-/* One control style, used top and bottom. 44px is the smallest target a
-   thumb hits reliably, and these sit above the video rather than inside a
-   region that also handles taps. */
-.reel-btn { min-height: 44px; background: rgba(0,0,0,.6); color: var(--ink);
-  border: 1px solid rgba(255,255,255,.32); border-radius: 999px;
-  padding: 10px 18px; font: inherit; font-size: 13px; cursor: pointer;
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.reel-btn.on { background: rgba(216,178,106,.92); color: #17140f; border-color: transparent; font-weight: 600; }
-
-/* The exit bar is sticky INSIDE the scroller, so it rides along every snap
-   instead of scrolling away with the first video. Without it there is no way
-   back on a phone: the reels box owns the screen and contains its own
-   scrolling, so the tab bar is off-screen entirely. */
-/* FIXED, not sticky.
-   Sticky put the bar inside the scroller's flow, where a negative margin was
-   needed to stop it eating a video's height — and that pushed it 544px down
-   the screen instead. The reels view owns the whole viewport anyway, so the
-   controls belong to the viewport, not to the list. */
-.reel-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 30;
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  padding-top: calc(10px + env(safe-area-inset-top, 0px));
-  background: linear-gradient(rgba(0,0,0,.75), transparent); pointer-events: none; }
-.reel-bar > * { pointer-events: auto; }
-.reel-exit { font-weight: 600; }
-
-/* Sound sits on a fixed right rail at thumb height.
-   In the bottom overlay it measured 43px BELOW the visible area — a mobile
-   browser's toolbar covers the bottom of a 100dvh box while it is still
-   showing, so anything anchored to the bottom of the video is exactly where a
-   phone cannot reach. Fixed to the viewport, above the fold of that toolbar,
-   it is always there. */
-.reel-rail { position: fixed; right: 12px; z-index: 30;
-  bottom: calc(28% + env(safe-area-inset-bottom, 0px)); }
-
-/* Music: a list you run down, and one player that stays put. */
-.player { position: sticky; top: 0; z-index: 5; background: var(--card);
-  border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
-.player:empty { display: none; }
-.track { display: flex; gap: 10px; align-items: center; padding: 9px 4px;
-  border-bottom: 1px solid var(--line); }
-.track:last-child { border-bottom: 0; }
-.track.on { background: var(--card-2); border-radius: 8px; }
-.track-n { width: 22px; text-align: center; color: var(--dim, #a29a92);
-  font-variant-numeric: tabular-nums; flex: 0 0 auto; }
-
-/* Pictures: the image first and as large as the column allows, words under it. */
-.gal { padding: 0; overflow: hidden; margin-top: 14px; }
-.gal-img { display: block; width: 100%; height: auto; background: var(--card-2); }
-.gal-text { margin: 0; padding: 12px 14px 4px; line-height: 1.45; }
-.gal .row { padding: 8px 14px 12px; }
-
 @media (max-width: 560px) {
   .lane { min-width: 92px; }
-  .gal-text { font-size: 14px; }
 }
 .ad-tag { font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 4px;
   background: #8a7a4a; color: #17140f; font-weight: 700; }
@@ -792,17 +710,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
   var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new'
-  // Which lane of the feed you are in. 'all' is the merged feed and stays the
-  // entry point: the specialised lanes are a way to keep going once you know
-  // what you came for, not four separate apps.
-  var feedLane = 'all';   // 'all' | 'reels' | 'music' | 'gallery'
   var econView = 'wallet'; // 'wallet' | 'pools' | 'layer0' | 'ledger'
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
   // holds what that snapshot is, so the interface can say so instead of
   // pretending to be live.
   var archiveInfo = null;
-  var nowPlaying = null;  // {cid, el} — the music lane's single audio element
   var API = ''; // '' = this origin; set by resolveHost() when served statically
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
   var feedLimit = 30;    // windowed rendering — raised by "show more"
@@ -842,7 +755,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
-      if (['all', 'reels', 'music', 'gallery'].indexOf(v0.feedLane) >= 0) feedLane = v0.feedLane;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
@@ -865,7 +777,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, feedLane: feedLane, econView: econView, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, econView: econView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -3791,259 +3703,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab/blob/main/CONTRIBUTING.md', target: '_blank', rel: 'noopener' }, 'How to contribute')));
   }
 
-  // ══ Feed lanes ═══════════════════════════════════════════════════════════
-  //
-  // One network, four ways in. The merged feed stays the entry point because
-  // it is the only one that shows you what you did not come for; the lanes
-  // exist because scrolling past six paragraphs to reach the next song is a
-  // bad way to listen to music.
-  //
-  // Nothing here re-ranks anything or invents a second notion of relevance:
-  // a lane is a filter over the same content nodes, newest first, and every
-  // card still opens the same post in the same thread.
-
-  /**
-   * The order the feed would put things in, as a lookup from content id to
-   * position — so a lane can be sorted the same way without duplicating any
-   * ranking. The three modes are the same three the main feed offers, because
-   * a lane that could only ever show newest-first was a different product
-   * pretending to be a filter.
-   */
-  function laneOrder(st) {
-    var vu = viewAs && st.ledgerById[viewAs] ? viewAs : who;
-    var pos = {};
-    try {
-      if (feedMode === 'cogra') {
-        cograFeed(st, vu).forEach(function (sc, i) { pos[sc.node.id] = i; });
-      } else if (feedMode === 'l1') {
-        E.rankFeed(st.g, vu, function (id) { return credibility(st, id); },
-          function (nid) { return st.creators[nid] || null; })
-          .filter(function (f) { return f.relevance > 0; })
-          .forEach(function (f, i) { pos[f.node.id] = i; });
-      }
-    } catch (e) { /* ranking is best-effort here; newest is always available */ }
-    return pos;
-  }
-
-  /** Content carrying media of a given kind, in the current feed order. */
-  function laneItems(st, kind) {
-    var out = [];
-    for (var cid in st.mediaMeta) {
-      var media = st.mediaMeta[cid];
-      if (!media || !media.length) continue;
-      if (st.payloads[cid] === undefined) continue;      // payload removed
-      var meta = st.postMeta[cid];
-      if (!meta || meta.comment) continue;               // posts and streams only
-      var hit = null;
-      for (var i = 0; i < media.length; i++) {
-        var m = media[i].m || '';
-        if (kind === 'video' && m.indexOf('video/') === 0) { hit = media[i]; break; }
-        if (kind === 'audio' && m.indexOf('audio/') === 0) { hit = media[i]; break; }
-        if (kind === 'image' && m.indexOf('image/') === 0) { hit = media[i]; break; }
-      }
-      if (!hit) continue;
-      out.push({ cid: cid, entry: hit, by: st.creators[cid], text: st.payloads[cid] || '', idx: meta.idx, ts: meta.ts });
-    }
-    if (feedMode === 'new') {
-      out.sort(function (a, b) { return b.idx - a.idx; });
-    } else {
-      // Ranked first, in feed order; anything the ranking cannot reach falls
-      // to the end newest-first rather than vanishing — a lane that hides
-      // what your graph position cannot see would be lying about what exists.
-      var pos = laneOrder(st);
-      out.sort(function (a, b) {
-        var pa = pos[a.cid], pb = pos[b.cid];
-        if (pa === undefined && pb === undefined) return b.idx - a.idx;
-        if (pa === undefined) return 1;
-        if (pb === undefined) return -1;
-        return pa - pb;
-      });
-    }
-    return out;
-  }
-
-  /** The switcher. Big enough to hit with a thumb, and it says what is in each. */
-  function laneBar(st) {
-    var counts = {
-      reels: laneItems(st, 'video').length,
-      music: laneItems(st, 'audio').length,
-      gallery: laneItems(st, 'image').length,
-    };
-    var bar = h('div', { class: 'lanes' });
-    [['all', 'Everything', 'the merged feed, ranked'],
-     ['reels', 'Reels', counts.reels + ' video' + (counts.reels === 1 ? '' : 's')],
-     ['music', 'Music', counts.music + ' track' + (counts.music === 1 ? '' : 's')],
-     ['gallery', 'Pictures', counts.gallery + ' image' + (counts.gallery === 1 ? '' : 's')]
-    ].forEach(function (row) {
-      var b = h('button', { class: 'lane' + (feedLane === row[0] ? ' on' : '') },
-        h('b', { text: row[1] }),
-        h('span', { class: 'smallnote', text: row[2] }));
-      b.onclick = function () {
-        if (nowPlaying && nowPlaying.el) { try { nowPlaying.el.pause(); } catch (e) {} }
-        nowPlaying = null;
-        feedLane = row[0]; feedLimit = 30; saveView(); render();
-      };
-      bar.appendChild(b);
-    });
-    return bar;
-  }
-
-  /** A byline that jumps to the full post, used by every lane. */
-  function laneByline(st, item) {
-    var a = h('button', { class: 'btn small ghost', text: '↦ open post ' + item.cid, onclick: function () {
-      focusNode = item.cid; feedLane = 'all'; saveView(); render();
-    } });
-    return h('div', { class: 'row', style: 'gap:8px; align-items:center' },
-      avatar(st.handles[item.by], 'avatar s'),
-      h('b', { text: st.handles[item.by] || item.by }), a);
-  }
-
-  /**
-   * Reels: one video per screen, snapped, muted-autoplay, tap to unmute.
-   *
-   * Muted is not a preference, it is the only way a browser will start a video
-   * without a gesture — the same rule that once made every live stream render
-   * black here. Sound is one tap, and that tap is the gesture the browser
-   * wanted.
-   */
-  function reelsView(st) {
-    var items = laneItems(st, 'video');
-    var wrap = h('div', { class: 'reels' });
-    if (!items.length) {
-      wrap.appendChild(h('div', { class: 'card', style: 'margin:14px' },
-        h('p', { text: 'No videos yet.' }),
-        h('p', { class: 'smallnote', text: 'Attach one to a post and it appears here. Anything under a minute works best in this view.' })));
-      return wrap;
-    }
-    // One shared mute state. Turning sound on for a video and having it come
-    // back off at the next one is the thing that makes people give up.
-    var reelsMuted = true;
-    var soundButtons = [];
-    function setMuted(m) {
-      reelsMuted = m;
-      soundButtons.forEach(function (b) {
-        b.textContent = m ? '🔇 Sound off' : '🔊 Sound on';
-        b.className = 'reel-btn' + (m ? '' : ' on');
-      });
-      wrap.querySelectorAll('video').forEach(function (vv) { vv.muted = m; });
-    }
-
-    // The way out, pinned to the top and above everything. The reels box owns
-    // the whole screen and contains its own scrolling, so on a phone the tab
-    // bar is off-screen and there was no way back — you had to guess that
-    // scrolling up past the first video would do it, and it did not.
-    var exit = h('button', { class: 'reel-btn reel-exit', text: '‹ Back' });
-    exit.onclick = function () { feedLane = 'all'; saveView(); render(); };
-    wrap.appendChild(h('div', { class: 'reel-bar' }, exit, h('span', { class: 'grow' }),
-      h('span', { class: 'smallnote', text: items.length + ' video' + (items.length === 1 ? '' : 's') })));
-    // The one control people reach for, at thumb height on the right rail.
-    var soundRail = h('button', { class: 'reel-btn', text: '🔇 Sound off' });
-    soundRail.onclick = function () { setMuted(!reelsMuted); };
-    soundButtons.push(soundRail);
-    wrap.appendChild(h('div', { class: 'reel-rail' }, soundRail));
-
-    items.slice(0, feedLimit).forEach(function (item) {
-      var v = h('video', { class: 'reel-video', loop: '', playsinline: '', preload: 'metadata' });
-      v.muted = true;
-      attachMedia(v, item.entry);
-      var sect = h('section', { class: 'reel' }, v);
-      // Tapping the VIDEO pauses. The controls are fixed to the viewport and
-      // outside this element, so reaching for sound can no longer pause the
-      // thing you wanted to hear.
-      v.onclick = function () { if (v.paused) v.play().catch(function () {}); else v.pause(); };
-      var info = h('div', { class: 'reel-info' },
-        laneByline(st, item),
-        item.text ? h('p', { class: 'reel-text', text: item.text.slice(0, 220) }) : null);
-      sect.appendChild(info);
-      wrap.appendChild(sect);
-      // Play whichever reel is actually on screen, pause the rest. Without
-      // this every video in the list decodes at once and a phone gets hot.
-      if (window.IntersectionObserver) {
-        var io = new IntersectionObserver(function (entries) {
-          entries.forEach(function (e) {
-            if (e.isIntersecting) { v.muted = reelsMuted; v.play().catch(function () {}); }
-            else v.pause();
-          });
-        }, { threshold: 0.6 });
-        setTimeout(function () { io.observe(sect); }, 0);
-      }
-    });
-    return wrap;
-  }
-
-  /** Music: a list you can run down, with one player that keeps going. */
-  function musicView(st) {
-    var items = laneItems(st, 'audio');
-    var wrap = h('div', {});
-    if (!items.length) {
-      wrap.appendChild(h('div', { class: 'card' },
-        h('p', { text: 'Nothing to listen to yet.' }),
-        h('p', { class: 'smallnote', text: 'Attach an audio file to a post. The waveform is drawn on your own device from the actual samples, not from a picture somebody uploaded.' })));
-      return wrap;
-    }
-    var player = h('div', { class: 'player' });
-    function play(i) {
-      var item = items[i];
-      if (!item) return;
-      if (nowPlaying && nowPlaying.el) { try { nowPlaying.el.pause(); } catch (e) {} }
-      var au = h('audio', { controls: '', autoplay: '', style: 'width:100%' });
-      attachMedia(au, item.entry);
-      // Run on to the next track, which is the whole point of a music tab.
-      au.addEventListener('ended', function () { play(i + 1); });
-      nowPlaying = { cid: item.cid, el: au };
-      player.innerHTML = '';
-      player.appendChild(h('p', { class: 'eyebrow', text: 'now playing · ' + (i + 1) + ' of ' + items.length }));
-      player.appendChild(laneByline(st, item));
-      if (item.text) player.appendChild(h('p', { style: 'margin:6px 0' }, item.text.slice(0, 200)));
-      player.appendChild(au);
-      renderList();
-    }
-    var list = h('div', { class: 'card', style: 'margin-top:14px' });
-    function renderList() {
-      list.innerHTML = '';
-      list.appendChild(h('p', { class: 'eyebrow', text: 'tracks · newest first' }));
-      items.slice(0, feedLimit).forEach(function (item, i) {
-        var on = nowPlaying && nowPlaying.cid === item.cid;
-        var row = h('div', { class: 'track' + (on ? ' on' : '') },
-          h('span', { class: 'track-n', text: on ? '▶' : String(i + 1) }),
-          h('div', { class: 'grow' },
-            h('b', { text: (item.entry.n || 'untitled').replace(/\.[a-z0-9]+$/i, '') }),
-            h('div', { class: 'smallnote', text: (st.handles[item.by] || item.by) + (item.text ? ' — ' + item.text.slice(0, 60) : '') })),
-          h('button', { class: 'btn small', text: on ? 'Playing' : 'Play', onclick: function () { play(i); } }));
-        list.appendChild(row);
-      });
-    }
-    renderList();
-    wrap.appendChild(player);
-    wrap.appendChild(list);
-    return wrap;
-  }
-
-  /** Pictures: image and words, one card at a time, nothing else competing. */
-  function galleryView(st) {
-    var items = laneItems(st, 'image');
-    var wrap = h('div', {});
-    if (!items.length) {
-      wrap.appendChild(h('div', { class: 'card' },
-        h('p', { text: 'No pictures yet.' }),
-        h('p', { class: 'smallnote', text: 'Images are re-encoded on your device before upload, so nothing leaves with its original metadata attached.' })));
-      return wrap;
-    }
-    items.slice(0, feedLimit).forEach(function (item) {
-      var img = h('img', { class: 'gal-img', loading: 'lazy', decoding: 'async', alt: '' });
-      attachMedia(img, item.entry);
-      var card = h('div', { class: 'card gal' }, img);
-      if (item.text) card.appendChild(h('p', { class: 'gal-text', text: item.text }));
-      card.appendChild(laneByline(st, item));
-      wrap.appendChild(card);
-    });
-    if (items.length > feedLimit) {
-      wrap.appendChild(h('div', { style: 'text-align:center; margin:12px 0' },
-        h('button', { class: 'btn', text: 'Show more', onclick: function () { feedLimit += 30; render(); } })));
-    }
-    return wrap;
-  }
-
   function feedTab(st) {
     var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored; @name mentions and quotes are priced Reference acts)' });
     var att = slider('attachment', 0.8);
@@ -4091,14 +3750,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var wrap = h('div', {});
     var focused = focusCard(st, false);
     if (focused) wrap.appendChild(focused);
-    // The lane bar sits above everything, including the composer: it is how
-    // you leave, and something you cannot see is not an entry point.
-    wrap.appendChild(laneBar(st));
-    if (feedLane !== 'all') {
-      wrap.appendChild(feedLane === 'reels' ? reelsView(st)
-        : feedLane === 'music' ? musicView(st) : galleryView(st));
-      return wrap;
-    }
     wrap.appendChild(composer);
     var cogra = feedMode === 'cogra';
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
@@ -5188,7 +4839,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             tbl.appendChild(h('tr', {},
               h('td', { text: st.handles[l.actor] || l.actor }),
               h('td', {}, l.kind + ' on ', h('button', { class: 'lnk', text: l.cid, onclick: function () {
-                focusNode = l.cid; tab = 'feed'; feedLane = 'all'; saveView(); render();
+                focusNode = l.cid; tab = 'feed'; saveView(); render();
               } }), l.nth > 1 ? h('span', { class: 'smallnote', text: ' (their ' + ordinal(l.nth) + ')' }) : null),
               h('td', { class: 'r num', text: fmt(l.base, 2) }),
               h('td', { class: 'r num', text: '\u00d7' + fmt(l.damp, 3) }),
