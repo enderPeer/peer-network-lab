@@ -232,6 +232,41 @@ const mediaLimiter = makeLimiter(10, 60_000); // 10 uploads/min/IP
 // nothing about it enters the public record. Mailboxes live in memory only,
 // expire fast, and are drained by the recipient. Auth mirrors /api/act: a
 // PIN-secured handle must present its PIN both to send and to collect.
+// ── ICE configuration for voice calls ────────────────────────────────────
+// STUN alone only tells each side its own public address. That is enough when
+// at least one end sits behind a permissive NAT, and it is why calls inside one
+// country often work. It is NOT enough when both ends are behind symmetric NAT
+// or carrier-grade NAT, where the mapping differs per destination and the
+// learned addresses are useless to the peer — which is the normal case on many
+// mobile networks, and why a Germany-to-Turkey call was answered and then
+// failed to connect. Those pairs need a relay.
+//
+// Operators point this at their own TURN server:
+//   PEER_TURN_URL=turn:turn.example.org:3478 PEER_TURN_USER=… PEER_TURN_PASS=…
+// Several URLs may be comma-separated. With none set, the public Open Relay
+// service is offered as a fallback so international calls work out of the box;
+// the app tells users when a call is actually being relayed.
+// No default TURN is shipped. The obvious candidate — the old free Open Relay
+// — was probed and no longer speaks STUN at all: the port accepts TCP and then
+// answers with something that is not a STUN message. Listing it would have made
+// calls look fixed while failing exactly as before, which is worse than the
+// honest gap. There is no dependable credential-free public TURN; a relay costs
+// bandwidth, so somebody has to be paying for it.
+const ICE_STUN = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
+const ICE_TURN_URL = (process.env.PEER_TURN_URL ?? '').trim();
+const ICE_SERVERS = ICE_TURN_URL
+  ? [...ICE_STUN, {
+      urls: ICE_TURN_URL.split(',').map((u) => u.trim()).filter(Boolean),
+      username: process.env.PEER_TURN_USER ?? '',
+      credential: process.env.PEER_TURN_PASS ?? '',
+    }]
+  : ICE_STUN;
+const ICE_IS_OWN_TURN = !!ICE_TURN_URL;
+
 const SIGNAL_KINDS = new Set(['ring', 'accept', 'ice', 'hangup', 'decline']);
 const SIGNAL_TTL = 90_000;      // undelivered signals evaporate
 const SIGNAL_RING_TTL = 45_000; // a stale ring must not pop up minutes later
@@ -1179,6 +1214,16 @@ const server = createServer((req, res) => {
       box.push({ sid: signalSeq++, from: msg.from, kind: msg.kind, payload, ts: now });
       signalBoxes.set(msg.to, box);
       json(res, 200, { ok: true });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/ice') {
+    json(res, 200, {
+      iceServers: ICE_SERVERS,
+      relay: ICE_IS_OWN_TURN ? 'operator' : 'none',
+      note: ICE_IS_OWN_TURN
+        ? 'A relay is configured. Media stays end-to-end encrypted; the relay forwards packets it cannot read, but it does carry them and sees who is talking to whom.'
+        : 'No relay configured. Calls work only where the two networks can reach each other directly, which fails when both ends are behind carrier-grade NAT — common on mobile networks and between some countries. Fix: run the host with PEER_TURN_URL, PEER_TURN_USER and PEER_TURN_PASS.',
     });
     return;
   }

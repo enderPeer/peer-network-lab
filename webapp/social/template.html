@@ -815,6 +815,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       REMOTE = true;
       world = { acts: d.acts };
       render();
+      loadIceConfig();
       setInterval(pollRemote, 5000);
       setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
       // Background tabs get throttled — poll the moment the tab comes back,
@@ -1690,10 +1691,97 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return navigator.mediaDevices.getUserMedia({ audio: true });
   }
 
-  function makePc() {
-    var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  // ICE servers come from the host so an operator can point calls at their own
+  // relay without a rebuild. STUN-only is the fallback if the host is old or
+  // unreachable — that is the configuration that could not reach Turkey.
+  var iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+  var iceRelayKind = null; // 'operator' | 'public' | null
+  function loadIceConfig() {
+    if (!REMOTE) return;
+    fetch(API + '/api/ice', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.iceServers && d.iceServers.length) {
+          iceServers = d.iceServers;
+          iceRelayKind = d.relay || null;
+        }
+      })
+      .catch(function () {});
+  }
+
+  /**
+   * Report the path the call actually took. A relayed call is still encrypted
+   * end to end — the relay forwards packets it cannot read — but it is not
+   * peer-to-peer, and the dock says "peer-to-peer" everywhere else. Saying
+   * "direct" when a third party is forwarding the audio would be exactly the
+   * kind of claim this project keeps having to take back.
+   */
+  function describePath(c) {
+    if (!c.pc || !c.pc.getStats) return;
+    c.pc.getStats(null).then(function (stats) {
+      var pair = null, local = {};
+      stats.forEach(function (r) {
+        if (r.type === 'local-candidate') local[r.id] = r;
+        if (r.type === 'candidate-pair' && (r.selected || r.state === 'succeeded') && !pair) pair = r;
+      });
+      var lc = pair && local[pair.localCandidateId];
+      var relayed = !!(lc && lc.candidateType === 'relay');
+      if (!call || call.pc !== c.pc) return;
+      call.relayed = relayed;
+      callUI();
+      if (relayed) {
+        toast('Connected through a relay — your two networks had no direct path. Still encrypted end to end; the relay cannot hear it, but it does carry it.');
+      }
+    }).catch(function () {});
+  }
+
+  /**
+   * Gather ICE candidates against the current configuration and report what
+   * came back. This exists because a relay that is configured is not the same
+   * as a relay that works: the first thing tried here was a public TURN service
+   * that accepted connections and no longer spoke STUN, which would have looked
+   * like a fix and changed nothing. A 'relay' candidate is the only proof.
+   */
+  function testRelay() {
+    if (!window.RTCPeerConnection) return Promise.resolve({ error: 'This browser has no WebRTC.' });
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    var types = { host: 0, srflx: 0, relay: 0 };
+    try { pc.createDataChannel('probe'); } catch (e) {}
     pc.onicecandidate = function (ev) {
-      if (ev.candidate && call) signalSend('ice', call.peer, JSON.parse(JSON.stringify(ev.candidate)));
+      if (!ev.candidate) return;
+      var m = / typ (\w+)/.exec(ev.candidate.candidate || '');
+      var t = ev.candidate.type || (m && m[1]);
+      if (types[t] !== undefined) types[t]++;
+    };
+    return pc.createOffer()
+      .then(function (o) { return pc.setLocalDescription(o); })
+      .then(function () {
+        return new Promise(function (res) {
+          var settled = false;
+          function fin() { if (!settled) { settled = true; res(); } }
+          pc.onicegatheringstatechange = function () { if (pc.iceGatheringState === 'complete') fin(); };
+          setTimeout(fin, 8000);
+        });
+      })
+      .then(function () {
+        try { pc.close(); } catch (e) {}
+        return { types: types, relayKind: iceRelayKind };
+      })
+      .catch(function (e) { try { pc.close(); } catch (x) {} return { error: e.message }; });
+  }
+
+  function makePc() {
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 2 });
+    // Remember what kinds of candidate we managed to gather. When a call fails
+    // this is the difference between a useful sentence and a shrug: no relay
+    // candidate means the two networks had no path and no relay to fall back
+    // on, which is a configuration answer, not a mystery.
+    call.cand = { host: 0, srflx: 0, relay: 0 };
+    pc.onicecandidate = function (ev) {
+      if (!ev.candidate || !call) return;
+      var t = ev.candidate.type || (/ typ (\w+)/.exec(ev.candidate.candidate || '') || [])[1];
+      if (call.cand && t && call.cand[t] !== undefined) call.cand[t]++;
+      signalSend('ice', call.peer, JSON.parse(JSON.stringify(ev.candidate)));
     };
     pc.ontrack = function (ev) {
       if (!call) return;
@@ -1705,8 +1793,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var cs = call.pc.connectionState;
       if (cs === 'connected' && call.state !== 'live') {
         call.state = 'live'; call.t0 = Date.now(); clearTimeout(call.timer); callUI();
+        describePath(call); // says truthfully whether this call is direct or relayed
       } else if (cs === 'failed') {
-        endCall(true, 'Connection failed — the two networks could not find a direct path.', 'failed');
+        var c = call.cand || {};
+        endCall(true, c.relay
+          ? 'Connection failed even through the relay — one side is probably blocking UDP and TCP relay ports.'
+          : 'Connection failed: no path between these two networks, and no relay was available. '
+            + 'This is what happens when both ends sit behind carrier-grade NAT, common on mobile networks. '
+            + 'The operator can fix it by configuring a TURN relay.', 'failed');
       } else if (cs === 'disconnected') {
         setTimeout(function () {
           if (call && call.pc && call.pc.connectionState === 'disconnected') endCall(true, 'Connection lost.');
@@ -1858,7 +1952,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } else { // live
       var durEl = h('span', { class: 'num', text: fmtDur(call.t0 ? Math.round((Date.now() - call.t0) / 1000) : 0) });
       panel.appendChild(h('div', { class: 'c-title' }, h('span', { class: 'call-live-dot' }), name, ' · ', durEl));
-      panel.appendChild(h('div', { class: 'c-sub', text: 'live — peer-to-peer, unrecorded' }));
+      panel.appendChild(h('div', { class: 'c-sub', text: call.relayed
+        ? 'live — relayed, encrypted end to end, unrecorded'
+        : 'live — peer-to-peer, unrecorded' }));
       panel.appendChild(h('div', { class: 'c-row' },
         h('button', { class: 'call-btn', text: call.muted ? 'Unmute' : 'Mute', onclick: toggleMute }),
         h('button', { class: 'call-btn no', text: 'Hang up', onclick: function () { endCall(true, null); } })));
@@ -2586,6 +2682,32 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * fixed here started as somebody in the network saying plainly that
    * something was wrong — so say out loud that this is a thing you can do.
    */
+  /** Operator-facing: can this instance actually connect two hard networks? */
+  function callHealthCard() {
+    var out = h('div', { class: 'smallnote', text: 'Not tested yet.' });
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'call reachability' }),
+      h('p', { class: 'smallnote', text: 'A call needs a path between two networks. Direct usually works within one country; when both ends sit behind carrier-grade NAT — normal on mobile, and common between countries — it needs a relay. This checks which candidate types this browser can actually obtain.' }),
+      h('button', { class: 'btn small', text: 'Test reachability', onclick: function (ev) {
+        var b = ev.target; b.disabled = true; b.textContent = 'Testing…';
+        out.textContent = 'Gathering candidates (up to 8 seconds)…';
+        testRelay().then(function (r) {
+          b.disabled = false; b.textContent = 'Test again';
+          if (r.error) { out.textContent = 'Could not test: ' + r.error; return; }
+          var t = r.types;
+          out.innerHTML = '';
+          out.appendChild(h('div', { text: 'host ' + t.host + ' · server-reflexive ' + t.srflx + ' · relay ' + t.relay }));
+          out.appendChild(h('div', { style: 'margin-top:6px' , text: t.relay > 0
+            ? 'A relay answered. Calls should connect even between networks with no direct path.'
+            : (r.relayKind === 'operator'
+              ? 'A relay is configured but produced no candidate — wrong credentials, wrong port, or it is not reachable from here. Calls between hard networks will fail.'
+              : 'No relay configured, so calls work only where the two networks can reach each other directly. Set PEER_TURN_URL, PEER_TURN_USER and PEER_TURN_PASS on the host to fix it.') }));
+        });
+      } }),
+      out);
+    return card;
+  }
+
   function contributeNote() {
     return h('div', { class: 'contribute' },
       h('b', { text: 'Found something wrong, or want to change it?' }),
@@ -3521,6 +3643,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('tr', {}, h('td', { text: 'Ψ / PV' }), h('td', { text: 'stored 3×3 sentiment slice / its softened 2×2 path view used for routing' })),
           h('tr', {}, h('td', { text: 'S' }), h('td', { text: 'feed relevance: path weight × creator amplifier × content norm' })),
           h('tr', {}, h('td', { text: 'x*' }), h('td', { text: 'your reduced standing — fixed point of the conserved transport solve' })))));
+    wrap.appendChild(callHealthCard());
     return wrap;
   }
 

@@ -101,6 +101,35 @@ bot in a single file. A bot pays the same cost per act as a person, so one that
 posts constantly dilutes its own standing until the network stops carrying it.
 That is deliberate.
 
+## Running calls that cross networks
+
+Voice calls are negotiated through the host and carried browser-to-browser. That
+works whenever the two ends can reach each other directly, which is most calls
+inside one network or one country. It does **not** work when both ends sit
+behind carrier-grade NAT — normal on mobile networks and common between
+countries. A Germany-to-Turkey call was answered and then failed to connect for
+exactly this reason. There is no way around it in the browser: those pairs need
+a relay (TURN).
+
+The host reads one from the environment:
+
+```bash
+PEER_TURN_URL=turn:turn.example.org:3478 PEER_TURN_USER=user PEER_TURN_PASS=secret node server.mjs
+```
+
+Several URLs may be comma-separated. Any TURN provider works — a hosted one, or
+`coturn` on a machine with a public address and open UDP.
+
+**Verify it before trusting it.** Geek mode → Guide → *call reachability* gathers
+real candidates and reports what came back. Only a `relay` count above zero
+proves anything. No default relay ships with this project: the obvious free one
+was probed and no longer speaks STUN at all, so listing it would have made calls
+look fixed while failing exactly as before.
+
+A relayed call stays encrypted end to end — the relay forwards packets it cannot
+read — but it is no longer peer-to-peer, and the app says so in the call dock
+when it happens.
+
 ## A note on what this is
 
 This is a test network, not a product. Constants are provisional, handles are
