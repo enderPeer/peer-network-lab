@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#131110">
 <meta name="description" content="A social network whose feed is mathematics you can check. Influence is commitment, not attention.">
 <link rel="manifest" href="manifest.webmanifest">
@@ -631,7 +631,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 <script>
 "use strict";var PeerEngine=(()=>{var V=Object.defineProperty;var ve=Object.getOwnPropertyDescriptor;var Me=Object.getOwnPropertyNames;var Ee=Object.prototype.hasOwnProperty;var Ce=(e,t)=>{for(var r in t)V(e,r,{get:t[r],enumerable:!0})},we=(e,t,r,i)=>{if(t&&typeof t=="object"||typeof t=="function")for(let n of Me(t))!Ee.call(e,n)&&n!==r&&V(e,n,{get:()=>t[n],enumerable:!(i=ve(t,n))||i.enumerable});return e};var Re=e=>we(V({},"__esModule",{value:!0}),e);var Ue={};Ce(Ue,{ACT_EXPONENT:()=>K,AttestationLedger:()=>re,BETA:()=>M,COGRA_DEFAULTS:()=>ne,DEPTH_MASS:()=>j,DOMAIN_MASKS:()=>v,ETA:()=>y,FAMILIES:()=>R,FEED_DEPTH:()=>D,HALF_FLOOR:()=>S,HOP_MAX:()=>z,KAPPA_SELF:()=>U,L0_DEFAULTS:()=>ue,NU:()=>C,OMEGA_DOMAIN:()=>Ae,OPERATOR:()=>te,PART_FLOOR:()=>B,POL_FLOOR:()=>ie,Q:()=>ee,REFERENCE_CREATORS:()=>We,REFERENCE_EPOCH:()=>je,REFERENCE_SEEDS:()=>Ke,RawGraph:()=>I,SAFE_FLOOR:()=>w,THETA:()=>_,TILT_SHAPE:()=>W,baseScoreMatrix:()=>de,binaryEntropy:()=>ae,boltzmann:()=>X,buildHops:()=>ye,canValue:()=>De,cograRank:()=>Ve,coherence:()=>J,contentNorm:()=>se,dampedWeight:()=>N,debitAct:()=>Be,dependencyWeights:()=>ge,det2:()=>H,detScore:()=>O,detSign:()=>Q,doubleCoverBFS:()=>Y,emission:()=>ce,evaluateGates:()=>_e,fpl:()=>E,fpm:()=>x,frobenius:()=>L,hopDistance:()=>Te,mobius:()=>le,pathView:()=>F,rankFeed:()=>Fe,refRate:()=>$,referenceGraph:()=>ze,scoreCandidate:()=>xe,sentimentSlice:()=>T,sigmoid:()=>k,singularValues2:()=>Se,solveStanding:()=>Pe,transmission:()=>fe,transport:()=>Z,vouchAct:()=>me,wallAct:()=>pe});var M=2*Math.log(2),y=.05,S=Math.sqrt(y),C=.1,_=.0528066,w=_/C,ie=1,B=Math.max(ie,w),z=4,D=4,K=.25,W=[1,.5,.25,.125],j=[.5,.25,.125,.125],U=1,Ae=1;function k(e){return 1/(1+Math.exp(-e))}function E(e){return k(M*e)}function x(e){return k(M*Math.abs(e))*Math.tanh(e)}function ae(e){return e<=0||e>=1?0:-e*Math.log(e)-(1-e)*Math.log(1-e)}function X(e){return Math.exp(-M*ae(e))}function J(e){return Math.sqrt(1+e*e)}var v={Tribal:[1,1,1,1],Identity:[1,0,0,1],Epistemic:[0,1,0,1],Economic:[0,0,1,1],Relational:[0,0,1,1],Minimal:[0,0,0,1]};function T(e,t,r){let[i,n,a,s]=r,m=Math.abs(e),l=Math.abs(t);return[[i*x(t*e),n*x(t*m),x(t)],[a*x(l*e),s*E(l*m),E(l)],[x(e),E(m),E(1)]]}function L(e){let t=0;for(let r of e)for(let i of r)t+=i*i;return Math.sqrt(t)}function F(e,t,r,i){let n;if(i==="half")n=[S,S,S,1];else{let[m,l,o,c]=r;n=[m+(1-m)*y,l+(1-l)*y,o+(1-o)*y,c+(1-c)*y]}let a=Math.abs(e),s=Math.abs(t);return[[n[0]*x(t*e),n[1]*x(t*a)],[n[2]*x(s*e),n[3]*E(s*a)]]}function H(e){let t=e[0],r=e[1];return t[0]*r[1]-t[1]*r[0]}function O(e){return Math.sqrt(Math.abs(H(e)))}function Q(e){return H(e)>=0?1:-1}function Se(e){let[t,r]=e[0],[i,n]=e[1],a=(t*t+r*r+i*i+n*n)/2,s=Math.sqrt(Math.max(0,a*a-H(e)**2));return[Math.sqrt(Math.max(0,a+s)),Math.sqrt(Math.max(0,a-s))]}function N(e,t){return e*J(t)*X(t)}var R={Opinion:{family:"Opinion",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["polarity p","reaction r"],signForced:!1,vouchCandidate:!0},Affinity:{family:"Affinity",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["association a","attraction t"],signForced:!1,vouchCandidate:!1},Owner:{family:"Owner",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Publish:{family:"Publish",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Participant:{family:"Participant",domain:"Relational",promoted:!0,tier:"full",paramLabels:["interactivity i","responsibility r"],signForced:!1,vouchCandidate:!1},Registration:{family:"Registration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1},SelfDeclaration:{family:"SelfDeclaration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},SelfReputation:{family:"SelfReputation",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},JoinRequest:{family:"JoinRequest",domain:"Relational",promoted:!0,tier:"half",paramLabels:["urgency u","formality f"],signForced:!1,vouchCandidate:!1},Accept:{family:"Accept",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},Ratify:{family:"Ratify",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},ReviewA:{family:"ReviewA",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["enthusiasm e","effort f"],signForced:!1,vouchCandidate:!1},ReviewT:{family:"ReviewT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["effort f","enthusiasm e"],signForced:!1,vouchCandidate:!1},SendA:{family:"SendA",domain:"Relational",promoted:!0,tier:"full",paramLabels:["directness d","intensity i"],signForced:!1,vouchCandidate:!1},SendT:{family:"SendT",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["intensity i","directness d"],signForced:!1,vouchCandidate:!1},ReferenceA:{family:"ReferenceA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["endorsement e","fidelity f"],signForced:!1,vouchCandidate:!1},ReferenceT:{family:"ReferenceT",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["fidelity f","endorsement e"],signForced:!1,vouchCandidate:!1},TagA:{family:"TagA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["relevance r","confidence c"],signForced:!1,vouchCandidate:!1},TagT:{family:"TagT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["confidence c","relevance r"],signForced:!1,vouchCandidate:!1},Control:{family:"Control",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1}};function ke(e,t){return R[e]?.promoted?v.Tribal:v[t]}var I=class{nodes=new Map;edges=[];preDeg=new Map;addNode(t){return this.nodes.set(t.id,t),this}degree(t){return this.preDeg.get(t)??0}buildRecord(t,r){let i=R[t.family],n=t.domain??i?.domain??"Tribal",a=t.tier??i?.tier??"full",s=ke(t.family,n),m=T(t.pd,t.pi,s),l=F(t.pd,t.pi,s,a),o=O(l),c=i?.signForced?1:Q(l);return{id:t.id,family:t.family,src:t.src,tgt:t.tgt,pd:t.pd,pi:t.pi,domain:n,mask:s,tier:a,tau:r,epoch:t.epoch??0,slice:m,pv:l,frob:L(m),score:o,sign:c,weight:N(o,r),appendIndex:this.edges.length}}bump(t,r=1){this.preDeg.set(t,(this.preDeg.get(t)??0)+r)}append(t){let r=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),i=this.buildRecord(t,r);return this.edges.push(i),this.bump(t.src),this.bump(t.tgt),i}appendHyper(t,r){let i=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),n=r.tauOverride??1-1/(1+Math.max(this.degree(r.src),this.degree(r.tgt))),a=this.buildRecord(t,i);this.edges.push(a);let s=this.buildRecord(r,n);return this.edges.push(s),this.bump(t.src),this.bump(t.tgt),this.bump(r.src),this.bump(r.tgt),[a,s]}outgoing(t){return this.edges.filter(r=>r.src===t)}incoming(t){return this.edges.filter(r=>r.tgt===t)}};function Te(e,t,r=D){let i=new Map([[t,0]]),n=new Set([t]);for(let a=1;a<=r&&n.size;a++){let s=new Set;for(let m of e.edges)m.weight<=0||n.has(m.src)&&(i.has(m.tgt)||(i.set(m.tgt,a),s.add(m.tgt)));n=s}return i}function Y(e,t,r=D){let i=new Map,n=s=>{let m=i.get(s);return m||(m={pos:0,neg:0},i.set(s,m)),m};n(t).pos=1;let a=new Map([[t,{pos:1,neg:0}]]);for(let s=1;s<=r;s++){let m=new Map;for(let l of e.edges){if(l.weight<=0)continue;let o=a.get(l.src);if(!o)continue;let c=m.get(l.tgt);c||(c={pos:0,neg:0},m.set(l.tgt,c)),l.sign>0?(c.pos=Math.max(c.pos,o.pos*l.weight),c.neg=Math.max(c.neg,o.neg*l.weight)):(c.pos=Math.max(c.pos,o.neg*l.weight),c.neg=Math.max(c.neg,o.pos*l.weight))}for(let[l,o]of m){let c=n(l);c.pos=Math.max(c.pos,o.pos),c.neg=Math.max(c.neg,o.neg)}a=m}return i}var Le=new Set(["Opinion","Publish"]);function se(e,t){let r=e.incoming(t).filter(a=>Le.has(a.family));if(r.length===0)return 0;let i=r.reduce((a,s)=>a+s.pd,0)/r.length,n=r.reduce((a,s)=>a+s.pi,0)/r.length;return L(T(i,n,v.Tribal))}function Fe(e,t,r,i){let n=Y(e,t),a=[];for(let s of e.nodes.values()){if(s.kind==="Actor"||s.kind==="Profile")continue;let l=n.get(s.id)?.pos??0;if(l<=0)continue;let o=i(s.id),c=o?1+r(o)/C:1,p=se(e,s.id);a.push({node:s,bfsWeight:l,amplifier:c,contentNorm:p,relevance:l*c*p})}return a.sort((s,m)=>m.relevance-s.relevance),a}function $(e){return e.burnBal/Math.max(e.actCount,1)/C}function ce(e){return Math.min(1,$(e)/w)}function le(e){return e/(1+e)}function ee(e){let t=Math.tanh(e);return k(M*e)*Math.sqrt(t*(1-y*y*t))}var Oe=ee(1);function me(e){return e<=0?0:Math.pow(ee(le(e))/Oe,K)}function pe(e){return me(Math.max(e,w))}function de(e,t){let r=new Map(e.map((a,s)=>[a,s])),i=e.length,n=Array.from({length:i},(a,s)=>Array.from({length:i},(m,l)=>s===l?U:0));for(let a of t){let s=r.get(a.src);if(s===void 0)continue;let m=r.get(a.rcp)??s;n[s][m]+=a.coeff}return n}function Ne(e,t,r,i){let n=e.length,a=[],s=i*W[r-1];for(let m=0;m<n;m++){let l=new Array(n),o=0;for(let c=0;c<n;c++){let p=m===c?e[m][c]:e[m][c]*Math.pow(pe(t[c]),s);l[c]=p,o+=p}for(let c=0;c<n;c++)l[c]/=o;a.push(l)}return a}function Ie(e,t){let r=e.length,i=Array.from({length:r},()=>new Array(r).fill(0));for(let n=0;n<r;n++)for(let a=0;a<r;a++){let s=e[n][a];if(s!==0)for(let m=0;m<r;m++)i[n][m]+=s*t[a][m]}return i}function Z(e,t,r,i){let n=e.length,a=Array.from({length:n},()=>new Array(n).fill(0)),s=null;for(let l=1;l<=z;l++){let o=Ne(e,t,l,i);s=s?Ie(s,o):o;let c=j[l-1];for(let p=0;p<n;p++)for(let u=0;u<n;u++)a[p][u]+=c*s[p][u]}let m=Array.from({length:n},()=>new Array(n).fill(0));for(let l=0;l<n;l++){for(let o=0;o<n;o++)m[l][o]=r[l]*a[l][o];m[l][l]+=1-r[l]}return m}function Pe(e,t,r={}){let{tilt:i=1,maxIter:n=200,tol:a=1e-13}=r,s=e.map(f=>f.id),m=de(s,t),l=e.map($),o=e.map(f=>Math.max(f.actCount,1)),c=e.map(ce),p=l.slice(),u=[p.slice()],d=1/0,b=0,g=Z(m,p,c,i);for(;b<n;){g=Z(m,p,c,i);let f=new Array(s.length);for(let h=0;h<s.length;h++){let P=0,q=0;for(let A=0;A<s.length;A++){let oe=g[A][h]*o[A];P+=oe*l[A],q+=oe}f[h]=q>0?P/q:l[h]}if(d=Math.max(...f.map((h,P)=>Math.abs(h-p[P]))),p=f,u.push(p.slice()),b++,d<a)break}return{ids:s,x:p,pi:g,iterations:b,residual:d,trace:u}}function _e(e,t,r){let i=e.map(p=>({id:p.id,burnBal:p.burnBal,pass:p.burnBal>=0})),n=e.map((p,u)=>({id:p.id,stamp:t[u],delta:r.get(p.id)??0})).filter(p=>p.delta>0).map(p=>({id:p.id,stamp:p.stamp,pass:p.stamp>=w})),a=0,s=0,m=0;e.forEach((p,u)=>{let d=r.get(p.id)??0;d<=0||(a+=d,s+=d*t[u],m+=d*(t[u]-B))});let l=a>0?s/a:0,o=a===0||l>=B,c=i.every(p=>p.pass)&&n.every(p=>p.pass)&&o;return{w1:i,w2a:n,epochStamp:l,headroom:m,w2bPass:o,allPass:c}}function Be(e){return{...e,burnBal:e.burnBal-_,actCount:e.actCount+1}}var ue={E0:100,zeta:.5,fee:.5,maturityCycle:10},te="op",re=class{cfg;omega;yLive=0;yLock=0;cycle=0;settledFloor=1;escrow=[];balances=new Map;constructor(t={}){this.cfg={...ue,...t};let{E0:r,zeta:i}=this.cfg;this.omega=r,this.yLive=i*r,this.yLock=(1-i)*r;let n=this.bal(te);n.live=this.yLive,n.tlock=this.yLock}bal(t){let r=this.balances.get(t);return r||(r={reserve:0,live:0,tlock:0,attest:0},this.balances.set(t,r)),r}get totalSupply(){return this.yLive+this.yLock}floor(){return this.totalSupply>0?this.omega/this.totalSupply:1}get bootstrapping(){return this.cycle<this.cfg.maturityCycle}get attestCap(){return this.cfg.E0*Math.log(1/(1-this.cfg.zeta))}faucet(t,r){this.bal(t).reserve+=r}deposit(t,r){let i=this.bal(t);if(r<=0||i.reserve<r-1e-12)throw new Error("insufficient reserve");i.reserve-=r,this.escrow.push({addr:t,amount:r})}burn(t,r,i=t){let n=this.bal(t);if(r<=0||n.live<r-1e-12)throw new Error("insufficient live units");n.live-=r,this.yLive-=r;let a=r*this.settledFloor;return this.bal(i).attest+=a,a}redeem(t,r){let i=this.bal(t);if(r<=0||i.live<r-1e-12)throw new Error("insufficient live units");let n=r*this.floor();return i.live-=r,this.yLive-=r,this.omega-=n,i.reserve+=n,n}transfer(t,r,i,n="live"){let a=this.bal(t);if(i<=0||a[n]<i-1e-12)throw new Error("insufficient units");a[n]-=i,this.bal(r)[n]+=i}closeCycle(){let t=this.floor(),r=this.escrow.reduce((a,s)=>a+s.amount,0),i=this.cycle+1<this.cfg.maturityCycle,n=0;if(r>0){let a=r/t;n=a;let{fee:s,zeta:m}=this.cfg;for(let o of this.escrow){let c=(1-s)*(o.amount/r)*a,p=this.bal(o.addr);i?(p.live+=c*m,p.tlock+=c*(1-m)):p.live+=c}let l=this.bal(te);i?(l.live+=s*m*a,l.tlock+=s*(1-m)*a,this.yLive+=m*a,this.yLock+=(1-m)*a):(l.live+=s*a,this.yLive+=a),this.omega+=r,this.escrow=[]}if(this.cycle+=1,this.cycle===this.cfg.maturityCycle){for(let a of this.balances.values())a.live+=a.tlock,a.tlock=0;this.yLive+=this.yLock,this.yLock=0}return this.settledFloor=this.floor(),{minted:n,floor:this.settledFloor}}};function fe(e){if(e.length===0)return 0;let t=e.reduce((r,i)=>r+i,0)/e.length;return t/(1+t)}function ge(e){let t=e.reduce((r,i)=>r+i,0);return e.map(r=>t>0?r/t:0)}function De(e){let t=fe(e.childNorms),r=ge(e.childNorms),i=0;for(let n=0;n<r.length;n++)i+=r[n]*(e.childValues[n]??0);return t*i}var ne={k:5,gamma:1,chi:1e-4,halfLifeEpochs:4},He=new Set(["SelfDeclaration","SelfReputation","Registration","Control"]),be={ReviewT:"ReviewA",TagT:"TagA",ReferenceT:"ReferenceA"};function G(e){return Math.max(-1,Math.min(1,e))}function he(e,t,r,i){let n=R[e];if(!n)return 0;let a=n.promoted?v.Tribal:v[n.domain],s=F(t,r,a,n.tier);return N(O(s),i)}function Ge(e){let t=new Map;for(let r of e){let i=r.src+"|"+r.tgt+"|"+r.family,n=t.get(i);n||(n={family:r.family,src:r.src,tgt:r.tgt,pd:0,pi:0,tau:r.tau,epoch:r.epoch??0,weight:0,key:i},t.set(i,n)),n.pd+=r.pd,n.pi+=r.pi,r.appendIndex>=0&&(n.tau=r.tau,n.epoch=Math.max(n.epoch,r.epoch??0))}for(let r of t.values())r.pd=G(r.pd),r.pi=G(r.pi),r.weight=r.pd===0||r.pi===0?0:he(r.family,r.pd,r.pi,r.tau);return t}function ye(e,t){let r=o=>e.nodes.get(o)?.kind??"Content",i=[],n=[];for(let o of e.edges)if(!He.has(o.family))if(be[o.family]){let c=e.edges[o.appendIndex-1];i.push({t:o,a:c&&c.family===be[o.family]?c:null})}else n.push(o);let a=Ge(n),s=new Map,m=o=>{if(o.weight<=0||r(o.from)==="Type")return;let c=t.personOf(o.from),p=t.personOf(o.to);if(c===p)return;let u=s.get(c)??[];u.push({...o,from:c,to:p}),s.set(c,u)};for(let o of a.values())m({from:o.src,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch,key:o.key});let l=new Map;for(let{a:o}of i){if(!o)continue;let c=o.src+"|"+o.tgt+"|"+o.family,p=l.get(c)??{pd:0,pi:0};p.pd+=o.pd,p.pi+=o.pi,l.set(c,p)}for(let{t:o,a:c}of i){let p=c?c.src:null,u=o.src,d=t.creatorOf(u);if(p&&d&&t.personOf(p)===t.personOf(d))m({from:u,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch??0,key:o.id});else if(p&&c){let b=l.get(c.src+"|"+c.tgt+"|"+c.family),g=G(b.pd),f=G(b.pi),h=g===0||f===0?0:he(c.family,g,f,c.tau);m({from:p,to:o.tgt,weight:h*o.weight,pdSign:(Math.sign(g)||1)*(Math.sign(o.pd)||1),piNegative:f<0||o.pi<0,epoch:Math.max(c.epoch??0,o.epoch??0),key:c.id+"+"+o.id})}}return s}function qe(e,t,r,i,n,a){let s=new Map,m=[{node:t,cost:0,keys:"",path:[]}],l=null;for(;m.length;){let c=0;for(let d=1;d<m.length;d++){let b=m[d],g=m[c];(b.cost<g.cost-1e-15||Math.abs(b.cost-g.cost)<=1e-15&&b.keys<g.keys)&&(c=d)}let p=m.splice(c,1)[0],u=s.get(p.node);if(!(u&&(u.cost<p.cost-1e-15||Math.abs(u.cost-p.cost)<=1e-15&&u.keys<=p.keys))){if(s.set(p.node,{cost:p.cost,keys:p.keys}),p.node===r){l=p;break}for(let d of e.get(p.node)??[]){if(i.has(d.to)||n.has(d.key)||p.path.some(g=>g.to===d.to||g.from===d.to))continue;let b=p.cost-Math.log(a*d.weight);m.push({node:d.to,cost:b,keys:p.keys+"/"+d.key,path:p.path.concat(d)})}}}return l?{nodes:[t].concat(l.path.map(c=>c.to)),hops:l.path,m:Math.exp(-l.cost)}:null}function xe(e,t,r,i,n=ne){let a=new Set,s=new Set,m=[];for(let l=0;l<n.k;l++){let o=qe(e,t,r,a,s,n.gamma);if(!o||o.m<n.chi)break;let c=o.hops.reduce((f,h)=>f*h.pdSign,1),p=o.hops.some(f=>f.piNegative),u=c>0&&!p?1:-1,d=o.hops[o.hops.length-1],b=Math.max(0,i-d.epoch),g=n.halfLifeEpochs===1/0?1:Math.pow(.5,b/n.halfLifeEpochs);m.push({nodes:o.nodes,hops:o.hops,m:o.m,sigma:u,f:g,term:u*o.m*g});for(let f of o.nodes.slice(1,-1))a.add(f);for(let f of o.hops)s.add(f.key)}return{S:m.reduce((l,o)=>l+o.term,0),paths:m}}function Ve(e,t,r,i){let n={...ne,...i.cfg??{}},a=ye(e,i),s=i.candidates??(l=>l.kind==="Content"),m=[];for(let l of e.nodes.values()){if(!s(l))continue;let{S:o,paths:c}=xe(a,i.personOf(t),l.id,r,n);c.length!==0&&m.push({node:l,S:o,paths:c})}return m.sort((l,o)=>o.S-l.S),m}function ze(){let e=new I;return e.addNode({id:"alice",kind:"Actor",label:"Alice"}),e.addNode({id:"bob",kind:"Actor",label:"Bob"}),e.addNode({id:"carol",kind:"Actor",label:"Carol"}),e.addNode({id:"dave",kind:"Actor",label:"Dave"}),e.addNode({id:"profA",kind:"Profile",label:"Profile_A"}),e.addNode({id:"photo",kind:"Content",label:"Photo"}),e.addNode({id:"comment",kind:"Comment",label:"Comment"}),e.addNode({id:"streetart",kind:"Type",label:"StreetArt"}),e.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),e.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"profA",pd:1,pi:.75}),e.append({id:"e1r",family:"SelfReputation",src:"profA",tgt:"alice",pd:1,pi:.75}),e.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),e.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),e.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),e.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),e.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),e.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),e.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),e}var Ke=[{id:"alice",burnBal:3,actCount:10},{id:"bob",burnBal:2,actCount:8},{id:"carol",burnBal:4,actCount:12},{id:"dave",burnBal:1,actCount:5}],We={photo:"alice",comment:"bob",streetart:"carol",sneakers:"bob"},je={ledgers:[{id:"alice",burnBal:1.2944,actCount:12},{id:"bob",burnBal:1.2472,actCount:11},{id:"carol",burnBal:1.1472,actCount:10},{id:"dave",burnBal:.2,actCount:2},{id:"eve",burnBal:.9,actCount:8}],cells:[{src:"alice",rcp:"bob",coeff:.8638},{src:"alice",rcp:"carol",coeff:.635},{src:"alice",rcp:"eve",coeff:.3969},{src:"bob",rcp:"carol",coeff:.7742},{src:"bob",rcp:"dave",coeff:.6841},{src:"bob",rcp:"eve",coeff:.5062},{src:"carol",rcp:"dave",coeff:.8085},{src:"carol",rcp:"eve",coeff:.7329},{src:"dave",rcp:"eve",coeff:.772}],deltaActs:new Map([["alice",2],["bob",1],["carol",1],["dave",2],["eve",0]]),expectedX:[1.0786557,1.1051839,1.1201615,1.1159692,1.1171834],expectedEpochStamp:1.102,expectedHeadroom:.615};return Re(Ue);})();
 
-(function(J,A){typeof module=="object"&&module.exports?module.exports=A():J.PeerReplay=A()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function J(A){var j=A.THETA,oe=A.NU,ie={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function ne(b,t){var v={};for(var n in t)v[(t[n]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=n;for(var s=[],w={},p,u=/@([a-zA-Z0-9_]{1,16})/g;(p=u.exec(b))!==null&&s.length<3;){var m=v[p[1].toLowerCase().replace(/[^a-z0-9]/g,"")];m&&!w[m]&&(w[m]=1,s.push(m))}return s}function Ce(b,t,v,n,s){var w=v.map(function(r){return{id:r.id,burnBal:r.burnBal,actCount:r.actCount}}),p=new Map(Object.keys(s).map(function(r){return[r,s[r]]})),u=Object.keys(s).reduce(function(r,B){return r+s[B]},0),m=null;function N(){if(!m){var r=b.solveStanding(w,n,{tilt:1});m=b.evaluateGates(w,r.x,p)}return m}var y={epoch:t,acts:u};Object.defineProperties(y,{stamp:{enumerable:!0,get:function(){return N().epochStamp}},headroom:{enumerable:!0,get:function(){return N().headroom}},pass:{enumerable:!0,get:function(){return N().allPass}}});var _={who:null};return Object.defineProperty(_,"line",{enumerable:!0,get:function(){var r=N();return"epoch "+t+" closed \xB7 stamp "+r.epochStamp.toFixed(3)+" \xB7 "+(r.allPass?"certificate accepted":"wall/door failed")}}),{record:y,chron:_}}function le(b,t){var v=(t||[]).slice();for(var n in b){var s=b[n],w=Math.max(-1,Math.min(1,s.pd)),p=Math.max(-1,Math.min(1,s.pi));if(w>0&&p>0)v.push({src:s.src,rcp:s.rcp,coeff:Math.sqrt(w*p)});else{var u=Math.sqrt(Math.abs(w)*Math.abs(p));u>0&&v.push({src:s.src,rcp:s.src,coeff:u})}}return v}function Me(b){for(var t=new A.RawGraph,v=[],n={},s={},w={},p={},u={},m={},N=[],y={},_=[],r=[],B={},K={},Q=[],V={},i=0,h=0,R={},de={},X=0;X<b.length;X++){var q=b[X];q.t==="deleteAccount"?R[q.id]=!0:q.t==="deletePost"&&(de[q.target]=!0)}var E={},P={},T={},g=new A.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function O(o){try{return o()}catch{return null}}function z(o,c,D,I,W,Z){var ye=Z||c;t.addNode({id:o,kind:"Actor",label:ye}),t.addNode({id:"prof_"+o,kind:"Profile",label:ye});var Te={id:o,burnBal:D,actCount:I};v.push(Te),n[o]=Te,s[o]=c,w[o]=W}function C(o){return R[o]?"[deleted]":s[o]||o}function x(o){var c=n[o];c.burnBal-=j,c.actCount+=1,y[o]=(y[o]||0)+1}function se(o,c,D,I){var W=o+">"+c,Z=m[W]||(m[W]={src:o,rcp:c,pd:0,pi:0});Z.pd+=D,Z.pi+=I}function M(o,c,D){var I=Math.sqrt(Math.abs(c)*Math.abs(D));I>0&&N.push({src:o,rcp:o,coeff:Math.min(1,I)})}function Ae(o){var c="type_"+o.toLowerCase().replace(/[^a-z0-9]/g,"");return t.nodes.get(c)||t.addNode({id:c,kind:"Type",label:"#"+o}),c}for(var a=0;a<b.length;a++){var e=b[a],l=!!(R[e.author]||R[e.from]||R[e.id]||de[a]);if(e.t==="seedWorld")z("alice","Alice",3,10,0),z("bob","Bob",2,8,0),z("carol","Carol",4,12,0),z("dave","Dave",1,5,0),t.addNode({id:"photo",kind:"Content",label:"Photo"}),t.addNode({id:"comment",kind:"Comment",label:"Comment"}),t.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),t.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),t.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),t.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),t.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),t.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),t.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),t.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),t.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),t.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),t.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),p.photo="alice",p.comment="bob",p.sneakers="bob",p.streetart="carol",u.photo=ie.photo,u.comment=ie.comment,B.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(o){g.faucet(o,10),O(function(){g.transfer("op",o,2,"live")})}),r.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),r.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")z(e.id,e.handle,e.seed,0,e.epoch,l?"[deleted]":e.handle),e.pinHash&&(V[e.id]=e.pinHash),t.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),x(e.id),M(e.id,1,1),g.faucet(e.id,10),O(function(){g.transfer("op",e.id,2,"live")}),l?n[e.id].deleted=!0:r.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn")n[e.id].burnBal+=e.amt,l||r.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"});else if(e.t==="deposit")O(function(){return g.deposit(e.id,e.amt),!0})&&!l&&r.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var Y=O(function(){return g.burn(e.id,e.x)});Y!=null&&n[e.id]&&(n[e.id].burnBal+=Y,l||r.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+Y.toFixed(3)+" at settled floor \u03C6 "+g.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var ue=O(function(){return g.redeem(e.id,e.x)});ue!=null&&!l&&r.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+ue.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")O(function(){return g.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!l&&r.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+C(e.to),refs:[{label:C(e.to),id:e.to}]});else if(e.t==="setPin")n[e.id]&&e.pinHash&&(V[e.id]=e.pinHash,l||r.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(n[e.from]&&n[e.to]&&n[e.from].burnBal>=j){var fe=[e.from,e.to].sort(),U="chat_"+fe[0]+"_"+fe[1];t.nodes.get(U)||t.addNode({id:U,kind:"Chat",label:"Chat"}),i++;var pe="m"+i;t.addNode({id:pe,kind:"Message",label:"Message"}),t.appendHyper({id:"snA"+i,family:"SendA",src:e.from,tgt:U,pd:.8,pi:.8,epoch:h},{id:"snT"+i,family:"SendT",src:U,tgt:pe,pd:.8,pi:.8,epoch:h}),x(e.from),M(e.from,.8,.8),l||Q.push({from:e.from,to:e.to,text:e.text,idx:a})}}else if(e.t==="closeCycle"){var he=g.closeCycle();r.push({who:null,line:"L0 cycle "+g.cycle+" processed \xB7 minted "+he.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+he.floor.toFixed(4)+(g.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){i++;var F="c"+i;P[a]=F,l&&(E[F]=!0),t.addNode({id:F,kind:"Content",label:l?"[deleted]":"Stream "+i}),t.append({id:"pub"+i,family:"Publish",src:e.author,tgt:F,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),l||(p[F]=e.author,u[F]=e.text,T[F]={idx:a,ts:e.ts,edited:!1,stream:!0},r.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:F}))}else if(e.t==="post"){var ke=Number.isInteger(e.target)&&P[e.target]!==void 0,d;ke?(d=P[e.target],t.append({id:"pubu"+a,family:"Publish",src:e.author,tgt:d,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),!l&&u[d]!==void 0&&(u[d]=e.text,e.media&&e.media.length&&(K[d]=e.media),T[d]&&(T[d].edited=!0),r.push({who:e.author,line:"revised a post \u2014 a further record about it, the original stands",to:d}))):(i++,d="c"+i,P[a]=d,l&&(E[d]=!0),t.addNode({id:d,kind:"Content",label:l?"[deleted]":"Post "+i}),t.append({id:"pub"+i,family:"Publish",src:e.author,tgt:d,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),l||(p[d]=e.author,u[d]=e.text,e.media&&e.media.length&&(K[d]=e.media),T[d]={idx:a,ts:e.ts,edited:!!e.edited},r.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:d}))),e.ref&&t.nodes.get(e.ref)&&n[e.author]&&n[e.author].burnBal>=j&&(i++,t.appendHyper({id:"rfA"+i,family:"ReferenceA",src:e.author,tgt:d,pd:.8,pi:.9,epoch:h},{id:"rfT"+i,family:"ReferenceT",src:d,tgt:e.ref,pd:.9,pi:.8,epoch:h}),x(e.author),M(e.author,.8,.9),l||r.push({who:e.author,line:"referenced "+((t.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var ce=e.rmen!==void 0?e.rmen:ne(e.text,s),$=0;$<ce.length;$++){var L=ce[$];L===e.author||!n[e.author]||n[e.author].burnBal<j||(i++,t.appendHyper({id:"rfA"+i,family:"ReferenceA",src:e.author,tgt:d,pd:.7,pi:.8,epoch:h},{id:"rfT"+i,family:"ReferenceT",src:d,tgt:"prof_"+L,pd:.8,pi:.7,epoch:h}),x(e.author),se(e.author,L,.7,.8),l||r.push({who:e.author,line:"mentioned "+C(L)+" \u2014 person-vouch compiled",to:d,refs:[{label:C(L),id:L}]}))}}else if(e.t==="opinion"){if(i++,!l){var ae=t.append({id:"op"+i,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:h}),H=e.target.indexOf("prof_")===0?e.target.slice(5):null;H&&H!==e.author?se(e.author,H,e.p,e.r):M(e.author,e.p,e.r),r.push({who:e.author,line:(H?"vouched on "+C(H)+"\u2019s profile":"reacted to "+((t.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+ae.tau.toFixed(2)+" \xB7 w "+ae.weight.toFixed(3),to:e.target,refs:H?[{label:C(H),id:H}]:[{label:(t.nodes.get(e.target)||{}).label||e.target,id:e.target}]})}x(e.author)}else if(e.t==="review"){var Ne=Number.isInteger(e.upd)&&P[e.upd]!==void 0,f;Ne?(f=P[e.upd],t.appendHyper({id:"rvAu"+a,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvTu"+a,family:"ReviewT",src:e.target,tgt:f,pd:e.f,pi:e.e,epoch:h}),M(e.author,e.e,e.f),!l&&u[f]!==void 0&&(u[f]=e.text,B[f]={e:e.e,f:e.f},T[f]&&(T[f].edited=!0),r.push({who:e.author,line:"revised a comment \u2014 a further record, the original stands",to:f})),x(e.author)):(i++,f="c"+i,P[a]=f,l&&(E[f]=!0),t.addNode({id:f,kind:"Comment",label:l?"[deleted]":"Review "+i}),t.appendHyper({id:"rvA"+i,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvT"+i,family:"ReviewT",src:e.target,tgt:f,pd:e.f,pi:e.e,epoch:h}),M(e.author,e.e,e.f),l||(p[f]=e.author,u[f]=e.text,B[f]={e:e.e,f:e.f},T[f]={idx:a,ts:e.ts,edited:!1,comment:!0},r.push({who:e.author,line:"reviewed "+((t.nodes.get(e.target)||{}).label||"something since removed")+" \u2192 minted a Comment \xB7 one act, two legs",to:f,refs:[{label:(t.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]})),x(e.author))}else if(e.t==="tag"){i++;var Pe=Ae(e.name);t.appendHyper({id:"tgA"+i,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:h},{id:"tgT"+i,family:"TagT",src:e.target,tgt:Pe,pd:e.c,pi:e.r,epoch:h}),M(e.author,e.r,e.c),l||r.push({who:e.author,line:"tagged "+((t.nodes.get(e.target)||{}).label||"something since removed")+" as #"+e.name,to:e.target,refs:[{label:(t.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]}),x(e.author)}else if(e.t==="call"){if(n[e.from]&&n[e.to]&&n[e.from].burnBal>=j&&(x(e.from),!l)){Q.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:a});var Fe=e.outcome==="completed"?"\u260E call with "+C(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+C(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+C(e.to)+" \u2014 declined":"\u260E call to "+C(e.to)+" failed to connect";r.push({who:e.from,line:Fe})}}else if(e.t==="editPost"){var S=P[e.target];S&&!E[S]&&u[S]!==void 0&&(u[S]=e.text,T[S]&&(T[S].edited=!0),r.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:S}))}else if(e.t==="deletePost")r.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")r.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="closeEpoch"){var me=Ce(A,e.epoch,v,le(m,N),y);_.push(me.record),r.push(me.chron),y={},h++}}var ve=le(m,N),G=A.solveStanding(v,ve,{tilt:1}),ee={};G.ids.forEach(function(o,c){ee[o]=G.x[c]});var ge=_.length+1;for(var k in n)if(k!=="alice"){var be=oe*(ee[k]||0),te=be/(oe+be),we=1-1/(ge-w[k]+1);te>0&&(t.append({id:"dec_"+k,family:"SelfDeclaration",src:k,tgt:"prof_"+k,pd:1,pi:te,tauOverride:we}),t.append({id:"rep_"+k,family:"SelfReputation",src:"prof_"+k,tgt:k,pd:1,pi:te,tauOverride:we}))}var xe={};for(var re in s)xe[re]=R[re]?"[deleted]":s[re];return{g:t,ledgers:v,ledgerById:n,handles:xe,creators:p,payloads:u,bundles:m,cells:ve,solved:G,xById:ee,deltaActs:y,dmap:new Map(Object.keys(y).map(function(o){return[o,y[o]]})),epochHistory:_,chron:r,epochNow:ge,reviewMeta:B,mediaMeta:K,dms:Q,pinHash:V,l0:g,deleted:R,postMeta:T}}return{replay:Me,parseMentions:ne}}return{create:J}});
+(function(K,A){typeof module=="object"&&module.exports?module.exports=A():K.PeerReplay=A()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function K(A){var j=A.THETA,oe=A.NU,ie={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function ne(b,t){var v={};for(var l in t)v[(t[l]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=l;for(var d=[],w={},p,u=/@([a-zA-Z0-9_]{1,16})/g;(p=u.exec(b))!==null&&d.length<3;){var m=v[p[1].toLowerCase().replace(/[^a-z0-9]/g,"")];m&&!w[m]&&(w[m]=1,d.push(m))}return d}function Ae(b,t,v,l,d){var w=v.map(function(r){return{id:r.id,burnBal:r.burnBal,actCount:r.actCount}}),p=new Map(Object.keys(d).map(function(r){return[r,d[r]]})),u=Object.keys(d).reduce(function(r,B){return r+d[B]},0),m=null;function P(){if(!m){var r=b.solveStanding(w,l,{tilt:1});m=b.evaluateGates(w,r.x,p)}return m}var y={epoch:t,acts:u};Object.defineProperties(y,{stamp:{enumerable:!0,get:function(){return P().epochStamp}},headroom:{enumerable:!0,get:function(){return P().headroom}},pass:{enumerable:!0,get:function(){return P().allPass}}});var _={who:null};return Object.defineProperty(_,"line",{enumerable:!0,get:function(){var r=P();return"epoch "+t+" closed \xB7 stamp "+r.epochStamp.toFixed(3)+" \xB7 "+(r.allPass?"certificate accepted":"wall/door failed")}}),{record:y,chron:_}}function le(b,t){var v=(t||[]).slice();for(var l in b){var d=b[l],w=Math.max(-1,Math.min(1,d.pd)),p=Math.max(-1,Math.min(1,d.pi));if(w>0&&p>0)v.push({src:d.src,rcp:d.rcp,coeff:Math.sqrt(w*p)});else{var u=Math.sqrt(Math.abs(w)*Math.abs(p));u>0&&v.push({src:d.src,rcp:d.src,coeff:u})}}return v}function ke(b){for(var t=new A.RawGraph,v=[],l={},d={},w={},p={},u={},m={},P=[],y={},_=[],r=[],B={},E={},Q=[],V={},i=0,h=0,R={},se={},X=0;X<b.length;X++){var U=b[X];U.t==="deleteAccount"?R[U.id]=!0:U.t==="deletePost"&&(se[U.target]=!0)}var z={},k={},T={},g=new A.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function O(o){try{return o()}catch{return null}}function D(o,c,q,I,Z,J){var Ce=J||c;t.addNode({id:o,kind:"Actor",label:Ce}),t.addNode({id:"prof_"+o,kind:"Profile",label:Ce});var Me={id:o,burnBal:q,actCount:I};v.push(Me),l[o]=Me,d[o]=c,w[o]=Z}function C(o){return R[o]?"[deleted]":d[o]||o}function x(o){var c=l[o];c.burnBal-=j,c.actCount+=1,y[o]=(y[o]||0)+1}function de(o,c,q,I){var Z=o+">"+c,J=m[Z]||(m[Z]={src:o,rcp:c,pd:0,pi:0});J.pd+=q,J.pi+=I}function M(o,c,q){var I=Math.sqrt(Math.abs(c)*Math.abs(q));I>0&&P.push({src:o,rcp:o,coeff:Math.min(1,I)})}function Ne(o){var c="type_"+o.toLowerCase().replace(/[^a-z0-9]/g,"");return t.nodes.get(c)||t.addNode({id:c,kind:"Type",label:"#"+o}),c}for(var a=0;a<b.length;a++){var e=b[a],s=!!(R[e.author]||R[e.from]||R[e.id]||se[a]);if(e.t==="seedWorld")D("alice","Alice",3,10,0),D("bob","Bob",2,8,0),D("carol","Carol",4,12,0),D("dave","Dave",1,5,0),t.addNode({id:"photo",kind:"Content",label:"Photo"}),t.addNode({id:"comment",kind:"Comment",label:"Comment"}),t.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),t.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),t.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),t.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),t.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),t.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),t.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),t.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),t.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),t.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),t.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),p.photo="alice",p.comment="bob",p.sneakers="bob",p.streetart="carol",u.photo=ie.photo,u.comment=ie.comment,B.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(o){g.faucet(o,10),O(function(){g.transfer("op",o,2,"live")})}),r.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),r.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")D(e.id,e.handle,e.seed,0,e.epoch,s?"[deleted]":e.handle),e.pinHash&&(V[e.id]=e.pinHash),t.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),x(e.id),M(e.id,1,1),g.faucet(e.id,10),O(function(){g.transfer("op",e.id,2,"live")}),s?l[e.id].deleted=!0:r.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn")l[e.id].burnBal+=e.amt,s||r.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"});else if(e.t==="deposit")O(function(){return g.deposit(e.id,e.amt),!0})&&!s&&r.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var Y=O(function(){return g.burn(e.id,e.x)});Y!=null&&l[e.id]&&(l[e.id].burnBal+=Y,s||r.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+Y.toFixed(3)+" at settled floor \u03C6 "+g.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var ue=O(function(){return g.redeem(e.id,e.x)});ue!=null&&!s&&r.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+ue.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")O(function(){return g.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!s&&r.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+C(e.to),refs:[{label:C(e.to),id:e.to}]});else if(e.t==="setPin")l[e.id]&&e.pinHash&&(V[e.id]=e.pinHash,s||r.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(l[e.from]&&l[e.to]&&l[e.from].burnBal>=j){var fe=[e.from,e.to].sort(),W="chat_"+fe[0]+"_"+fe[1];t.nodes.get(W)||t.addNode({id:W,kind:"Chat",label:"Chat"}),i++;var pe="m"+i;t.addNode({id:pe,kind:"Message",label:"Message"}),t.appendHyper({id:"snA"+i,family:"SendA",src:e.from,tgt:W,pd:.8,pi:.8,epoch:h},{id:"snT"+i,family:"SendT",src:W,tgt:pe,pd:.8,pi:.8,epoch:h}),x(e.from),M(e.from,.8,.8),s||Q.push({from:e.from,to:e.to,text:e.text,idx:a})}}else if(e.t==="closeCycle"){var he=g.closeCycle();r.push({who:null,line:"L0 cycle "+g.cycle+" processed \xB7 minted "+he.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+he.floor.toFixed(4)+(g.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){i++;var F="c"+i;k[a]=F,s&&(z[F]=!0),t.addNode({id:F,kind:"Content",label:s?"[deleted]":"Stream "+i}),t.append({id:"pub"+i,family:"Publish",src:e.author,tgt:F,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),s||(p[F]=e.author,u[F]=e.text,T[F]={idx:a,ts:e.ts,edited:!1,stream:!0},r.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:F}))}else if(e.t==="post"){var ce=Number.isInteger(e.target)&&k[e.target]!==void 0,n;if(ce)if(n=k[e.target],t.append({id:"pubu"+a,family:"Publish",src:e.author,tgt:n,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),s){z[n]=!0,delete u[n],delete E[n];var ae=t.nodes.get(n);ae&&(ae.label="[deleted]")}else u[n]!==void 0&&(u[n]=e.text,e.media&&e.media.length&&(E[n]=e.media),T[n]&&(T[n].edited=!0),r.push({who:e.author,line:"revised a post \u2014 a further record about it, the original stands",to:n}));else i++,n="c"+i,k[a]=n,s&&(z[n]=!0),t.addNode({id:n,kind:"Content",label:s?"[deleted]":"Post "+i}),t.append({id:"pub"+i,family:"Publish",src:e.author,tgt:n,pd:e.a,pi:1,epoch:h}),x(e.author),M(e.author,e.a,1),s||(p[n]=e.author,u[n]=e.text,e.media&&e.media.length&&(E[n]=e.media),T[n]={idx:a,ts:e.ts,edited:!!e.edited},r.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:n}));if(ce)continue;e.ref&&t.nodes.get(e.ref)&&l[e.author]&&l[e.author].burnBal>=j&&(i++,t.appendHyper({id:"rfA"+i,family:"ReferenceA",src:e.author,tgt:n,pd:.8,pi:.9,epoch:h},{id:"rfT"+i,family:"ReferenceT",src:n,tgt:e.ref,pd:.9,pi:.8,epoch:h}),x(e.author),M(e.author,.8,.9),s||r.push({who:e.author,line:"referenced "+((t.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var me=e.rmen!==void 0?e.rmen:ne(e.text,d),$=0;$<me.length;$++){var L=me[$];L===e.author||!l[e.author]||l[e.author].burnBal<j||(i++,t.appendHyper({id:"rfA"+i,family:"ReferenceA",src:e.author,tgt:n,pd:.7,pi:.8,epoch:h},{id:"rfT"+i,family:"ReferenceT",src:n,tgt:"prof_"+L,pd:.8,pi:.7,epoch:h}),x(e.author),de(e.author,L,.7,.8),s||r.push({who:e.author,line:"mentioned "+C(L)+" \u2014 person-vouch compiled",to:n,refs:[{label:C(L),id:L}]}))}}else if(e.t==="opinion"){i++;var ve=t.append({id:"op"+i,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:h}),H=e.target.indexOf("prof_")===0?e.target.slice(5):null;H&&H!==e.author?de(e.author,H,e.p,e.r):M(e.author,e.p,e.r),s||r.push({who:e.author,line:(H?"vouched on "+C(H)+"\u2019s profile":"reacted to "+((t.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+ve.tau.toFixed(2)+" \xB7 w "+ve.weight.toFixed(3),to:e.target,refs:H?[{label:C(H),id:H}]:[{label:(t.nodes.get(e.target)||{}).label||e.target,id:e.target}]}),x(e.author)}else if(e.t==="review"){var Pe=Number.isInteger(e.upd)&&k[e.upd]!==void 0,f;Pe?(f=k[e.upd],t.appendHyper({id:"rvAu"+a,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvTu"+a,family:"ReviewT",src:e.target,tgt:f,pd:e.f,pi:e.e,epoch:h}),M(e.author,e.e,e.f),!s&&u[f]!==void 0&&(u[f]=e.text,B[f]={e:e.e,f:e.f},T[f]&&(T[f].edited=!0),r.push({who:e.author,line:"revised a comment \u2014 a further record, the original stands",to:f})),x(e.author)):(i++,f="c"+i,k[a]=f,s&&(z[f]=!0),t.addNode({id:f,kind:"Comment",label:s?"[deleted]":"Review "+i}),t.appendHyper({id:"rvA"+i,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvT"+i,family:"ReviewT",src:e.target,tgt:f,pd:e.f,pi:e.e,epoch:h}),M(e.author,e.e,e.f),s||(p[f]=e.author,u[f]=e.text,B[f]={e:e.e,f:e.f},T[f]={idx:a,ts:e.ts,edited:!1,comment:!0},r.push({who:e.author,line:"reviewed "+((t.nodes.get(e.target)||{}).label||"something since removed")+" \u2192 minted a Comment \xB7 one act, two legs",to:f,refs:[{label:(t.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]})),x(e.author))}else if(e.t==="tag"){i++;var Fe=Ne(e.name);t.appendHyper({id:"tgA"+i,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:h},{id:"tgT"+i,family:"TagT",src:e.target,tgt:Fe,pd:e.c,pi:e.r,epoch:h}),M(e.author,e.r,e.c),s||r.push({who:e.author,line:"tagged "+((t.nodes.get(e.target)||{}).label||"something since removed")+" as #"+e.name,to:e.target,refs:[{label:(t.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]}),x(e.author)}else if(e.t==="call"){if(l[e.from]&&l[e.to]&&l[e.from].burnBal>=j&&(x(e.from),!s)){Q.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:a});var He=e.outcome==="completed"?"\u260E call with "+C(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+C(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+C(e.to)+" \u2014 declined":"\u260E call to "+C(e.to)+" failed to connect";r.push({who:e.from,line:He})}}else if(e.t==="editPost"){var S=k[e.target];S&&!z[S]&&u[S]!==void 0&&(u[S]=e.text,T[S]&&(T[S].edited=!0),r.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:S}))}else if(e.t==="deletePost")r.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")r.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="closeEpoch"){var ge=Ae(A,e.epoch,v,le(m,P),y);_.push(ge.record),r.push(ge.chron),y={},h++}}var be=le(m,P),G=A.solveStanding(v,be,{tilt:1}),ee={};G.ids.forEach(function(o,c){ee[o]=G.x[c]});var we=_.length+1;for(var N in l)if(N!=="alice"){var xe=oe*(ee[N]||0),te=xe/(oe+xe),ye=1-1/(we-w[N]+1);te>0&&(t.append({id:"dec_"+N,family:"SelfDeclaration",src:N,tgt:"prof_"+N,pd:1,pi:te,tauOverride:ye}),t.append({id:"rep_"+N,family:"SelfReputation",src:"prof_"+N,tgt:N,pd:1,pi:te,tauOverride:ye}))}var Te={};for(var re in d)Te[re]=R[re]?"[deleted]":d[re];return{g:t,ledgers:v,ledgerById:l,handles:Te,creators:p,payloads:u,bundles:m,cells:be,solved:G,xById:ee,deltaActs:y,dmap:new Map(Object.keys(y).map(function(o){return[o,y[o]]})),epochHistory:_,chron:r,epochNow:we,reviewMeta:B,mediaMeta:E,dms:Q,pinHash:V,l0:g,deleted:R,postMeta:T,actContent:k}}return{replay:ke,parseMentions:ne}}return{create:K}});
 
 </script>
 <script>
@@ -693,6 +693,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
     }
+    // #live / #feed / #ledger override the restored view: the installed app's
+    // long-press shortcuts launch with a hash, and a shortcut that opens on
+    // whatever tab was open last is not a shortcut.
+    var h0 = (location.hash || '').slice(1);
+    if (GEEK_TABS.indexOf(h0) >= 0) { tab = h0; lqView = h0 === 'chat' ? 'chats' : (LQ_VIEWS.indexOf(h0) >= 0 ? h0 : lqView); }
   } catch (e) {}
 
   function epochOf() {
@@ -711,6 +716,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } catch (e) { /* private mode */ }
   }
 
+  /**
+   * Three storages, on purpose, because the three things have different
+   * lifetimes. The act log is only kept locally in sandbox mode — against a
+   * host the log belongs to the host and a cached copy would be a second
+   * source of truth. Identity and mode persist across visits. PINs go to
+   * sessionStorage alone, so closing the browser forgets them and a shared
+   * machine cannot hold someone's credential.
+   */
   function save() {
     try {
       if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
@@ -805,6 +818,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // ── Connection state (server fallback) ──
   var netFails = 0;
   var offline = false;
+  /**
+   * Two consecutive failures before declaring the connection lost. One failed
+   * poll is normal — a tunnel hiccup, a sleeping phone — and announcing it
+   * would flash a banner at people constantly. Recovery is immediate, because
+   * being wrong about being back costs nothing.
+   */
   function setOnline(ok) {
     var was = offline;
     if (ok) { netFails = 0; offline = false; }
@@ -974,27 +993,79 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   var A2HS_KEY = 'peer-a2hs-dismissed-v1';
+
+  // Chromium fires beforeinstallprompt when the app qualifies for install; the
+  // browser then hides its own hint behind a menu nobody opens. Capturing the
+  // event lets the app show a real Install button instead. The listener must
+  // be registered before the event fires — it often fires within seconds of
+  // load — which is why this sits at top level rather than inside boot().
+  var installPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installPrompt = e;
+    offerInstall();
+  });
+  window.addEventListener('appinstalled', function () {
+    installPrompt = null;
+    var c = document.querySelector('.a2hs');
+    if (c) c.remove();
+    toast('Installed. Peer now opens full-screen from your home screen.');
+  });
+
   /**
-   * Safari fires no install event and shows no install button, so an app that
-   * does not say "Share → Add to Home Screen" simply never gets installed.
-   * Shown once, on iOS Safari only, and only when not already installed.
+   * One card, three doors, because no two browsers install the same way:
+   * Chromium exposes a prompt() the button can call; iOS Safari has no event
+   * and no button, only the Share sheet; Firefox on Android installs from its
+   * own menu and fires nothing. Firefox on desktop cannot install a PWA at
+   * all, so it gets silence instead of instructions that go nowhere.
+   * Shown once, and only when not already installed.
    */
   function offerInstall() {
-    if (!isIOS || standalone) return;
+    if (standalone) return;
+    if (document.querySelector('.a2hs')) return;
     try { if (localStorage.getItem(A2HS_KEY)) return; } catch (e) { return; }
-    // Only Safari can install; Chrome/Firefox on iOS cannot add to home screen.
-    if (!/Safari/.test(navigator.userAgent) || /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent)) return;
-    setTimeout(function () {
-      var card = h('div', { class: 'a2hs' },
-        h('b', { text: 'Install Peer on this phone' }),
-        h('div', { text: 'Tap the Share button below, then “Add to Home Screen”. It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.' }),
-        h('div', { class: 'row' },
-          h('button', { text: 'Got it', onclick: function () {
-            try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+    var ua = navigator.userAgent;
+    var kind = null;
+    if (installPrompt) kind = 'prompt';                                   // Chromium, any platform
+    else if (isIOS && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua)) kind = 'ios';
+    else if (/Android/.test(ua) && /Firefox/.test(ua)) kind = 'fxandroid';
+    if (!kind) return;
+    var show = function () {
+      if (standalone || document.querySelector('.a2hs')) return;
+      var body = kind === 'ios'
+        ? 'Tap the Share button below, then “Add to Home Screen”. It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.'
+        : kind === 'fxandroid'
+          ? 'Open the ⋮ menu and choose “Add to Home screen”. It opens full-screen, keeps you signed in, and still works offline with your own private copy of the network.'
+          : 'It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.';
+      var row = h('div', { class: 'row' });
+      if (kind === 'prompt') {
+        row.appendChild(h('button', { text: 'Install', onclick: function () {
+          var p = installPrompt;
+          if (!p) { card.remove(); return; }
+          installPrompt = null;
+          p.prompt();
+          p.userChoice.then(function (choice) {
+            if (choice && choice.outcome === 'accepted') {
+              try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+            }
             card.remove();
-          } })));
+          }).catch(function () { card.remove(); });
+        } }));
+      }
+      row.appendChild(h('button', { text: kind === 'prompt' ? 'Not now' : 'Got it', onclick: function () {
+        try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+        card.remove();
+      } }));
+      var card = h('div', { class: 'a2hs' },
+        h('b', { text: 'Install Peer on this ' + (/Android|iP(hone|od)/.test(ua) ? 'phone' : 'device') }),
+        h('div', { text: body }),
+        row);
       document.body.appendChild(card);
-    }, 4000);
+    };
+    // The Chromium path shows immediately — the event itself is the signal
+    // that the moment is right. The instruction-only paths wait a little so
+    // the first thing a new visitor reads is the app, not a banner.
+    if (kind === 'prompt') show(); else setTimeout(show, 4000);
   }
 
   function boot() {
@@ -1035,7 +1106,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return st;
   }
 
-  // Memoized: the log is append-only, so (array identity, length) keys a replay.
+  // Memoized on (array identity, length). Sound only because the log is
+  // append-only in the ways that matter: a redaction blanks bytes in place but
+  // never changes the count, and mergeTail replaces the array object, so both
+  // kinds of change break the key. Replaying is ~6ms here — cheap, but not
+  // cheap enough to do on every render of a 500-act log.
   var replayCache = { ref: null, len: -1, st: null };
   function replay() {
     if (replayCache.ref === world.acts && replayCache.len === world.acts.length && replayCache.st) {
@@ -1050,6 +1125,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
 
 
+  /**
+   * The W1 solvency gate, applied before spending the act rather than after
+   * the host refuses it — so the refusal can explain itself in the composer
+   * instead of arriving as a toast over lost text. Removals cost nothing
+   * (actCost returns 0), because a drained author must still be able to take
+   * their own content down; a revision is a real Publish act and is priced.
+   */
   function tryAct(actorId, actObj, label) {
     var st = replay();
     var l = st.ledgerById[actorId];
@@ -1131,6 +1213,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return st.g.edges.filter(function (e) { return e.family === 'TagT' && e.src === nodeId; })
       .map(function (e) { return (st.g.nodes.get(e.tgt) || {}).label || ''; });
   }
+  /**
+   * Threading is edges, not fields. A comment is a Comment node hung off the
+   * reviewed thing by a ReviewT leg, so the replies to something are found by
+   * walking the graph rather than reading a list off the post — which is why a
+   * bot cannot reconstruct a thread from the raw act log without the engine.
+   */
   function commentsOf(st, nodeId) {
     return st.g.edges
       .filter(function (e) { return e.family === 'ReviewT' && e.src === nodeId; })
@@ -1144,6 +1232,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       })
       .filter(function (c) { return c.text; });
   }
+  /**
+   * Standing as everyone else sees it: ν · x*, NOT the raw reduced coordinate.
+   * The two differ by a factor of ten and the safety wall is compared against
+   * the reduced one, so mixing them up reads as "comfortably above the wall"
+   * when you are under it. The bot API returns both, named.
+   */
   function credibility(st, id) { return NU * (st.xById[id] || 0); }
 
   // ── Notifications: derived from the public record, never stored ──
@@ -1151,6 +1245,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var seenMark = 0;
   try { seenMark = JSON.parse(localStorage.getItem(LS_SEEN)) || 0; } catch (e) { seenMark = 0; }
 
+  /**
+   * Alerts are derived, never stored. Nothing in the log says "notify Fable" —
+   * every alert is read back out of the graph by asking which edges point at
+   * something this person authored. That means alerts cannot drift out of sync
+   * with reality, and it means anyone replaying the log sees the same ones.
+   */
   function notificationsFor(st, me) {
     if (!me) return [];
     var out = [];
@@ -1918,7 +2018,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function signalTick(force) {
     if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
-    if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
+    // Fast polling is not only for calls: a stream handshake is the same
+    // offer/answer/ICE dance, and at the idle cadence every leg of it waited
+    // up to 5 seconds — three legs, ~15 seconds of black screen before the
+    // first frame could even arrive. Live or watching polls like a call does.
+    if (!call && !live && !watching && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, busy ~1.2s
     // A locked session cannot collect its mailbox, so incoming calls would
     // vanish without a trace. Say it once rather than failing silently; the
     // banner keeps saying it after that.
@@ -2096,6 +2200,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function broadcastStart(title, withVideo) {
     if (!REMOTE) { toast('Streaming needs the hosted network.'); return; }
     if (live) { toast('You are already live.'); return; }
+    // Mirror of watchStart's guard. Without it, Join clicked during the async
+    // camera/act window here left both states set at once, and stray ICE from
+    // one connection could land against the other.
+    if (watching) watchStop();
     if (!navigator.mediaDevices || !window.isSecureContext) {
       toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
     }
@@ -2135,8 +2243,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   /** Broadcaster side: a viewer knocked, give them their own connection. */
   function serveViewer(viewerId) {
-    if (!live || live.peers[viewerId]) return;
+    if (!live) return;
+    // A knock is authoritative. The viewer who sent it holds a brand-new
+    // connection, so whatever we still hold under that handle can never
+    // complete — and keeping it also swallowed the knock: a viewer who
+    // reloaded mid-join was ignored forever, because their stale entry
+    // tripped this guard and nothing ever cleared it.
+    var old = live.peers[viewerId];
+    if (old) { try { old.close(); } catch (e) {} delete live.peers[viewerId]; }
     var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    pc.pendingIce = []; // candidates that arrive before the answer is applied
     live.peers[viewerId] = pc;
     live.stream.getTracks().forEach(function (t) { pc.addTrack(t, live.stream); });
     pc.onicecandidate = function (ev) {
@@ -2146,14 +2262,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var s = pc.connectionState;
       if (s === 'failed' || s === 'closed') {
         try { pc.close(); } catch (e) {}
-        delete live.peers[viewerId];
+        if (live && live.peers[viewerId] === pc) delete live.peers[viewerId];
         render();
       }
     };
     pc.createOffer()
       .then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); })
       .then(function (o) { signalSend('soffer', viewerId, { type: o.type, sdp: o.sdp }); })
-      .catch(function () {});
+      .catch(function () {
+        // A swallowed failure here left a zombie in live.peers that blocked
+        // every retry from this viewer. Clean up and say goodbye, so their
+        // side stops waiting instead of sitting on "Connecting…" forever.
+        try { pc.close(); } catch (e) {}
+        if (live && live.peers[viewerId] === pc) delete live.peers[viewerId];
+        signalSend('sbye', viewerId, null);
+      });
   }
 
   function watchStart(entry) {
@@ -2161,13 +2284,24 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (watching) watchStop();
     if (live) { toast('Stop your own stream before watching another.'); return; }
     var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
-    watching = { author: entry.author, cid: entry.cid, pc: pc, el: null, t0: Date.now(), pending: [] };
+    pc.pendingIce = []; // candidates that arrive before the offer is applied
+    // The video element is created ONCE and reused across renders. render()
+    // rebuilds the whole app, and a fresh <video> each pass needs a fresh
+    // autoplay grant each pass — Safari grants none of them for unmuted
+    // video, so a perfectly connected stream still showed black. Muted
+    // playback is the one thing every browser autoplays; sound is one tap
+    // away, and that tap is the user gesture the browser wants.
+    var el = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
+    el.muted = true;
+    watching = { author: entry.author, cid: entry.cid, pc: pc, el: el, t0: Date.now(), muted: true };
     pc.onicecandidate = function (ev) {
       if (ev.candidate && watching) signalSend('sice', watching.author, JSON.parse(JSON.stringify(ev.candidate)));
     };
     pc.ontrack = function (ev) {
       if (!watching) return;
       watching.media = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
+      watching.el.srcObject = watching.media;
+      watching.el.play().catch(function () {});
       render();
     };
     pc.onconnectionstatechange = function () {
@@ -2177,12 +2311,32 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         toast('Could not reach the stream — no path between your networks, and no relay configured. Guide → call reachability explains it.');
       }
     };
+    // Knock until the offer arrives. One knock was one mailbox entry: if it
+    // crossed with a goodbye, or the broadcaster's tab was asleep when it
+    // landed, the viewer waited on a stream that would never call back.
+    // Re-knocking is idempotent — the broadcaster rebuilds the connection
+    // for whoever knocks — and stops as soon as the offer is in.
     signalSend('swatch', entry.author, null);
+    signalTick(true);
+    watching.knock = setInterval(function () {
+      if (!watching || watching.pc !== pc) return;
+      if (!pc.remoteDescription) signalSend('swatch', entry.author, null);
+    }, 5000);
+    // And give up honestly rather than connecting forever: the likeliest
+    // reason nothing answers is that the broadcaster's phone locked, which
+    // kills their timers and soon their heartbeat.
+    watching.deadline = setTimeout(function () {
+      if (!watching || watching.pc !== pc || watching.media) return;
+      watchStop();
+      toast('The stream did not answer within 45 seconds. The broadcaster may have locked their screen or backgrounded the app — broadcasting stops when the phone sleeps.');
+    }, 45000);
     render();
   }
 
   function watchStop() {
     if (!watching) return;
+    clearInterval(watching.knock);
+    clearTimeout(watching.deadline);
     signalSend('sbye', watching.author, null);
     try { watching.pc.close(); } catch (e) {}
     watching = null;
@@ -2200,7 +2354,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var pc = watching.pc;
       pc.setRemoteDescription(s.payload)
         .then(function () {
-          watching.pending.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
+          (pc.pendingIce || []).splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
           return pc.createAnswer();
         })
         .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
@@ -2210,14 +2364,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     if (s.kind === 'sanswer') {
       var vpc = live && live.peers[s.from];
-      if (vpc) vpc.setRemoteDescription(s.payload).catch(function () {});
+      if (vpc) {
+        vpc.setRemoteDescription(s.payload).then(function () {
+          // Candidates that shared a poll batch with this answer waited here.
+          // setRemoteDescription is asynchronous, so while the batch was being
+          // processed remoteDescription was still null and every one of the
+          // viewer's candidates was thrown away — the broadcaster then knew no
+          // address for the viewer, and over any real NAT the stream never
+          // connected. The call path has had this buffer from day one; the
+          // stream path lacked it, which is most of why calls worked between
+          // the same two machines that could not stream.
+          (vpc.pendingIce || []).splice(0).forEach(function (c) { vpc.addIceCandidate(c).catch(function () {}); });
+        }).catch(function () {});
+      }
       return;
     }
     if (s.kind === 'sice') {
       var target = (live && live.peers[s.from]) || (watching && watching.author === s.from ? watching.pc : null);
       if (!target) return;
+      // Buffer on the connection the candidate is FOR. The old fallback pushed
+      // into the viewer-side queue whether or not the candidate belonged to
+      // it, which cross-wired connections and dropped broadcaster-side ICE.
       if (target.remoteDescription) target.addIceCandidate(s.payload).catch(function () {});
-      else if (watching) watching.pending.push(s.payload);
+      else (target.pendingIce = target.pendingIce || []).push(s.payload);
       return;
     }
     if (s.kind === 'sbye') {
@@ -3944,10 +4113,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var card = h('div', { class: 'card' },
         h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'on air · ' + fmtDur(secs) + ' · ' + nView + ' watching'),
         h('h2', { text: live.title }));
-      var self = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
-      self.muted = true;
-      if (live.stream) self.srcObject = live.stream;
-      card.appendChild(self);
+      // One element, reused across renders — a fresh one each pass restarts
+      // playback and re-asks the autoplay question. Muted: your own camera.
+      if (!live.el) {
+        live.el = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
+        live.el.muted = true;
+        if (live.stream) live.el.srcObject = live.stream;
+      }
+      card.appendChild(live.el);
+      live.el.play().catch(function () {});
       card.appendChild(h('p', { class: 'smallnote', text: 'Every viewer gets their own connection from this browser, so your upload is multiplied by the audience. That is fine for a handful of people and will not scale past it — there is no media server here.' }));
       card.appendChild(h('div', { class: 'mini-form persistent' },
         h('button', { class: 'btn small', text: 'End stream', onclick: function () { broadcastStop('Stream ended. The act stays in the record; the video was never in it.'); } })));
@@ -3960,12 +4134,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (watching) {
       var w = h('div', { class: 'card' },
         h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'watching ' + (st.handles[watching.author] || watching.author)));
-      var v = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
-      if (watching.media) v.srcObject = watching.media;
+      var v = watching.el;
+      if (watching.media && v.srcObject !== watching.media) v.srcObject = watching.media;
       w.appendChild(v);
-      if (!watching.media) w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster…' }));
-      w.appendChild(h('div', { class: 'mini-form persistent' },
-        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop })));
+      // Re-appending pauses media in some engines; muted play is always
+      // allowed, so this resumes without needing a fresh gesture.
+      if (watching.media) v.play().catch(function () {});
+      if (!watching.media) {
+        w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster… knocking every few seconds; if nothing answers within 45s this gives up and says why.' }));
+      }
+      var vrow = h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }));
+      if (watching.media && watching.muted) {
+        // Sound cannot start by itself — the browser requires the tap, so the
+        // tap is a button instead of a mystery.
+        vrow.insertBefore(h('button', { class: 'btn small primary', text: '🔊 Sound on', onclick: function () {
+          if (!watching) return;
+          watching.muted = false;
+          watching.el.muted = false;
+          watching.el.play().catch(function () {});
+          render();
+        } }), vrow.firstChild);
+      }
+      w.appendChild(vrow);
       wrap.appendChild(w);
       if (watching.cid) wrap.appendChild(streamRoom(st, watching.cid));
       return wrap;

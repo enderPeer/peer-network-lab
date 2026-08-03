@@ -1,17 +1,26 @@
 {
+  "id": "./app.html",
   "name": "Peer Network",
   "short_name": "Peer",
   "description": "A social network whose feed is mathematics you can check. Influence is commitment, not attention.",
   "start_url": "./app.html",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#131110",
   "theme_color": "#131110",
   "categories": ["social"],
+  "launch_handler": { "client_mode": "navigate-existing" },
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Live", "url": "./app.html#live", "description": "Who is broadcasting right now", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Feed", "url": "./app.html#feed", "description": "Your ranked feed", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Record", "url": "./app.html#ledger", "description": "The chronicle of every act", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }
