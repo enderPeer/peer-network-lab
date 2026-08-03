@@ -462,7 +462,15 @@ function replayUncached(acts) {
     } else if (a.t === 'setPin') {
       if (ledgerById[a.id] && a.pinHash) {
         pinHash[a.id] = a.pinHash; // newest wins — add or change
-        if (!payloadGone) chron.push({ who: a.id, line: 'secured the handle with a PIN' });
+        // An operator reset is not the owner securing their own handle, and
+        // the record must not read as though it were. Whoever holds the
+        // operator token can take over any handle here; the least this can do
+        // is say so out loud, in the same place everything else is said.
+        if (!payloadGone) {
+          chron.push({ who: a.id, line: a.byOperator
+            ? 'had its PIN reset by the instance operator — not by the account holder'
+            : 'secured the handle with a PIN' });
+        }
       }
     } else if (a.t === 'dm') {
       if (!known(a.from) || !known(a.to)) continue;

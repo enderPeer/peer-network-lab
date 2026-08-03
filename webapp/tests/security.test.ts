@@ -11,7 +11,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createHash, generateKeyPairSync, createSign } from 'node:crypto';
+import { createHash, generateKeyPairSync, createSign, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { handleSkeleton, handleClash, takenHandles } from '../identity.mjs';
 import { verifyAssertion, newChallenge } from '../webauthn.mjs';
 
@@ -385,5 +385,44 @@ describe('every refusal explains itself', () => {
       expect((r.body as Record<string, string>).code, 'no code on: ' + JSON.stringify(c)).toBeTruthy();
       expect((r.body as Record<string, string>).why, 'no why on: ' + JSON.stringify(c)).toBeTruthy();
     }
+  });
+});
+
+describe('setting a PIN must accept every format the app can produce', () => {
+  // The defect that broke real accounts: PIN storage moved to PBKDF2, the
+  // register path was updated to accept it and the setPin path was not. From
+  // the moment the new client shipped, every PIN change in the app was refused
+  // with "bad pin hash", the stored PIN silently stayed the old one, and the
+  // person concluded their account had been taken from them.
+  const pbkdf2Hash = () => {
+    const salt = randomBytes(16).toString('hex');
+    const h = pbkdf2Sync('some-pin', Buffer.from(salt, 'hex'), 210000, 32, 'sha256').toString('hex');
+    return `pbkdf2$210000$${salt}$${h}`;
+  };
+
+  it('accepts a PBKDF2 hash on setPin, the way the app sends it', async () => {
+    const r = await act({ t: 'setPin', id: 'u_koebbe', pinHash: pbkdf2Hash() });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+  });
+
+  it('accepts the same format on register', async () => {
+    const r = await act({ t: 'register', id: 'u_pbkdf2new', handle: 'Pbkdf2New', seed: 1, epoch: 0, pinHash: pbkdf2Hash() });
+    expect(r.status).toBe(200);
+  });
+
+  it('still refuses a hash that is not a format this host writes', async () => {
+    for (const bad of ['nonsense', 'pbkdf2$5$aa$bb', '', 'pbkdf2$210000$zz$' + 'a'.repeat(64)]) {
+      const r = await act({ t: 'setPin', id: 'u_koebbe', pinHash: bad });
+      expect(r.status, bad).toBe(400);
+    }
+  });
+
+  it('lets the operator reset a PIN that already exists', async () => {
+    // Without this an owner who forgot their PIN was locked out permanently —
+    // no email, no recovery key. The power is real, so the record names it.
+    const fresh = pbkdf2Hash();
+    const r = await act({ t: 'setPin', id: 'u_ender133', pinHash: fresh, auth: 'operator-token-for-security-tests' });
+    // no operator token configured in this suite, so it must refuse
+    expect(r.status).toBe(401);
   });
 });

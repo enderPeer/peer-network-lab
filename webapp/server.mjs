@@ -200,7 +200,7 @@ const ACT_FIELDS = {
   redeem: ['t', 'id', 'x'],
   transferL0: ['t', 'from', 'to', 'x', 'cls'],
   closeCycle: ['t'],
-  setPin: ['t', 'id', 'pinHash'],
+  setPin: ['t', 'id', 'pinHash', 'byOperator'],
   setKey: ['t', 'id', 'credId', 'cose', 'label'],
   advert: ['t', 'author', 'text', 'url', 'days', 'placement', 'tags', 'people', 'posts', 'regions'],
   adStop: ['t', 'author', 'ad', 'operator'],
@@ -834,6 +834,23 @@ function authError(act) {
     }
     return null;
   }
+  // ── Operator reset of an EXISTING PIN ───────────────────────────────────
+  //
+  // The operator could set a FIRST PIN on an unclaimed handle but could not
+  // reset one already set, so somebody who forgot their own PIN was locked out
+  // permanently — no email, no recovery key, nothing. That is not a security
+  // property, it is a missing feature that looked like one.
+  //
+  // The power is real and worth naming: whoever holds this token can take over
+  // any handle on this instance. That was already true — they run the host and
+  // could edit the log directly — so the honest move is to make it an act
+  // everyone can see rather than something done quietly with a text editor.
+  // The act is stamped, and the record says the operator did it, not the owner.
+  if (act.t === 'setPin' && OPERATOR_TOKEN && act.auth === OPERATOR_TOKEN) {
+    act.byOperator = true;
+    return null;
+  }
+
   // A passkey proves more than a PIN does and is checked first: the signature
   // covers a challenge this host issued seconds ago and the origin the browser
   // was actually on, so it cannot be replayed and cannot be phished.
@@ -1036,7 +1053,19 @@ function validate(act) {
       break;
     case 'setPin':
       if (!str(act.id, 24)) return 'bad id';
-      if (!(/^[a-f0-9]{64}$/.test(act.pinHash ?? '') || /^fnv[0-9a-f]{1,8}$/.test(act.pinHash ?? ''))) return 'bad pin hash';
+      // Must accept every format this host has ever written, PBKDF2 included.
+      //
+      // This line was missed when PIN storage moved to PBKDF2 — the register
+      // path was updated and this one was not, so from the moment the new
+      // client shipped, EVERY attempt to set or change a PIN through the app
+      // was refused with "bad pin hash". The app reported a failure the user
+      // could do nothing about, their stored PIN silently stayed the old one,
+      // and at least one person concluded their account had been taken.
+      //
+      // The lesson is not "check both paths". It is that a validator written
+      // as a literal in two places will drift; there is one function now, and
+      // both callers use it.
+      if (!validPinHash(act.pinHash ?? '')) return 'bad pin hash';
       break;
     case 'dm':
       if (tooLong(act.text, 500, 'message')) return tooLong(act.text, 500, 'message');
@@ -1417,7 +1446,7 @@ function applyActInner(act, auth, ip) {
   if (act.to && deletedIds.has(act.to)) return { error: 'that account was deleted', code: 410 };
   const aerr = authError({ ...act, auth });
   if (aerr) {
-    if (!pinFailLimiter(ip)) return { error: 'too many PIN attempts — locked for a few minutes', code: 429 };
+    if (!pinFailLimiter(ip)) return { error: 'too many wrong PIN attempts from this address — the lock lasts about ten minutes, and while it holds even the CORRECT PIN is refused. Wait it out rather than trying again.', code: 429 };
     return { error: aerr, code: 401 };
   }
   if (W1_GATED.has(act.t) && solvency && actorId) {
