@@ -107,11 +107,19 @@ function replayUncached(acts) {
 
   // ── Deletion pre-scan ──────────────────────────────────────────────────
   // Replay is a pure function of the whole log, so deletions are retroactive.
-  // A muted act keeps FULL counter and θ parity — content ids ('c167') are
-  // minted by the counter and later acts reference them, and balance-gated
-  // branches depend on every prior debit — but leaves no payload, no edges,
-  // no vouches and no chron line. Muting cascades: a comment on deleted
-  // content is muted too, which mutes replies to it, in log order.
+  //
+  // Deletion removes the PAYLOAD and nothing else. The act's edges, its θ
+  // debit, its weighing home and any vouch it compiled all stay exactly as
+  // they were, so erasing content changes no standing, no gate and no epoch
+  // certificate. That is not politeness, it is the property the whole system
+  // rests on: a published certificate must still reproduce from the log
+  // afterwards. The earlier version removed the RECORD, and one deleted post
+  // measurably moved fifteen of twenty-nine actors' standing and invalidated
+  // an already-published certificate.
+  //
+  // The cost, and the spec takes it deliberately: deleting a post does not
+  // retract the vouches it compiled. Removal cannot be used to launder
+  // standing that other people already received.
   var deletedActors = {}, deletedPostIdx = {};
   for (var pre = 0; pre < acts.length; pre++) {
     var pact = acts[pre];
@@ -170,7 +178,7 @@ function replayUncached(acts) {
     // someone who left. Those are other authors' records. Commentary outlives
     // its subject: a comment quoting a payload persists through that payload's
     // removal, because the surviving record is the reviewer's own act.
-    var mutedA = !!(deletedActors[a.author] || deletedActors[a.from] || deletedActors[a.id] ||
+    var payloadGone = !!(deletedActors[a.author] || deletedActors[a.from] || deletedActors[a.id] ||
       deletedPostIdx[i]);
     if (a.t === 'seedWorld') {
       addActor('alice', 'Alice', 3, 10, 0);
@@ -202,43 +210,43 @@ function replayUncached(acts) {
       chron.push({ who: 'alice', line: 'posted Photo — seed world', to: 'photo' });
       chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world', to: 'comment' });
     } else if (a.t === 'register') {
-      addActor(a.id, a.handle, a.seed, 0, a.epoch, mutedA ? '[deleted]' : a.handle);
+      addActor(a.id, a.handle, a.seed, 0, a.epoch, payloadGone ? '[deleted]' : a.handle);
       if (a.pinHash) pinHash[a.id] = a.pinHash;
-      if (!mutedA) g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
-      debit(a.id); if (!mutedA) weighHome(a.id, 1, 1);
+      g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
+      debit(a.id); weighHome(a.id, 1, 1);
       // Layer-0 onboarding: external-reserve faucet + operator starter grant.
       // Muted actors keep full economic parity — only visibility goes.
       l0.faucet(a.id, 10);
       l0safe(function () { l0.transfer('op', a.id, 2, 'live'); });
-      if (mutedA) ledgerById[a.id].deleted = true;
+      if (payloadGone) ledgerById[a.id].deleted = true;
       else chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
     } else if (a.t === 'burn') {
       // legacy faucet-burn (pre-economy acts in the shared log)
       ledgerById[a.id].burnBal += a.amt;
-      if (!mutedA) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
+      if (!payloadGone) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
     } else if (a.t === 'deposit') {
-      if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !mutedA) {
+      if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !payloadGone) {
         chron.push({ who: a.id, line: 'deposited ' + a.amt.toFixed(2) + ' reserve → escrow (mints at the next cycle boundary)' });
       }
     } else if (a.t === 'burnL0') {
       var dA = l0safe(function () { return l0.burn(a.id, a.x); });
       if (dA != null && ledgerById[a.id]) {
         ledgerById[a.id].burnBal += dA; // the L1 seam: attestation is burn_val
-        if (!mutedA) chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
+        if (!payloadGone) chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
       }
     } else if (a.t === 'redeem') {
       var pay = l0safe(function () { return l0.redeem(a.id, a.x); });
-      if (pay != null && !mutedA) {
+      if (pay != null && !payloadGone) {
         chron.push({ who: a.id, line: 'redeemed ' + a.x.toFixed(2) + ' live units → ' + pay.toFixed(3) + ' reserve (floor-preserving)' });
       }
     } else if (a.t === 'transferL0') {
-      if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; }) && !mutedA) {
+      if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; }) && !payloadGone) {
         chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + dispName(a.to) });
       }
     } else if (a.t === 'setPin') {
       if (ledgerById[a.id] && a.pinHash) {
         pinHash[a.id] = a.pinHash; // newest wins — add or change
-        if (!mutedA) chron.push({ who: a.id, line: 'secured the handle with a PIN' });
+        if (!payloadGone) chron.push({ who: a.id, line: 'secured the handle with a PIN' });
       }
     } else if (a.t === 'dm') {
       if (ledgerById[a.from] && ledgerById[a.to] && ledgerById[a.from].burnBal >= THETA) {
@@ -250,14 +258,12 @@ function replayUncached(acts) {
         counter++;
         var msgId = 'm' + counter;
         g.addNode({ id: msgId, kind: 'Message', label: 'Message' });
-        if (!mutedA) {
-          g.appendHyper(
-            { id: 'snA' + counter, family: 'SendA', src: a.from, tgt: chatId, pd: 0.8, pi: 0.8, epoch: certsSoFar },
-            { id: 'snT' + counter, family: 'SendT', src: chatId, tgt: msgId, pd: 0.8, pi: 0.8, epoch: certsSoFar }
-          );
-        }
-        debit(a.from); if (!mutedA) weighHome(a.from, 0.8, 0.8);
-        if (!mutedA) dms.push({ from: a.from, to: a.to, text: a.text, idx: i });
+        g.appendHyper(
+          { id: 'snA' + counter, family: 'SendA', src: a.from, tgt: chatId, pd: 0.8, pi: 0.8, epoch: certsSoFar },
+          { id: 'snT' + counter, family: 'SendT', src: chatId, tgt: msgId, pd: 0.8, pi: 0.8, epoch: certsSoFar }
+        );
+        debit(a.from); weighHome(a.from, 0.8, 0.8);
+        if (!payloadGone) dms.push({ from: a.from, to: a.to, text: a.text, idx: i });
       }
     } else if (a.t === 'closeCycle') {
       var cyc = l0.closeCycle();
@@ -272,12 +278,11 @@ function replayUncached(acts) {
       counter++;
       var scid = 'c' + counter;
       actContent[i] = scid;
-      if (mutedA) mutedContent[scid] = true;
-      g.addNode({ id: scid, kind: 'Content', label: mutedA ? '[deleted]' : 'Stream ' + counter });
-      if (!mutedA) g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: scid, pd: a.a, pi: 1, epoch: certsSoFar });
-      debit(a.author);
-      if (!mutedA) {
-        weighHome(a.author, a.a, 1);
+      if (payloadGone) mutedContent[scid] = true;
+      g.addNode({ id: scid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Stream ' + counter });
+      g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: scid, pd: a.a, pi: 1, epoch: certsSoFar });
+      debit(a.author); weighHome(a.author, a.a, 1);
+      if (!payloadGone) {
         creators[scid] = a.author; payloads[scid] = a.text;
         postMeta[scid] = { idx: i, ts: a.ts, edited: false, stream: true };
         chron.push({ who: a.author, line: 'went live · ' + a.text.slice(0, 60), to: scid });
@@ -286,11 +291,11 @@ function replayUncached(acts) {
       counter++;
       var cid = 'c' + counter;
       actContent[i] = cid;
-      if (mutedA) mutedContent[cid] = true;
-      g.addNode({ id: cid, kind: 'Content', label: mutedA ? '[deleted]' : 'Post ' + counter });
-      if (!mutedA) g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
-      debit(a.author); if (!mutedA) weighHome(a.author, a.a, 1);
-      if (!mutedA) {
+      if (payloadGone) mutedContent[cid] = true;
+      g.addNode({ id: cid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Post ' + counter });
+      g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
+      debit(a.author); weighHome(a.author, a.a, 1);
+      if (!payloadGone) {
         creators[cid] = a.author; payloads[cid] = a.text;
         if (a.media && a.media.length) mediaMeta[cid] = a.media;
         postMeta[cid] = { idx: i, ts: a.ts, edited: !!a.edited };
@@ -300,14 +305,12 @@ function replayUncached(acts) {
       // citation T-leg to the target) — its own θ-debit.
       if (a.ref && g.nodes.get(a.ref) && ledgerById[a.author] && ledgerById[a.author].burnBal >= THETA) {
         counter++;
-        if (!mutedA) {
-          g.appendHyper(
-            { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.8, pi: 0.9, epoch: certsSoFar },
-            { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: a.ref, pd: 0.9, pi: 0.8, epoch: certsSoFar }
-          );
-        }
-        debit(a.author); if (!mutedA) weighHome(a.author, 0.8, 0.9);
-        if (!mutedA) chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation', to: a.ref });
+        g.appendHyper(
+          { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.8, pi: 0.9, epoch: certsSoFar },
+          { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: a.ref, pd: 0.9, pi: 0.8, epoch: certsSoFar }
+        );
+        debit(a.author); weighHome(a.author, 0.8, 0.9);
+        if (!payloadGone) chron.push({ who: a.author, line: 'referenced ' + ((g.nodes.get(a.ref) || {}).label || a.ref) + ' — content-intrinsic citation', to: a.ref });
       }
       // @mentions: References whose target is the person's Profile (max 3, priced).
       // The server stamps rmen (resolved ids) on accepted posts so redaction
@@ -317,23 +320,20 @@ function replayUncached(acts) {
         var mid = mentioned[mi];
         if (mid === a.author || !ledgerById[a.author] || ledgerById[a.author].burnBal < THETA) continue;
         counter++;
-        if (!mutedA) {
-          g.appendHyper(
-            { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.7, pi: 0.8, epoch: certsSoFar },
-            { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: 'prof_' + mid, pd: 0.8, pi: 0.7, epoch: certsSoFar }
-          );
-        }
+        g.appendHyper(
+          { id: 'rfA' + counter, family: 'ReferenceA', src: a.author, tgt: cid, pd: 0.7, pi: 0.8, epoch: certsSoFar },
+          { id: 'rfT' + counter, family: 'ReferenceT', src: cid, tgt: 'prof_' + mid, pd: 0.8, pi: 0.7, epoch: certsSoFar }
+        );
         // def:epoch:standing-recipient-resolution — a positive Reference to a
         // Profile compiles a person-vouch to that actor (cam's spec review).
-        debit(a.author);
-        if (!mutedA) {
-          vouch(a.author, mid, 0.7, 0.8);
+        debit(a.author); vouch(a.author, mid, 0.7, 0.8);
+        if (!payloadGone) {
           chron.push({ who: a.author, line: 'mentioned ' + dispName(mid) + ' — person-vouch compiled', to: cid });
         }
       }
     } else if (a.t === 'opinion') {
       counter++;
-      if (!mutedA) {
+      if (!payloadGone) {
         var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
         var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
         if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
@@ -344,14 +344,14 @@ function replayUncached(acts) {
     } else if (a.t === 'review') {
       counter++;
       var cmid = 'c' + counter;
-      if (mutedA) mutedContent[cmid] = true;
-      g.addNode({ id: cmid, kind: 'Comment', label: mutedA ? '[deleted]' : 'Review ' + counter });
-      if (!mutedA) {
-        g.appendHyper(
-          { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f, epoch: certsSoFar },
-          { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
-        );
-        weighHome(a.author, a.e, a.f);
+      if (payloadGone) mutedContent[cmid] = true;
+      g.addNode({ id: cmid, kind: 'Comment', label: payloadGone ? '[deleted]' : 'Review ' + counter });
+      g.appendHyper(
+        { id: 'rvA' + counter, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f, epoch: certsSoFar },
+        { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
+      );
+      weighHome(a.author, a.e, a.f);
+      if (!payloadGone) {
         creators[cmid] = a.author; payloads[cmid] = a.text;
         reviewMeta[cmid] = { e: a.e, f: a.f };
         chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs', to: cmid });
@@ -360,12 +360,12 @@ function replayUncached(acts) {
     } else if (a.t === 'tag') {
       counter++;
       var tid = typeNode(a.name);
-      if (!mutedA) {
-        g.appendHyper(
-          { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c, epoch: certsSoFar },
-          { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r, epoch: certsSoFar }
-        );
-        weighHome(a.author, a.r, a.c);
+      g.appendHyper(
+        { id: 'tgA' + counter, family: 'TagA', src: a.author, tgt: a.target, pd: a.r, pi: a.c, epoch: certsSoFar },
+        { id: 'tgT' + counter, family: 'TagT', src: a.target, tgt: tid, pd: a.c, pi: a.r, epoch: certsSoFar }
+      );
+      weighHome(a.author, a.r, a.c);
+      if (!payloadGone) {
         chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name, to: a.target });
       }
       debit(a.author);
@@ -374,7 +374,7 @@ function replayUncached(acts) {
       // peer-to-peer and never touched the record. Priced like a dm.
       if (ledgerById[a.from] && ledgerById[a.to] && ledgerById[a.from].burnBal >= THETA) {
         debit(a.from);
-        if (!mutedA) {
+        if (!payloadGone) {
           dms.push({ from: a.from, to: a.to, text: '', call: { outcome: a.outcome, dur: a.dur || 0 }, idx: i });
           var cline = a.outcome === 'completed' ? '☎ call with ' + dispName(a.to) + ' · ' + Math.floor((a.dur || 0) / 60) + ':' + ('0' + ((a.dur || 0) % 60)).slice(-2)
             : a.outcome === 'missed' ? '☎ called ' + dispName(a.to) + ' — no answer'
@@ -421,10 +421,11 @@ function replayUncached(acts) {
 
   // Deleted actors leave the standings solve entirely: their vouches (given
   // and received) and self-cells are dropped before compilation.
-  for (var bk in bundles) {
-    if (deletedActors[bundles[bk].src] || deletedActors[bundles[bk].rcp]) delete bundles[bk];
-  }
-  selfCells = selfCells.filter(function (sc) { return !deletedActors[sc.src]; });
+  // Deleted actors STAY in the solve. Removing their vouches retroactively
+  // rewrote everyone else's standing and broke already-published epoch
+  // certificates; the spec is explicit that erasing payload "changes no
+  // standing, title, or reward". Leaving is a payload right, not a way to
+  // withdraw commitments already transported to other people.
 
   var cells = compileCells(bundles, selfCells);
   var solved = E.solveStanding(ledgers, cells, { tilt: 1 });
@@ -433,7 +434,7 @@ function replayUncached(acts) {
 
   var epochNow = epochHistory.length + 1;
   for (var id2 in ledgerById) {
-    if (id2 === 'alice' || deletedActors[id2]) continue;
+    if (id2 === 'alice') continue;
     var S = NU * (xById[id2] || 0);
     var bond = S / (NU + S);
     var tenure = 1 - 1 / (epochNow - kReg[id2] + 1);
