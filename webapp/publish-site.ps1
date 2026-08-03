@@ -16,7 +16,16 @@
 # NOTE: ASCII-only on purpose - Windows PowerShell 5.1 misparses BOM-less UTF-8.
 param(
   [string]$HostUrl = '',
-  [switch]$FromTunnelLog
+  # Second entry for host.json's urls list: the read-only mirror the app
+  # falls back to when the primary does not answer.
+  [string]$FallbackUrl = '',
+  [switch]$FromTunnelLog,
+  # Update only this machine's slot and keep the other one as published:
+  #   -UpdateSlot primary  -FromTunnelLog   (the primary's tunnel changed)
+  #   -UpdateSlot fallback -FromTunnelLog   (the mirror's tunnel changed)
+  # Reads the currently published host.json from Pages first, so neither
+  # machine can wipe the other's entry by publishing from its own folder.
+  [ValidateSet('', 'primary', 'fallback')][string]$UpdateSlot = ''
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -36,13 +45,29 @@ if ($FromTunnelLog) {
 Write-Output 'building app...'
 node (Join-Path $here 'social\assemble.mjs') (Join-Path $site 'app.html') | Out-Host
 
-# 2. Record which host the app should reach for (empty = sandbox only).
+# 2. Record which host(s) the app should reach for (empty = sandbox only).
+#    urls is ordered: primary first, mirror second. The app probes in order,
+#    so the mirror only ever serves people the primary has already failed.
+if ($UpdateSlot) {
+  $liveCfg = $null
+  try { $liveCfg = Invoke-RestMethod 'https://enderpeer.github.io/peer-network-lab/host.json' -TimeoutSec 15 } catch {}
+  $curPrimary = ''
+  $curFallback = ''
+  if ($liveCfg) {
+    $curPrimary = [string]$liveCfg.url
+    if ($liveCfg.urls -and $liveCfg.urls.Count -gt 1) { $curFallback = [string]$liveCfg.urls[1] }
+  }
+  if ($UpdateSlot -eq 'primary') { $FallbackUrl = $curFallback }
+  if ($UpdateSlot -eq 'fallback') { $FallbackUrl = $HostUrl; $HostUrl = $curPrimary }
+  Write-Output "slots -> primary: $HostUrl | fallback: $FallbackUrl"
+}
 $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 $cfg = [ordered]@{
   url     = $HostUrl
   updated = $stamp
-  note    = 'Written by publish-site.ps1. An empty url means no shared host is published; the app then runs entirely in your browser.'
+  note    = 'Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.'
 }
+if ($FallbackUrl) { $cfg.Insert(1, 'urls', @($HostUrl, $FallbackUrl.TrimEnd('/'))) }
 # WriteAllText with an explicit no-BOM encoder: PowerShell 5.1's -Encoding utf8
 # emits a byte-order mark, and a BOM in front of JSON breaks strict parsers.
 [System.IO.File]::WriteAllText(

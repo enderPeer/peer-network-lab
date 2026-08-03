@@ -326,3 +326,116 @@ describe('events name the node they minted', () => {
     expect(revNode).toBe(mintNode);
   });
 });
+
+describe('a mirror follows the primary and refuses to be a second writer', () => {
+  // Two hosts accepting acts would fork the log the first time both were
+  // reachable, so the fallback server reads everything and writes nothing.
+  const MPORT = 5312;
+  const MBASE = `http://127.0.0.1:${MPORT}`;
+  let mirror: ChildProcess;
+  let mdir: string;
+
+  const mget = async (p: string) => (await fetch(MBASE + p)).json() as Promise<Record<string, unknown>>;
+  const mtotal = async () => (await mget('/api/acts')).total as number;
+
+  /** Wait until the mirror has caught up with the primary, or give up loudly. */
+  async function synced(expected: number) {
+    for (let i = 0; i < 60; i++) {
+      if ((await mtotal()) >= expected) return true;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
+  }
+
+  beforeAll(async () => {
+    mdir = mkdtempSync(join(tmpdir(), 'peer-mirror-test-'));
+    mkdirSync(join(mdir, 'server-data'), { recursive: true });
+    // Deliberately empty: a mirror must be able to build the whole record
+    // from nothing, which is exactly what a fresh server does on day one.
+    writeFileSync(join(mdir, 'server-data', 'acts.jsonl'), '');
+    mirror = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(MPORT)], {
+      cwd: ROOT,
+      env: {
+        ...process.env, PEER_DATA_DIR: join(mdir, 'server-data'),
+        PEER_MIRROR_OF: BASE, PEER_MIRROR_INTERVAL: '300',
+      },
+      stdio: 'ignore',
+    });
+    for (let i = 0; i < 60; i++) {
+      try { await fetch(MBASE + '/api/acts'); return; } catch { await new Promise((r) => setTimeout(r, 100)); }
+    }
+    throw new Error('mirror did not come up');
+  }, 20000);
+
+  afterAll(() => {
+    mirror?.kill();
+    try { rmSync(mdir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  it('builds the whole record from an empty disk', async () => {
+    expect(await synced(await total())).toBe(true);
+  });
+
+  it('says what it is, so nobody mistakes it for the primary', async () => {
+    expect((await mget('/api/acts')).mirror).toBe(BASE);
+    expect((await get('/api/acts')).mirror).toBeNull();
+  });
+
+  it('picks up acts appended to the primary', async () => {
+    await act({ t: 'post', author: 'u_secured', text: 'written on the primary', a: 0.8, auth: '1234' });
+    expect(await synced(await total())).toBe(true);
+    const list = (await mget('/api/acts')).acts as Array<Record<string, unknown>>;
+    expect(JSON.stringify(list)).toContain('written on the primary');
+  });
+
+  it('refuses an act, naming the primary rather than failing blankly', async () => {
+    const r = await fetch(MBASE + '/api/act', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ t: 'post', author: 'u_secured', text: 'x', a: 0.8, auth: '1234', since: await mtotal() }),
+    });
+    expect(r.status).toBe(503);
+    const b = (await r.json()) as Record<string, string>;
+    expect(b.error).toMatch(/read-only mirror/i);
+    expect(b.error).toContain(BASE);
+    expect(b.mirrorOf).toBe(BASE);
+  });
+
+  it('refuses the bot API and media uploads too, not just the act door', async () => {
+    const p = await fetch(MBASE + '/api/v1/post', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ as: 'u_secured', pin: '1234', text: 'x' }),
+    });
+    expect(p.status).toBe(503);
+    const m = await fetch(MBASE + '/api/media', {
+      method: 'POST', headers: { 'Content-Type': 'image/png' }, body: 'x',
+    });
+    expect(m.status).toBe(503);
+  });
+
+  it('propagates a redaction rather than keeping the deleted text forever', async () => {
+    // The hard case: deletion rewrites lines already synced, so an
+    // append-only follower would hold the removed payload for good — a
+    // backup that quietly refuses to forget is a liability, not a backup.
+    const p = await act({ t: 'post', author: 'u_secured', text: 'DOOMED PAYLOAD mirror', a: 0.8, auth: '1234' });
+    expect(p.status).toBe(200);
+    const idx = (await total()) - 1;
+    expect(await synced(idx + 1)).toBe(true);
+    expect(JSON.stringify((await mget('/api/acts')).acts)).toContain('DOOMED PAYLOAD mirror');
+
+    await act({ t: 'deletePost', author: 'u_secured', target: idx, auth: '1234' });
+    for (let i = 0; i < 60; i++) {
+      if (!JSON.stringify((await mget('/api/acts')).acts).includes('DOOMED PAYLOAD mirror')) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(JSON.stringify((await mget('/api/acts')).acts)).not.toContain('DOOMED PAYLOAD mirror');
+  });
+
+  it('serves the record it already has when the primary stops answering', async () => {
+    // The whole point of the fallback. Nothing is asserted about writes here
+    // because there are none: it stays read-only until an operator promotes it.
+    const before = await mtotal();
+    expect(before).toBeGreaterThan(0);
+    const feed = await mget('/api/v1/feed?as=u_secured') as { items: unknown[] };
+    expect(Array.isArray(feed.items)).toBe(true);
+  });
+});

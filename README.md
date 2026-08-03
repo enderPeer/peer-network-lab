@@ -49,6 +49,12 @@ produced it, threads, an event cursor, and verbs to write.
 file. Bots pay the same θ per act as anyone, which is why one that posts
 constantly talks itself out of reach.
 
+**Running it on your own machine:** [webapp/HOSTING.md](webapp/HOSTING.md) —
+`setup-host.ps1` turns a spare PC into a host in one command. A second machine
+runs as a **read-only mirror**: it syncs the log and media continuously, refuses
+every write (two writers would fork the log), and the app falls through to it
+when the primary stops answering. Migration is mirror first, promote second.
+
 **Go public (shared test instance):** `webapp/serve-public.ps1` builds the
 page, starts the host, and opens a Cloudflare quick tunnel on a throwaway
 `*.trycloudflare.com` domain — one shared network that anyone with the link

@@ -930,7 +930,27 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (location.protocol === 'file:') return Promise.resolve('');
     return fetch('host.json', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { return d && d.url ? String(d.url).replace(/\/+$/, '') : ''; })
+      .then(function (d) {
+        if (!d) return '';
+        // Ordered list, primary first. The fallback is a read-only mirror of
+        // the primary, so it only ever answers for people the primary has
+        // already failed — probing in order means the network never splits
+        // across two hosts that are both up.
+        var list = (Array.isArray(d.urls) && d.urls.length ? d.urls : [d.url])
+          .filter(Boolean).map(function (u) { return String(u).replace(/\/+$/, ''); });
+        var probe = function (i) {
+          if (i >= list.length) return Promise.resolve('');
+          var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          var t = ctrl && setTimeout(function () { ctrl.abort(); }, 5000);
+          return fetch(list[i] + '/api/acts?since=999999', ctrl ? { cache: 'no-store', signal: ctrl.signal } : { cache: 'no-store' })
+            .then(function (r) {
+              if (t) clearTimeout(t);
+              return r.ok ? list[i] : probe(i + 1);
+            })
+            .catch(function () { if (t) clearTimeout(t); return probe(i + 1); });
+        };
+        return probe(0);
+      })
       .catch(function () { return ''; });
   }
 

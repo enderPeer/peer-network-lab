@@ -156,6 +156,7 @@ Useful environment variables:
 | `PEER_DATA_DIR` | put the act log somewhere else — **use this for anything destructive** |
 | `PEER_OPERATOR_TOKEN` | lets the operator set a first PIN on a handle that has already posted |
 | `PEER_ACT_RATE` | acts per minute per IP (default 20). `GET /api/v1` and the refusal text both report whatever this is set to |
+| `PEER_MIRROR_OF` | run as a read-only mirror of that host — syncs log and media, refuses every write. Normally set by `server-data/role.json` instead, which survives restarts. See [webapp/HOSTING.md](webapp/HOSTING.md) |
 | `PEER_TURN_URL` / `_USER` / `_PASS` | a TURN relay, without which calls fail between networks with no direct path |
 
 ### What the test suites cover

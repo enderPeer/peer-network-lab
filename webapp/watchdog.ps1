@@ -14,6 +14,10 @@ function Log($msg) {
 Log 'watchdog started'
 while ($true) {
   # 1. host healthy?
+  # The role lives in server-data\role.json and server.mjs reads it on boot,
+  # so a restart from here cannot silently turn a mirror into a second writer.
+  # That mattered enough to write down: two hosts accepting acts would fork
+  # the log the first time both were reachable.
   $hostOk = $false
   try {
     $r = Invoke-WebRequest -Uri 'http://localhost:5210/api/acts?since=999999' -UseBasicParsing -TimeoutSec 5

@@ -224,6 +224,109 @@ function gcMedia() {
   } catch { /* best-effort */ }
 }
 
+// ── Mirror mode: this host follows a primary instead of accepting writes ──
+//
+// One network, one writer. A second host that also accepted acts would fork
+// the log the first time both were reachable — so a mirror READS everything
+// and WRITES nothing, and says so plainly. What it is for:
+//   - continuous off-machine backup (log + media, synced every few seconds)
+//   - read fallback: when the primary dies, the record stays browsable
+//   - migration: a new server starts as a mirror, fills up, gets promoted
+//
+// The role comes from a FILE (role.json next to the log), not only from the
+// environment: the watchdog restarts a crashed host, and a restart that
+// silently forgot it was a mirror would start accepting acts and fork the
+// network. A file survives every restart path. PEER_MIRROR_OF overrides for
+// tests. Promotion is deliberate: delete role.json (or empty its mirrorOf)
+// and restart — see webapp/HOSTING.md for the full runbook.
+const roleFile = resolve(DATA_DIR, 'role.json');
+let roleMirror = '';
+try { roleMirror = String(JSON.parse(readFileSync(roleFile, 'utf8')).mirrorOf ?? ''); } catch { /* no role file = primary */ }
+const MIRROR_OF = (process.env.PEER_MIRROR_OF ?? roleMirror).trim().replace(/\/+$/, '');
+const MIRROR_INTERVAL = Math.max(300, Number(process.env.PEER_MIRROR_INTERVAL) || 5000);
+const mirrorState = { ok: null, busy: false, lastFull: 0, snapDay: -1 };
+
+function mirrorRefuse(res) {
+  if (!MIRROR_OF) return false;
+  json(res, 503, {
+    error: 'this host is a read-only mirror of ' + MIRROR_OF + ' — the app writes to the primary on its own while it answers. If the primary is gone for good, the operator promotes this mirror (delete role.json, restart); until then nothing here accepts acts, because two writers would fork the network.',
+    mirrorOf: MIRROR_OF,
+  });
+  return true;
+}
+
+async function mirrorGet(path) {
+  const r = await fetch(MIRROR_OF + path, { signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error('primary answered HTTP ' + r.status + ' for ' + path);
+  return r;
+}
+
+/** Pull media blobs the synced acts reference and this disk lacks. */
+async function mirrorMedia(refs) {
+  for (const m of refs) {
+    if (!m || typeof m.h !== 'string' || !/^[a-f0-9]{64}$/.test(m.h)) continue;
+    const file = join(MEDIA_DIR, m.h);
+    if (existsSync(file)) continue;
+    try {
+      const r = await mirrorGet('/api/media/' + m.h);
+      const buf = Buffer.from(await r.arrayBuffer());
+      // Content-addressed means verifiable: a blob that does not hash to its
+      // own name is not written, whatever the primary claims.
+      if (createHash('sha256').update(buf).digest('hex') !== m.h) continue;
+      writeFileSync(file, buf);
+      writeFileSync(file + '.meta', JSON.stringify({ mime: r.headers.get('content-type') || 'application/octet-stream', size: buf.length }));
+    } catch { /* the next sync retries */ }
+  }
+}
+
+/** Replace the whole local log with the primary's — the redaction path. */
+function mirrorAdopt(remoteActs) {
+  acts.length = 0;
+  for (const a of remoteActs) acts.push(a);
+  rewriteLog();
+  gcMedia();
+  stateCache = { len: -1, st: null, R: stateCache.R };
+}
+
+async function mirrorSync() {
+  if (mirrorState.busy) return;
+  mirrorState.busy = true;
+  try {
+    const d = await (await mirrorGet('/api/acts?since=' + acts.length)).json();
+    let mediaRefs = [];
+    const wantFull =
+      d.total < acts.length ||                        // primary shrank: a rewrite happened
+      d.acts.some((a) => a.t === 'deletePost' || a.t === 'deleteAccount') || // redactions touch old lines
+      Date.now() - mirrorState.lastFull > 30 * 60_000; // belt and braces
+    if (wantFull) {
+      const full = await (await mirrorGet('/api/acts')).json();
+      mirrorAdopt(full.acts);
+      mirrorState.lastFull = Date.now();
+      mediaRefs = full.acts.flatMap((a) => a.media || []);
+    } else if (d.acts.length) {
+      for (const a of d.acts) { acts.push(a); persist(a); }
+      stateCache = { len: -1, st: null, R: stateCache.R };
+      mediaRefs = d.acts.flatMap((a) => a.media || []);
+    }
+    await mirrorMedia(mediaRefs);
+    // Rolling snapshots: seven files, one per weekday, overwritten in place.
+    // The mirror IS the backup; these survive a bad sync of the main copy.
+    const day = new Date().getDay();
+    if (day !== mirrorState.snapDay) {
+      try { copyFileSync(LOG, LOG + '.daily-' + day); mirrorState.snapDay = day; } catch { /* best effort */ }
+    }
+    if (mirrorState.ok !== true) console.log('[mirror] in sync with ' + MIRROR_OF + ' — ' + acts.length + ' acts');
+    mirrorState.ok = true;
+  } catch (e) {
+    // A dead primary is not an error for a fallback — it is the case this
+    // host exists for. Log the transition once, keep serving, keep retrying.
+    if (mirrorState.ok !== false) console.log('[mirror] primary unreachable (' + (e && e.message) + ') — serving the last synced record, retrying quietly');
+    mirrorState.ok = false;
+  } finally {
+    mirrorState.busy = false;
+  }
+}
+
 // ── Media store: content-addressed payload carriage (never scored) ──
 const MEDIA_DIR = resolve(DATA_DIR, 'media');
 mkdirSync(MEDIA_DIR, { recursive: true });
@@ -1163,6 +1266,7 @@ async function handleBotApi(req, res, url, ip) {
   // ── writes ───────────────────────────────────────────────────────────────
   if (req.method !== 'POST') { json(res, 404, { error: 'no such endpoint: ' + req.method + ' /api/v1/' + p + ' — GET /api/v1 lists them all' }); return; }
   if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place' }); return; }
+  if (mirrorRefuse(res)) return;
 
   const body = await readBody(req, MAX_ACT_BYTES * 2);
   if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
@@ -1284,7 +1388,7 @@ const server = createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/acts') {
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
     const since = Math.max(0, Number(url.searchParams.get('since') ?? 0) || 0);
-    const body = JSON.stringify({ acts: acts.slice(since), total: acts.length });
+    const body = JSON.stringify({ acts: acts.slice(since), total: acts.length, mirror: MIRROR_OF || null });
     const wantsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '') && body.length > 1024;
     if (wantsGzip) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Content-Encoding': 'gzip', ...SECURITY_HEADERS });
@@ -1297,6 +1401,7 @@ const server = createServer((req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/api/media') {
     if (!mediaLimiter(ip)) { json(res, 429, { error: 'upload limit — try again in a minute' }); return; }
+    if (mirrorRefuse(res)) return;
     const mime = canonicalMime((req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase());
     if (!MEDIA_TYPES.has(mime)) { json(res, 415, { error: 'unsupported media type: ' + mime }); return; }
     const cap = mime.startsWith('video/') ? MEDIA_MAX_VIDEO
@@ -1348,6 +1453,7 @@ const server = createServer((req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/api/act') {
     if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place' }); return; }
+  if (mirrorRefuse(res)) return;
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > MAX_ACT_BYTES * 2) req.destroy(); });
     req.on('end', () => {
@@ -1577,5 +1683,7 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`);
+  console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`
+    + (MIRROR_OF ? ` — read-only mirror of ${MIRROR_OF}` : ''));
+  if (MIRROR_OF) { mirrorSync(); setInterval(mirrorSync, MIRROR_INTERVAL); }
 });
