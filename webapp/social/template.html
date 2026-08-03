@@ -187,6 +187,14 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
   background: #211d1a; color: #efe9df; border: 1px solid rgba(255,255,255,0.16); border-radius: 12px;
   padding: 12px 14px; box-shadow: 0 10px 34px rgba(0,0,0,0.5); font-size: 13.5px; line-height: 1.45; }
 .a2hs b { display: block; margin-bottom: 3px; }
+/* A paid placement must be unmistakable at a glance, and must not borrow the
+   visual language of a ranked post — no rank chip, no relevance bar, and a
+   left edge in a colour nothing else in the feed uses. */
+.ad-card { border-style: dashed; border-color: var(--muted, #4a443f); position: relative; }
+.ad-card::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px;
+  border-radius: 12px 0 0 12px; background: #8a7a4a; }
+.ad-tag { font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 4px;
+  background: #8a7a4a; color: #17140f; font-weight: 700; }
 .a2hs .row { display: flex; gap: 8px; margin-top: 9px; }
 .a2hs button { border: 1px solid rgba(255,255,255,0.22); background: transparent; color: #efe9df;
   border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -1073,6 +1081,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       pollLive();
       setInterval(pollLive, 8000);
       setInterval(reportViews, 4000);
+      pollAds();
+      setInterval(pollAds, 60000);
       window.addEventListener('scroll', function () { reportViews(); }, { passive: true });
       setInterval(pollRemote, 5000);
       setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
@@ -3454,7 +3464,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs from your own position, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
     }
     wrap.appendChild(head);
-    ranked.slice(0, feedLimit).forEach(function (f, i) { wrap.appendChild(postCard(st, f, i + 1, maxRel)); });
+    // One paid placement, after the third ranked item, never woven in deeper.
+    // It is a card the feed carries, not a card the feed ranked: it has no
+    // relevance line because there is no path to it and no score to print.
+    ranked.slice(0, feedLimit).forEach(function (f, i) {
+      wrap.appendChild(postCard(st, f, i + 1, maxRel));
+      if (i === 2 && adList.length) wrap.appendChild(adCard(adList[0]));
+    });
+    if (ranked.length && ranked.length <= 3 && adList.length) wrap.appendChild(adCard(adList[0]));
     if (ranked.length > feedLimit) {
       wrap.appendChild(h('div', { style: 'text-align:center; margin:12px 0' },
         h('button', { class: 'btn', text: 'Show more (' + (ranked.length - feedLimit) + ')', onclick: function () { feedLimit += 30; render(); } })));
@@ -3474,6 +3491,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
     }
     return wrap;
+  }
+
+  // ── Paid placements ───────────────────────────────────────────────────────
+  // Deliberately built from a different shape than a post. There is no node
+  // id, no author, no relevance decomposition and no react/comment row — not
+  // because those were left off, but because none of them exist: an advert is
+  // not in the act log, so the protocol has nothing to say about it. The card
+  // says so out loud, because a network claiming influence is commitment
+  // cannot quietly sell attention next to it and stay honest.
+  var adList = [];
+  function adCard(ad) {
+    var card = h('div', { class: 'card ad-card' },
+      h('p', { class: 'eyebrow' }, h('span', { class: 'ad-tag', text: 'PAID PLACEMENT' }), ' · bought, not earned'),
+      h('p', { style: 'margin:6px 0 10px' }, ad.text));
+    var a = h('a', { class: 'btn small', href: ad.url, target: '_blank', rel: 'noopener noreferrer nofollow', text: 'Open link ↗' });
+    card.appendChild(h('div', { class: 'row' }, a));
+    card.appendChild(h('p', { class: 'smallnote', text: 'This is not an act. It holds no standing, sits outside the graph, and changes nobody’s feed score — including its own, because it has none. Money buys this box and nothing else in the network.' }));
+    return card;
+  }
+  function pollAds() {
+    if (!REMOTE) return;
+    fetch(API + '/api/ads', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.ads)) return;
+        var changed = d.ads.length !== adList.length;
+        adList = d.ads;
+        if (changed) render();
+      })
+      .catch(function () {});
   }
 
   function postCard(st, f, rank, maxRel) {

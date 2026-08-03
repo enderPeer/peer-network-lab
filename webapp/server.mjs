@@ -10,6 +10,8 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, unlinkSync, statSync, renameSync } from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
+import { createAdStore, validBtcAddress } from './ads.mjs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -58,6 +60,98 @@ if (existsSync(LOG)) {
 function clientIp(req) {
   return (req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown').toString();
 }
+// ── Operations telemetry: for the operator, never for the network ─────────
+//
+// Everything here lives in memory and dies with the process. None of it is
+// written to the act log, and none of it is reachable without the operator
+// token — because the act log is PUBLIC at /api/acts, and an IP address that
+// found its way in there could never be taken back out. That is the whole
+// design constraint: this file may observe, and must not record.
+//
+// Same reasoning as view counts: this network's premise is that influence is
+// transported commitment. Nothing measured here enters the graph, a score, or
+// a feed. It exists so the operator can see abuse, load and breakage.
+const OPS_STARTED = Date.now();
+const IP_MAX = 800;            // bounded: an attacker must not be able to grow this
+const IP_IDLE_MS = 6 * 3600_000;
+const ops = {
+  requests: 0,
+  byStatus: new Map(),
+  actsAccepted: 0,
+  actsRefused: 0,
+  refusals: new Map(),         // reason -> count
+  rateLimited: 0,
+  authFailures: 0,
+  adminAuthFailures: 0,
+  bytesOut: 0,
+  peakActsPerMin: 0,
+  actMinute: { at: 0, n: 0 },
+};
+const ipSeen = new Map();      // ip -> {first, last, reqs, acts, refused, limited, agent, handles:Set}
+const banned = new Map();      // ip -> {until, reason}
+
+function ipRow(ip) {
+  let r = ipSeen.get(ip);
+  if (!r) {
+    // Evict the least recently seen rather than clearing wholesale: a flood
+    // of new addresses must not erase the record of the one causing it.
+    if (ipSeen.size >= IP_MAX) {
+      let oldest = null, oldestAt = Infinity;
+      for (const [k, v] of ipSeen) if (v.last < oldestAt) { oldestAt = v.last; oldest = k; }
+      if (oldest) ipSeen.delete(oldest);
+    }
+    r = { first: Date.now(), last: 0, reqs: 0, acts: 0, refused: 0, limited: 0, agent: '', handles: new Set() };
+    ipSeen.set(ip, r);
+  }
+  return r;
+}
+
+function opsRequest(ip, req) {
+  ops.requests++;
+  const r = ipRow(ip);
+  r.last = Date.now();
+  r.reqs++;
+  const ua = (req.headers['user-agent'] || '').slice(0, 120);
+  if (ua) r.agent = ua;
+}
+
+function opsAct(ip, act, err) {
+  const r = ipRow(ip);
+  if (err) {
+    ops.actsRefused++;
+    r.refused++;
+    // Bucket by the shape of the message, not the message: refusals name
+    // actual numbers ("1400 characters, limit 1000"), so the raw strings
+    // would be unbounded cardinality and useless as a breakdown.
+    const key = String(err).replace(/\d+/g, 'N').slice(0, 80);
+    ops.refusals.set(key, (ops.refusals.get(key) ?? 0) + 1);
+    return;
+  }
+  ops.actsAccepted++;
+  r.acts++;
+  const who = act && (act.author ?? act.from ?? act.id);
+  if (who && r.handles.size < 24) r.handles.add(who);
+  const minute = Math.floor(Date.now() / 60_000);
+  if (ops.actMinute.at !== minute) ops.actMinute = { at: minute, n: 0 };
+  ops.actMinute.n++;
+  if (ops.actMinute.n > ops.peakActsPerMin) ops.peakActsPerMin = ops.actMinute.n;
+}
+
+/** Sweep idle rows so a long-running host does not hold addresses forever. */
+function opsSweep() {
+  const cut = Date.now() - IP_IDLE_MS;
+  for (const [k, v] of ipSeen) if (v.last < cut) ipSeen.delete(k);
+  for (const [k, v] of banned) if (v.until && v.until < Date.now()) banned.delete(k);
+}
+setInterval(opsSweep, 10 * 60_000).unref?.();
+
+function banCheck(ip) {
+  const b = banned.get(ip);
+  if (!b) return null;
+  if (b.until && b.until < Date.now()) { banned.delete(ip); return null; }
+  return b;
+}
+
 function makeLimiter(limit, windowMs) {
   const buckets = new Map();
   return (key) => {
@@ -559,6 +653,30 @@ function hasHistory(id) {
 }
 const OPERATOR_TOKEN = (process.env.PEER_OPERATOR_TOKEN ?? '').trim();
 
+// ── Paid placements ────────────────────────────────────────────────────────
+// The address is configuration, never generated here. A key this process
+// invented would be a key that had passed through a build log, a terminal and
+// possibly a git history — and an address whose key is not already in a wallet
+// the operator can spend from is money that arrives and cannot leave. So the
+// operator pastes a receive address from their own wallet, and the host only
+// ever displays it. No private key exists anywhere in this codebase.
+//
+// It is checksum-validated at boot rather than trusted: a mistyped address is
+// not a failed payment, it is money sent somewhere nobody holds the key to.
+const BTC_ADDRESS_RAW = (process.env.PEER_BTC_ADDRESS ?? '').trim();
+let BTC_ADDRESS = '';
+if (BTC_ADDRESS_RAW) {
+  if (validBtcAddress(BTC_ADDRESS_RAW)) {
+    BTC_ADDRESS = BTC_ADDRESS_RAW;
+  } else {
+    console.error('[ads] PEER_BTC_ADDRESS failed its own checksum — refusing to display it. Paid placements are OFF.');
+    console.error('[ads] Copy a receive address from your wallet; do not type it by hand.');
+  }
+}
+const adStore = createAdStore(resolve(DATA_DIR, 'ads.json'), {
+  priceSatsPerDay: Number(process.env.PEER_AD_SATS_PER_DAY) || 20000,
+});
+
 function authError(act) {
   const actor = act.t === 'register' ? null
     : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'deleteAccount'].includes(act.t) ? act.id : null));
@@ -961,7 +1079,18 @@ const API_DOC = {
 // could never climb out.
 const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call']);
 
+/**
+ * The single write door, wrapped so telemetry cannot drift from reality:
+ * every refusal and every acceptance is counted here, at the one place both
+ * outcomes are already known, instead of at each HTTP call site.
+ */
 function applyAct(act, auth, ip) {
+  const out = applyActInner(act, auth, ip);
+  opsAct(ip, act, out && out.error);
+  return out;
+}
+
+function applyActInner(act, auth, ip) {
   const err = validate(act);
   if (err) return { error: err, code: err === 'handle already registered' ? 409 : 400 };
   // A deleted account is gone as an actor — nothing more can be done as it.
@@ -1381,10 +1510,136 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 };
 
+// Operator-tunable for the same reason the act rate is: a suite exercising
+// every refusal path would otherwise spend its budget proving the limiter
+// works. The public default is unchanged, and the figure the API reports
+// reads this variable rather than a hardcoded one.
+const AD_RATE = Number(process.env.PEER_AD_RATE) > 0 ? Number(process.env.PEER_AD_RATE) : 6;
+const adLimiter = makeLimiter(AD_RATE, 3_600_000); // advert proposals per IP per hour
+const adminLimiter = makeLimiter(20, 600_000);  // failed admin auth attempts
+
+/**
+ * Constant-time bearer check. A plain !== leaks the token one character at a
+ * time to anyone patient enough to measure, which is a real attack on a
+ * secret that guards bans and the ad ledger.
+ */
+function adminAuth(req) {
+  if (!OPERATOR_TOKEN) return false;
+  const h = String(req.headers['authorization'] ?? '');
+  const got = h.startsWith('Bearer ') ? h.slice(7) : String(req.headers['x-operator-token'] ?? '');
+  if (!got) return false;
+  const a = Buffer.from(got);
+  const b = Buffer.from(OPERATOR_TOKEN);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function topMap(m, n) {
+  return [...m.entries()].sort((x, y) => y[1] - x[1]).slice(0, n).map(([k, v]) => ({ key: String(k), count: v }));
+}
+
+function adminMetrics() {
+  // The replay cache is built lazily, on the first request that needs derived
+  // state — so on a freshly started host the panel would have reported dashes
+  // for actors, content and epoch, which reads as "broken" rather than "not
+  // asked yet". Force it, the same synchronous way the solvency gate does.
+  if (engineMod && replayMod) {
+    if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+    if (stateCache.len !== acts.length || !stateCache.st) {
+      stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+    }
+  }
+  const st = stateCache.st;
+  const secured = acts.filter((a) => a.t === 'setPin').length;
+  const byType = new Map();
+  for (const a of acts) byType.set(a.t, (byType.get(a.t) ?? 0) + 1);
+  const day = Date.now() - 86400_000;
+  const actsLastDay = acts.filter((a) => a.ts && a.ts > day).length;
+  const mem = process.memoryUsage();
+  return {
+    host: {
+      uptimeSec: Math.round((Date.now() - OPS_STARTED) / 1000),
+      role: MIRROR_OF ? 'mirror' : 'primary',
+      mirrorOf: MIRROR_OF || null,
+      mirrorInSync: MIRROR_OF ? mirrorState.ok : null,
+      node: process.version,
+      rssMb: +(mem.rss / 1048576).toFixed(1),
+      heapMb: +(mem.heapUsed / 1048576).toFixed(1),
+    },
+    network: {
+      acts: acts.length,
+      actsLastDay,
+      actors: st ? Object.keys(st.xById).length : null,
+      contentNodes: st ? Object.keys(st.payloads).length : null,
+      epoch: st ? st.epochNow : null,
+      deletedAccounts: deletedIds.size,
+      securedHandles: secured,
+      byActType: topMap(byType, 20),
+      liveStreams: liveNow().length,
+      signalBoxes: signalBoxes.size,
+    },
+    traffic: {
+      requests: ops.requests,
+      byStatus: topMap(ops.byStatus, 12),
+      megabytesOut: +(ops.bytesOut / 1048576).toFixed(2),
+      actsAccepted: ops.actsAccepted,
+      actsRefused: ops.actsRefused,
+      rateLimited: ops.rateLimited,
+      authFailures: ops.authFailures,
+      adminAuthFailures: ops.adminAuthFailures,
+      peakActsPerMin: ops.peakActsPerMin,
+      topRefusals: topMap(ops.refusals, 12),
+      uniqueAddressesSeen: ipSeen.size,
+      bans: banned.size,
+    },
+    storage: {
+      logBytes: (() => { try { return statSync(LOG).size; } catch { return 0; } })(),
+      mediaBytes: mediaDirSize(),
+      mediaCapBytes: MEDIA_STORE_CAP,
+    },
+    ads: adStore.stats(),
+    limits: { actsPerMin: ACT_RATE, readsPerMin: 600, adProposalsPerHour: AD_RATE },
+  };
+}
+
+/** IP rows, newest activity first. Never served without the operator token. */
+function adminIps() {
+  return [...ipSeen.entries()]
+    .sort((a, b) => b[1].last - a[1].last)
+    .slice(0, 300)
+    .map(([ip, r]) => ({
+      ip, first: r.first, last: r.last, reqs: r.reqs, acts: r.acts,
+      refused: r.refused, limited: r.limited, agent: r.agent,
+      handles: [...r.handles], banned: !!banCheck(ip),
+    }));
+}
+function adminBans() {
+  return [...banned.entries()].map(([ip, b]) => ({ ip, until: b.until, reason: b.reason }));
+}
+
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
+  opsRequest(ip, req);
+  // Status and size are read off the response itself, so nothing has to
+  // remember to report them at each of the several dozen exit points.
+  res.on('finish', () => {
+    const code = res.statusCode;
+    ops.byStatus.set(code, (ops.byStatus.get(code) ?? 0) + 1);
+    if (code === 429) { ops.rateLimited++; ipRow(ip).limited++; }
+    if (code === 401) ops.authFailures++;
+    const n = Number(res.getHeader('content-length'));
+    if (Number.isFinite(n)) ops.bytesOut += n;
+  });
+  const ban = banCheck(ip);
+  if (ban) {
+    // Say so rather than blackholing: a banned tester who can read the reason
+    // can argue with it, and an abuser learning they are blocked is not a
+    // secret worth keeping.
+    json(res, 403, { error: 'this address is blocked by the operator' + (ban.reason ? ': ' + ban.reason : '') + (ban.until ? ' — until ' + new Date(ban.until).toISOString() : '') });
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/acts') {
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
     const since = Math.max(0, Number(url.searchParams.get('since') ?? 0) || 0);
@@ -1678,6 +1933,136 @@ const server = createServer((req, res) => {
     }
     return;
   }
+  // ── Paid placements: public surface ─────────────────────────────────────
+  if (url.pathname === '/api/ads') {
+    if (req.method === 'GET') {
+      json(res, 200, {
+        ads: adStore.live(),
+        accepting: !!BTC_ADDRESS,
+        priceSatsPerDay: adStore.stats().priceSatsPerDay,
+        howItWorks: 'POST here with {text, url, days, contact} to propose one. An operator reads it, then quotes you a bitcoin amount unique to your advert so the payment can be matched to it. Nothing goes live before it is both approved and paid.',
+        whatItIsNot: 'A paid placement is not an act. It mints nothing, holds no standing, sits outside the graph and changes no feed score. Money buys this box and nothing else in the network.',
+      });
+      return;
+    }
+    if (req.method === 'POST') {
+      if (mirrorRefuse(res)) return;
+      if (!adLimiter(ip)) { json(res, 429, { error: 'slow down — this host takes at most ' + AD_RATE + ' advert proposals per hour from one address' }); return; }
+      readBody(req, 8192).then((body) => {
+        if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
+        const out = adStore.submit(body, BTC_ADDRESS);
+        if (out.error) { json(res, 400, { error: out.error }); return; }
+        const a = out.ad;
+        json(res, 200, {
+          ok: true, id: a.id, status: a.status,
+          payTo: a.address,
+          amountSats: a.priceSats,
+          amountBtc: (a.priceSats / 1e8).toFixed(8),
+          important: 'Do not pay yet. Wait until GET /api/ads/' + a.id + ' reports status "approved" — an operator reads every advert first, and a rejected one is not refunded automatically because nothing was ever sent.',
+          whyThisAmount: 'The amount is unique to your advert, which is how a payment to a single address is matched back to it. Send exactly this, not a rounded figure.',
+        });
+      }).catch(() => json(res, 400, { error: 'invalid body' }));
+      return;
+    }
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/api/ads/')) {
+    const a = adStore.get(url.pathname.slice('/api/ads/'.length));
+    if (!a) { json(res, 404, { error: 'no advert with that id' }); return; }
+    json(res, 200, {
+      id: a.id, status: a.status, text: a.text, url: a.url, days: a.days,
+      payTo: a.status === 'approved' ? a.address : null,
+      amountSats: a.status === 'approved' ? a.priceSats : null,
+      startsAt: a.startsAt, endsAt: a.endsAt,
+      reviewNote: a.reviewNote || null,
+      next: a.status === 'pending' ? 'waiting for an operator to read it'
+        : a.status === 'approved' ? 'send exactly ' + a.priceSats + ' sats to the address above; it goes live once the operator confirms the payment'
+        : a.status === 'rejected' ? 'not accepted' + (a.reviewNote ? ': ' + a.reviewNote : '')
+        : a.status === 'live' ? 'running' : a.status,
+    });
+    return;
+  }
+
+  // ── Admin ───────────────────────────────────────────────────────────────
+  if (url.pathname === '/admin' || url.pathname.startsWith('/api/admin/')) {
+    // Closed, not open, when unconfigured. An admin surface that answers
+    // because nobody set a token is the same defect as an economy only the
+    // client believes in: a rule the interface implies and the code does not
+    // apply. Without a token there is no door here at all.
+    if (!OPERATOR_TOKEN) {
+      json(res, 404, { error: 'no admin on this host — the operator set no PEER_OPERATOR_TOKEN, so there is nothing to log in to' });
+      return;
+    }
+    if (url.pathname === '/admin' && req.method === 'GET') {
+      try {
+        const page = readFileSync(resolve(here, 'social/admin.html'));
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Robots-Tag': 'noindex, nofollow',
+          ...SECURITY_HEADERS,
+        });
+        res.end(page);
+      } catch {
+        res.writeHead(500); res.end('admin page missing');
+      }
+      return;
+    }
+    if (!adminAuth(req)) {
+      ops.adminAuthFailures++;
+      if (!adminLimiter(ip)) { json(res, 429, { error: 'too many admin attempts' }); return; }
+      json(res, 401, { error: 'operator token required' });
+      return;
+    }
+    const p2 = url.pathname.slice('/api/admin/'.length);
+
+    if (req.method === 'GET' && p2 === 'metrics') {
+      // The engine bundle is imported lazily and asynchronously, so on a
+      // freshly started host it is not loaded yet and every derived figure
+      // would come back null — which reads as "broken", not "not asked yet".
+      // Wait for it once; a missing bundle still answers, with nulls and the
+      // rest of the metrics intact.
+      worldState().then(() => json(res, 200, adminMetrics()), () => json(res, 200, adminMetrics()));
+      return;
+    }
+    if (req.method === 'GET' && p2 === 'ips') { json(res, 200, { ips: adminIps(), banned: adminBans() }); return; }
+    if (req.method === 'GET' && p2 === 'ads') { json(res, 200, { ads: adStore.all(), awaiting: adStore.awaiting(), address: BTC_ADDRESS || null, accepting: !!BTC_ADDRESS, addressRejected: !!BTC_ADDRESS_RAW && !BTC_ADDRESS }); return; }
+    if (req.method === 'GET' && p2 === 'log') {
+      const n = Math.min(500, Math.max(1, Number(url.searchParams.get('tail')) || 50));
+      json(res, 200, { total: acts.length, acts: acts.slice(-n) });
+      return;
+    }
+    if (req.method === 'POST') {
+      readBody(req, 4096).then((body) => {
+        if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
+        if (p2 === 'ban') {
+          const target = String(body.ip ?? '').trim();
+          if (!target) { json(res, 400, { error: 'ip is required' }); return; }
+          const mins = Math.min(43200, Math.max(1, Number(body.minutes) || 60));
+          banned.set(target, { until: Date.now() + mins * 60_000, reason: String(body.reason ?? '').slice(0, 120) });
+          json(res, 200, { ok: true, ip: target, minutes: mins });
+          return;
+        }
+        if (p2 === 'unban') {
+          const target = String(body.ip ?? '').trim();
+          banned.delete(target);
+          json(res, 200, { ok: true, ip: target });
+          return;
+        }
+        if (p2 === 'ads') {
+          const out = adStore.review(String(body.id ?? ''), String(body.action ?? ''), body.note);
+          if (out.error) { json(res, 400, { error: out.error }); return; }
+          json(res, 200, { ok: true, ad: out.ad });
+          return;
+        }
+        if (p2 === 'gc') { gcMedia(); json(res, 200, { ok: true, mediaBytes: mediaDirSize() }); return; }
+        json(res, 404, { error: 'no such admin endpoint: ' + p2 });
+      }).catch(() => json(res, 400, { error: 'invalid body' }));
+      return;
+    }
+    json(res, 404, { error: 'no such admin endpoint: ' + p2 });
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('not found');
 });

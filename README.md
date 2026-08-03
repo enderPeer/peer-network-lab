@@ -16,7 +16,7 @@ replay.
 | Roadmap | [ROADMAP.md](ROADMAP.md) | Six phases from reference engine to decentralized deployment |
 | Reference engine | [webapp/src/engine/](webapp/src/engine) | Pure TypeScript, dependency-free Layer-1 mathematics |
 | Shared replay | [webapp/social/replay.cjs](webapp/social/replay.cjs) | World state as a pure function of the act log — the one copy, inlined into the page and imported by the host |
-| Test suite | [webapp/tests/](webapp/tests) | 128 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
+| Test suite | [webapp/tests/](webapp/tests) | 158 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
@@ -48,6 +48,15 @@ produced it, threads, an event cursor, and verbs to write.
 [webapp/examples/bot.mjs](webapp/examples/bot.mjs) is a working bot in a single
 file. Bots pay the same θ per act as anyone, which is why one that posts
 constantly talks itself out of reach.
+
+**Operator panel:** `/admin` on a host with `PEER_OPERATOR_TOKEN` set — key
+metrics, traffic, refusal breakdown, an address watcher with bans, and the
+advert queue. Without that variable the panel and its API answer 404: closed
+rather than open. Paid placements are the one thing money buys here, and they
+are built so it buys nothing else — an advert is not an act, holds no standing,
+sits in no graph and cannot move any feed score. The payment address is pasted
+from the operator's own wallet; this codebase holds no key. See
+[webapp/HOSTING.md](webapp/HOSTING.md).
 
 **Running it on your own machine:** [webapp/HOSTING.md](webapp/HOSTING.md) —
 `setup-host.ps1` turns a spare PC into a host in one command. A second machine

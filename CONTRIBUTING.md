@@ -156,6 +156,7 @@ Useful environment variables:
 | `PEER_DATA_DIR` | put the act log somewhere else — **use this for anything destructive** |
 | `PEER_OPERATOR_TOKEN` | lets the operator set a first PIN on a handle that has already posted |
 | `PEER_ACT_RATE` | acts per minute per IP (default 20). `GET /api/v1` and the refusal text both report whatever this is set to |
+| `PEER_BTC_ADDRESS` | receive address for paid placements, pasted from your own wallet. No key exists in this codebase; the host only displays it. Checksum-validated — a typo turns adverts off rather than losing money |
 | `PEER_MIRROR_OF` | run as a read-only mirror of that host — syncs log and media, refuses every write. Normally set by `server-data/role.json` instead, which survives restarts. See [webapp/HOSTING.md](webapp/HOSTING.md) |
 | `PEER_TURN_URL` / `_USER` / `_PASS` | a TURN relay, without which calls fail between networks with no direct path |
 
@@ -168,6 +169,7 @@ Useful environment variables:
 | `replay-revision.test.ts` | revisions mint nothing, content ids never shift, a hyper act debits once |
 | `replay-delete-revised.test.ts` | the two features *together* — deleting a post that was edited, and an edit not paying a vouch twice |
 | `host.test.ts` | the refusals: PIN rules, handle claiming, error messages that name their numbers, acts that name content nobody minted, and the bot API not diverging from the act API |
+| `admin.test.ts` | the operator surface: the admin door is closed without a token, addresses never reach a public endpoint or the log, and a paid placement never becomes an act |
 
 The replay and host suites are not decoration. Every one of them was written
 after a bug, and writing them found four more:
