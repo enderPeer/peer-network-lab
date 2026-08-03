@@ -1001,7 +1001,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .then(function (d) {
         if (!d) return;
         var before = liveList.map(function (e) { return e.author; }).join(',');
-        liveList = d.live || [];
+        // Entries without `relay` come from a browser still running the
+        // peer-to-peer build. Showing them would offer a Join button that
+        // cannot work, so they are left out rather than explained away.
+        liveList = (d.live || []).filter(function (e) { return e.relay; });
         var after = liveList.map(function (e) { return e.author; }).join(',');
         // Only re-render when the set actually changed, so a viewer count tick
         // does not tear down an open composer every eight seconds.
@@ -2304,11 +2307,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function signalTick(force) {
     if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
-    // Fast polling is not only for calls: a stream handshake is the same
-    // offer/answer/ICE dance, and at the idle cadence every leg of it waited
-    // up to 5 seconds — three legs, ~15 seconds of black screen before the
-    // first frame could even arrive. Live or watching polls like a call does.
-    if (!call && !live && !watching && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, busy ~1.2s
+    // Only calls need the fast cadence now. Streaming used to poll like a
+    // call because its handshake went through this mailbox; it has its own
+    // socket now and asks nothing of this one.
+    if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in a call ~1.2s
     // A locked session cannot collect its mailbox, so incoming calls would
     // vanish without a trace. Say it once rather than failing silently; the
     // banner keeps saying it after that.
@@ -2330,7 +2332,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function onSignal(s) {
-    if (['swatch', 'soffer', 'sanswer', 'sice', 'sbye'].indexOf(s.kind) >= 0) { onStreamSignal(s); return; }
+    // Streams no longer use the signalling mailbox at all: the media socket
+    // is the connection. Kinds from an older app are dropped rather than
+    // routed to code that no longer exists.
+    if (['swatch', 'soffer', 'sanswer', 'sice', 'sbye'].indexOf(s.kind) >= 0) return;
     if (s.kind === 'ring') {
       // Rings are re-delivered every poll until answered — process each once.
       if (s.sid) {
@@ -2455,25 +2460,100 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   // ══ Live streaming ════════════════════════════════════════════════════════
-  // One RTCPeerConnection per viewer, held by the broadcaster. This is a mesh,
-  // so the broadcaster's upload is multiplied by the audience: fine for the
-  // handful of people on a test network, not a design that scales. Saying so
-  // here rather than discovering it at thirty viewers.
   //
-  // It also inherits the NAT limits of calls exactly: where a call cannot find
-  // a path without a relay, neither can a stream.
-  var live = null;    // broadcaster: {cid, title, stream, peers:{}, t0, timer}
-  var watching = null; // viewer: {author, cid, pc, el, t0}
-  var liveList = [];  // what the host says is on air
+  // The video does not travel between browsers any more. It goes up to the
+  // host and comes back down again, because a connection to the host is the
+  // one path every viewer demonstrably has — it is how they loaded this page.
+  //
+  // The peer-to-peer version failed in the field with the least useful symptom
+  // a program can have: the viewer joins, the picture stays black, and nothing
+  // says why. The host's own /api/ice endpoint had the answer printed on it the
+  // whole time — "relay": "none". Two ends behind carrier-grade NAT, which is
+  // most mobile networks, have no route to each other at all, and retrying does
+  // not discover a path that does not exist. It also multiplied the
+  // broadcaster's upload by the size of the audience.
+  //
+  // Now MediaRecorder encodes here, the bytes go up one WebSocket, and the host
+  // fans them out. webapp/stream.mjs explains why a WebSocket rather than a
+  // plain streaming response: measured through this host's tunnel, a chunked
+  // response is held back and released in 128 KB lumps, which for a quiet
+  // webcam is eight seconds of "live".
+  var live = null;     // broadcaster: see broadcastStart
+  var watching = null; // viewer: see watchStart
+  var liveList = [];   // what the host says is on air
+
+  // Containers this browser might record, best first. WebM leads because its
+  // pieces come out every 400ms; an MP4 fragment cannot leave the encoder until
+  // a whole group of pictures is finished, which measured at one and a half to
+  // two seconds. MP4 is still listed, because it is the only thing an iPhone
+  // can play back — see the rendition negotiation below.
+  // Every entry names its codecs. A bare 'video/webm' is accepted by
+  // MediaRecorder and REFUSED by MediaSource, so a broadcast in it would be
+  // one nobody could play — the app would work and the viewers would not.
+  var STREAM_FORMATS = [
+    // camera and microphone
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9,opus',
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    // camera, no microphone
+    'video/webm;codecs=vp8',
+    'video/webm;codecs=vp9',
+    'video/mp4;codecs=avc1.42E01E',
+    // microphone only
+    'audio/webm;codecs=opus',
+    'audio/mp4;codecs=mp4a.40.2',
+  ];
+  // Safari on the iPhone has no MediaSource; it has ManagedMediaSource from
+  // iOS 17.1, which is the same idea with the browser deciding when it wants
+  // data. Everything below works with either.
+  var MSE = window.ManagedMediaSource || window.MediaSource || null;
+
+  function canRecord() {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return [];
+    return STREAM_FORMATS.filter(function (m) {
+      try { return MediaRecorder.isTypeSupported(m); } catch (e) { return false; }
+    });
+  }
+
+  /**
+   * The formats that match what this stream actually carries.
+   *
+   * Announcing vp8,opus for a camera with no microphone produces a file whose
+   * header promises an audio track that never arrives, and the viewer's
+   * MediaSource refuses the whole stream with "initialization segment misses
+   * expected opus track" — found by watching a real broadcast fail, not by
+   * reading the specification.
+   */
+  function recordFormatsFor(stream) {
+    var hasAudio = stream.getAudioTracks().length > 0;
+    var hasVideo = stream.getVideoTracks().length > 0;
+    return canRecord().filter(function (m) {
+      var carriesAudio = /opus|mp4a/.test(m);
+      var carriesVideo = /vp8|vp9|avc1/.test(m);
+      return carriesAudio === hasAudio && carriesVideo === hasVideo;
+    });
+  }
+  function canPlayStream() {
+    if (!MSE || !MSE.isTypeSupported) return [];
+    return STREAM_FORMATS.filter(function (m) {
+      try { return MSE.isTypeSupported(m); } catch (e) { return false; }
+    });
+  }
+  function fmtShort(mime) { return String(mime).indexOf('mp4') >= 0 ? 'MP4' : 'WebM'; }
+  function streamSocket(role, cid) {
+    var base = API || location.origin;
+    return new WebSocket(base.replace(/^http/, 'ws')
+      + '/api/stream/ws?role=' + role + '&s=' + encodeURIComponent(cid));
+  }
+
+  // ── broadcasting ─────────────────────────────────────────────────────────
 
   function broadcastStop(note) {
     if (!live) return;
-    Object.keys(live.peers).forEach(function (p) {
-      try { live.peers[p].close(); } catch (e) {}
-      signalSend('sbye', p, null);
-    });
+    live.state = 'stopping';
+    live.recs.forEach(function (r) { if (r) { try { r.rec.stop(); } catch (e) {} } });
     if (live.stream) live.stream.getTracks().forEach(function (t) { t.stop(); });
-    clearInterval(live.timer);
+    try { live.ws.close(); } catch (e) {}
     fetch(API + '/api/live', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ as: who, auth: pins[who] || '', stop: true }),
@@ -2484,21 +2564,24 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function broadcastStart(title, withVideo) {
-    if (!REMOTE) { toast('Streaming needs the hosted network.'); return; }
+    if (!REMOTE) { toast('Streaming needs the hosted network — there is nothing to relay through in the private sandbox.'); return; }
     if (live) { toast('You are already live.'); return; }
-    // Mirror of watchStart's guard. Without it, Join clicked during the async
-    // camera/act window here left both states set at once, and stray ICE from
-    // one connection could land against the other.
     if (watching) watchStop();
+    if (!canRecord().length) {
+      toast('This browser cannot encode video for streaming: it has no MediaRecorder support.'); return;
+    }
     if (!navigator.mediaDevices || !window.isSecureContext) {
       toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
     }
-    navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo ? { width: 640, height: 360 } : false })
+    navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: withVideo ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
+    })
       .then(function (stream) {
         // The act first: going live is a priced, recorded gesture, and it mints
-        // the node people will react to. The id can only be read AFTER the act
-        // has landed and been replayed — reading it before attaches the stream
-        // to the previous one, which is exactly what the first version did.
+        // the node people react to. The id can only be read AFTER the act has
+        // landed and been replayed — reading it before attaches the stream to
+        // the previous one, which is exactly what the first version did.
         pushAct({ t: 'stream', author: who, text: title, a: 0.8 }, function () {
           var st = replay();
           var mine = Object.keys(st.creators).filter(function (c) {
@@ -2510,179 +2593,313 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             toast('The network did not record the stream, so there is nothing to join. Nothing was broadcast.');
             return;
           }
-          live = { cid: cid, title: title, stream: stream, peers: {}, t0: Date.now(), timer: null };
-          var beat = function () {
-            if (!live) return;
-            fetch(API + '/api/live', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ as: who, auth: pins[who] || '', cid: live.cid, title: live.title, viewers: Object.keys(live.peers).length }),
-            }).catch(function () {});
-          };
-          beat();
-          live.timer = setInterval(beat, 10000);
-          render();
-          toast('You are live on ' + cid + '. Anyone on the network can join from the Live tab.');
+          var formats = recordFormatsFor(stream);
+          if (!formats.length) {
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            toast('This browser cannot encode ' + (stream.getVideoTracks().length ? 'video' : 'audio') + ' in any format the network can relay.');
+            return;
+          }
+          openRelay(cid, title, stream, formats);
         });
       })
-      .catch(function () { toast('Could not open the camera or microphone — check browser permissions.'); });
+      .catch(function () { toast('Could not open the camera or microphone — check the browser permissions for this site.'); });
   }
 
-  /** Broadcaster side: a viewer knocked, give them their own connection. */
-  function serveViewer(viewerId) {
-    if (!live) return;
-    // A knock is authoritative. The viewer who sent it holds a brand-new
-    // connection, so whatever we still hold under that handle can never
-    // complete — and keeping it also swallowed the knock: a viewer who
-    // reloaded mid-join was ignored forever, because their stale entry
-    // tripped this guard and nothing ever cleared it.
-    var old = live.peers[viewerId];
-    if (old) { try { old.close(); } catch (e) {} delete live.peers[viewerId]; }
-    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
-    pc.pendingIce = []; // candidates that arrive before the answer is applied
-    live.peers[viewerId] = pc;
-    live.stream.getTracks().forEach(function (t) { pc.addTrack(t, live.stream); });
-    pc.onicecandidate = function (ev) {
-      if (ev.candidate) signalSend('sice', viewerId, JSON.parse(JSON.stringify(ev.candidate)));
-    };
-    pc.onconnectionstatechange = function () {
-      var s = pc.connectionState;
-      if (s === 'failed' || s === 'closed') {
-        try { pc.close(); } catch (e) {}
-        if (live && live.peers[viewerId] === pc) delete live.peers[viewerId];
-        render();
+  /** Ask the host for a broadcast key, then open the socket the video rides. */
+  function openRelay(cid, title, stream, formats) {
+    fetch(API + '/api/stream/open', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ as: who, auth: pins[who] || '', cid: cid, title: title, can: formats }),
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        // The host's refusals carry their own explanation; showing it beats
+        // inventing a shorter one that says less.
+        toast((res.d.error || 'The host refused the broadcast.') + (res.d.fix ? ' — ' + res.d.fix : ''));
+        return;
       }
-    };
-    pc.createOffer()
-      .then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); })
-      .then(function (o) { signalSend('soffer', viewerId, { type: o.type, sdp: o.sdp }); })
-      .catch(function () {
-        // A swallowed failure here left a zombie in live.peers that blocked
-        // every retry from this viewer. Clean up and say goodbye, so their
-        // side stops waiting instead of sitting on "Connecting…" forever.
-        try { pc.close(); } catch (e) {}
-        if (live && live.peers[viewerId] === pc) delete live.peers[viewerId];
-        signalSend('sbye', viewerId, null);
-      });
-  }
-
-  function watchStart(entry) {
-    if (!REMOTE) return;
-    if (watching) watchStop();
-    if (live) { toast('Stop your own stream before watching another.'); return; }
-    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
-    pc.pendingIce = []; // candidates that arrive before the offer is applied
-    // The video element is created ONCE and reused across renders. render()
-    // rebuilds the whole app, and a fresh <video> each pass needs a fresh
-    // autoplay grant each pass — Safari grants none of them for unmuted
-    // video, so a perfectly connected stream still showed black. Muted
-    // playback is the one thing every browser autoplays; sound is one tap
-    // away, and that tap is the user gesture the browser wants.
-    var el = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
-    el.muted = true;
-    watching = { author: entry.author, cid: entry.cid, pc: pc, el: el, t0: Date.now(), muted: true };
-    pc.onicecandidate = function (ev) {
-      if (ev.candidate && watching) signalSend('sice', watching.author, JSON.parse(JSON.stringify(ev.candidate)));
-    };
-    pc.ontrack = function (ev) {
-      if (!watching) return;
-      watching.media = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
-      watching.el.srcObject = watching.media;
-      watching.el.play().catch(function () {});
+      var ws = streamSocket('push', cid);
+      live = {
+        cid: cid, title: title, stream: stream, ws: ws, recs: [], formats: formats,
+        limits: res.d.limits || {}, t0: Date.now(), state: 'connecting', note: '', el: null, warned: false,
+      };
+      // Build the recorder before announcing anything, and announce ITS idea
+      // of what it will produce. What was asked for and what comes out are not
+      // always the same string, and the viewer's decoder is configured from
+      // this one — a mismatch there is a stream that plays for nobody.
+      var first = makeRecorder(formats[0]);
+      if (!first) {
+        broadcastStop('This browser refused to start the encoder.');
+        return;
+      }
+      live.recs[0] = { index: 0, mime: first.mimeType || formats[0], rec: first, started: false };
       render();
-    };
-    pc.onconnectionstatechange = function () {
-      if (!watching || watching.pc !== pc) return;
-      if (pc.connectionState === 'failed') {
-        watchStop();
-        toast('Could not reach the stream — no path between your networks, and no relay configured. Guide → call reachability explains it.');
+      ws.onopen = function () {
+        ws.send(JSON.stringify({ t: 'auth', key: res.d.key, mime: live.recs[0].mime }));
+      };
+      ws.onmessage = function (ev) {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.t === 'ready') {
+          startRendition(0);
+          live.state = 'live'; render();
+          toast('You are live. Anyone on the network can join from the Live tab.');
+        } else if (m.t === 'need') {
+          addRendition(m.mime);
+        } else if (m.t === 'drop') {
+          dropRendition(m.mime);
+        } else if (m.t === 'error') {
+          broadcastStop(m.why || 'The host stopped the broadcast.');
+        }
+      };
+      ws.onclose = function (e) {
+        if (!live || live.state === 'stopping') return;
+        broadcastStop((e && e.reason) || 'The connection to the host closed, so the broadcast ended.');
+      };
+    }).catch(function () {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      toast('Could not reach the host to start the broadcast.');
+    });
+  }
+
+  function makeRecorder(mime) {
+    if (!live) return null;
+    var opts = { mimeType: mime, videoBitsPerSecond: 1200000, audioBitsPerSecond: 64000 };
+    try { return new MediaRecorder(live.stream, opts); }
+    catch (e) {
+      try { return new MediaRecorder(live.stream, { mimeType: mime }); } catch (e2) { return null; }
+    }
+  }
+
+  function startRendition(index) {
+    if (!live || !live.recs[index] || live.recs[index].started) return;
+    var rec = live.recs[index].rec;
+    rec.ondataavailable = function (ev) {
+      if (!live || !ev.data || !ev.data.size || live.ws.readyState !== 1) return;
+      // An upload that cannot keep up shows as the socket's queue growing. It
+      // is better to say so and stop than to let it grow until the tab dies
+      // with no explanation at all.
+      var queued = live.ws.bufferedAmount;
+      if (queued > 12 * 1048576) { broadcastStop('Your upload could not keep up with the video, so the broadcast stopped.'); return; }
+      if (queued > 4 * 1048576 && !live.warned) {
+        live.warned = true;
+        toast('Your upload is falling behind the video — viewers may see it stall.');
       }
+      // One byte in front says which format these bytes belong to, so a single
+      // ordered socket carries every rendition. Two sockets would race, and
+      // media that arrives out of order does not decode.
+      live.ws.send(new Blob([new Uint8Array([index]), ev.data]));
     };
-    // Knock until the offer arrives. One knock was one mailbox entry: if it
-    // crossed with a goodbye, or the broadcaster's tab was asleep when it
-    // landed, the viewer waited on a stream that would never call back.
-    // Re-knocking is idempotent — the broadcaster rebuilds the connection
-    // for whoever knocks — and stops as soon as the offer is in.
-    signalSend('swatch', entry.author, null);
-    signalTick(true);
-    watching.knock = setInterval(function () {
-      if (!watching || watching.pc !== pc) return;
-      if (!pc.remoteDescription) signalSend('swatch', entry.author, null);
-    }, 5000);
-    // And give up honestly rather than connecting forever: the likeliest
-    // reason nothing answers is that the broadcaster's phone locked, which
-    // kills their timers and soon their heartbeat.
-    watching.deadline = setTimeout(function () {
-      if (!watching || watching.pc !== pc || watching.media) return;
-      watchStop();
-      toast('The stream did not answer within 45 seconds. The broadcaster may have locked their screen or backgrounded the app — broadcasting stops when the phone sleeps.');
-    }, 45000);
+    try { rec.start(400); } catch (e) { broadcastStop('The encoder refused to start.'); return; }
+    live.recs[index].started = true;
+  }
+
+  /**
+   * A viewer turned up who cannot decode what is being sent. The host asks for
+   * a format they can, and it is only started now — nobody's upload is spent
+   * on a second copy nobody is watching.
+   */
+  function addRendition(mime) {
+    if (!live || live.formats.indexOf(mime) < 0) return;
+    for (var i = 0; i < live.recs.length; i++) if (live.recs[i] && live.recs[i].mime === mime) return;
+    var index = live.recs.length;
+    if (index >= 2) return;
+    var rec = makeRecorder(mime);
+    if (!rec) return;
+    live.recs[index] = { index: index, mime: rec.mimeType || mime, rec: rec, started: false };
+    live.ws.send(JSON.stringify({ t: 'rendition', i: index, mime: live.recs[index].mime }));
+    startRendition(index);
+    live.note = 'Also sending ' + fmtShort(mime) + ', because somebody joined on a device that cannot play ' + fmtShort(live.formats[0]) + '.';
     render();
   }
 
+  function dropRendition(mime) {
+    if (!live) return;
+    for (var i = 1; i < live.recs.length; i++) {
+      if (live.recs[i] && live.recs[i].mime === mime) {
+        try { live.recs[i].rec.stop(); } catch (e) {}
+        live.recs[i] = null;
+        live.note = '';
+        render();
+      }
+    }
+  }
+
+  // ── watching ─────────────────────────────────────────────────────────────
+
   function watchStop() {
     if (!watching) return;
-    clearInterval(watching.knock);
-    clearTimeout(watching.deadline);
-    signalSend('sbye', watching.author, null);
-    try { watching.pc.close(); } catch (e) {}
+    try { watching.ws.close(); } catch (e) {}
+    if (watching.objectUrl) { try { URL.revokeObjectURL(watching.objectUrl); } catch (e) {} }
     watching = null;
     render();
   }
 
-  /** Stream signals, routed by sender — the mailbox already stamps `from`. */
-  function onStreamSignal(s) {
-    if (s.kind === 'swatch') {
-      if (live) serveViewer(s.from);
+  function watchStart(entry) {
+    if (!REMOTE) { toast('Watching a live stream needs the hosted network.'); return; }
+    if (live) { toast('End your own broadcast before joining another.'); return; }
+    if (watching) watchStop();
+    var playable = canPlayStream();
+    if (!playable.length) {
+      toast('This browser cannot play a relayed live stream — it has no MediaSource. Everything else in the app still works.');
       return;
     }
-    if (s.kind === 'soffer') {
-      if (!watching || watching.author !== s.from) return;
-      var pc = watching.pc;
-      pc.setRemoteDescription(s.payload)
-        .then(function () {
-          (pc.pendingIce || []).splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
-          return pc.createAnswer();
-        })
-        .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
-        .then(function (a) { signalSend('sanswer', s.from, { type: a.type, sdp: a.sdp }); })
-        .catch(function () {});
-      return;
-    }
-    if (s.kind === 'sanswer') {
-      var vpc = live && live.peers[s.from];
-      if (vpc) {
-        vpc.setRemoteDescription(s.payload).then(function () {
-          // Candidates that shared a poll batch with this answer waited here.
-          // setRemoteDescription is asynchronous, so while the batch was being
-          // processed remoteDescription was still null and every one of the
-          // viewer's candidates was thrown away — the broadcaster then knew no
-          // address for the viewer, and over any real NAT the stream never
-          // connected. The call path has had this buffer from day one; the
-          // stream path lacked it, which is most of why calls worked between
-          // the same two machines that could not stream.
-          (vpc.pendingIce || []).splice(0).forEach(function (c) { vpc.addIceCandidate(c).catch(function () {}); });
-        }).catch(function () {});
+    // One element, kept on the state object, so a re-render cannot replace it
+    // and restart playback.
+    var el = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
+    el.muted = true;
+    watching = {
+      author: entry.author, cid: entry.cid, el: el, t0: Date.now(), muted: true,
+      state: 'connecting', note: 'Opening the connection to the host…',
+      ms: null, sb: null, queue: [], mime: null, bytes: 0, started: false, objectUrl: null,
+      ws: streamSocket('watch', entry.cid),
+    };
+    var ws = watching.ws;
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function () {
+      if (!watching) return;
+      ws.send(JSON.stringify({ t: 'can', list: playable }));
+      watching.note = 'Asking the host for the stream…';
+      render();
+    };
+    ws.onmessage = function (ev) {
+      if (!watching) return;
+      if (typeof ev.data === 'string') {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.t === 'start') beginPlayback(m.mime);
+        else if (m.t === 'wait') { watching.state = 'waiting'; watching.note = m.why || 'Waiting for a format this device can play…'; render(); }
+        // 'hold' means the host has the header but no clean place to start
+        // yet; it lets us in at the broadcaster's next full frame. Saying so
+        // beats a silent wait that looks identical to a failure.
+        else if (m.t === 'hold') { watching.note = (m.why || 'waiting for the next full frame') + '…'; render(); }
+        else if (m.t === 'no') { watching.state = 'refused'; watching.note = m.why || 'The host refused.'; render(); }
+        return;
       }
-      return;
+      watching.bytes += ev.data.byteLength;
+      watching.queue.push(new Uint8Array(ev.data));
+      pumpStream();
+    };
+    ws.onclose = function (e) {
+      if (!watching) return;
+      // A close ALWAYS carries a reason now. The failure this replaces was a
+      // viewer sitting in front of a black rectangle with nothing to read.
+      watching.state = watching.started ? 'ended' : 'failed';
+      watching.note = (e && e.reason) || 'The connection to the host closed.';
+      render();
+    };
+    ws.onerror = function () {
+      if (!watching || watching.started) return;
+      watching.state = 'failed';
+      watching.note = 'Could not open the media connection to the host.';
+      render();
+    };
+    render();
+  }
+
+  function beginPlayback(mime) {
+    if (!watching || !MSE) return;
+    var w = watching;
+    w.mime = mime;
+    w.state = 'buffering';
+    w.note = 'Receiving video…';
+    var ms = new MSE();
+    w.ms = ms;
+    if (window.ManagedMediaSource && ms instanceof window.ManagedMediaSource) {
+      // Safari's variant is attached as an object rather than through a URL,
+      // and it asks for data only while it wants it. Written from the API, not
+      // verified on a real iPhone from here — said plainly rather than claimed.
+      w.el.disableRemotePlayback = true;
+      w.el.srcObject = ms;
+    } else {
+      w.objectUrl = URL.createObjectURL(ms);
+      w.el.src = w.objectUrl;
     }
-    if (s.kind === 'sice') {
-      var target = (live && live.peers[s.from]) || (watching && watching.author === s.from ? watching.pc : null);
-      if (!target) return;
-      // Buffer on the connection the candidate is FOR. The old fallback pushed
-      // into the viewer-side queue whether or not the candidate belonged to
-      // it, which cross-wired connections and dropped broadcaster-side ICE.
-      if (target.remoteDescription) target.addIceCandidate(s.payload).catch(function () {});
-      else (target.pendingIce = target.pendingIce || []).push(s.payload);
-      return;
-    }
-    if (s.kind === 'sbye') {
-      if (watching && watching.author === s.from) { watchStop(); toast('The stream ended.'); }
-      if (live && live.peers[s.from]) {
-        try { live.peers[s.from].close(); } catch (e) {}
-        delete live.peers[s.from];
+    ms.addEventListener('sourceopen', function () {
+      if (!watching || watching.ms !== ms) return;
+      try { watching.sb = ms.addSourceBuffer(mime); }
+      catch (e) {
+        watching.state = 'refused';
+        watching.note = 'This browser said it could play ' + mime + ' and then refused it.';
+        render(); return;
+      }
+      watching.sb.addEventListener('updateend', afterAppend);
+      watching.sb.addEventListener('error', function () {
+        if (!watching) return;
+        watching.state = 'error';
+        watching.note = 'The browser rejected the video data.';
         render();
-      }
+      });
+      pumpStream();
+    });
+    render();
+  }
+
+  /**
+   * Coming back to a hidden tab. Browsers pause a muted video-only stream in
+   * the background, and on return the element would resume minutes behind
+   * with no way for the viewer to know they were not watching the present.
+   */
+  function resumeWatching() {
+    var w = watching;
+    if (!w || !w.el || w.state !== 'playing') return;
+    try {
+      var b = w.el.buffered;
+      if (b.length) w.el.currentTime = b.end(b.length - 1) - 0.5;
+    } catch (e) {}
+    w.el.play().catch(function () {});
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) resumeWatching();
+  });
+
+  function pumpStream() {
+    var w = watching;
+    if (!w || !w.sb || w.sb.updating || !w.queue.length) return;
+    var chunk = w.queue.shift();
+    try { w.sb.appendBuffer(chunk); }
+    catch (e) {
+      if (e && e.name === 'QuotaExceededError') { w.queue.unshift(chunk); evictBuffered(true); }
+      else { w.state = 'error'; w.note = 'The browser rejected the video data: ' + ((e && e.message) || e); render(); }
     }
+  }
+
+  /** Drop what has already been watched: a long broadcast fills the buffer. */
+  function evictBuffered(hard) {
+    var w = watching;
+    if (!w || !w.sb || w.sb.updating) return;
+    var b = w.sb.buffered;
+    if (!b.length) return;
+    var keepFrom = Math.max(b.start(0), (w.el.currentTime || 0) - (hard ? 4 : 20));
+    if (keepFrom > b.start(0) + 1) { try { w.sb.remove(b.start(0), keepFrom); } catch (e) {} }
+  }
+
+  function afterAppend() {
+    var w = watching;
+    if (!w || !w.sb) return;
+    var b;
+    try { b = w.sb.buffered; } catch (e) { return; }
+    if (b.length) {
+      var end = b.end(b.length - 1);
+      if (!w.started) {
+        w.started = true;
+        // A joiner is handed the newest keyframe, which may be a couple of
+        // seconds old. Start there, then stay at the edge — otherwise the
+        // viewer is permanently that far behind and never finds out why.
+        try { w.el.currentTime = b.start(0); } catch (e) {}
+        w.el.play().catch(function () {});
+        w.state = 'playing'; w.note = '';
+        render();
+      } else if (!w.el.paused && end - w.el.currentTime > 3) {
+        // Only chase the edge while actually playing. A browser that paused
+        // the video — Chrome stops muted, video-only media in a background
+        // tab to save power — would otherwise be seeked forward every couple
+        // of seconds for as long as the tab stayed hidden.
+        try { w.el.currentTime = end - 0.5; } catch (e) {}
+      }
+      if (end - b.start(0) > 45) evictBuffered(false);
+    }
+    pumpStream();
   }
 
   function makePc() {
@@ -4639,22 +4856,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // ── broadcaster ────────────────────────────────────────────────────────
     if (live) {
       var secs = Math.round((Date.now() - live.t0) / 1000);
-      var nView = Object.keys(live.peers).length;
+      var mine = null;
+      for (var li = 0; li < liveList.length; li++) if (liveList[li].cid === live.cid) mine = liveList[li];
+      var nView = mine ? mine.viewers : 0;
       var card = h('div', { class: 'card' },
-        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'on air · ' + fmtDur(secs) + ' · ' + nView + ' watching'),
+        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
+          live.state === 'live'
+            ? 'on air · ' + fmtDur(secs) + ' · ' + nView + (nView === 1 ? ' watching' : ' watching')
+            : 'connecting to the host…'),
         h('h2', { text: live.title }));
       // One element, reused across renders — a fresh one each pass restarts
-      // playback and re-asks the autoplay question. Muted: your own camera.
+      // playback and re-asks the autoplay question. Muted: it is your own camera.
       if (!live.el) {
         live.el = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
         live.el.muted = true;
         if (live.stream) live.el.srcObject = live.stream;
       }
       card.appendChild(live.el);
-      live.el.play().catch(function () {});
-      card.appendChild(h('p', { class: 'smallnote', text: 'Every viewer gets their own connection from this browser, so your upload is multiplied by the audience. That is fine for a handful of people and will not scale past it — there is no media server here.' }));
+      setTimeout(function () {
+        if (live && live.el && live.el.paused) live.el.play().catch(function () {});
+      }, 0);
+      var sending = live.recs.filter(Boolean).map(function (r) { return fmtShort(r.mime); }).join(' + ');
+      card.appendChild(h('p', { class: 'smallnote', text:
+        'Your video goes to the host once' + (sending ? ' as ' + sending : '') + ', and the host sends it on to everyone watching. '
+        + 'Your upload stays the same whether one person watches or a hundred'
+        + (live.limits.maxViewers ? ' — this host will carry up to ' + live.limits.maxViewers + ' viewers per stream' : '') + '.' }));
+      if (live.note) card.appendChild(h('p', { class: 'smallnote', text: live.note }));
       card.appendChild(h('div', { class: 'mini-form persistent' },
-        h('button', { class: 'btn small', text: 'End stream', onclick: function () { broadcastStop('Stream ended. The act stays in the record; the video was never in it.'); } })));
+        h('button', { class: 'btn small', text: 'End stream', onclick: function () {
+          broadcastStop('Stream ended. The act stays in the record; the video was never in it.');
+        } })));
       wrap.appendChild(card);
       if (live.cid) wrap.appendChild(streamRoom(st, live.cid));
       return wrap;
@@ -4663,27 +4894,46 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // ── viewer ─────────────────────────────────────────────────────────────
     if (watching) {
       var w = h('div', { class: 'card' },
-        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'watching ' + (st.handles[watching.author] || watching.author)));
-      var v = watching.el;
-      if (watching.media && v.srcObject !== watching.media) v.srcObject = watching.media;
-      w.appendChild(v);
-      // Re-appending pauses media in some engines; muted play is always
-      // allowed, so this resumes without needing a fresh gesture.
-      if (watching.media) v.play().catch(function () {});
-      if (!watching.media) {
-        w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster… knocking every few seconds; if nothing answers within 45s this gives up and says why.' }));
+        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
+          'watching ' + (st.handles[watching.author] || watching.author)));
+      w.appendChild(watching.el);
+      // Deferred on purpose. render() builds this card detached and inserts it
+      // afterwards, and moving a media element between parents pauses it — so
+      // a play() called here would be undone a moment later by the insertion.
+      // The symptom was a viewer with a full buffer, sound button and all,
+      // looking at a still frame.
+      if (watching.state === 'playing') {
+        setTimeout(function () {
+          if (watching && watching.el && watching.el.paused) watching.el.play().catch(function () {});
+        }, 0);
+      }
+      // Every state says something. The failure this replaced was a black
+      // rectangle with no text anywhere on the screen to explain it.
+      if (watching.note) {
+        w.appendChild(h('p', { class: watching.state === 'refused' || watching.state === 'failed' || watching.state === 'error' ? 'warn' : 'smallnote', text: watching.note }));
+      }
+      if (watching.state === 'playing' && watching.mime) {
+        w.appendChild(h('p', { class: 'smallnote', text:
+          'Relayed by the host as ' + fmtShort(watching.mime) + ' · ' + Math.round(watching.bytes / 1024) + ' KB received' }));
       }
       var vrow = h('div', { class: 'mini-form persistent' },
         h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }));
-      if (watching.media && watching.muted) {
-        // Sound cannot start by itself — the browser requires the tap, so the
-        // tap is a button instead of a mystery.
+      if (watching.state === 'playing' && watching.muted) {
+        // Sound cannot start by itself — the browser requires a tap, so the
+        // tap is a button rather than a mystery.
         vrow.insertBefore(h('button', { class: 'btn small primary', text: '🔊 Sound on', onclick: function () {
           if (!watching) return;
           watching.muted = false;
           watching.el.muted = false;
           watching.el.play().catch(function () {});
           render();
+        } }), vrow.firstChild);
+      }
+      if (watching.state === 'failed' || watching.state === 'ended') {
+        vrow.insertBefore(h('button', { class: 'btn small primary', text: 'Try again', onclick: function () {
+          var again = { author: watching.author, cid: watching.cid };
+          watchStop();
+          watchStart(again);
         } }), vrow.firstChild);
       }
       w.appendChild(vrow);
@@ -4704,25 +4954,33 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('div', { class: 'grow' },
           h('b', {}, st.handles[e.author] || e.author, ' ', h('span', { class: 'live-dot' })),
           h('div', { class: 'smallnote', text: e.title || 'live' }),
-          h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000)) })),
+          h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000))
+            + (e.kbps ? ' · ' + e.kbps + ' kbps' : '') })),
         h('button', { class: 'btn small primary', text: 'Join', onclick: function () { watchStart(e); } }));
       listCard.appendChild(row);
     });
     wrap.appendChild(listCard);
 
+    var canRec = canRecord();
     var title = h('input', { type: 'text', placeholder: 'what is this stream about?', maxlength: '200', style: 'flex:1' });
     var vid = h('input', { type: 'checkbox' });
     vid.checked = true;
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+    var goCard = h('div', { class: 'card', style: 'margin-top:14px' },
       h('p', { class: 'eyebrow', text: 'go live · −θ' }),
-      h('p', { class: 'smallnote', text: 'Going live is an act: it costs θ and mints a node, which is what lets people react and comment on the stream with the ordinary machinery — priced and recorded like any other gesture. The video itself is peer-to-peer and never enters the record.' }),
-      h('div', { class: 'mini-form' }, title,
+      h('p', { class: 'smallnote', text: 'Going live is an act: it costs θ and mints a node, which is what lets people react and comment on the stream with the ordinary machinery — priced and recorded like any other gesture. The video itself goes through the host and never enters the record.' }));
+    if (!canRec.length) {
+      goCard.appendChild(h('p', { class: 'warn', text: 'This browser cannot encode video for streaming, so it cannot broadcast. It can still watch.' }));
+    } else {
+      goCard.appendChild(h('p', { class: 'smallnote', text: 'This browser can send ' + canRec.map(fmtShort).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' and ') + '. A second format is only started if somebody joins on a device that needs it.' }));
+      goCard.appendChild(h('div', { class: 'mini-form' }, title,
         h('label', { class: 'smallnote' }, vid, ' camera'),
         h('button', { class: 'btn small primary', text: 'Start streaming', onclick: function () {
           var t = title.value.trim();
           if (!t) { toast('Say what the stream is about first.'); return; }
           broadcastStart(t, vid.checked);
-        } }))));
+        } })));
+    }
+    wrap.appendChild(goCard);
     return wrap;
   }
 
