@@ -775,7 +775,11 @@ function applyAct(act, auth, ip) {
     for (let ai = 1; ai < acts.length; ai++) {
       const a = acts[ai];
       if (a.t === 'post' && a.author === act.id && !a.redacted) redactPostAct(a, ai);
-      else if ((a.t === 'review' && a.author === act.id) || (a.t === 'dm' && (a.from === act.id || a.to === act.id))) {
+      // ONLY what this account authored. Blanking a message because it was
+      // addressed to the leaver destroyed the counterparty's own record — their
+      // words, erased by someone else's decision. The payload controller is the
+      // act's author and nobody else.
+      else if ((a.t === 'review' && a.author === act.id) || (a.t === 'dm' && a.from === act.id)) {
         if (a.text) { a.text = ''; a.redacted = true; }
       }
     }

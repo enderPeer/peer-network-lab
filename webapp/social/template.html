@@ -88,7 +88,12 @@ button { font-family: var(--body); cursor: pointer; }
 }
 .wordmark { font-family: var(--display); font-weight: 700; text-transform: uppercase; font-size: 24px; margin: 0; letter-spacing: 0.04em; }
 .wordmark em { font-style: normal; color: var(--ember); }
-.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+/* Eight tabs do not fit a phone, and the page clips horizontal overflow, so
+   the last ones were unreachable rather than merely off-screen — reported as
+   "the Live tab is not shown". The row scrolls on its own instead. */
+.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: 0 0 auto; white-space: nowrap; }
 .tabs button { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 14px; border-radius: 7px; font-weight: 600; }
 .tabs button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
 .switcher { display: flex; gap: 8px; align-items: center; }
@@ -597,11 +602,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var netTarget = null; // network tab: whose reach we are explaining
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
-  var mode = 'liquid';
+  // Geek is the default for everyone now, new accounts included. Simple mode
+  // was the front door and it does not carry the newer surfaces — Live has no
+  // tab there at all, which is why testers on several devices reported the
+  // stream tab simply missing.
+  var mode = 'geek';
   var pins = {};
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
   try { who = JSON.parse(localStorage.getItem(LS_WHO)); } catch (e) { who = null; }
   try { var m0 = JSON.parse(localStorage.getItem(LS_MODE)); if (m0 === 'geek' || m0 === 'liquid') mode = m0; } catch (e) {}
+  // One-time migration: anyone still parked in simple mode from before this
+  // change lands in geek once. A deliberate switch after that is respected —
+  // the migration only ever runs a single time per browser.
+  try {
+    if (!localStorage.getItem('peer-sandbox-geek-default-v1')) {
+      localStorage.setItem('peer-sandbox-geek-default-v1', '1');
+      mode = 'geek';
+      localStorage.setItem(LS_MODE, JSON.stringify(mode));
+    }
+  } catch (e) {}
   // PINs live in sessionStorage only: closing the browser forgets them, so a
   // shared or stolen device never carries them. (One-time migration wipes the
   // old localStorage copy.)

@@ -118,7 +118,9 @@ function replayUncached(acts) {
     if (pact.t === 'deleteAccount') deletedActors[pact.id] = true;
     else if (pact.t === 'deletePost') deletedPostIdx[pact.target] = true;
   }
-  var mutedContent = {}; // content ids whose acts are muted
+  // Content whose payload was removed. Read for display and to refuse edits;
+  // it no longer propagates, because muting is never inherited from a target.
+  var mutedContent = {};
   var actContent = {};   // act index -> content id (posts only; edit targets)
   var postMeta = {};     // cid -> {idx, ts, edited} for the edit/delete UI
   // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
@@ -158,9 +160,18 @@ function replayUncached(acts) {
 
   for (var i = 0; i < acts.length; i++) {
     var a = acts[i];
+    // An act is muted only when its OWN author removed it — by deleting that
+    // act, or by deleting the account that authored it. It is never muted
+    // because of what it points at.
+    //
+    // The cascade that used to live here mutedeverything targeting deleted
+    // content, so deleting one post erased every comment other people had
+    // written under it, and a message was blanked for being addressed to
+    // someone who left. Those are other authors' records. Commentary outlives
+    // its subject: a comment quoting a payload persists through that payload's
+    // removal, because the surviving record is the reviewer's own act.
     var mutedA = !!(deletedActors[a.author] || deletedActors[a.from] || deletedActors[a.id] ||
-      deletedPostIdx[i] || (typeof a.target === 'string' && mutedContent[a.target]) ||
-      (a.t === 'dm' && deletedActors[a.to]));
+      deletedPostIdx[i]);
     if (a.t === 'seedWorld') {
       addActor('alice', 'Alice', 3, 10, 0);
       addActor('bob', 'Bob', 2, 8, 0);
@@ -333,7 +344,7 @@ function replayUncached(acts) {
     } else if (a.t === 'review') {
       counter++;
       var cmid = 'c' + counter;
-      if (mutedA) mutedContent[cmid] = true; // cascades to replies on this comment
+      if (mutedA) mutedContent[cmid] = true;
       g.addNode({ id: cmid, kind: 'Comment', label: mutedA ? '[deleted]' : 'Review ' + counter });
       if (!mutedA) {
         g.appendHyper(
