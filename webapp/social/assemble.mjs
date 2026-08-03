@@ -54,10 +54,63 @@ const template = readFileSync(resolve(here, 'template.html'), 'utf8');
 if (!template.includes('/*__ENGINE__*/')) throw new Error('template marker missing');
 if (!template.includes('/*__REPLAY__*/')) throw new Error('replay marker missing');
 
+// A COMPLETE document, head included. It used to emit body content only and
+// rely on the host wrapping it at request time — which meant the copy served
+// from GitHub Pages had no <head> and therefore no viewport meta at all, so
+// Safari laid it out at ~980px and scaled the whole app down on every phone.
+// The stable public address was the one that suffered most from that.
+//
+// iOS needs more than the manifest: it takes its home-screen icon from
+// apple-touch-icon, its title from apple-mobile-web-app-title, and shows a
+// white flash on launch unless every splash size is declared with an exact
+// media query. `viewport-fit=cover` plus safe-area insets is what keeps the
+// layout clear of the notch and the home indicator.
+const splashes = [
+  [1290, 2796, 430, 932, 3], [1179, 2556, 393, 852, 3], [1284, 2778, 428, 926, 3],
+  [1170, 2532, 390, 844, 3], [1125, 2436, 375, 812, 3], [1242, 2688, 414, 896, 3],
+  [828, 1792, 414, 896, 2], [1242, 2208, 414, 736, 3], [750, 1334, 375, 667, 2],
+  [1536, 2048, 768, 1024, 2], [1668, 2388, 834, 1194, 2], [2048, 2732, 1024, 1366, 2],
+];
+const splashLinks = splashes.map(([w, h, cw, ch, r]) =>
+  `<link rel="apple-touch-startup-image" href="icons/splash-${w}x${h}.png" media="(device-width:${cw}px) and (device-height:${ch}px) and (-webkit-device-pixel-ratio:${r}) and (orientation:portrait)">`,
+).join('\n');
+
+const head = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110">
+<meta name="description" content="A social network whose feed is mathematics you can check. Influence is commitment, not attention.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Peer">
+<meta name="format-detection" content="telephone=no">
+${splashLinks}
+</head>
+<body>`;
+
+const tail = `
+<script>
+// Registered only where it can work: a service worker needs a secure context,
+// and file:// or a plain-http tunnel would just throw on every load.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+}
+</script>
+</body>
+</html>`;
+
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, template
+writeFileSync(out, head + template
   .replace('/*__ENGINE__*/', () => engine)
-  .replace('/*__REPLAY__*/', () => replay), 'utf8');
+  .replace('/*__REPLAY__*/', () => replay) + tail, 'utf8');
 console.log('wrote', out, '(engine', engine.length, '+ replay', replay.length,
   'bytes; replay source', replaySrc.length, '→', replay.length, ')');
 console.log('wrote', enginePath, '(node engine', nodeBundle.outputFiles[0].text.length, 'bytes)');

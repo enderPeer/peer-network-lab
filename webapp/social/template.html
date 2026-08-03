@@ -166,6 +166,30 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+/* ── installed on a phone ────────────────────────────────────────────────
+   In standalone mode there is no Safari chrome, so the app owns the whole
+   screen including the strip under the notch and the home-indicator bar.
+   Without these insets the top bar sits under the clock and the bottom nav
+   under the swipe bar. 100vh is also wrong on iOS while the URL bar animates;
+   -webkit-fill-available is the value that actually matches the window. */
+body[data-standalone='1'] .shell { padding-top: env(safe-area-inset-top, 0px); }
+body[data-standalone='1'] .topbar { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+body[data-standalone='1'] .lq-head { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+}
+@supports (-webkit-touch-callout: none) {
+  body[data-standalone='1'] { min-height: -webkit-fill-available; }
+}
+/* Safari has no install prompt, so the only way in is Share → Add to Home
+   Screen. Saying so is the whole feature. */
+.a2hs { position: fixed; left: 10px; right: 10px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 500;
+  background: #211d1a; color: #efe9df; border: 1px solid rgba(255,255,255,0.16); border-radius: 12px;
+  padding: 12px 14px; box-shadow: 0 10px 34px rgba(0,0,0,0.5); font-size: 13.5px; line-height: 1.45; }
+.a2hs b { display: block; margin-bottom: 3px; }
+.a2hs .row { display: flex; gap: 8px; margin-top: 9px; }
+.a2hs button { border: 1px solid rgba(255,255,255,0.22); background: transparent; color: #efe9df;
+  border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 13px; cursor: pointer; }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d63b2f; animation: livepulse 1.4s infinite; vertical-align: middle; }
 @keyframes livepulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
 .stream-video { display: block; width: 100%; max-height: 60vh; background: #000; border-radius: 10px; margin: 8px 0; }
@@ -885,6 +909,58 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) { return d && d.url ? String(d.url).replace(/\/+$/, '') : ''; })
       .catch(function () { return ''; });
+  }
+
+  // ── Installed-app behaviour ───────────────────────────────────────────────
+  var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS lies
+  var standalone = !!(window.navigator.standalone
+    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+
+  function markStandalone() {
+    document.body.setAttribute('data-standalone', standalone ? '1' : '0');
+  }
+
+  /**
+   * In standalone mode there is no back button. A normal link would navigate
+   * the whole app away with no way home, stranding the user in a chromeless
+   * window — so anything leaving this origin opens outside instead.
+   */
+  function guardExternalLinks() {
+    if (!standalone) return;
+    document.addEventListener('click', function (ev) {
+      var a = ev.target && ev.target.closest && ev.target.closest('a[href]');
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (!/^https?:/i.test(href)) return;
+      if (new URL(href, location.href).origin === location.origin) return;
+      ev.preventDefault();
+      window.open(href, '_blank', 'noopener');
+    }, true);
+  }
+
+  var A2HS_KEY = 'peer-a2hs-dismissed-v1';
+  /**
+   * Safari fires no install event and shows no install button, so an app that
+   * does not say "Share → Add to Home Screen" simply never gets installed.
+   * Shown once, on iOS Safari only, and only when not already installed.
+   */
+  function offerInstall() {
+    if (!isIOS || standalone) return;
+    try { if (localStorage.getItem(A2HS_KEY)) return; } catch (e) { return; }
+    // Only Safari can install; Chrome/Firefox on iOS cannot add to home screen.
+    if (!/Safari/.test(navigator.userAgent) || /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent)) return;
+    setTimeout(function () {
+      var card = h('div', { class: 'a2hs' },
+        h('b', { text: 'Install Peer on this phone' }),
+        h('div', { text: 'Tap the Share button below, then “Add to Home Screen”. It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.' }),
+        h('div', { class: 'row' },
+          h('button', { text: 'Got it', onclick: function () {
+            try { localStorage.setItem(A2HS_KEY, '1'); } catch (e) {}
+            card.remove();
+          } })));
+      document.body.appendChild(card);
+    }, 4000);
   }
 
   function boot() {
@@ -1664,6 +1740,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // If this identity was deleted (possibly from another device), log out.
     if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
     saveView(); // where you are standing survives a reload
+    markStandalone();
     setTimeout(paintViewChips, 0); // counts already known apply to the new DOM
     root.innerHTML = '';
     dismissPinDialog(); // settle it before wiping, never orphan the promise
@@ -4239,6 +4316,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     overlay.appendChild(drawer);
   }
 
+  markStandalone();
+  guardExternalLinks();
+  offerInstall();
   boot();
 })();
 </script>

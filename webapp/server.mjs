@@ -364,8 +364,12 @@ const SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
   // img-src/media-src must allow blob: — host-served media is fetched and
   // rendered from object URLs; data: covers the local sandbox's inline images.
+  // script-src gains 'self' and worker-src/manifest-src appear so the installed
+  // app can register its service worker and read its manifest; without them
+  // default-src 'none' silently refuses both and the install just does nothing.
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; " +
+    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; " +
+    "worker-src 'self'; manifest-src 'self'; " +
     "img-src 'self' data: blob:; media-src 'self' data: blob:; base-uri 'none'; form-action 'none'",
 };
 
@@ -848,10 +852,9 @@ function pageDoc() {
   const stat = statSync(PAGE);
   const key = stat.mtimeMs + ':' + stat.size;
   if (pageCache && pageCache.key === key) return pageCache;
-  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-    + '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-    + '<meta name="theme-color" content="#131110"></head><body>'
-    + readFileSync(PAGE, 'utf8') + '</body></html>';
+  // The build emits a complete document now — head, manifest link, iOS tags and
+  // all — so wrapping it again here would nest a second <html> inside the body.
+  const html = readFileSync(PAGE, 'utf8');
   const gz = gzipSync(Buffer.from(html), { level: 9 });
   pageCache = { key, html, gz, etag: '"' + createHash('sha256').update(html).digest('hex').slice(0, 16) + '"' };
   return pageCache;
@@ -1344,6 +1347,39 @@ const server = createServer((req, res) => {
       signalBoxes.set(msg.to, box);
       json(res, 200, { ok: true });
     });
+    return;
+  }
+  // ── PWA assets ────────────────────────────────────────────────────────
+  // Shared with the published site, which is where the app should actually be
+  // installed from: a home-screen icon must point at an address that survives,
+  // and this host's tunnel domain changes on every restart. Served here anyway
+  // so nothing 404s and the install can be tested locally.
+  if (req.method === 'GET' && (url.pathname === '/manifest.webmanifest' || url.pathname === '/sw.js' || url.pathname.startsWith('/icons/'))) {
+    const SITE = resolve(here, '../site');
+    const rel = url.pathname.replace(/^\//, '');
+    if (rel.includes('..')) { res.writeHead(400); res.end('bad path'); return; }
+    try {
+      if (url.pathname === '/manifest.webmanifest') {
+        // The published copy uses relative paths under /peer-network-lab/;
+        // served from this host the app lives at the root instead.
+        const m = JSON.parse(readFileSync(join(SITE, 'manifest.webmanifest'), 'utf8'));
+        m.start_url = '/';
+        m.scope = '/';
+        json(res, 200, m);
+        return;
+      }
+      const buf = readFileSync(join(SITE, rel));
+      const type = rel.endsWith('.png') ? 'image/png' : 'application/javascript';
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Cache-Control': rel.startsWith('icons/') ? 'public, max-age=86400' : 'no-cache',
+        ...SECURITY_HEADERS,
+      });
+      res.end(buf);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('not found — run: node social/make-icons.mjs');
+    }
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/live') {
