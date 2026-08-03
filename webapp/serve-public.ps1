@@ -39,6 +39,15 @@ if (Test-Path $tokFile) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tokFile -Raw)
 # (gitignored) data directory rather than a checked-in config, so a restart
 # keeps adverts running and no path exists by which it reaches the repository.
 # It is checksum-validated by the host at boot; a bad one turns adverts off.
+# Passkeys are bound to an origin. Behind the tunnel that is the public
+# hostname, not localhost, and a wrong value makes every passkey silently
+# unusable - so it is read from a file rather than guessed.
+$rpFile = Join-Path $logDir 'rp-origin.txt'
+if (Test-Path $rpFile) {
+  $rp = (Get-Content $rpFile -Raw).Trim()
+  $env:PEER_RP_ORIGIN = $rp
+  $env:PEER_RP_ID = ($rp -replace '^https?://', '' -replace '/.*$', '')
+}
 $btcFile = Join-Path $logDir 'btc-address.txt'
 if (Test-Path $btcFile) { $env:PEER_BTC_ADDRESS = (Get-Content $btcFile -Raw).Trim() }
 Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `
