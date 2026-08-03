@@ -107,10 +107,34 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 </body>
 </html>`;
 
-mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, head + template
+const page = head + template
   .replace('/*__ENGINE__*/', () => engine)
-  .replace('/*__REPLAY__*/', () => replay) + tail, 'utf8');
+  .replace('/*__REPLAY__*/', () => replay) + tail;
+
+// Refuse to emit a page whose script does not parse.
+//
+// This build only ever concatenated text, so a single missing bracket produced
+// a perfectly valid-looking file that rendered a blank screen — and it shipped,
+// because everything checked afterwards was server-side: the tests never load
+// the page, and the APIs answer fine while the app is dead. The failure was
+// silent in every direction until someone opened it in a browser.
+//
+// One parse of each <script> block costs milliseconds and turns that class of
+// mistake into a failed build with a line number.
+for (const [i, block] of page.split('<script>').slice(1).entries()) {
+  const body = block.split('</script>')[0];
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function(body);
+  } catch (e) {
+    console.error(`\nBUILD FAILED — script block ${i} does not parse: ${e.message}`);
+    console.error('Nothing was written. The page would have rendered blank.\n');
+    process.exit(1);
+  }
+}
+
+mkdirSync(dirname(out), { recursive: true });
+writeFileSync(out, page, 'utf8');
 console.log('wrote', out, '(engine', engine.length, '+ replay', replay.length,
   'bytes; replay source', replaySrc.length, '→', replay.length, ')');
 console.log('wrote', enginePath, '(node engine', nodeBundle.outputFiles[0].text.length, 'bytes)');

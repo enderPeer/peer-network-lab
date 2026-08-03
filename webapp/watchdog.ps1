@@ -33,6 +33,12 @@ while ($true) {
     # which the token could reach the repository.
     $tokFile = Join-Path $logDir 'operator-token.txt'
     if (Test-Path $tokFile) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tokFile -Raw).Trim() }
+    # The payment address for adverts, like the operator token: a file in the
+    # (gitignored) data directory rather than a checked-in config, so a restart
+    # keeps adverts running and no path exists by which it reaches the repository.
+    # It is checksum-validated by the host at boot; a bad one turns adverts off.
+    $btcFile = Join-Path $logDir 'btc-address.txt'
+    if (Test-Path $btcFile) { $env:PEER_BTC_ADDRESS = (Get-Content $btcFile -Raw).Trim() }
     Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `
       -RedirectStandardOutput (Join-Path $logDir 'host.log') -RedirectStandardError (Join-Path $logDir 'host.err.log')
   }

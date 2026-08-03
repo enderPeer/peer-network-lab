@@ -16,6 +16,25 @@
 // If any of that stops being true, the network's central claim becomes
 // marketing copy. It lives in its own file, in its own storage, for exactly
 // that reason: the separation should be visible, not remembered.
+//
+// ── Targeting, and the one line it must not cross ─────────────────────────
+//
+// An advertiser picks WHERE (which tab) and WHAT SUBJECT (which commons tags).
+// Both are matched IN THE READER'S BROWSER, against the act log that browser
+// already holds — because everything here is public, the client can answer
+// "have I engaged with #photography?" without anyone telling the server who it
+// is. So:
+//
+//   - no profile is built anywhere, server-side or otherwise;
+//   - the host never learns which reader matched which advert;
+//   - the reader can see exactly why they were shown something, and the card
+//     says so;
+//   - it keeps working in the offline sandbox, where there is no server at all.
+//
+// The line it must not cross: the address watcher exists for abuse control and
+// is never a targeting input. Targeting people by where they connect from is
+// precisely the surveillance business this network is an argument against, and
+// the IP data is deliberately kept where no advertising code can reach it.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 
@@ -87,8 +106,11 @@ export function validBtcAddress(addr) {
 }
 
 // ── Storage: its own file, never the act log ──────────────────────────────
+const PLACEMENTS = ['feed', 'live', 'record'];
 const MAX_TEXT = 280;
 const MAX_ADS = 500;
+
+export { PLACEMENTS };
 
 export function createAdStore(file, opts = {}) {
   const priceSatsPerDay = Math.max(1, Number(opts.priceSatsPerDay) || 20000);
@@ -119,6 +141,11 @@ export function createAdStore(file, opts = {}) {
   function publicView(a) {
     return {
       id: a.id, text: a.text, url: a.url, label: 'paid placement',
+      // Sent to every reader, matched by none of them on the server. The
+      // browser decides whether this applies to it, which is why nobody has to
+      // be identified for targeting to work.
+      placement: a.placement || [],
+      tags: a.tags || [],
       startsAt: a.startsAt, endsAt: a.endsAt,
       note: 'Paid, not earned. This is not an act: it has no standing, no place in the graph and no effect on any feed score. Nothing here can be bought with money except this box.',
     };
@@ -145,7 +172,7 @@ export function createAdStore(file, opts = {}) {
 
     get(id) { return ads.find((a) => a.id === id) || null; },
 
-    submit({ text, url, days, contact }, address) {
+    submit({ text, url, days, contact, placement: wantPlacement, tags: wantTags }, address) {
       if (!address) {
         return { error: 'this instance is not accepting paid placements — the operator has set no payment address' };
       }
@@ -157,10 +184,27 @@ export function createAdStore(file, opts = {}) {
       if (!/^https?:\/\/[^\s]+$/i.test(u)) return { error: 'url must be a plain http(s) link' };
       if (u.length > 300) return { error: 'url is ' + u.length + ' characters; the limit is 300' };
       if (ads.length >= MAX_ADS) return { error: 'the advert queue is full' };
+      // Placement: which tabs. Empty means everywhere.
+      const places = Array.isArray(wantPlacement) ? wantPlacement : [];
+      const placement = places
+        .map((x) => String(x).toLowerCase().trim())
+        .filter((x) => PLACEMENTS.includes(x));
+      if (places.length && !placement.length) {
+        return { error: 'placement must be any of: ' + PLACEMENTS.join(', ') };
+      }
+      // Subject: commons tags the reader has engaged with. Names only — the
+      // matching happens in their browser, and the host never learns the answer.
+      const rawTags = Array.isArray(wantTags) ? wantTags : [];
+      const tags = [];
+      for (const t of rawTags.slice(0, 6)) {
+        const clean = String(t).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+        if (clean && !tags.includes(clean)) tags.push(clean);
+      }
       const seq = ads.length + 1;
       const id = 'ad' + seq + '-' + createHash('sha256').update(seq + ':' + t + ':' + u).digest('hex').slice(0, 8);
       const ad = {
         id, text: t, url: u, days: d,
+        placement, tags,
         contact: String(contact ?? '').slice(0, 120),
         priceSats: quote(d, seq),
         address,

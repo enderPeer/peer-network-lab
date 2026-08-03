@@ -104,7 +104,7 @@ input { font: inherit; background: var(--card2); color: var(--ink); border: 1px 
       <div id="adCfg" class="note"></div>
       <div class="scroll" style="margin-top:10px">
         <table id="ads">
-          <thead><tr><th>id</th><th>text</th><th>link</th><th class="r">sats</th><th>status</th><th></th></tr></thead>
+          <thead><tr><th>id</th><th>text</th><th>link</th><th>aimed at</th><th class="r">sats</th><th>status</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -244,7 +244,7 @@ input { font: inherit; background: var(--card2); color: var(--ink); border: 1px 
 
     var b = $('ads').querySelector('tbody'); b.innerHTML = '';
     if (!d.ads.length) {
-      var tr0 = el('tr'); var td0 = el('td', 'dim', 'No proposals yet.'); td0.colSpan = 6; tr0.appendChild(td0); b.appendChild(tr0);
+      var tr0 = el('tr'); var td0 = el('td', 'dim', 'No proposals yet.'); td0.colSpan = 7; tr0.appendChild(td0); b.appendChild(tr0);
     }
     d.ads.slice().reverse().forEach(function (a) {
       var tr = el('tr');
@@ -255,6 +255,14 @@ input { font: inherit; background: var(--card2); color: var(--ink); border: 1px 
       an.style.color = 'var(--acc)';
       link.appendChild(an);
       tr.appendChild(link);
+      // What the advertiser aimed at. Worth seeing while reviewing: an advert
+      // aimed at a subject is shown only to people who engaged with that tag,
+      // and that match happens in their browser — never here, and never from
+      // anything the address watcher knows.
+      var aim = [];
+      aim.push(a.placement && a.placement.length ? a.placement.join('+') : 'everywhere');
+      if (a.tags && a.tags.length) aim.push(a.tags.map(function (t) { return '#' + t; }).join(' '));
+      tr.appendChild(el('td', 'dim', aim.join(' · ')));
       tr.appendChild(el('td', 'r mono', String(a.priceSats)));
       var stTd = el('td');
       stTd.appendChild(el('span', 'pill ' + a.status, a.status));

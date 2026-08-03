@@ -3467,11 +3467,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // One paid placement, after the third ranked item, never woven in deeper.
     // It is a card the feed carries, not a card the feed ranked: it has no
     // relevance line because there is no path to it and no score to print.
+    var feedAds = adsFor(st, 'feed');
     ranked.slice(0, feedLimit).forEach(function (f, i) {
       wrap.appendChild(postCard(st, f, i + 1, maxRel));
-      if (i === 2 && adList.length) wrap.appendChild(adCard(adList[0]));
+      if (i === 2 && feedAds.length) wrap.appendChild(adCard(feedAds[0]));
     });
-    if (ranked.length && ranked.length <= 3 && adList.length) wrap.appendChild(adCard(adList[0]));
+    if (ranked.length && ranked.length <= 3 && feedAds.length) wrap.appendChild(adCard(feedAds[0]));
     if (ranked.length > feedLimit) {
       wrap.appendChild(h('div', { style: 'text-align:center; margin:12px 0' },
         h('button', { class: 'btn', text: 'Show more (' + (ranked.length - feedLimit) + ')', onclick: function () { feedLimit += 30; render(); } })));
@@ -3501,12 +3502,77 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // says so out loud, because a network claiming influence is commitment
   // cannot quietly sell attention next to it and stay honest.
   var adList = [];
-  function adCard(ad) {
+
+  /**
+   * Which commons tags has THIS reader engaged with?
+   *
+   * Computed here, in their browser, from the act log their browser already
+   * has — because everything in this network is public, the question is
+   * answerable locally and nobody has to be identified for targeting to work.
+   * The host is never told the answer, no profile is stored anywhere, and this
+   * still works in the offline sandbox where there is no server at all.
+   */
+  function myTags(st) {
+    var out = {};
+    if (!who || !st || !st.g) return out;
+    // Content I acted on: reactions, comments, tags, and my own posts.
+    var mine = {};
+    st.g.edges.forEach(function (e) {
+      if (e.src !== who) return;
+      if (e.family === 'Opinion' || e.family === 'ReviewA' || e.family === 'TagA' || e.family === 'Publish') mine[e.tgt] = 1;
+    });
+    // …and the Type nodes those pieces of content were filed under.
+    st.g.edges.forEach(function (e) {
+      if (e.family !== 'TagT' || !mine[e.src]) return;
+      var n = st.g.nodes.get(e.tgt);
+      var label = (n && n.label ? n.label : e.tgt).toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (label) out[label] = 1;
+    });
+    return out;
+  }
+
+  /**
+   * Does this advert apply to this reader, on this tab? Both halves are
+   * optional: an advert that names nothing shows everywhere, which is the
+   * honest default rather than a hidden one.
+   */
+  function adApplies(ad, st, where) {
+    if (ad.placement && ad.placement.length && ad.placement.indexOf(where) < 0) return null;
+    if (!ad.tags || !ad.tags.length) return { why: null };
+    var mine = myTags(st);
+    for (var i = 0; i < ad.tags.length; i++) {
+      if (mine[ad.tags[i]]) return { why: ad.tags[i] };
+    }
+    return null;
+  }
+
+  /** The advert(s) that apply here, most recent first, at most one. */
+  function adsFor(st, where) {
+    var out = [];
+    for (var i = 0; i < adList.length && out.length < 1; i++) {
+      var m = adApplies(adList[i], st, where);
+      if (m) out.push({ ad: adList[i], why: m.why });
+    }
+    return out;
+  }
+
+  function adCard(entry) {
+    var ad = entry.ad || entry;
     var card = h('div', { class: 'card ad-card' },
       h('p', { class: 'eyebrow' }, h('span', { class: 'ad-tag', text: 'PAID PLACEMENT' }), ' · bought, not earned'),
       h('p', { style: 'margin:6px 0 10px' }, ad.text));
     var a = h('a', { class: 'btn small', href: ad.url, target: '_blank', rel: 'noopener noreferrer nofollow', text: 'Open link ↗' });
     card.appendChild(h('div', { class: 'row' }, a));
+    // Say why, always. An advert that can explain itself in one sentence is a
+    // different thing from one that follows you and will not say how it found
+    // you — and the answer here is short because the matching happened on this
+    // device against a public log.
+    if (entry.why) {
+      card.appendChild(h('p', { class: 'smallnote' },
+        'Shown because you have engaged with #' + entry.why + '. That match was made in this browser, from the public log — the host was never told who you are, and no profile of you exists anywhere.'));
+    } else {
+      card.appendChild(h('p', { class: 'smallnote', text: 'Shown to everyone here. This advert names no subject, so nothing about you was consulted.' }));
+    }
     card.appendChild(h('p', { class: 'smallnote', text: 'This is not an act. It holds no standing, sits outside the graph, and changes nobody’s feed score — including its own, because it has none. Money buys this box and nothing else in the network.' }));
     return card;
   }
@@ -4468,7 +4534,114 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
           var sup = parseFloat(faSupply.value);
           tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
-        } })));
+        } }))));
+
+    // ── Buy a placement ──────────────────────────────────────────────────────
+    // Deliberately in the economy tab and not the composer: writing a post and
+    // buying a box are different acts, and only one of them is a protocol act.
+    // The form is honest about the order of operations, because the thing that
+    // goes wrong with prepaid advertising is people paying before a human has
+    // read what they wrote.
+    var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Buy a placement' }),
+      h('p', { class: 'smallnote', text: 'A paid box in the feed. It is not an act: it mints nothing, holds no standing, and cannot move any ranking — including its own. Money buys this box and nothing else in the network.' }));
+
+    var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
+    var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
+    var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric' });
+    var adMail = h('input', { type: 'text', placeholder: 'how to reach you', style: 'flex:1', maxlength: '120' });
+    var adOut = h('div', { class: 'smallnote' });
+
+    // Placement: where it may appear.
+    var places = ['feed', 'live', 'record'];
+    var placeBoxes = {};
+    var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'show it in:' }));
+    places.forEach(function (pl) {
+      var cb = h('input', { type: 'checkbox' });
+      placeBoxes[pl] = cb;
+      placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
+    });
+    placeRow.appendChild(h('span', { class: 'smallnote', text: '(none ticked = everywhere)' }));
+
+    // Subject: commons tags. Offered from what the network actually uses, so
+    // nobody targets a tag that does not exist.
+    var known = [];
+    st.g.nodes.forEach(function (n) {
+      if (n.kind === 'Type') {
+        var lab = (n.label || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+        if (lab && known.indexOf(lab) < 0) known.push(lab);
+      }
+    });
+    known.sort();
+    var chosen = {};
+    var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
+    if (!known.length) {
+      tagRow.appendChild(h('span', { class: 'smallnote', text: 'nobody has tagged anything yet, so there is no subject to aim at.' }));
+    }
+    known.slice(0, 24).forEach(function (tg) {
+      var b = h('button', { class: 'btn small ghost', text: '#' + tg });
+      b.onclick = function () {
+        if (chosen[tg]) { delete chosen[tg]; b.className = 'btn small ghost'; }
+        else { chosen[tg] = 1; b.className = 'btn small primary'; }
+      };
+      tagRow.appendChild(b);
+    });
+
+    adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
+    adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adMail));
+    adCard2.appendChild(placeRow);
+    adCard2.appendChild(tagRow);
+    adCard2.appendChild(h('p', { class: 'smallnote', text: 'Naming a subject means the advert is only shown to people who have engaged with that tag — and that match happens in their browser, against the public log, so the host never learns who saw it and no profile of anyone is built. Where you connect from is never used: that data exists for blocking abuse and nothing else.' }));
+    adCard2.appendChild(h('div', { class: 'mini-form persistent' },
+      h('button', { class: 'btn small primary', text: 'Ask for a quote', onclick: function () {
+        var placement = [];
+        places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
+        var tags = Object.keys(chosen);
+        adOut.textContent = 'sending…';
+        fetch(API + '/api/ads', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: adText.value.trim(), url: adUrl.value.trim(),
+            days: parseInt(adDays.value, 10) || 7, contact: adMail.value.trim(),
+            placement: placement, tags: tags,
+          }),
+        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+            adOut.innerHTML = '';
+            if (!res.ok) { adOut.appendChild(h('b', { text: res.d.error || 'refused' })); return; }
+            adOut.appendChild(h('b', { text: 'Quoted. Do NOT pay yet.' }));
+            adOut.appendChild(h('div', { text: 'Your id is ' + res.d.id + '. A person reads every advert before it can be paid for — check back with the button below, and only send when it says approved.' }));
+            adOut.appendChild(h('div', { class: 'mono', style: 'margin-top:6px', text: res.d.amountSats + ' sats (' + res.d.amountBtc + ' BTC)' }));
+            adOut.appendChild(h('div', { class: 'mono', text: 'to ' + res.d.payTo }));
+            adOut.appendChild(h('div', { class: 'smallnote', text: 'Send exactly that amount, not a rounded one: the odd figure is what identifies your advert among everyone paying into the same address.' }));
+          })
+          .catch(function () { adOut.textContent = 'the host did not answer.'; });
+      } }),
+      (function () {
+        var idIn = h('input', { type: 'text', placeholder: 'advert id', style: 'width:120px' });
+        var btn = h('button', { class: 'btn small', text: 'Check status', onclick: function () {
+          var id = idIn.value.trim();
+          if (!id) return;
+          fetch(API + '/api/ads/' + encodeURIComponent(id), { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              adOut.innerHTML = '';
+              if (d.error) { adOut.appendChild(h('b', { text: d.error })); return; }
+              adOut.appendChild(h('b', { text: d.id + ' — ' + d.status }));
+              adOut.appendChild(h('div', { text: d.next || '' }));
+              if (d.payTo) {
+                adOut.appendChild(h('div', { class: 'mono', style: 'margin-top:6px', text: d.amountSats + ' sats to ' + d.payTo }));
+              }
+            })
+            .catch(function () { adOut.textContent = 'the host did not answer.'; });
+        } });
+        return h('span', { class: 'row' }, idIn, btn);
+      })()));
+    adCard2.appendChild(adOut);
+    if (!REMOTE) {
+      adOut.textContent = 'Placements need the hosted network — this browser is running its own private copy.';
+    }
+    wrap.appendChild(adCard2);
 
     return wrap;
   }

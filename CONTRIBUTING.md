@@ -111,6 +111,14 @@ text — the version people had been reading — in the served log while reporti
 success. When you add a feature that touches content, ask what it does to
 content the other features already changed, and write that test.
 
+**A build that only concatenates will ship a blank page.** The app is one file
+of plain JavaScript inlined by `social/assemble.mjs`. A single missing bracket
+produced a valid-looking file, a dead screen, and nothing else complaining:
+tests never load the page, and the APIs answer perfectly while the app is
+broken. It reached the live host that way. The build now parses every script
+block before writing and refuses to emit otherwise — and after touching
+`template.html`, open the page, not just the API.
+
 **Accept nothing you cannot resolve.** An act naming a content id that was
 never minted used to be accepted and charged for. It cannot be undone, it
 cannot be rendered, and eighteen of them sit in the live record reading as

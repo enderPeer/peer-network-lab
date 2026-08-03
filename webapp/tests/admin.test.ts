@@ -291,3 +291,89 @@ describe('a paid placement is not an act', () => {
     expect((await r.json()).error).toMatch(/no payment address/i);
   });
 });
+
+describe('ad targeting, and the line it must not cross', () => {
+  let tId = '';
+
+  it('takes a placement and a subject, normalising both', async () => {
+    const r = await fetch(BASE + '/api/ads', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: 'For people who read specifications.', url: 'https://example.org/spec', days: 5,
+        placement: ['feed', 'live'], tags: ['Photography', 'photography', 'pro to col', '!!!'],
+      }),
+    });
+    expect(r.status).toBe(200);
+    tId = (await r.json()).id;
+    const ads = (await adminJson('ads')).ads as Array<Record<string, any>>;
+    const mine = ads.find((a) => a.id === tId)!;
+    expect(mine.placement).toEqual(['feed', 'live']);
+    expect(mine.tags).toEqual(['photography', 'protocol']); // lowercased, cleaned, deduped
+  });
+
+  it('refuses a placement that is not a real surface', async () => {
+    const r = await fetch(BASE + '/api/ads', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'x', url: 'https://example.org', days: 1, placement: ['inbox'] }),
+    });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/feed, live, record/);
+  });
+
+  it('ships the criteria to every reader, so matching can happen on their device', async () => {
+    // The whole design: the browser decides whether an advert applies to it.
+    // If the host filtered instead, it would have to know who was asking.
+    await admin('ads', { method: 'POST', body: JSON.stringify({ id: tId, action: 'approve' }) });
+    await admin('ads', { method: 'POST', body: JSON.stringify({ id: tId, action: 'paid' }) });
+    const live = (await jget(BASE + '/api/ads')).ads as Array<Record<string, any>>;
+    const mine = live.find((a) => a.id === tId)!;
+    expect(mine.placement).toEqual(['feed', 'live']);
+    expect(mine.tags).toEqual(['photography', 'protocol']);
+  });
+
+  it('serves the same advert list to everyone, with no per-reader filtering', async () => {
+    // Two callers who look nothing alike must receive byte-identical lists —
+    // any difference would mean the host had formed an opinion about them.
+    const a = await (await fetch(BASE + '/api/ads', {
+      headers: { 'CF-Connecting-IP': '198.51.100.7', 'User-Agent': 'one' },
+    })).text();
+    const b = await (await fetch(BASE + '/api/ads', {
+      headers: { 'CF-Connecting-IP': '203.0.113.44', 'User-Agent': 'two' },
+    })).text();
+    expect(a).toBe(b);
+  });
+
+  it('never accepts a reader identity on the advert endpoint', async () => {
+    // Passing "as" is meaningless here by construction; assert it changes
+    // nothing, so a future refactor cannot quietly make it meaningful.
+    const plain = await (await fetch(BASE + '/api/ads')).text();
+    const withWho = await (await fetch(BASE + '/api/ads?as=u_op')).text();
+    expect(withWho).toBe(plain);
+  });
+
+  it('keeps targeting out of the act log entirely', async () => {
+    const raw = readFileSync(join(dir, 'server-data', 'acts.jsonl'), 'utf8');
+    expect(raw).not.toContain('photography');
+    expect(raw).not.toContain('For people who read specifications');
+  });
+
+  it('leaves an untargeted advert visible to everyone', async () => {
+    const r = await fetch(BASE + '/api/ads', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'For anyone at all.', url: 'https://example.org/all', days: 1 }),
+    });
+    const id = (await r.json()).id;
+    const ads = (await adminJson('ads')).ads as Array<Record<string, any>>;
+    const mine = ads.find((a) => a.id === id)!;
+    expect(mine.placement).toEqual([]);
+    expect(mine.tags).toEqual([]);
+  });
+});
+
+describe('the configured payment address', () => {
+  it('is the operator’s own, and passes its own checksum', () => {
+    // The live address, checked here so a typo in deployment fails a test
+    // rather than sending someone's payment where no key exists.
+    expect(validBtcAddress('bc1qzs7ca605hl5xsxnesjurqck0ycsps7s5ty73jr')).toBe(true);
+  });
+});

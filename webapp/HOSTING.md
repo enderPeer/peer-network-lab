@@ -221,6 +221,27 @@ bech32/bech32m, including the mixed-case rule). A typo turns adverts **off**
 and says so in the log, rather than displaying an address whose key nobody
 holds — a mistyped address is not a failed payment, it is money gone.
 
+### Targeting, and the line it does not cross
+
+An advertiser picks **where** (feed, live, record — or nothing, meaning
+everywhere) and **what subject** (commons tags people have engaged with).
+
+Both are matched **in the reader's browser**, not on the host. The browser
+already holds the whole public act log, so it can answer "have I engaged with
+#photography?" locally, and the host serves the identical advert list to
+everybody. Consequences worth stating:
+
+- No profile is built anywhere. The host never learns who saw what.
+- The reader is told **why** they were shown something, in the card itself.
+- It works in the offline sandbox, where there is no server to ask.
+- **The address watcher is never a targeting input.** Aiming adverts by where
+  someone connects from is exactly the surveillance business this network
+  argues against, and that data is kept where no advertising code reaches it.
+
+Tests assert two callers with different addresses and user agents receive
+byte-identical advert lists, and that passing a reader identity to `/api/ads`
+changes nothing.
+
 ### How a placement runs
 
 1. Anyone `POST`s `/api/ads` with `{text, url, days, contact}` and gets back a
