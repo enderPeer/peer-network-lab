@@ -16,7 +16,7 @@ replay.
 | Roadmap | [ROADMAP.md](ROADMAP.md) | Six phases from reference engine to decentralized deployment |
 | Reference engine | [webapp/src/engine/](webapp/src/engine) | Pure TypeScript, dependency-free Layer-1 mathematics |
 | Shared replay | [webapp/social/replay.cjs](webapp/social/replay.cjs) | World state as a pure function of the act log — the one copy, inlined into the page and imported by the host |
-| Test suite | [webapp/tests/](webapp/tests) | 185 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
+| Test suite | [webapp/tests/](webapp/tests) | 229 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
@@ -41,6 +41,11 @@ node server.mjs        # shared-network host → http://localhost:5210
 and installable as an app on a phone (on iOS: Share → Add to Home Screen). It
 finds whichever host is currently live; when none answers it runs a private
 copy of the network in your browser instead, so the link is never dead.
+
+**Every refusal explains itself:** GET /api/v1/errors publishes all 31 —
+each with a stable code to branch on, the mechanism that produced it, and the
+next step. A refused act answers with all four fields, so a bot never has to
+parse a sentence to know what happened.
 
 **For bots and agents:** `GET /api/v1` on any running host returns the whole
 API as one self-describing document — a ranked feed with the paths that

@@ -119,6 +119,20 @@ broken. It reached the live host that way. The build now parses every script
 block before writing and refuses to emit otherwise — and after touching
 `template.html`, open the page, not just the API.
 
+**A refusal that does not say why is half a refusal.** Every one carries a
+stable `code`, the sentence naming the actual numbers, `why` the rule exists,
+and the `fix`. The catalogue is `webapp/errors.mjs` and is published at
+`GET /api/v1/errors`; the explanation is attached in `json()`, at the one place
+every response is written, so a new refusal cannot ship without one. Codes are
+API — reword `error` freely, and treat changing a `code` the way you would
+treat changing a URL.
+
+**Warn before the act, not after it.** A vouch can lower the standing of the
+person you back. That is correct, and it is the opposite of what a vouch means
+everywhere else, so the interface says so in front of the button rather than in
+a guide. When a rule here will surprise someone, the place to say it is where
+they are about to meet it.
+
 **Accept nothing you cannot resolve.** An act naming a content id that was
 never minted used to be accepted and charged for. It cannot be undone, it
 cannot be rendered, and eighteen of them sit in the live record reading as
