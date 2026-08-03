@@ -1,5 +1,5 @@
 {
     "url":  "https://vertical-continue-cleaners-layers.trycloudflare.com",
-    "updated":  "2026-08-03T14:51:02Z",
+    "updated":  "2026-08-03T14:59:33Z",
     "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
 }
