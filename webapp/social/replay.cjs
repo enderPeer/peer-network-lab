@@ -98,6 +98,13 @@ function replayUncached(acts) {
   var g = new E.RawGraph();
   var ledgers = [], ledgerById = {}, handles = {}, kReg = {}, creators = {}, payloads = {};
   var bundles = {}, selfCells = [], deltaActs = {}, epochHistory = [], chron = [];
+  // Who authored a node, recorded UNCONDITIONALLY. `creators` is inside the
+  // payload guard, so a deleted account loses its entries — fine for display,
+  // fatal for the token distribution: an epoch that closed months ago would
+  // silently re-cut everyone else's share the moment one participant left.
+  // Authorship is structure (the Publish edge already carries it publicly),
+  // and structure survives deletion. This map is read by distribution only.
+  var contentAuthor = {};
   var reviewMeta = {}; // commentNodeId -> {e, f}
   var mediaMeta = {};  // contentId -> [{h, m} | {d, m}]
   var dms = [];        // {from, to, text, idx}
@@ -156,6 +163,128 @@ function replayUncached(acts) {
     var b = bundles[key] || (bundles[key] = { src: author, rcp: target, pd: 0, pi: 0 });
     b.pd += p; b.pi += r;
   }
+  // ── The PEER token and its pools ──────────────────────────────────────────
+  //
+  // Ported from the poolsite economy (github.com/enderPeer/poolsite), mapped
+  // onto the epoch machinery: what poolsite distributed per DAY, this network
+  // distributes per EPOCH CLOSE. 5000 PEER per epoch in year one, emission
+  // decaying 0.9 per 365 epochs, hard cap 18,250,000 — poolsite's own curve.
+  //
+  // Distribution follows engagement, not headcount: reactions (1.0), comments
+  // (1.2) and dislikes (0.3) on someone ELSE's content weigh toward that
+  // creator, damped per actor->creator pair (1/(1+0.3·(n−1)) — the tenth nudge
+  // from the same fan is worth a fraction of the first) and scaled by the
+  // actor's commitment rate λ(α̂)=α̂/(1+α̂), gated at α̂ ≥ 0.2. An account that
+  // never burned cannot weigh; a swarm of empty accounts distributes nothing.
+  // Self-engagement never counts. Rounding dust and empty epochs carry over.
+  //
+  // Tokens are VALUE, not standing. No token act creates a graph edge, no
+  // balance enters any score, and the feed cannot see any of this — the same
+  // wall that keeps paid placements outside the protocol keeps the token
+  // market outside the reputation system. Money and standing touch nowhere.
+  //
+  // tBTC is a test asset with a bitcoin-shaped name: one small claim per
+  // account, no backing, no bridge, no custody — the host holds no keys, so
+  // real BTC cannot live here and the symbol says so honestly.
+  var TOK_EPOCH = 5000, TOK_DECAY = 0.9, TOK_YEAR = 365, TOK_CAP = 18250000;
+  var TOK_RHO = 0.2, TOK_DIM = 0.3;
+  var TBTC_CLAIM = 0.01;
+  var TOK_MINLIQ = 1e-9; // locked forever at pool birth — kills the classic
+                         // first-depositor share-inflation attack
+  var tokenBal = {};     // sym -> { actor -> amount }
+  var tokenMeta = { PEER: { name: 'Peer epoch token', creator: null },
+                    tBTC: { name: 'test bitcoin — sandbox value, backed by nothing', creator: null } };
+  var tokenSupply = { PEER: 0, tBTC: 0 };
+  var btcClaimed = {};
+  var pools = {};        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
+  var tokenDist = [];    // per epoch: { epoch, minted, carried, to: {id: amt} }
+  var tokenCarry = 0;
+  var tokEpochN = 0;
+  var epochEngage = [];  // {actor, creator, base} since the last close
+
+  function round6(x) { return Math.round(x * 1e6) / 1e6; }
+  function balOf(sym, id) { return (tokenBal[sym] && tokenBal[sym][id]) || 0; }
+  function tokCredit(sym, id, amt) {
+    if (!(amt > 0)) return;
+    var m = tokenBal[sym] || (tokenBal[sym] = {});
+    m[id] = (m[id] || 0) + amt;
+  }
+  function tokDebit(sym, id, amt) { tokenBal[sym][id] -= amt; }
+  function poolId(x, y) { return x < y ? x + '/' + y : y + '/' + x; }
+
+  /**
+   * Can this token act apply against the current state? One function, used by
+   * the host to refuse and by the replay to skip, so the two can never
+   * disagree about what a log means. Returns null or a sentence.
+   */
+  function tokenActError(a) {
+    var who = a.author;
+    // Deliberately NOT gated on deletedActors. Deletion is retroactive in this
+    // replay, so rejecting here would erase the whole token history of anyone
+    // who later left — including pools other people funded and traded in, and
+    // including the epoch shares everybody else was measured against. Removal
+    // takes the payload, never the record, and a value transfer IS record. The
+    // host refuses NEW acts from a deleted account one layer up, where the
+    // question is 'may this happen now' rather than 'did this happen'.
+    if (!ledgerById[who]) return 'unknown actor';
+    if (ledgerById[who].burnBal < THETA) return 'not enough energy';
+    if (a.t === 'btcClaim') {
+      if (btcClaimed[who]) return 'this account already claimed its tBTC — one claim per account, ever';
+      return null;
+    }
+    if (a.t === 'assetCreate') {
+      if (!/^[A-Z][A-Z0-9]{2,7}$/.test(a.sym || '')) return 'symbol must be 3-8 characters, A-Z and digits, starting with a letter';
+      if (tokenMeta[a.sym]) return 'symbol ' + a.sym + ' is taken';
+      if (!(a.supply > 0) || a.supply > 1e9) return 'supply must be between 0 and 1,000,000,000';
+      if (typeof a.name !== 'string' || !a.name.trim() || a.name.length > 60) return 'the asset needs a name, at most 60 characters';
+      return null;
+    }
+    if (a.t === 'tokenSend') {
+      if (!tokenMeta[a.sym]) return 'no such asset: ' + a.sym;
+      if (!(a.amt > 0)) return 'amount must be positive';
+      if (!ledgerById[a.to]) return 'unknown recipient'; // see above: a send to someone who left still happened
+      if (a.to === who) return 'sending to yourself moves nothing';
+      if (balOf(a.sym, who) < a.amt) return 'balance is ' + round6(balOf(a.sym, who)) + ' ' + a.sym + ', tried to send ' + a.amt;
+      return null;
+    }
+    if (a.t === 'poolCreate') {
+      if (!tokenMeta[a.symA] || !tokenMeta[a.symB]) return 'both assets must exist';
+      if (a.symA === a.symB) return 'a pool needs two different assets';
+      if (pools[poolId(a.symA, a.symB)]) return 'the ' + poolId(a.symA, a.symB) + ' pool already exists — add liquidity to it instead';
+      if (!(a.amtA > 0) || !(a.amtB > 0)) return 'both starting amounts must be positive';
+      if (balOf(a.symA, who) < a.amtA) return 'balance is ' + round6(balOf(a.symA, who)) + ' ' + a.symA + ', tried to deposit ' + a.amtA;
+      if (balOf(a.symB, who) < a.amtB) return 'balance is ' + round6(balOf(a.symB, who)) + ' ' + a.symB + ', tried to deposit ' + a.amtB;
+      if (Math.sqrt(a.amtA * a.amtB) <= TOK_MINLIQ * 10) return 'starting liquidity too small';
+      return null;
+    }
+    var pl = pools[a.pool];
+    if (a.t === 'poolAdd') {
+      if (!pl) return 'no such pool: ' + a.pool;
+      if (!(a.amtA > 0) || !(a.amtB > 0)) return 'both amounts must be positive';
+      var r = Math.min(a.amtA / pl.resA, a.amtB / pl.resB);
+      if (balOf(pl.a, who) < r * pl.resA || balOf(pl.b, who) < r * pl.resB) return 'not enough balance for that deposit';
+      return null;
+    }
+    if (a.t === 'poolRemove') {
+      if (!pl) return 'no such pool: ' + a.pool;
+      var own = (pl.shares[who] || 0);
+      if (!(a.shares > 0) || a.shares > own + 1e-12) return 'you hold ' + round6(own) + ' shares of ' + a.pool + ', tried to remove ' + a.shares;
+      return null;
+    }
+    if (a.t === 'poolSwap') {
+      if (!pl) return 'no such pool: ' + a.pool;
+      if (a.sell !== pl.a && a.sell !== pl.b) return a.pool + ' does not trade ' + a.sell;
+      if (!(a.amt > 0)) return 'amount must be positive';
+      if (balOf(a.sell, who) < a.amt) return 'balance is ' + round6(balOf(a.sell, who)) + ' ' + a.sell + ', tried to sell ' + a.amt;
+      var rin = a.sell === pl.a ? pl.resA : pl.resB;
+      var rout = a.sell === pl.a ? pl.resB : pl.resA;
+      var out = rout * (a.amt * 0.997) / (rin + a.amt * 0.997);
+      if (a.minOut !== undefined && out < a.minOut) return 'that trade would return ' + round6(out) + ', below your minimum of ' + a.minOut + ' — the price moved';
+      return null;
+    }
+    return 'unknown token act';
+  }
+
   function weighHome(author, pd, pi) {
     var c = Math.sqrt(Math.abs(pd) * Math.abs(pi));
     if (c > 0) selfCells.push({ src: author, rcp: author, coeff: Math.min(1, c) });
@@ -278,6 +407,7 @@ function replayUncached(acts) {
       counter++;
       var scid = 'c' + counter;
       actContent[i] = scid;
+      contentAuthor[scid] = a.author;
       if (payloadGone) mutedContent[scid] = true;
       g.addNode({ id: scid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Stream ' + counter });
       g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: scid, pd: a.a, pi: 1, epoch: certsSoFar });
@@ -320,6 +450,7 @@ function replayUncached(acts) {
         counter++;
         cid = 'c' + counter;
         actContent[i] = cid;
+        contentAuthor[cid] = a.author;
         if (payloadGone) mutedContent[cid] = true;
         g.addNode({ id: cid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Post ' + counter });
         g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
@@ -378,6 +509,13 @@ function replayUncached(acts) {
       var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
       if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
       else weighHome(a.author, a.p, a.r);
+      // Token distribution watches engagement it did not cause: a reaction to
+      // someone else's content weighs toward that creator at the next epoch
+      // close. Records only — all gates and damping apply at close, where the
+      // actor's commitment rate is read once, for everyone alike.
+      if (!owner && contentAuthor[a.target] && contentAuthor[a.target] !== a.author) {
+        epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: a.p >= 0 ? 1.0 : 0.3 });
+      }
       if (!payloadGone) {
         chron.push({
             who: a.author,
@@ -413,6 +551,7 @@ function replayUncached(acts) {
       counter++;
       cmid = 'c' + counter;
       actContent[i] = cmid;
+      contentAuthor[cmid] = a.author;
       if (payloadGone) mutedContent[cmid] = true;
       g.addNode({ id: cmid, kind: 'Comment', label: payloadGone ? '[deleted]' : 'Review ' + counter });
       g.appendHyper(
@@ -420,6 +559,9 @@ function replayUncached(acts) {
         { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
       );
       weighHome(a.author, a.e, a.f);
+      if (contentAuthor[a.target] && contentAuthor[a.target] !== a.author) {
+        epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: 1.2 });
+      }
       if (!payloadGone) {
         creators[cmid] = a.author; payloads[cmid] = a.text;
         reviewMeta[cmid] = { e: a.e, f: a.f };
@@ -477,6 +619,76 @@ function replayUncached(acts) {
       chron.push({ who: a.author, line: 'deleted a post — content redacted from the served record' });
     } else if (a.t === 'deleteAccount') {
       chron.push({ who: a.id, line: 'account deleted — content redacted, handle stays reserved' });
+    } else if (a.t === 'btcClaim' || a.t === 'assetCreate' || a.t === 'tokenSend'
+        || a.t === 'poolCreate' || a.t === 'poolAdd' || a.t === 'poolRemove' || a.t === 'poolSwap') {
+      // The host refuses invalid token acts at the door with the same
+      // tokenActError the replay consults, so a served log contains only
+      // applicable ones. The check runs here anyway: a hand-edited or foreign
+      // log must degrade to skipped acts, never to NaN balances.
+      if (tokenActError(a) === null) {
+        debit(a.author); // an act like any other: θ down, N up — and no edge,
+                         // no vouch, no weighing. Value moves; standing does not.
+        if (a.t === 'btcClaim') {
+          btcClaimed[a.author] = true;
+          tokCredit('tBTC', a.author, TBTC_CLAIM);
+          tokenSupply.tBTC = round6(tokenSupply.tBTC + TBTC_CLAIM);
+          if (!payloadGone) chron.push({ who: a.author, line: 'claimed ' + TBTC_CLAIM + ' tBTC — sandbox value, one claim per account' });
+        } else if (a.t === 'assetCreate') {
+          tokenMeta[a.sym] = { name: a.name.trim(), creator: a.author };
+          tokenSupply[a.sym] = a.supply;
+          tokCredit(a.sym, a.author, a.supply);
+          if (!payloadGone) chron.push({ who: a.author, line: 'minted ' + a.supply + ' ' + a.sym + ' — “' + a.name.trim() + '” — a fun asset, worth what a pool says it is', refs: [{ label: dispName(a.author), id: a.author }] });
+        } else if (a.t === 'tokenSend') {
+          tokDebit(a.sym, a.author, a.amt);
+          tokCredit(a.sym, a.to, a.amt);
+          if (!payloadGone) chron.push({ who: a.author, line: 'sent ' + a.amt + ' ' + a.sym + ' to ' + dispName(a.to), refs: [{ label: dispName(a.to), id: a.to }] });
+        } else if (a.t === 'poolCreate') {
+          var pid = poolId(a.symA, a.symB);
+          var A = pid.split('/')[0], B = pid.split('/')[1];
+          var depA = A === a.symA ? a.amtA : a.amtB;
+          var depB = A === a.symA ? a.amtB : a.amtA;
+          tokDebit(A, a.author, depA); tokDebit(B, a.author, depB);
+          var s0 = Math.sqrt(depA * depB);
+          var sh = {}; sh[a.author] = s0 - TOK_MINLIQ; sh['_locked'] = TOK_MINLIQ;
+          pools[pid] = { a: A, b: B, resA: depA, resB: depB, totalShares: s0, shares: sh, swaps: 0, volA: 0, volB: 0 };
+          if (!payloadGone) chron.push({ who: a.author, line: 'opened the ' + pid + ' pool with ' + round6(depA) + ' ' + A + ' + ' + round6(depB) + ' ' + B });
+        } else if (a.t === 'poolAdd') {
+          var pl = pools[a.pool];
+          var r = Math.min(a.amtA / pl.resA, a.amtB / pl.resB);
+          var useA = r * pl.resA, useB = r * pl.resB;
+          tokDebit(pl.a, a.author, useA); tokDebit(pl.b, a.author, useB);
+          var minted = r * pl.totalShares;
+          pl.resA += useA; pl.resB += useB;
+          pl.totalShares += minted;
+          pl.shares[a.author] = (pl.shares[a.author] || 0) + minted;
+          if (!payloadGone) chron.push({ who: a.author, line: 'added liquidity to ' + a.pool + ' (' + round6(useA) + ' ' + pl.a + ' + ' + round6(useB) + ' ' + pl.b + ')' });
+        } else if (a.t === 'poolRemove') {
+          var pl2 = pools[a.pool];
+          var frac = a.shares / pl2.totalShares;
+          var outA = frac * pl2.resA, outB = frac * pl2.resB;
+          pl2.shares[a.author] -= a.shares;
+          pl2.totalShares -= a.shares;
+          pl2.resA -= outA; pl2.resB -= outB;
+          tokCredit(pl2.a, a.author, outA); tokCredit(pl2.b, a.author, outB);
+          if (!payloadGone) chron.push({ who: a.author, line: 'withdrew from ' + a.pool + ' (' + round6(outA) + ' ' + pl2.a + ' + ' + round6(outB) + ' ' + pl2.b + ')' });
+        } else if (a.t === 'poolSwap') {
+          var pl3 = pools[a.pool];
+          var inA = a.sell === pl3.a;
+          var rin = inA ? pl3.resA : pl3.resB;
+          var rout = inA ? pl3.resB : pl3.resA;
+          // Uniswap-V2 arithmetic: 0.3% of the way in stays with the pool,
+          // which is how liquidity providers get paid — k grows on every swap.
+          var eff = a.amt * 0.997;
+          var out = rout * eff / (rin + eff);
+          tokDebit(a.sell, a.author, a.amt);
+          if (inA) { pl3.resA += a.amt; pl3.resB -= out; } else { pl3.resB += a.amt; pl3.resA -= out; }
+          var buySym = inA ? pl3.b : pl3.a;
+          tokCredit(buySym, a.author, out);
+          pl3.swaps++;
+          if (inA) { pl3.volA += a.amt; } else { pl3.volB += a.amt; }
+          if (!payloadGone) chron.push({ who: a.author, line: 'swapped ' + round6(a.amt) + ' ' + a.sell + ' → ' + round6(out) + ' ' + buySym + ' in ' + a.pool });
+        }
+      }
     } else if (a.t === 'closeEpoch') {
       // The certificate for a closed epoch is a full standing solve, and it
       // used to run here, inside the loop — once per epoch, over every cell
@@ -497,6 +709,54 @@ function replayUncached(acts) {
       chron.push(ep.chron);
       deltaActs = {};
       certsSoFar++;
+
+      // ── PEER distribution for the epoch that just closed ────────────────
+      tokEpochN++;
+      var emission = tokenSupply.PEER >= TOK_CAP ? 0
+        : Math.min(TOK_EPOCH * Math.pow(TOK_DECAY, Math.floor((tokEpochN - 1) / TOK_YEAR)), TOK_CAP - tokenSupply.PEER);
+      var tokPool = round6(emission + tokenCarry);
+      var tw = {}, twTotal = 0, pairN = {};
+      for (var te = 0; te < epochEngage.length; te++) {
+        var ev = epochEngage[te];
+        var al = ledgerById[ev.actor];
+        if (!al || al.actCount === 0) continue;
+        var ahat = (al.burnBal / al.actCount) / NU;
+        if (ahat < TOK_RHO) continue;                    // gate: no rate, no weight
+        // A creator who later deleted their account still earned their share.
+        // Skipping them here would silently re-cut every OTHER creator's slice
+        // of an epoch that closed long ago — the same defect as a deletion that
+        // moves everyone's standing. The tokens sit unspent, like their
+        // standing does.
+        var pk = ev.actor + '>' + ev.creator;
+        pairN[pk] = (pairN[pk] || 0) + 1;
+        var w = ev.base * (1 / (1 + TOK_DIM * (pairN[pk] - 1))) * (ahat / (1 + ahat));
+        tw[ev.creator] = (tw[ev.creator] || 0) + w;
+        twTotal += w;
+      }
+      if (twTotal > 0 && tokPool > 0) {
+        var credited = 0, distTo = {};
+        for (var tk in tw) {
+          // Round DOWN, always. round6 rounds to nearest, so summing the
+          // per-creator shares could exceed the epoch pool by up to half a
+          // micro-token each — which quietly minted past the emission
+          // schedule and past the 18.25M cap (the live log had already
+          // drifted 4e-6 over 55 epochs). Flooring can only under-distribute,
+          // and the remainder carries to the next epoch like any other dust.
+          var amt = Math.floor(tokPool * tw[tk] / twTotal * 1e6) / 1e6;
+          if (amt <= 0) continue;
+          tokCredit('PEER', tk, amt);
+          distTo[tk] = amt;
+          credited = round6(credited + amt);
+        }
+        tokenSupply.PEER = round6(tokenSupply.PEER + credited);
+        tokenCarry = Math.max(0, round6(tokPool - credited));
+        tokenDist.push({ epoch: tokEpochN, minted: credited, carried: tokenCarry, to: distTo });
+        chron.push({ line: 'epoch ' + tokEpochN + ' minted ' + credited + ' PEER across ' + Object.keys(distTo).length + ' creator(s) — engagement-weighted, α̂-gated, never standing' });
+      } else {
+        tokenCarry = tokPool; // an epoch nobody engaged in mints for the next
+        tokenDist.push({ epoch: tokEpochN, minted: 0, carried: tokenCarry, to: {} });
+      }
+      epochEngage = [];
     }
   }
 
@@ -534,6 +794,10 @@ function replayUncached(acts) {
     epochHistory: epochHistory, chron: chron, epochNow: epochNow,
     reviewMeta: reviewMeta, mediaMeta: mediaMeta, dms: dms, pinHash: pinHash, l0: l0,
     deleted: deletedActors, postMeta: postMeta,
+    tokens: { bal: tokenBal, meta: tokenMeta, supply: tokenSupply, claimed: btcClaimed,
+      dist: tokenDist, carry: tokenCarry, epochN: tokEpochN },
+    pools: pools,
+    tokenActError: tokenActError,
     // act index -> the node that act minted. Exposed because API clients were
     // deriving ids themselves and deriving them wrong — the counter also ticks
     // for hyperedge legs (quotes, mentions), which nothing documented, so a

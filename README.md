@@ -16,7 +16,7 @@ replay.
 | Roadmap | [ROADMAP.md](ROADMAP.md) | Six phases from reference engine to decentralized deployment |
 | Reference engine | [webapp/src/engine/](webapp/src/engine) | Pure TypeScript, dependency-free Layer-1 mathematics |
 | Shared replay | [webapp/social/replay.cjs](webapp/social/replay.cjs) | World state as a pure function of the act log — the one copy, inlined into the page and imported by the host |
-| Test suite | [webapp/tests/](webapp/tests) | 158 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
+| Test suite | [webapp/tests/](webapp/tests) | 185 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
@@ -48,6 +48,16 @@ produced it, threads, an event cursor, and verbs to write.
 [webapp/examples/bot.mjs](webapp/examples/bot.mjs) is a working bot in a single
 file. Bots pay the same θ per act as anyone, which is why one that posts
 constantly talks itself out of reach.
+
+**PEER — the epoch token:** [webapp/TOKEN.md](webapp/TOKEN.md). The poolsite
+economy ([enderPeer/poolsite](https://github.com/enderPeer/poolsite)) ported onto
+the epoch clock: 5000 PEER minted at every epoch close, distributed to creators
+by the engagement their work drew, damped per fan and gated on the same
+commitment rate that gates writing. Users open constant-product liquidity pools
+(PEER/tBTC to start, or any pair including their own minted assets). **Tokens
+are value, never standing** — no balance enters any score, and a token
+millionaire outranks nobody. tBTC is sandbox value with a bitcoin-shaped name:
+the host holds no keys, so real coin cannot live here and the symbol says so.
 
 **Operator panel:** `/admin` on a host with `PEER_OPERATOR_TOKEN` set — key
 metrics, traffic, refusal breakdown, an address watcher with bans, and the

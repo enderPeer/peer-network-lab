@@ -30,7 +30,8 @@ const PORT = Number(process.argv[2] ?? 5210);
 
 const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
-  'editPost', 'deletePost', 'deleteAccount', 'call', 'stream']);
+  'editPost', 'deletePost', 'deleteAccount', 'call', 'stream',
+  'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -207,6 +208,13 @@ ACT_FIELDS.call = ['t', 'from', 'to', 'outcome', 'dur'];
 // peer-to-peer and never touches the log.
 ACT_FIELDS.stream = ['t', 'author', 'text', 'a'];
 ACT_FIELDS.deletePost = ['t', 'author', 'target'];
+ACT_FIELDS.btcClaim = ['t', 'author'];
+ACT_FIELDS.assetCreate = ['t', 'author', 'sym', 'name', 'supply'];
+ACT_FIELDS.tokenSend = ['t', 'author', 'sym', 'to', 'amt'];
+ACT_FIELDS.poolCreate = ['t', 'author', 'symA', 'symB', 'amtA', 'amtB'];
+ACT_FIELDS.poolAdd = ['t', 'author', 'pool', 'amtA', 'amtB'];
+ACT_FIELDS.poolRemove = ['t', 'author', 'pool', 'shares'];
+ACT_FIELDS.poolSwap = ['t', 'author', 'pool', 'sell', 'amt', 'minOut'];
 ACT_FIELDS.deleteAccount = ['t', 'id'];
 
 // ── Deletion in an append-only log ──────────────────────────────────────────
@@ -834,6 +842,34 @@ function validate(act) {
     case 'stream':
       if (!str(act.author, 24) || !str(act.text, 200) || !inR(act.a)) return 'bad stream';
       break;
+    case 'btcClaim':
+    case 'assetCreate':
+    case 'tokenSend':
+    case 'poolCreate':
+    case 'poolAdd':
+    case 'poolRemove':
+    case 'poolSwap': {
+      if (!str(act.author, 24)) return 'bad actor';
+      // Numbers must be finite before any arithmetic sees them: an Infinity
+      // deposited into a pool would poison every price after it.
+      for (const f of ['supply', 'amt', 'amtA', 'amtB', 'shares', 'minOut']) {
+        if (act[f] !== undefined && (typeof act[f] !== 'number' || !Number.isFinite(act[f]))) return f + ' must be a finite number';
+      }
+      for (const f of ['sym', 'symA', 'symB', 'to', 'pool', 'sell', 'name']) {
+        if (act[f] !== undefined && !str(act[f], 80)) return 'bad ' + f;
+      }
+      // Semantics — balances, pool existence, slippage — come from the SAME
+      // function the replay uses to apply the act. One rulebook, two readers:
+      // the host cannot accept what the replay would skip.
+      if (!engineMod || !replayMod) return 'engine still loading — try again in a moment';
+      if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+      if (stateCache.len !== acts.length || !stateCache.st) {
+        stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+      }
+      const terr = stateCache.st.tokenActError(act);
+      if (terr) return terr;
+      break;
+    }
     case 'call':
       // The caller's client records the outcome after the call ends; the voice
       // itself was peer-to-peer and never touched the host.
@@ -1048,6 +1084,8 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/post/CID?depth=N', purpose: 'one post with its reactions and comment thread' },
     { method: 'GET', path: '/api/v1/alerts?as=ID', purpose: 'what happened to you: reactions, comments, mentions, quotes, messages, calls' },
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
+    { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
+    { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
     { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
@@ -1356,6 +1394,37 @@ async function handleBotApi(req, res, url, ip) {
     return;
   }
 
+  if (req.method === 'GET' && p === 'tokens') {
+    const asId = q.get('as') ?? '';
+    const t = st.tokens;
+    const mine = {};
+    for (const sym of Object.keys(t.meta)) {
+      const b = (t.bal[sym] && t.bal[sym][asId]) || 0;
+      if (b > 0) mine[sym] = b;
+    }
+    const myDist = t.dist.filter((d) => d.to[asId]).map((d) => ({ epoch: d.epoch, amount: d.to[asId] }));
+    json(res, 200, {
+      as: asId || null,
+      balances: asId ? mine : null,
+      claimedTbtc: asId ? !!t.claimed[asId] : null,
+      myDistributions: asId ? myDist : null,
+      assets: Object.keys(t.meta).map((sym) => ({ sym, name: t.meta[sym].name, supply: t.supply[sym] ?? 0, creator: t.meta[sym].creator })),
+      emission: { perEpochYear1: 5000, decayPerEpochYear: 0.9, epochYear: 365, cap: 18250000, epochsClosed: t.epochN, minted: t.supply.PEER, carry: t.carry },
+      note: 'PEER is minted at epoch close and distributed by engagement weight — reactions and comments on other people\'s content, damped per pair, gated on commitment rate. Tokens are value, never standing: no balance enters any score. tBTC is sandbox value with a bitcoin-shaped name; nothing here is backed by anything.',
+    });
+    return;
+  }
+  if (req.method === 'GET' && p === 'pools') {
+    json(res, 200, {
+      pools: Object.entries(st.pools).map(([id, pl]) => ({
+        id, pair: [pl.a, pl.b], reserves: { [pl.a]: pl.resA, [pl.b]: pl.resB },
+        price: { [pl.a + 'per' + pl.b]: pl.resA / pl.resB, [pl.b + 'per' + pl.a]: pl.resB / pl.resA },
+        totalShares: pl.totalShares, swaps: pl.swaps,
+      })),
+      how: 'Constant-product pools, 0.3% fee to liquidity providers. Acts: poolCreate {symA,symB,amtA,amtB}, poolAdd {pool,amtA,amtB}, poolRemove {pool,shares}, poolSwap {pool,sell,amt,minOut?} — via POST /api/act, each costing θ like any act.',
+    });
+    return;
+  }
   if (req.method === 'GET' && p === 'events') {
     const since = Math.max(0, Number(q.get('since')) || 0);
     const limit = Math.min(Math.max(Number(q.get('limit')) || 50, 1), 200);

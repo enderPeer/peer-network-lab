@@ -169,6 +169,7 @@ Useful environment variables:
 | `replay-revision.test.ts` | revisions mint nothing, content ids never shift, a hyper act debits once |
 | `replay-delete-revised.test.ts` | the two features *together* — deleting a post that was edited, and an edit not paying a vouch twice |
 | `host.test.ts` | the refusals: PIN rules, handle claiming, error messages that name their numbers, acts that name content nobody minted, and the bot API not diverging from the act API |
+| `tokens.test.ts` | the token economy: the emission curve, engagement weighting and its gates, AMM invariants, and the two walls — value never becomes standing, deletion never rewrites token history |
 | `admin.test.ts` | the operator surface: the admin door is closed without a token, addresses never reach a public endpoint or the log, and a paid placement never becomes an act |
 
 The replay and host suites are not decoration. Every one of them was written
