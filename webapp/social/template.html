@@ -201,6 +201,32 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
 .vouch-effect.good { border-color: #4a7a55; background: rgba(74,122,85,.10); }
 .vouch-effect p { margin: 5px 0 0; }
 .a2hs.refusal b { display: block; margin-bottom: 2px; }
+/* Label/value pairs. The class was used on every economy panel and had no
+   rule at all, so on a narrow screen the text ran together: "minted so
+   far275000.00hard cap". A two-column grid with the value right-aligned is
+   what it always looked like it was meant to be. */
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+  align-items: baseline; margin: 8px 0; }
+.kv > span { color: var(--dim, #a29a92); font-size: 13px; }
+.kv > b { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) {
+  /* Long values wrap under their label rather than squeezing it to nothing. */
+  .kv { grid-template-columns: 1fr; gap: 1px 0; }
+  .kv > span { margin-top: 6px; }
+  .kv > b { text-align: left; }
+}
+
+/* The mint attribution table: several numbers per row, so it scrolls
+   sideways inside its own box rather than widening the page. */
+.mint-epoch { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.mint-table { width: 100%; margin-top: 8px; font-size: 12px; }
+.mint-epoch { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.lnk { background: none; border: 0; padding: 0; color: var(--accent, #d8b26a);
+  font: inherit; cursor: pointer; text-decoration: underline; }
+.tx { display: flex; gap: 10px; padding: 7px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.tx:last-child { border-bottom: 0; }
+.tx-who { flex: 0 0 auto; min-width: 74px; color: var(--dim, #a29a92); }
+
 /* ── Feed lanes ────────────────────────────────────────────────────────────
    The switcher is a horizontal strip that scrolls rather than wrapping, so it
    keeps its shape on a narrow phone instead of growing a second row and
@@ -694,6 +720,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // entry point: the specialised lanes are a way to keep going once you know
   // what you came for, not four separate apps.
   var feedLane = 'all';   // 'all' | 'reels' | 'music' | 'gallery'
+  var econView = 'wallet'; // 'wallet' | 'pools' | 'layer0' | 'ledger'
   var nowPlaying = null;  // {cid, el} — the music lane's single audio element
   var API = ''; // '' = this origin; set by resolveHost() when served statically
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
@@ -735,6 +762,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['all', 'reels', 'music', 'gallery'].indexOf(v0.feedLane) >= 0) feedLane = v0.feedLane;
+      if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
     }
@@ -756,7 +784,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, feedLane: feedLane, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, feedLane: feedLane, econView: econView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -4865,6 +4893,169 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return card;
   }
 
+  // ══ Wallet ═══════════════════════════════════════════════════════════════
+  //
+  // The point of this screen is that a balance is never asked to be believed.
+  // Every number on it is followed by the arithmetic that produced it and the
+  // acts it came from, because "you earned 2,341 PEER" is a claim and
+  // "because bob commented on c123, weight 1.2 x damping 1.00 x their rate
+  // factor 0.65" is something anyone holding the log can check.
+
+  /** 1st, 2nd, 3rd, 4th — "their 2th" read like a bug, because it was one. */
+  function ordinal(n) {
+    var mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return n + 'th';
+    return n + ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+  }
+
+  function walletView(st) {
+    var wrap = h('div', {});
+    var tok = st.tokens;
+    var mine = tok.dist.filter(function (d) { return d.to[who]; });
+    var earned = mine.reduce(function (a, d) { return a + d.to[who]; }, 0);
+
+    // ── what you hold ──
+    var hold = h('div', { class: 'card' }, h('h2', { text: 'Your balances' }));
+    var kv = h('div', { class: 'kv' });
+    var syms = Object.keys(tok.meta);
+    var anyHeld = false;
+    syms.forEach(function (sym) {
+      var b = (tok.bal[sym] && tok.bal[sym][who]) || 0;
+      if (b <= 0 && sym !== 'PEER' && sym !== 'tBTC') return;
+      if (b > 0) anyHeld = true;
+      kv.appendChild(h('span', { text: sym }));
+      kv.appendChild(h('b', { class: 'num', text: fmt(b, 6) }));
+    });
+    hold.appendChild(kv);
+    if (!anyHeld) {
+      hold.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER arrives when an epoch closes and someone has engaged with what you made; tBTC is claimable once, below.' }));
+    }
+    wrap.appendChild(hold);
+
+    // ── the network-wide picture, so your share has a denominator ──
+    var em = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'PEER in the network' }),
+      h('div', { class: 'kv' },
+        h('span', { text: 'minted so far' }), h('b', { class: 'num', text: fmt(tok.supply.PEER, 2) }),
+        h('span', { text: 'hard cap' }), h('b', { class: 'num', text: '18,250,000' }),
+        h('span', { text: 'epochs closed' }), h('b', { class: 'num', text: String(tok.epochN) }),
+        h('span', { text: 'waiting to be paid out' }), h('b', { class: 'num', text: fmt(tok.carry, 2) })),
+      h('div', { class: 'kv' },
+        h('span', { text: 'you hold' }), h('b', { class: 'num', text: fmt((tok.bal.PEER && tok.bal.PEER[who]) || 0, 2) }),
+        h('span', { text: 'your share of everything minted' }),
+        h('b', { class: 'num', text: tok.supply.PEER > 0 ? (((tok.bal.PEER && tok.bal.PEER[who]) || 0) / tok.supply.PEER * 100).toFixed(2) + '%' : '—' })),
+      h('p', { class: 'smallnote', text: 'Emission is 5000 per epoch in year one, falling 0.9 every 365 epochs, capped at 18.25M — the poolsite curve on this network\u2019s clock. Anything an epoch cannot distribute carries into the next one, so nothing is lost.' }));
+    wrap.appendChild(em);
+
+    // ── what actually produced your tokens ──
+    var why = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'What generated your PEER' }));
+    if (!mine.length) {
+      why.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER goes to CREATORS, weighted by the engagement their work drew — so it arrives when other people react to or comment on what you made, not when you act. A reaction counts 1.0, a comment 1.2, a negative reaction 0.3.' }));
+      why.appendChild(h('p', { class: 'smallnote', text: 'Two things damp it, both deliberately: the tenth nudge from the same person is worth a fraction of the first, and a weigher with no burned commitment counts for nothing at all.' }));
+    } else {
+      why.appendChild(h('p', { class: 'smallnote', text: 'Total earned: ' + fmt(earned, 2) + ' PEER across ' + mine.length + ' epoch(s). Every line below is checkable against the same log you are reading.' }));
+      mine.slice(-6).reverse().forEach(function (d) {
+        var box = h('div', { class: 'mint-epoch' });
+        var share = d.totalWeight > 0 ? (d.weights[who] || 0) / d.totalWeight : 0;
+        box.appendChild(h('div', { class: 'kv' },
+          h('span', { text: 'epoch ' + d.epoch }), h('b', { class: 'num', text: '+' + fmt(d.to[who], 4) + ' PEER' }),
+          h('span', { text: 'the pool that epoch' }), h('b', { class: 'num', text: fmt(d.pool, 2) + ' (emission ' + fmt(d.emission, 0) + ' + carried ' + fmt(d.pool - d.emission, 2) + ')' }),
+          h('span', { text: 'your weight of the total' }),
+          h('b', { class: 'num', text: fmt(d.weights[who] || 0, 4) + ' of ' + fmt(d.totalWeight, 4) + ' = ' + (share * 100).toFixed(2) + '%' })));
+        var lines = d.why && d.why[who];
+        if (lines && lines.length) {
+          var tbl = h('table', { class: 'standings mint-table' },
+            h('tr', {}, h('th', { text: 'who' }), h('th', { text: 'did what' }),
+              h('th', { class: 'r', text: 'base' }), h('th', { class: 'r', text: 'damping' }),
+              h('th', { class: 'r', text: 'their rate' }), h('th', { class: 'r', text: 'weight' })));
+          lines.forEach(function (l) {
+            tbl.appendChild(h('tr', {},
+              h('td', { text: st.handles[l.actor] || l.actor }),
+              h('td', {}, l.kind + ' on ', h('button', { class: 'lnk', text: l.cid, onclick: function () {
+                focusNode = l.cid; tab = 'feed'; feedLane = 'all'; saveView(); render();
+              } }), l.nth > 1 ? h('span', { class: 'smallnote', text: ' (their ' + ordinal(l.nth) + ')' }) : null),
+              h('td', { class: 'r num', text: fmt(l.base, 2) }),
+              h('td', { class: 'r num', text: '\u00d7' + fmt(l.damp, 3) }),
+              h('td', { class: 'r num', text: '\u00d7' + fmt(l.lambda, 3) }),
+              h('td', { class: 'r num', text: fmt(l.weight, 4) })));
+          });
+          box.appendChild(tbl);
+          box.appendChild(h('p', { class: 'smallnote', text: 'base \u00d7 damping \u00d7 their rate = weight. Damping falls the more often the same person engages with you; "their rate" is that person\u2019s own commitment \u03bb(\u03b1\u0302), so a backer who has burned more counts for more.' }));
+        }
+        why.appendChild(box);
+      });
+      if (mine.length > 6) {
+        why.appendChild(h('p', { class: 'smallnote', text: 'Showing the last 6 of ' + mine.length + ' epochs you earned in.' }));
+      }
+    }
+    wrap.appendChild(why);
+
+    // ── claim + send ──
+    var act1 = h('div', { class: 'card', style: 'margin-top:14px' }, h('h2', { text: 'Move value' }));
+    if (!tok.claimed[who]) {
+      act1.appendChild(h('div', { class: 'mini-form' },
+        h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC \u00b7 \u2212\u03b8', onclick: function () {
+          tryAct(who, { t: 'btcClaim', author: who }, 'Claimed. Sandbox value with a bitcoin-shaped name \u2014 backed by nothing, once per account.');
+        } }),
+        h('span', { class: 'smallnote', text: 'one claim per account, ever' })));
+    }
+    var sSym = h('select', {});
+    syms.forEach(function (sym) {
+      if (((tok.bal[sym] && tok.bal[sym][who]) || 0) > 0) sSym.appendChild(h('option', { value: sym, text: sym }));
+    });
+    var sTo = h('select', {});
+    st.ledgers.forEach(function (l) { if (l.id !== who && !st.deleted[l.id]) sTo.appendChild(h('option', { value: l.id, text: st.handles[l.id] || l.id })); });
+    var sAmt = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
+    act1.appendChild(h('div', { class: 'mini-form' }, sSym, sAmt, h('span', { class: 'smallnote', text: 'to' }), sTo,
+      h('button', { class: 'btn small', text: 'Send \u00b7 \u2212\u03b8', onclick: function () {
+        var v = parseFloat(sAmt.value);
+        if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+        tryAct(who, { t: 'tokenSend', author: who, sym: sSym.value, to: sTo.value, amt: v }, 'Sent.');
+      } })));
+    wrap.appendChild(act1);
+    return wrap;
+  }
+
+  // ══ Every value movement, in order ═══════════════════════════════════════
+  //
+  // Derived from the log rather than kept as a second ledger, so it cannot
+  // disagree with what actually happened.
+  function valueLedger(st) {
+    var wrap = h('div', {});
+    var rows = [];
+    st.tokens.dist.forEach(function (d) {
+      for (var k in d.to) rows.push({ idx: -1, epoch: d.epoch, kind: 'mint', who: k, text: '+' + fmt(d.to[k], 4) + ' PEER \u2014 epoch ' + d.epoch + ' distribution' });
+    });
+    st.chron.forEach(function (c, i) {
+      var l = c.line || '';
+      if (/claimed .* tBTC|minted \d+ |sent .* to |swapped |added liquidity|withdrew from|opened the .* pool|bought a placement|stopped advert/.test(l)) {
+        rows.push({ idx: i, kind: 'act', who: c.who, text: l });
+      }
+    });
+    var mineOnly = false;
+    var box = h('div', { class: 'card' },
+      h('div', { class: 'panel-head' },
+        h('p', { class: 'eyebrow', style: 'margin:0', text: 'every value movement, newest first' }),
+        h('button', { class: 'btn small', text: 'only mine', onclick: function () { mineOnly = !mineOnly; draw(); } })));
+    var list = h('div', {});
+    function draw() {
+      list.innerHTML = '';
+      var shown = rows.filter(function (r) { return !mineOnly || r.who === who; }).slice().reverse().slice(0, 120);
+      if (!shown.length) { list.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet.' })); return; }
+      shown.forEach(function (r) {
+        list.appendChild(h('div', { class: 'tx' },
+          h('span', { class: 'tx-who', text: st.handles[r.who] || r.who || '\u2014' }),
+          h('span', { class: 'grow', text: r.text })));
+      });
+    }
+    draw();
+    box.appendChild(list);
+    box.appendChild(h('p', { class: 'smallnote', text: 'Read from the act log, not stored separately \u2014 so this cannot drift from what happened. Mints are the epoch distributions; everything else is an act somebody paid \u03b8 for.' }));
+    wrap.appendChild(box);
+    return wrap;
+  }
+
   function econTab(st) {
     var l0 = st.l0;
     var w = l0.bal(who);
@@ -4872,326 +5063,361 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var escrowTotal = l0.escrow.reduce(function (s, e) { return s + e.amount; }, 0);
     var wrap = h('div', {});
 
-    wrap.appendChild(h('div', { class: 'card' },
-      h('h2', { text: 'Layer 0 — the reserve receipt' }),
-      h('div', { class: 'kv' },
-        h('span', { text: 'reserve pool Ω' }), h('b', { class: 'num', text: fmt(l0.omega, 3) }),
-        h('span', { text: 'live Y_L' }), h('b', { class: 'num', text: fmt(l0.yLive, 3) }),
-        h('span', { text: 'time-locked Y_T' }), h('b', { class: 'num', text: fmt(l0.yLock, 3) })),
-      h('div', { class: 'kv' },
-        h('span', { text: 'floor φ = Ω/Y' }), h('b', { class: 'num', text: fmt(l0.floor(), 4) }),
-        h('span', { text: 'settled φ' }), h('b', { class: 'num', text: fmt(l0.settledFloor, 4) }),
-        h('span', { text: 'cycle k' }), h('b', { class: 'num', text: l0.cycle + ' (' + (l0.bootstrapping ? 'bootstrapping, maturity at 10' : 'normal phase') + ')' })),
-      h('div', { class: 'kv' },
-        h('span', { text: 'escrow Q' }), h('b', { class: 'num', text: fmt(escrowTotal, 2) }),
-        h('span', { text: 'A_max = E₀·ln(1/(1−ζ))' }), h('b', { class: 'num', text: fmt(l0.attestCap, 2) }),
-        h('span', { text: 'operator' }), h('b', { class: 'num', text: fmt(op.live, 1) + ' L · ' + fmt(op.tlock, 1) + ' T' })),
-      h('p', { class: 'smallnote', text: 'One conserved receipt, two redemption classes. The floor only ever rises: burning destroys supply against an unchanged pool; issuance mints at the pre-issuance floor; redemption pays out at it. ζ = f = 0.5 (spec placeholders). Every burn credits the attestation A at the settled floor — and A is exactly the burn value Layer 1 reads.' })));
-
-    var amtD = h('input', { type: 'text', placeholder: '5', style: 'width:60px', inputmode: 'decimal' });
-    var amtB = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
-    var amtR = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
-    var amtT = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
-    var peerSel = h('select', {});
-    st.ledgers.forEach(function (l) {
-      if (l.id !== who && !l.deleted) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
-    });
-    function num(inp, dflt) { var v = parseFloat(inp.value); return isFinite(v) && v > 0 ? v : dflt; }
-
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Your wallet' }),
-      h('div', { class: 'kv' },
-        h('span', { text: 'external reserve' }), h('b', { class: 'num', text: fmt(w.reserve, 3) }),
-        h('span', { text: 'live' }), h('b', { class: 'num', text: fmt(w.live, 3) }),
-        h('span', { text: 'time-locked' }), h('b', { class: 'num', text: fmt(w.tlock, 3) }),
-        h('span', { text: 'attestation A' }), h('b', { class: 'num', text: fmt(w.attest, 3) })),
-      h('div', { class: 'mini-form' }, amtD,
-        h('button', { class: 'btn small primary', text: 'Deposit → escrow', onclick: function () {
-          var x = num(amtD, 5);
-          if (w.reserve < x) { toast('Not enough external reserve.'); return; }
-          pushAct({ t: 'deposit', id: who, amt: x }, function () { toast('Escrowed. Mints at the next cycle boundary: (1−f)·ζ live + (1−f)·(1−ζ) time-locked to you, fee to the operator.'); });
-        } })),
-      h('div', { class: 'mini-form' }, amtB,
-        h('button', { class: 'btn small primary', text: 'Burn live → attestation', onclick: function () {
-          var x = num(amtB, 1);
-          if (w.live < x) { toast('Not enough live units.'); return; }
-          pushAct({ t: 'burnL0', id: who, x: x }, function () { toast('Destroyed forever. Attestation credited at the settled floor — this is your Layer-1 burn value.'); });
-        } })),
-      h('div', { class: 'mini-form' }, amtR,
-        h('button', { class: 'btn small', text: 'Redeem live → reserve', onclick: function () {
-          var x = num(amtR, 1);
-          if (w.live < x) { toast('Not enough live units.'); return; }
-          pushAct({ t: 'redeem', id: who, x: x }, function () { toast('Redeemed at the floor — exits value, never lowers φ.'); });
-        } })),
-      h('div', { class: 'mini-form' }, amtT, peerSel,
-        h('button', { class: 'btn small', text: 'Send live units', onclick: function () {
-          var x = num(amtT, 1);
-          if (!peerSel.value) { toast('No peer to send to.'); return; }
-          if (w.live < x) { toast('Not enough live units.'); return; }
-          pushAct({ t: 'transferL0', from: who, to: peerSel.value, x: x, cls: 'live' }, function () { toast('Transferred — class-internal, touches no Ω, φ, or A.'); });
-        } })),
-      h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close L0 cycle ' + l0.cycle + ' (process escrow, settle floor)', onclick: function () {
-        pushAct({ t: 'closeCycle' }, function () { toast('Cycle boundary: escrow minted at the pre-issuance floor, settlement committed.'); });
-      } }),
-      h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
-
-    
-    // ── The PEER token and its pools ─────────────────────────────────────────
-    // Tokens are value the epoch mints; standing is reputation the graph
-    // computes. The interface keeps saying that, because a screen where both
-    // appear is exactly where the two would otherwise blur together.
     var tok = st.tokens, myPools = st.pools;
     function round6(x) { return Math.round(x * 1e6) / 1e6; }
     function tbal(sym) { return (tok.bal[sym] && tok.bal[sym][who]) || 0; }
 
-    var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'PEER — the epoch token' }),
-      h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled by their commitment rate λ(α̂) and gated at α̂ ≥ 0.2. Value, never standing: no balance enters any score.' }));
-    var bkv = h('div', { class: 'kv' });
-    var symsAll = Object.keys(tok.meta);
-    for (var ti = 0; ti < symsAll.length; ti++) {
-      var sym0 = symsAll[ti];
-      if (tbal(sym0) > 0 || sym0 === 'PEER' || sym0 === 'tBTC') {
-        bkv.appendChild(h('span', { text: sym0 }));
-        bkv.appendChild(h('b', { class: 'num', text: round6(tbal(sym0)) + '' }));
-      }
-    }
-    tCard.appendChild(bkv);
-    tCard.appendChild(h('p', { class: 'smallnote', text: 'Supply: ' + round6(tok.supply.PEER) + ' PEER minted over ' + tok.epochN + ' epoch(s) · ' + round6(tok.carry) + ' carried to the next · your distributions ride on people engaging with what you make.' }));
-    if (!tok.claimed[who]) {
-      tCard.appendChild(h('div', { class: 'mini-form' },
-        h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC · −θ', onclick: function () {
-          tryAct(who, { t: 'btcClaim', author: who }, 'Claimed 0.01 tBTC — sandbox value, one claim per account, backed by nothing.');
-        } }),
-        h('span', { class: 'smallnote', text: 'test bitcoin: a bitcoin-shaped name on sandbox value. The host holds no keys; nothing here touches the real chain.' })));
-    }
-    var myDist = [];
-    for (var di = 0; di < tok.dist.length; di++) if (tok.dist[di].to[who]) myDist.push(tok.dist[di]);
-    if (myDist.length) {
-      var dl = myDist.slice(-5).map(function (d) { return 'epoch ' + d.epoch + ': +' + d.to[who]; }).join(' · ');
-      tCard.appendChild(h('p', { class: 'smallnote', text: 'Your last distributions — ' + dl }));
-    }
-    wrap.appendChild(tCard);
+    // ── Sub-tabs ─────────────────────────────────────────────────────────
+    // The economy screen had grown into one long scroll holding four
+    // unrelated jobs: what you hold, what the pools are doing, the Layer-0
+    // receipt system, and the history. Splitting them means the wallet is
+    // reachable without scrolling past a ledger of raw addresses.
+    var views = [['wallet', 'Wallet'], ['pools', 'Pools & ads'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
+    var bar = h('div', { class: 'lanes' });
+    views.forEach(function (v) {
+      var b = h('button', { class: 'lane' + (econView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
+      b.onclick = function () { econView = v[0]; saveView(); render(); };
+      bar.appendChild(b);
+    });
+    wrap.appendChild(bar);
 
-    // ── pools ──
-    var pCard = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Liquidity pools' }),
-      h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
-    var pids = Object.keys(myPools);
-    if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. Open the first one below — PEER/tBTC is the intended opening pair.' }));
-    pids.forEach(function (pid) {
-      var pl = myPools[pid];
-      var mine = pl.shares[who] || 0;
-      var row = h('div', { class: 'kv' },
-        h('span', { text: pid }), h('b', { class: 'num', text: round6(pl.resA) + ' ' + pl.a + ' / ' + round6(pl.resB) + ' ' + pl.b }),
-        h('span', { text: 'price' }), h('b', { class: 'num', text: '1 ' + pl.a + ' = ' + round6(pl.resB / pl.resA) + ' ' + pl.b }),
-        h('span', { text: 'your share' }), h('b', { class: 'num', text: (pl.totalShares > 0 ? (mine / pl.totalShares * 100).toFixed(2) : '0.00') + '% · ' + pl.swaps + ' swap(s)' }));
-      pCard.appendChild(row);
+    if (econView === 'wallet') {
+      wrap.appendChild(walletView(st));
+    }
 
-      var sellSel = h('select', {}, h('option', { value: pl.a, text: 'sell ' + pl.a }), h('option', { value: pl.b, text: 'sell ' + pl.b }));
-      var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
-      var quote = h('span', { class: 'smallnote' });
-      function requote() {
-        var v = parseFloat(amtIn.value);
-        if (!isFinite(v) || v <= 0) { quote.textContent = ''; return; }
-        var inA = sellSel.value === pl.a;
-        var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
-        var out = rout * (v * 0.997) / (rin + v * 0.997);
-        quote.textContent = '→ ' + round6(out) + ' ' + (inA ? pl.b : pl.a) + ' (incl. 0.3% fee)';
+    if (econView === 'wallet') {
+      var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'PEER — the epoch token' }),
+        h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled by their commitment rate λ(α̂) and gated at α̂ ≥ 0.2. Value, never standing: no balance enters any score.' }));
+      var bkv = h('div', { class: 'kv' });
+      var symsAll = Object.keys(tok.meta);
+      for (var ti = 0; ti < symsAll.length; ti++) {
+        var sym0 = symsAll[ti];
+        if (tbal(sym0) > 0 || sym0 === 'PEER' || sym0 === 'tBTC') {
+          bkv.appendChild(h('span', { text: sym0 }));
+          bkv.appendChild(h('b', { class: 'num', text: round6(tbal(sym0)) + '' }));
+        }
       }
-      amtIn.addEventListener('input', requote);
-      sellSel.addEventListener('change', requote);
-      pCard.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
-        h('button', { class: 'btn small primary', text: 'Swap · −θ', onclick: function () {
+      tCard.appendChild(bkv);
+      tCard.appendChild(h('p', { class: 'smallnote', text: 'Supply: ' + round6(tok.supply.PEER) + ' PEER minted over ' + tok.epochN + ' epoch(s) · ' + round6(tok.carry) + ' carried to the next · your distributions ride on people engaging with what you make.' }));
+      if (!tok.claimed[who]) {
+        tCard.appendChild(h('div', { class: 'mini-form' },
+          h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC · −θ', onclick: function () {
+            tryAct(who, { t: 'btcClaim', author: who }, 'Claimed 0.01 tBTC — sandbox value, one claim per account, backed by nothing.');
+          } }),
+          h('span', { class: 'smallnote', text: 'test bitcoin: a bitcoin-shaped name on sandbox value. The host holds no keys; nothing here touches the real chain.' })));
+      }
+      var myDist = [];
+      for (var di = 0; di < tok.dist.length; di++) if (tok.dist[di].to[who]) myDist.push(tok.dist[di]);
+      if (myDist.length) {
+        var dl = myDist.slice(-5).map(function (d) { return 'epoch ' + d.epoch + ': +' + d.to[who]; }).join(' · ');
+        tCard.appendChild(h('p', { class: 'smallnote', text: 'Your last distributions — ' + dl }));
+      }
+      wrap.appendChild(tCard);
+
+    }
+
+    if (econView === 'pools') {
+      // ── pools ──
+      var pCard = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Liquidity pools' }),
+        h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
+      var pids = Object.keys(myPools);
+      if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. Open the first one below — PEER/tBTC is the intended opening pair.' }));
+      pids.forEach(function (pid) {
+        var pl = myPools[pid];
+        var mine = pl.shares[who] || 0;
+        var row = h('div', { class: 'kv' },
+          h('span', { text: pid }), h('b', { class: 'num', text: round6(pl.resA) + ' ' + pl.a + ' / ' + round6(pl.resB) + ' ' + pl.b }),
+          h('span', { text: 'price' }), h('b', { class: 'num', text: '1 ' + pl.a + ' = ' + round6(pl.resB / pl.resA) + ' ' + pl.b }),
+          h('span', { text: 'your share' }), h('b', { class: 'num', text: (pl.totalShares > 0 ? (mine / pl.totalShares * 100).toFixed(2) : '0.00') + '% · ' + pl.swaps + ' swap(s)' }));
+        pCard.appendChild(row);
+
+        var sellSel = h('select', {}, h('option', { value: pl.a, text: 'sell ' + pl.a }), h('option', { value: pl.b, text: 'sell ' + pl.b }));
+        var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
+        var quote = h('span', { class: 'smallnote' });
+        function requote() {
           var v = parseFloat(amtIn.value);
-          if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+          if (!isFinite(v) || v <= 0) { quote.textContent = ''; return; }
           var inA = sellSel.value === pl.a;
           var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
-          var expect = rout * (v * 0.997) / (rin + v * 0.997);
-          // 2% slippage guard by default: if the pool moved between this
-          // render and the act landing, the act refuses instead of filling
-          // at a price the screen never showed.
-          tryAct(who, { t: 'poolSwap', author: who, pool: pid, sell: sellSel.value, amt: v, minOut: expect * 0.98 }, 'Swapped in ' + pid + '.');
-        } }), quote));
+          var out = rout * (v * 0.997) / (rin + v * 0.997);
+          quote.textContent = '→ ' + round6(out) + ' ' + (inA ? pl.b : pl.a) + ' (incl. 0.3% fee)';
+        }
+        amtIn.addEventListener('input', requote);
+        sellSel.addEventListener('change', requote);
+        pCard.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
+          h('button', { class: 'btn small primary', text: 'Swap · −θ', onclick: function () {
+            var v = parseFloat(amtIn.value);
+            if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+            var inA = sellSel.value === pl.a;
+            var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
+            var expect = rout * (v * 0.997) / (rin + v * 0.997);
+            // 2% slippage guard by default: if the pool moved between this
+            // render and the act landing, the act refuses instead of filling
+            // at a price the screen never showed.
+            tryAct(who, { t: 'poolSwap', author: who, pool: pid, sell: sellSel.value, amt: v, minOut: expect * 0.98 }, 'Swapped in ' + pid + '.');
+          } }), quote));
 
-      var addA = h('input', { type: 'text', placeholder: pl.a, style: 'width:80px', inputmode: 'decimal' });
-      var addB = h('input', { type: 'text', placeholder: pl.b, style: 'width:80px', inputmode: 'decimal' });
-      pCard.appendChild(h('div', { class: 'mini-form' }, addA, addB,
-        h('button', { class: 'btn small', text: 'Add liquidity · −θ', onclick: function () {
-          var va = parseFloat(addA.value), vb = parseFloat(addB.value);
-          if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both amounts, please.'); return; }
-          tryAct(who, { t: 'poolAdd', author: who, pool: pid, amtA: va, amtB: vb }, 'Added liquidity to ' + pid + ' (proportional part of what you offered).');
-        } }),
-        mine > 0 ? h('button', { class: 'btn small', text: 'Withdraw all · −θ', onclick: function () {
-          tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: mine }, 'Withdrew your liquidity from ' + pid + '.');
-        } }) : null));
-    });
-
-    var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
-    var npB = h('input', { type: 'text', placeholder: 'tBTC', style: 'width:70px', maxlength: '8' });
-    var npAmtA = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
-    var npAmtB = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
-    pCard.appendChild(h('div', { class: 'mini-form' }, npA, npAmtA, npB, npAmtB,
-      h('button', { class: 'btn small primary', text: 'Open pool · −θ', onclick: function () {
-        var va = parseFloat(npAmtA.value), vb = parseFloat(npAmtB.value);
-        var sa = (npA.value || 'PEER').trim(), sb = (npB.value || 'tBTC').trim();
-        if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both starting amounts, please.'); return; }
-        tryAct(who, { t: 'poolCreate', author: who, symA: sa, symB: sb, amtA: va, amtB: vb }, 'Opened the ' + sa + '/' + sb + ' pool. The starting ratio IS the starting price.');
-      } })));
-    wrap.appendChild(pCard);
-
-    // ── fun assets ──
-    var faSym = h('input', { type: 'text', placeholder: 'SYM (3-8, A-Z0-9)', style: 'width:130px', maxlength: '8' });
-    var faName = h('input', { type: 'text', placeholder: 'what is it?', style: 'flex:1', maxlength: '60' });
-    var faSupply = h('input', { type: 'text', placeholder: 'supply', style: 'width:90px', inputmode: 'decimal' });
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Mint a fun asset' }),
-      h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER or tBTC and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
-      h('div', { class: 'mini-form' }, faSym, faName, faSupply,
-        h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
-          var sup = parseFloat(faSupply.value);
-          tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
-        } }))));
-
-    // ── Buy a placement ──────────────────────────────────────────────────────
-    // Paid in tBTC, live the moment the act lands. There is no review queue in
-    // front of it: on a test network with play money, a queue was ceremony
-    // around something nobody could actually buy. Publish first, moderate
-    // after — the advertiser or the operator can stop one with a single act.
-    var adPrice = st.adPricePerDay || 0.0002;
-    var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
-
-    var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Buy a placement' }));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'A box in the feed, paid for in tBTC — sandbox money, and it is BURNED rather than paid to anyone, because advertising should destroy value here the way every other commitment does. It goes live immediately.' }));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
-
-    var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
-    var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
-    var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric', value: '7' });
-    var adCost = h('span', { class: 'smallnote' });
-    function priceIt() {
-      var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
-      var c = Math.round(adPrice * d * 1e6) / 1e6;
-      adCost.textContent = c + ' tBTC · you hold ' + Math.round(myTbtc * 1e6) / 1e6
-        + (c > myTbtc ? ' — not enough' : '');
-      adCost.className = 'smallnote' + (c > myTbtc ? ' warn' : '');
-    }
-    adDays.addEventListener('input', priceIt);
-    priceIt();
-
-    // ── targeting ──
-    var places = ['feed', 'live', 'record'];
-    var placeBoxes = {};
-    var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'where:' }));
-    places.forEach(function (pl) {
-      var cb = h('input', { type: 'checkbox' });
-      placeBoxes[pl] = cb;
-      placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
-    });
-    placeRow.appendChild(h('span', { class: 'smallnote', text: '(none = everywhere)' }));
-
-    var chosenTags = {};
-    var known = [];
-    st.g.nodes.forEach(function (n) {
-      if (n.kind === 'Type') {
-        var lab = (n.label || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
-        if (lab && known.indexOf(lab) < 0) known.push(lab);
-      }
-    });
-    known.sort();
-    var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
-    if (!known.length) tagRow.appendChild(h('span', { class: 'smallnote', text: 'nothing has been tagged yet.' }));
-    known.slice(0, 20).forEach(function (tg) {
-      var b = h('button', { class: 'btn small ghost', text: '#' + tg });
-      b.onclick = function () {
-        if (chosenTags[tg]) { delete chosenTags[tg]; b.className = 'btn small ghost'; }
-        else { chosenTags[tg] = 1; b.className = 'btn small primary'; }
-      };
-      tagRow.appendChild(b);
-    });
-
-    var peopleIn = h('input', { type: 'text', placeholder: 'handles, comma separated', style: 'flex:1' });
-    var postsIn = h('input', { type: 'text', placeholder: 'c123, c456', style: 'flex:1' });
-    var regionIn = h('input', { type: 'text', placeholder: 'de, en-gb, europe, europe/berlin', style: 'flex:1' });
-
-    adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
-    adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adCost));
-    adCard2.appendChild(placeRow);
-    adCard2.appendChild(tagRow);
-    adCard2.appendChild(h('div', { class: 'mini-form' },
-      h('span', { class: 'smallnote', text: 'people:' }), peopleIn));
-    adCard2.appendChild(h('div', { class: 'mini-form' },
-      h('span', { class: 'smallnote', text: 'engaged with:' }), postsIn));
-    adCard2.appendChild(h('div', { class: 'mini-form' },
-      h('span', { class: 'smallnote', text: 'region:' }), regionIn));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'Naming several kinds of audience means ANY of them, not all — otherwise advertisers aim at nobody by accident. Naming none shows it to everyone.' }));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'How the aiming works, exactly: every criterion is sent to EVERY reader and matched in their own browser — against the public act log for people, posts and subjects, and against their device\u2019s own timezone and language for region. The host serves an identical list to everybody and never learns who saw what. Your IP address is not used and never will be: that data exists here for blocking abuse and nothing else.' }));
-
-    adCard2.appendChild(h('div', { class: 'mini-form persistent' },
-      h('button', { class: 'btn small primary', text: 'Publish placement · −θ', onclick: function () {
-        var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
-        var placement = [];
-        places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
-        var split = function (v) {
-          return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12);
-        };
-        // Handles are typed by name; the act carries ids, so resolve here
-        // rather than making the advertiser look them up.
-        var byName = {};
-        for (var idk in st.handles) byName[(st.handles[idk] || '').toLowerCase()] = idk;
-        var people = split(peopleIn.value).map(function (n) { return byName[n.toLowerCase()] || n; });
-        tryAct(who, {
-          t: 'advert', author: who,
-          text: adText.value.trim(), url: adUrl.value.trim(), days: d,
-          placement: placement, tags: Object.keys(chosenTags),
-          people: people, posts: split(postsIn.value), regions: split(regionIn.value),
-        }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' tBTC, which was burned.');
-      } })));
-    if (!myTbtc) {
-      adCard2.appendChild(h('p', { class: 'smallnote warn', text:
-        'You hold no tBTC. Claim 0.01 above — once per account — or trade for some in a pool.' }));
-    }
-
-    // Your own placements, and the one control that matters after publishing.
-    var mineAds = (st.adverts || []).filter(function (a) { return a.by === who && !a.stopped; });
-    if (mineAds.length) {
-      var list = h('div', { style: 'margin-top:10px' }, h('p', { class: 'eyebrow', text: 'your placements' }));
-      mineAds.forEach(function (a) {
-        list.appendChild(h('div', { class: 'kv' },
-          h('span', { text: a.text.slice(0, 40) }),
-          h('b', {}, h('button', { class: 'btn small', text: 'Stop', onclick: function () {
-            tryAct(who, { t: 'adStop', author: who, ad: a.id }, 'Stopped. The act stays in the record; the box is gone.');
-          } }))));
+        var addA = h('input', { type: 'text', placeholder: pl.a, style: 'width:80px', inputmode: 'decimal' });
+        var addB = h('input', { type: 'text', placeholder: pl.b, style: 'width:80px', inputmode: 'decimal' });
+        pCard.appendChild(h('div', { class: 'mini-form' }, addA, addB,
+          h('button', { class: 'btn small', text: 'Add liquidity · −θ', onclick: function () {
+            var va = parseFloat(addA.value), vb = parseFloat(addB.value);
+            if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both amounts, please.'); return; }
+            tryAct(who, { t: 'poolAdd', author: who, pool: pid, amtA: va, amtB: vb }, 'Added liquidity to ' + pid + ' (proportional part of what you offered).');
+          } }),
+          mine > 0 ? h('button', { class: 'btn small', text: 'Withdraw all · −θ', onclick: function () {
+            tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: mine }, 'Withdrew your liquidity from ' + pid + '.');
+          } }) : null));
       });
-      adCard2.appendChild(list);
-    }
-    wrap.appendChild(adCard2);
 
-    // The Layer-0 address table lives at the BOTTOM now. It is the most
-    // technical thing on this screen and the least often wanted: people come
-    // here for their balance, their pools and their placements, and having to
-    // scroll past a ledger of raw addresses to reach them was backwards.
-    var table = h('table', { class: 'standings' },
-      h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
-    var addrs = [];
-    l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
-    addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
-    addrs.forEach(function (r) {
-      table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
-        h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
-        h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
-    });
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Addresses' }), table,
-      h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
+      var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
+      var npB = h('input', { type: 'text', placeholder: 'tBTC', style: 'width:70px', maxlength: '8' });
+      var npAmtA = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
+      var npAmtB = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
+      pCard.appendChild(h('div', { class: 'mini-form' }, npA, npAmtA, npB, npAmtB,
+        h('button', { class: 'btn small primary', text: 'Open pool · −θ', onclick: function () {
+          var va = parseFloat(npAmtA.value), vb = parseFloat(npAmtB.value);
+          var sa = (npA.value || 'PEER').trim(), sb = (npB.value || 'tBTC').trim();
+          if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both starting amounts, please.'); return; }
+          tryAct(who, { t: 'poolCreate', author: who, symA: sa, symB: sb, amtA: va, amtB: vb }, 'Opened the ' + sa + '/' + sb + ' pool. The starting ratio IS the starting price.');
+        } })));
+      wrap.appendChild(pCard);
+
+      // ── fun assets ──
+      var faSym = h('input', { type: 'text', placeholder: 'SYM (3-8, A-Z0-9)', style: 'width:130px', maxlength: '8' });
+      var faName = h('input', { type: 'text', placeholder: 'what is it?', style: 'flex:1', maxlength: '60' });
+      var faSupply = h('input', { type: 'text', placeholder: 'supply', style: 'width:90px', inputmode: 'decimal' });
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Mint a fun asset' }),
+        h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER or tBTC and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
+        h('div', { class: 'mini-form' }, faSym, faName, faSupply,
+          h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
+            var sup = parseFloat(faSupply.value);
+            tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
+          } }))));
+
+      // ── Buy a placement ──────────────────────────────────────────────────────
+      // Paid in tBTC, live the moment the act lands. There is no review queue in
+      // front of it: on a test network with play money, a queue was ceremony
+      // around something nobody could actually buy. Publish first, moderate
+      // after — the advertiser or the operator can stop one with a single act.
+      var adPrice = st.adPricePerDay || 0.0002;
+      var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
+
+      var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Buy a placement' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'A box in the feed, paid for in tBTC — sandbox money, and it is BURNED rather than paid to anyone, because advertising should destroy value here the way every other commitment does. It goes live immediately.' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
+
+      var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
+      var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
+      var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric', value: '7' });
+      var adCost = h('span', { class: 'smallnote' });
+      function priceIt() {
+        var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
+        var c = Math.round(adPrice * d * 1e6) / 1e6;
+        adCost.textContent = c + ' tBTC · you hold ' + Math.round(myTbtc * 1e6) / 1e6
+          + (c > myTbtc ? ' — not enough' : '');
+        adCost.className = 'smallnote' + (c > myTbtc ? ' warn' : '');
+      }
+      adDays.addEventListener('input', priceIt);
+      priceIt();
+
+      // ── targeting ──
+      var places = ['feed', 'live', 'record'];
+      var placeBoxes = {};
+      var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'where:' }));
+      places.forEach(function (pl) {
+        var cb = h('input', { type: 'checkbox' });
+        placeBoxes[pl] = cb;
+        placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
+      });
+      placeRow.appendChild(h('span', { class: 'smallnote', text: '(none = everywhere)' }));
+
+      var chosenTags = {};
+      var known = [];
+      st.g.nodes.forEach(function (n) {
+        if (n.kind === 'Type') {
+          var lab = (n.label || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+          if (lab && known.indexOf(lab) < 0) known.push(lab);
+        }
+      });
+      known.sort();
+      var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
+      if (!known.length) tagRow.appendChild(h('span', { class: 'smallnote', text: 'nothing has been tagged yet.' }));
+      known.slice(0, 20).forEach(function (tg) {
+        var b = h('button', { class: 'btn small ghost', text: '#' + tg });
+        b.onclick = function () {
+          if (chosenTags[tg]) { delete chosenTags[tg]; b.className = 'btn small ghost'; }
+          else { chosenTags[tg] = 1; b.className = 'btn small primary'; }
+        };
+        tagRow.appendChild(b);
+      });
+
+      var peopleIn = h('input', { type: 'text', placeholder: 'handles, comma separated', style: 'flex:1' });
+      var postsIn = h('input', { type: 'text', placeholder: 'c123, c456', style: 'flex:1' });
+      var regionIn = h('input', { type: 'text', placeholder: 'de, en-gb, europe, europe/berlin', style: 'flex:1' });
+
+      adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
+      adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adCost));
+      adCard2.appendChild(placeRow);
+      adCard2.appendChild(tagRow);
+      adCard2.appendChild(h('div', { class: 'mini-form' },
+        h('span', { class: 'smallnote', text: 'people:' }), peopleIn));
+      adCard2.appendChild(h('div', { class: 'mini-form' },
+        h('span', { class: 'smallnote', text: 'engaged with:' }), postsIn));
+      adCard2.appendChild(h('div', { class: 'mini-form' },
+        h('span', { class: 'smallnote', text: 'region:' }), regionIn));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'Naming several kinds of audience means ANY of them, not all — otherwise advertisers aim at nobody by accident. Naming none shows it to everyone.' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'How the aiming works, exactly: every criterion is sent to EVERY reader and matched in their own browser — against the public act log for people, posts and subjects, and against their device\u2019s own timezone and language for region. The host serves an identical list to everybody and never learns who saw what. Your IP address is not used and never will be: that data exists here for blocking abuse and nothing else.' }));
+
+      adCard2.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small primary', text: 'Publish placement · −θ', onclick: function () {
+          var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
+          var placement = [];
+          places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
+          var split = function (v) {
+            return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12);
+          };
+          // Handles are typed by name; the act carries ids, so resolve here
+          // rather than making the advertiser look them up.
+          var byName = {};
+          for (var idk in st.handles) byName[(st.handles[idk] || '').toLowerCase()] = idk;
+          var people = split(peopleIn.value).map(function (n) { return byName[n.toLowerCase()] || n; });
+          tryAct(who, {
+            t: 'advert', author: who,
+            text: adText.value.trim(), url: adUrl.value.trim(), days: d,
+            placement: placement, tags: Object.keys(chosenTags),
+            people: people, posts: split(postsIn.value), regions: split(regionIn.value),
+          }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' tBTC, which was burned.');
+        } })));
+      if (!myTbtc) {
+        adCard2.appendChild(h('p', { class: 'smallnote warn', text:
+          'You hold no tBTC. Claim 0.01 above — once per account — or trade for some in a pool.' }));
+      }
+
+      // Your own placements, and the one control that matters after publishing.
+      var mineAds = (st.adverts || []).filter(function (a) { return a.by === who && !a.stopped; });
+      if (mineAds.length) {
+        var list = h('div', { style: 'margin-top:10px' }, h('p', { class: 'eyebrow', text: 'your placements' }));
+        mineAds.forEach(function (a) {
+          list.appendChild(h('div', { class: 'kv' },
+            h('span', { text: a.text.slice(0, 40) }),
+            h('b', {}, h('button', { class: 'btn small', text: 'Stop', onclick: function () {
+              tryAct(who, { t: 'adStop', author: who, ad: a.id }, 'Stopped. The act stays in the record; the box is gone.');
+            } }))));
+        });
+        adCard2.appendChild(list);
+      }
+      wrap.appendChild(adCard2);
+
+    }
+
+    if (econView === 'layer0') {
+      wrap.appendChild(h('div', { class: 'card' },
+        h('h2', { text: 'Layer 0 — the reserve receipt' }),
+        h('div', { class: 'kv' },
+          h('span', { text: 'reserve pool Ω' }), h('b', { class: 'num', text: fmt(l0.omega, 3) }),
+          h('span', { text: 'live Y_L' }), h('b', { class: 'num', text: fmt(l0.yLive, 3) }),
+          h('span', { text: 'time-locked Y_T' }), h('b', { class: 'num', text: fmt(l0.yLock, 3) })),
+        h('div', { class: 'kv' },
+          h('span', { text: 'floor φ = Ω/Y' }), h('b', { class: 'num', text: fmt(l0.floor(), 4) }),
+          h('span', { text: 'settled φ' }), h('b', { class: 'num', text: fmt(l0.settledFloor, 4) }),
+          h('span', { text: 'cycle k' }), h('b', { class: 'num', text: l0.cycle + ' (' + (l0.bootstrapping ? 'bootstrapping, maturity at 10' : 'normal phase') + ')' })),
+        h('div', { class: 'kv' },
+          h('span', { text: 'escrow Q' }), h('b', { class: 'num', text: fmt(escrowTotal, 2) }),
+          h('span', { text: 'A_max = E₀·ln(1/(1−ζ))' }), h('b', { class: 'num', text: fmt(l0.attestCap, 2) }),
+          h('span', { text: 'operator' }), h('b', { class: 'num', text: fmt(op.live, 1) + ' L · ' + fmt(op.tlock, 1) + ' T' })),
+        h('p', { class: 'smallnote', text: 'One conserved receipt, two redemption classes. The floor only ever rises: burning destroys supply against an unchanged pool; issuance mints at the pre-issuance floor; redemption pays out at it. ζ = f = 0.5 (spec placeholders). Every burn credits the attestation A at the settled floor — and A is exactly the burn value Layer 1 reads.' })));
+
+      var amtD = h('input', { type: 'text', placeholder: '5', style: 'width:60px', inputmode: 'decimal' });
+      var amtB = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+      var amtR = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+      var amtT = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+      var peerSel = h('select', {});
+      st.ledgers.forEach(function (l) {
+        if (l.id !== who && !l.deleted) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+      });
+      function num(inp, dflt) { var v = parseFloat(inp.value); return isFinite(v) && v > 0 ? v : dflt; }
+
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Your wallet' }),
+        h('div', { class: 'kv' },
+          h('span', { text: 'external reserve' }), h('b', { class: 'num', text: fmt(w.reserve, 3) }),
+          h('span', { text: 'live' }), h('b', { class: 'num', text: fmt(w.live, 3) }),
+          h('span', { text: 'time-locked' }), h('b', { class: 'num', text: fmt(w.tlock, 3) }),
+          h('span', { text: 'attestation A' }), h('b', { class: 'num', text: fmt(w.attest, 3) })),
+        h('div', { class: 'mini-form' }, amtD,
+          h('button', { class: 'btn small primary', text: 'Deposit → escrow', onclick: function () {
+            var x = num(amtD, 5);
+            if (w.reserve < x) { toast('Not enough external reserve.'); return; }
+            pushAct({ t: 'deposit', id: who, amt: x }, function () { toast('Escrowed. Mints at the next cycle boundary: (1−f)·ζ live + (1−f)·(1−ζ) time-locked to you, fee to the operator.'); });
+          } })),
+        h('div', { class: 'mini-form' }, amtB,
+          h('button', { class: 'btn small primary', text: 'Burn live → attestation', onclick: function () {
+            var x = num(amtB, 1);
+            if (w.live < x) { toast('Not enough live units.'); return; }
+            pushAct({ t: 'burnL0', id: who, x: x }, function () { toast('Destroyed forever. Attestation credited at the settled floor — this is your Layer-1 burn value.'); });
+          } })),
+        h('div', { class: 'mini-form' }, amtR,
+          h('button', { class: 'btn small', text: 'Redeem live → reserve', onclick: function () {
+            var x = num(amtR, 1);
+            if (w.live < x) { toast('Not enough live units.'); return; }
+            pushAct({ t: 'redeem', id: who, x: x }, function () { toast('Redeemed at the floor — exits value, never lowers φ.'); });
+          } })),
+        h('div', { class: 'mini-form' }, amtT, peerSel,
+          h('button', { class: 'btn small', text: 'Send live units', onclick: function () {
+            var x = num(amtT, 1);
+            if (!peerSel.value) { toast('No peer to send to.'); return; }
+            if (w.live < x) { toast('Not enough live units.'); return; }
+            pushAct({ t: 'transferL0', from: who, to: peerSel.value, x: x, cls: 'live' }, function () { toast('Transferred — class-internal, touches no Ω, φ, or A.'); });
+          } })),
+        h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close L0 cycle ' + l0.cycle + ' (process escrow, settle floor)', onclick: function () {
+          pushAct({ t: 'closeCycle' }, function () { toast('Cycle boundary: escrow minted at the pre-issuance floor, settlement committed.'); });
+        } }),
+        h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
+
+    
+      // ── The PEER token and its pools ─────────────────────────────────────────
+      // Tokens are value the epoch mints; standing is reputation the graph
+      // computes. The interface keeps saying that, because a screen where both
+      // appear is exactly where the two would otherwise blur together.
+      var tok = st.tokens, myPools = st.pools;
+      function round6(x) { return Math.round(x * 1e6) / 1e6; }
+      function tbal(sym) { return (tok.bal[sym] && tok.bal[sym][who]) || 0; }
+
+      // The Layer-0 address table lives at the BOTTOM now. It is the most
+      // technical thing on this screen and the least often wanted: people come
+      // here for their balance, their pools and their placements, and having to
+      // scroll past a ledger of raw addresses to reach them was backwards.
+      var table = h('table', { class: 'standings' },
+        h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
+      var addrs = [];
+      l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
+      addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
+      addrs.forEach(function (r) {
+        table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
+          h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
+          h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
+          h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
+          h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
+          h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
+      });
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Addresses' }), table,
+        h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
+
+    }
+
+    if (econView === 'ledger') {
+      wrap.appendChild(valueLedger(st));
+    }
 
     return wrap;
   }

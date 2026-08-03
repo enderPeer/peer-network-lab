@@ -605,7 +605,7 @@ function replayUncached(acts) {
       // close. Records only — all gates and damping apply at close, where the
       // actor's commitment rate is read once, for everyone alike.
       if (!owner && contentAuthor[a.target] && contentAuthor[a.target] !== a.author) {
-        epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: a.p >= 0 ? 1.0 : 0.3 });
+        epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: a.p >= 0 ? 1.0 : 0.3, cid: a.target, kind: a.p >= 0 ? 'reaction' : 'dislike' });
       }
       if (!payloadGone) {
         chron.push({
@@ -652,7 +652,7 @@ function replayUncached(acts) {
       );
       weighHome(a.author, a.e, a.f);
       if (contentAuthor[a.target] && contentAuthor[a.target] !== a.author) {
-        epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: 1.2 });
+        epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: 1.2, cid: a.target, kind: 'comment' });
       }
       if (!payloadGone) {
         creators[cmid] = a.author; payloads[cmid] = a.text;
@@ -832,7 +832,7 @@ function replayUncached(acts) {
       var emission = tokenSupply.PEER >= TOK_CAP ? 0
         : Math.min(TOK_EPOCH * Math.pow(TOK_DECAY, Math.floor((tokEpochN - 1) / TOK_YEAR)), TOK_CAP - tokenSupply.PEER);
       var tokPool = round6(emission + tokenCarry);
-      var tw = {}, twTotal = 0, pairN = {};
+      var tw = {}, twTotal = 0, pairN = {}, twDetail = {};
       for (var te = 0; te < epochEngage.length; te++) {
         var ev = epochEngage[te];
         var al = ledgerById[ev.actor];
@@ -856,9 +856,22 @@ function replayUncached(acts) {
         // standing does.
         var pk = ev.actor + '>' + ev.creator;
         pairN[pk] = (pairN[pk] || 0) + 1;
-        var w = ev.base * (1 / (1 + TOK_DIM * (pairN[pk] - 1))) * (ahat / (1 + ahat));
+        var damp = 1 / (1 + TOK_DIM * (pairN[pk] - 1));
+        var lam = ahat / (1 + ahat);
+        var w = ev.base * damp * lam;
         tw[ev.creator] = (tw[ev.creator] || 0) + w;
         twTotal += w;
+        // Keep the arithmetic, not just the total. "You earned 2,341 PEER" is
+        // a number to take on trust; "because bob commented on c123, weight
+        // 1.2 x damping 1.00 x their rate factor 0.65" is a number anyone can
+        // check against the same log. Capped per creator so one very popular
+        // epoch cannot make the state unbounded.
+        var det = twDetail[ev.creator] || (twDetail[ev.creator] = []);
+        if (det.length < 40) {
+          det.push({ actor: ev.actor, kind: ev.kind, cid: ev.cid,
+            base: ev.base, damp: round6(damp), lambda: round6(lam),
+            nth: pairN[pk], weight: round6(w) });
+        }
       }
       if (twTotal > 0 && tokPool > 0) {
         var credited = 0, distTo = {};
@@ -877,11 +890,22 @@ function replayUncached(acts) {
         }
         tokenSupply.PEER = round6(tokenSupply.PEER + credited);
         tokenCarry = Math.max(0, round6(tokPool - credited));
-        tokenDist.push({ epoch: tokEpochN, minted: credited, carried: tokenCarry, to: distTo });
+        tokenDist.push({
+          epoch: tokEpochN, minted: credited, carried: tokenCarry, to: distTo,
+          pool: tokPool, emission: round6(emission), totalWeight: round6(twTotal),
+          weights: tw, why: twDetail,
+        });
         chron.push({ line: 'epoch ' + tokEpochN + ' minted ' + credited + ' PEER across ' + Object.keys(distTo).length + ' creator(s) — engagement-weighted, α̂-gated, never standing' });
       } else {
         tokenCarry = tokPool; // an epoch nobody engaged in mints for the next
-        tokenDist.push({ epoch: tokEpochN, minted: 0, carried: tokenCarry, to: {} });
+        tokenDist.push({
+          epoch: tokEpochN, minted: 0, carried: tokenCarry, to: {},
+          pool: tokPool, emission: round6(emission), totalWeight: 0,
+          weights: {}, why: {},
+          // Nobody who engaged this epoch cleared the commitment gate, so the
+          // whole pool rolls forward rather than being lost.
+          note: 'no eligible engagement',
+        });
       }
       epochEngage = [];
     }

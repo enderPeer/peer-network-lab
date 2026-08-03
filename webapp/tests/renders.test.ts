@@ -102,6 +102,22 @@ describe('the built page is an application, not just valid JavaScript', () => {
     }
   }, 40000);
 
+  it('draws every economy sub-tab without throwing', async () => {
+    // The economy screen holds four unrelated jobs now. Each is a place the
+    // app can go blank on its own.
+    for (const view of ['wallet', 'pools', 'layer0', 'ledger']) {
+      const { dom, errors, root } = await boot({
+        'peer-sandbox-who-v2': JSON.stringify('alice'),
+        'peer-sandbox-mode-v1': JSON.stringify('geek'),
+        'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: view }),
+      });
+      expect(errors, 'the ' + view + ' view threw: ' + errors.join(' | ')).toEqual([]);
+      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(4);
+      expect(root!.textContent!.length, 'the ' + view + ' view rendered nothing').toBeGreaterThan(400);
+      dom.window.close();
+    }
+  }, 40000);
+
   it('draws every geek tab without throwing', async () => {
     // One dead tab is the same outage in a smaller place.
     for (const tab of ['feed', 'chat', 'alerts', 'net', 'live', 'econ', 'ledger', 'guide']) {
