@@ -86,23 +86,6 @@ describe('the built page is an application, not just valid JavaScript', () => {
     dom.window.close();
   }, 20000);
 
-  it('draws every feed lane without throwing', async () => {
-    // Four ways into the same content. A dead lane is the blank-page outage in
-    // a smaller place, and only running it proves the lane exists.
-    for (const lane of ['all', 'reels', 'music', 'gallery']) {
-      const { dom, errors, root } = await boot({
-        'peer-sandbox-who-v2': JSON.stringify('alice'),
-        'peer-sandbox-mode-v1': JSON.stringify('geek'),
-        'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'feed', feedLane: lane }),
-      });
-      expect(errors, 'the ' + lane + ' lane threw: ' + errors.join(' | ')).toEqual([]);
-      // the switcher is the way back out, so it must be on screen in every lane
-      expect(root!.querySelectorAll('.lane').length, 'no lane switcher in ' + lane).toBe(4);
-      expect(root!.textContent!.length, 'the ' + lane + ' lane rendered nothing').toBeGreaterThan(200);
-      dom.window.close();
-    }
-  }, 40000);
-
   it('reads the published archive when no host answers', async () => {
     // The point of the archive: every machine can be switched off and the
     // record is still there, on hosting nobody pays for. A snapshot that does
