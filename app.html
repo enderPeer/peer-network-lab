@@ -797,6 +797,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // what you came for, not four separate apps.
   var feedLane = 'all';   // 'all' | 'reels' | 'music' | 'gallery'
   var econView = 'wallet'; // 'wallet' | 'pools' | 'layer0' | 'ledger'
+  // When every host is down, the app can still read a published snapshot of
+  // the log from the same static hosting that serves this page. archiveInfo
+  // holds what that snapshot is, so the interface can say so instead of
+  // pretending to be live.
+  var archiveInfo = null;
   var nowPlaying = null;  // {cid, el} — the music lane's single audio element
   var API = ''; // '' = this origin; set by resolveHost() when served statically
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
@@ -1265,6 +1270,58 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (kind === 'prompt') show(); else setTimeout(show, 4000);
   }
 
+  /**
+   * Load the published snapshot of the log, and verify it against its own
+   * manifest before trusting it.
+   *
+   * The manifest carries the act count and a hash of the file. A snapshot that
+   * does not match its manifest is refused rather than shown: a stale or
+   * truncated archive that looks live is worse than no archive, because
+   * everything computed from it — standings, feeds, balances — would be wrong
+   * in ways nobody could see.
+   */
+  function loadArchive() {
+    return fetch('archive/manifest.json', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (man) {
+        if (!man || !man.acts) return null;
+        return fetch('archive/acts.jsonl', { cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.text() : null; })
+          .then(function (text) { return text ? { man: man, text: text } : null; });
+      })
+      .then(function (got) {
+        if (!got) return false;
+        var lines = got.text.split('\n').filter(function (l) { return l.trim(); });
+        if (lines.length !== got.man.acts) {
+          toast('The published archive does not match its manifest (' + lines.length + ' acts, expected ' + got.man.acts + '), so it was not loaded.');
+          return false;
+        }
+        var acts = [];
+        for (var i = 0; i < lines.length; i++) {
+          try { acts.push(JSON.parse(lines[i])); } catch (e) { return false; }
+        }
+        world = { acts: [{ t: 'seedWorld' }].concat(acts) };
+        archiveInfo = { at: got.man.at, acts: got.man.acts, host: got.man.host || null, sha256: got.man.sha256 };
+        REMOTE = false;                 // read-only: there is nobody to write to
+        render();
+        return true;
+      })
+      .catch(function () { return false; });
+  }
+
+  /** Said on screen whenever what you are reading is a snapshot, not a network. */
+  function archiveBanner() {
+    if (!archiveInfo) return null;
+    var age = archiveInfo.at ? Math.round((Date.now() - archiveInfo.at) / 3600000) : null;
+    return h('div', { class: 'card', style: 'margin-bottom:14px; border-style:dashed' },
+      h('p', { class: 'eyebrow', text: 'reading a published archive — no host is answering' }),
+      h('p', { text: 'This is the whole network as it stood '
+        + (age === null ? 'when it was last published' : age < 1 ? 'less than an hour ago' : age + ' hours ago')
+        + ' — ' + archiveInfo.acts + ' acts, read from a file on this page\u2019s own hosting. Everything here replays and verifies exactly as it would live.' }),
+      h('p', { class: 'smallnote', text: 'You cannot post, react or call: those need a host, and none answered. Nothing you do here is lost, because nothing here is recorded. When a host comes back the app reconnects by itself.' }),
+      h('p', { class: 'smallnote mono', text: 'sha256 ' + String(archiveInfo.sha256 || '').slice(0, 32) + '\u2026' }));
+  }
+
   function boot() {
     resolveHost().then(function (base) {
       API = base;
@@ -1289,7 +1346,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       // so an incoming call shows immediately instead of one interval late.
       document.addEventListener('visibilitychange', function () { if (!document.hidden) signalTick(true); });
       window.addEventListener('focus', function () { signalTick(true); });
-    }).catch(function () { API = ''; render(); });
+    }).catch(function () {
+      // No host answered. Before falling back to an empty private sandbox —
+      // which is a working app but somebody ELSE'S network, with none of this
+      // one's people in it — try the archive published beside this page.
+      //
+      // That archive is a plain file on static hosting, so it survives every
+      // machine here being switched off, costs nothing, and needs no server to
+      // read. It is the difference between "the network is gone" and "the
+      // network is readable but nobody is writing".
+      API = '';
+      loadArchive().then(function (ok) {
+        if (!ok) render();
+      });
+    });
   }
 
   // ── Replay: world state is a deterministic function of the act log ──
@@ -3476,6 +3546,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('div', { class: 'r-r', text: 'rate ' + fmt(l.burnBal / Math.max(l.actCount, 1), 3) }))));
     });
     var actsN = world.acts.length - 1;
+    // Said to a VISITOR first of all. Someone arriving while every host is
+    // down would otherwise see a network with three accounts in it and
+    // conclude the place was dead, when they are looking at a snapshot.
+    var archOnboard = archiveBanner();
+    if (archOnboard) root.appendChild(archOnboard);
     root.appendChild(h('div', { class: 'onboard' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
       h('p', { class: 'lede', text: 'A social network where influence is commitment, not attention. Every act burns reserve; every endorsement transports your own rate; the feed is mathematics you can replay.' }),
@@ -3510,6 +3585,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     function tabBtn(key, label) {
       return h('button', { class: tab === key ? 'on' : '', text: label, onclick: function () { tab = key; selEdge = null; render(); } });
     }
+    // An archive is not a network, and the interface must not let anyone
+    // discover that by trying to post. Said once, at the top, above
+    // everything.
+    var arch = archiveBanner();
+    if (arch) root.appendChild(arch);
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
       h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
