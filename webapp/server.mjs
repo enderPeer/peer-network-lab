@@ -15,6 +15,7 @@ import { createAdStore, validBtcAddress } from './ads.mjs';
 import { handleClash, handleSkeleton, takenHandles } from './identity.mjs';
 import { readRegistration, verifyAssertion, newChallenge } from './webauthn.mjs';
 import { refusal, statusFor, catalogueDocument, CATALOGUE } from './errors.mjs';
+import { createHub, acceptUpgrade, isWebSocketUpgrade } from './stream.mjs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -547,12 +548,31 @@ const SIGNAL_KINDS = new Set([
 const LIVE_TTL = 25_000;
 const liveStreams = new Map(); // author id -> {cid, title, since, ts, viewers}
 
+// The relay itself. Video does not travel between browsers any more: it comes
+// here and goes out again, because a connection to this host is the one path
+// every viewer demonstrably has — see stream.mjs for what the mesh could not
+// do and why WebSocket rather than a chunked response.
+const streamHub = createHub();
+setInterval(() => streamHub.sweep(), 5_000);
+
 function liveNow() {
   const now = Date.now();
   const out = [];
+  // Relayed broadcasts are authoritative: the push socket either exists or it
+  // does not, so there is no heartbeat to miss and no stale entry to guess at.
+  for (const s of streamHub.list()) {
+    out.push({
+      author: s.owner, cid: s.id, title: s.title, since: s.started,
+      viewers: s.viewers, relay: true, formats: s.formats, can: s.can, kbps: s.kbps,
+    });
+  }
+  // Heartbeats from the peer-to-peer version of this feature. Kept so an app
+  // that has not reloaded yet still gets a sane answer instead of an error;
+  // marked, because the current app cannot join one of these.
   for (const [id, s] of liveStreams) {
     if (now - s.ts > LIVE_TTL) { liveStreams.delete(id); continue; }
-    out.push({ author: id, cid: s.cid, title: s.title, since: s.since, viewers: s.viewers ?? 0 });
+    if (out.some((e) => e.author === id)) continue;
+    out.push({ author: id, cid: s.cid, title: s.title, since: s.since, viewers: s.viewers ?? 0, relay: false });
   }
   return out;
 }
@@ -617,7 +637,10 @@ const SECURITY_HEADERS = {
   // app can register its service worker and read its manifest; without them
   // default-src 'none' silently refuses both and the install just does nothing.
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; " +
+    // connect-src gains wss: because the live relay runs over a WebSocket to
+  // this same host; without it the browser refuses the socket and the
+  // stream fails with nothing in the network tab to explain why.
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' wss:; " +
     "worker-src 'self'; manifest-src 'self'; " +
     "img-src 'self' data: blob:; media-src 'self' data: blob:; base-uri 'none'; form-action 'none'",
 };
@@ -1972,6 +1995,7 @@ function adminMetrics() {
       authFailures: ops.authFailures,
       adminAuthFailures: ops.adminAuthFailures,
       peakActsPerMin: ops.peakActsPerMin,
+      stream: streamHub.stats(),
       topRefusals: topMap(ops.refusals, 12),
       uniqueAddressesSeen: ipSeen.size,
       bans: banned.size,
@@ -2206,6 +2230,54 @@ const server = createServer((req, res) => {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('not found — run: node social/make-icons.mjs');
     }
+    return;
+  }
+  // ── Live-stream relay ──────────────────────────────────────────────────
+  //
+  // Opening a stream is a POST because it needs the account's PIN once, and a
+  // credential belongs in a request body rather than in a socket URL. What
+  // comes back is a short-lived key; the media socket presents that instead.
+  if (req.method === 'POST' && url.pathname === '/api/stream/open') {
+    if (mirrorRefuse(res)) return;
+    if (!signalLimiter(ip)) { json(res, 429, { code: 'RATE_LIMIT', error: 'slow down' }); return; }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let m;
+      try { m = JSON.parse(body); } catch { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON' }); return; }
+      const as = typeof m.as === 'string' ? m.as : '';
+      if (!as || as.length > 24) { json(res, 400, { code: 'BAD_REQUEST', error: 'bad handle' }); return; }
+      // authError lets a handle with no PIN through, which is right for a post
+      // and wrong for a broadcast: a stream puts a face and a voice on a name,
+      // and nothing afterwards could show it was not the owner.
+      if (!pinIndex.has(as)) {
+        json(res, 403, { code: 'STREAM_NEEDS_PIN', error: 'set a PIN on this account before broadcasting from it' });
+        return;
+      }
+      const aerr = authError({ t: 'dm', from: as, auth: typeof m.auth === 'string' ? m.auth : '' });
+      if (aerr) {
+        if (!pinFailLimiter(ip)) { json(res, 429, { code: 'PIN_ATTEMPTS', error: 'too many PIN attempts — locked for a few minutes' }); return; }
+        json(res, 401, { code: 'PIN_WRONG', error: aerr }); return;
+      }
+      const cid = typeof m.cid === 'string' ? m.cid.slice(0, 40) : '';
+      if (!cid) { json(res, 400, { code: 'BAD_REQUEST', error: 'a broadcast needs the content id of its stream act' }); return; }
+      const r = streamHub.open({ id: cid, owner: as, title: m.title, can: m.can });
+      if (r.error) { json(res, 503, { code: 'STREAM_BUSY', error: r.error }); return; }
+      json(res, 200, {
+        ok: true, id: r.id, key: r.key,
+        ws: '/api/stream/ws',
+        limits: {
+          maxBitrateKbps: Math.round(streamHub.limits.maxBitrateBps / 1000),
+          maxViewers: streamHub.limits.maxViewersPerStream,
+          maxMinutes: Math.round(streamHub.limits.maxStreamMs / 60000),
+        },
+      });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/stream/list') {
+    if (!readLimiter(ip)) { json(res, 429, { code: 'RATE_LIMIT', error: 'slow down' }); return; }
+    json(res, 200, { streams: streamHub.list(), stats: streamHub.stats() });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/live') {
@@ -2538,6 +2610,105 @@ const server = createServer((req, res) => {
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('not found');
 });
+
+// ── The media socket ──────────────────────────────────────────────────────
+//
+// One endpoint, two roles. The broadcaster pushes; everybody else pulls. Both
+// arrive here because HTTP upgrade is the only thing that gets a live byte
+// stream through the tunnel in front of this host without being buffered into
+// eight-second lumps — measured, see stream.mjs.
+const streamConnLimiter = makeLimiter(120, 60_000);
+
+// CORS does not apply to WebSockets: a browser will happily open one from any
+// page to any host and send cookies with it. Nothing but this check refuses a
+// socket opened by a site the user did not visit.
+const EXTRA_ORIGINS = String(process.env.PEER_STREAM_ORIGINS || '')
+  .split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;      // not a browser: a test, a bot, curl
+  let host;
+  try { host = new URL(origin).host; } catch { return false; }
+  if (host === req.headers.host) return true;                 // the app served from here
+  if (/^(localhost|127\.0\.0\.1)(:|$)/.test(host)) return true;
+  if (host === 'enderpeer.github.io') return true;            // the published copy
+  return EXTRA_ORIGINS.includes(origin.replace(/\/+$/, ''));
+}
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname !== '/api/stream/ws' || !isWebSocketUpgrade(req)) { socket.destroy(); return; }
+  const ip = clientIp(req);
+  if (banCheck(ip) || !streamConnLimiter(ip) || !originAllowed(req)) { socket.destroy(); return; }
+
+  const conn = acceptUpgrade(req, socket, head);
+  if (!conn) return;
+  const role = url.searchParams.get('role') === 'push' ? 'push' : 'watch';
+  const id = String(url.searchParams.get('s') || '').slice(0, 40);
+
+  if (role === 'watch') {
+    // The viewer speaks first, saying what its MediaSource can decode. Without
+    // that the host would have to guess, and guessing wrong is a black screen.
+    let joined = false;
+    conn.onMessage = (data, isBinary) => {
+      if (isBinary || joined) return;
+      let m; try { m = JSON.parse(data.toString('utf8')); } catch { return; }
+      if (m.t !== 'can') return;
+      joined = true;
+      const r = streamHub.watch(id, conn, m.list);
+      if (!r.ok) {
+        conn.sendText(JSON.stringify({ t: 'no', why: r.why }));
+        conn.close(1000, r.why);
+      }
+    };
+    setTimeout(() => { if (!joined && !conn.closed) conn.close(1002, 'said nothing'); }, 15_000);
+    return;
+  }
+
+  // ── the broadcaster ──
+  if (mirrorSocketRefuse(conn)) return;
+  let stream = null;
+  const mimes = [];      // rendition index -> mime, declared by the pusher
+  conn.onMessage = (data, isBinary) => {
+    if (!isBinary) {
+      let m; try { m = JSON.parse(data.toString('utf8')); } catch { return; }
+      if (m.t === 'auth') {
+        stream = streamHub.claimKey(String(m.key || ''), id);
+        if (!stream) { conn.close(1008, 'that broadcast key is not valid any more'); return; }
+        streamHub.attachPusher(stream, conn);
+        mimes[0] = String(m.mime || '');
+        conn.sendText(JSON.stringify({ t: 'ready', id }));
+        return;
+      }
+      if (!stream) return;
+      if (m.t === 'rendition' && Number.isInteger(m.i) && m.i >= 0 && m.i < 4) {
+        mimes[m.i] = String(m.mime || '').slice(0, 120);
+      }
+      return;
+    }
+    if (!stream || data.length < 2) return;
+    // Byte 0 says which format these bytes belong to, so one socket carries
+    // every rendition in order. Two sockets would race, and media that arrives
+    // out of order is media that does not decode.
+    const mime = mimes[data[0]];
+    if (!mime) return;
+    const r = streamHub.push(stream, mime, data.subarray(1));
+    if (!r.ok) {
+      conn.sendText(JSON.stringify({ t: 'error', why: r.why }));
+      conn.close(1008, r.why);
+      streamHub.end(id, r.why);
+    }
+  };
+  conn.onClose = () => { if (stream) streamHub.end(id, 'the broadcaster disconnected'); };
+  setTimeout(() => { if (!stream && !conn.closed) conn.close(1008, 'no broadcast key'); }, 15_000);
+});
+
+/** A mirror carries no broadcasts, for the same reason it accepts no acts. */
+function mirrorSocketRefuse(conn) {
+  if (!MIRROR_OF) return false;
+  conn.close(1013, 'this host is a read-only mirror — broadcast to the primary');
+  return true;
+}
 
 server.listen(PORT, () => {
   console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`

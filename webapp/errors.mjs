@@ -177,6 +177,33 @@ export const CATALOGUE = {
     fix: 'Use an ordinary https link.',
   },
 
+  // ── Live streaming ──────────────────────────────────────────────────────
+  STREAM_NEEDS_PIN: {
+    http: 403,
+    why: 'A broadcast puts a face and a voice on a handle, so this host will only carry one for a handle that is PIN-protected. Ordinary posts are allowed from an unsecured handle; a live stream is not, because there is no way for a viewer to tell afterwards that it was not you.',
+    fix: 'Set a PIN on the account first (Settings, then Security), and start the broadcast again.',
+  },
+  STREAM_BUSY: {
+    http: 503,
+    why: 'This host is already carrying as many simultaneous broadcasts as it will. The limit is deliberate: video is the only thing here that can take the upstream away from every other person using the network.',
+    fix: 'Wait for a broadcast to end, or ask the operator to raise the limit if the machine has room.',
+  },
+  STREAM_NOT_LIVE: {
+    http: 404,
+    why: 'No broadcast is running under that id. Being live is not recorded in the act log — it is a connection that exists or does not — so a stream that has ended leaves nothing to join.',
+    fix: 'Refresh the live list. The post the broadcast was attached to is still there with its comments.',
+  },
+  STREAM_FORMAT: {
+    http: 415,
+    why: 'The broadcaster is sending a video format this browser cannot decode, and cannot produce one it can. No single format plays everywhere: iPhone Safari refuses WebM, and Firefox cannot record MP4.',
+    fix: 'Watch from a different browser, or ask the broadcaster to stream from one that can produce MP4.',
+  },
+  STREAM_RATE: {
+    http: 429,
+    why: 'The broadcast is pushing more bits per second than this host will relay. Every viewer costs the host that same rate again, so an unbounded broadcaster is an outage for everyone else.',
+    fix: 'Lower the quality and start again. The host reports its ceiling in the refusal.',
+  },
+
   // ── Shape ───────────────────────────────────────────────────────────────
   BAD_REQUEST: {
     http: 400,

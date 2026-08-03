@@ -155,7 +155,8 @@ design), and view counts (telemetry, never protocol).
 | `PEER_MIRROR_INTERVAL` | sync period in ms, default 5000, floor 300 |
 | `PEER_OPERATOR_TOKEN` | opens the operator panel at `/admin` and lets the operator set a first PIN on a handle that has already posted. **Without it there is no admin surface at all** — not an open one |
 | `PEER_ACT_RATE` | acts per minute per IP, default 20 |
-| `PEER_TURN_URL` / `_USER` / `_PASS` | TURN relay, without which calls fail between networks with no direct path |
+| `PEER_TURN_URL` / `_USER` / `_PASS` | TURN relay, without which **calls** fail between networks with no direct path. Live streaming no longer needs it — see below |
+| `PEER_STREAM_ORIGINS` | extra origins allowed to open a live-stream socket, comma separated. This host's own origin, localhost and the published Pages copy are always allowed |
 
 ## The operator panel
 
@@ -260,6 +261,67 @@ The host never watches the chain. It cannot: it holds no key and no wallet, and
 polling a public explorer for your address would tell that explorer your
 server's IP is interested in it. Confirming a payment is one glance at the
 wallet you actually control.
+
+## Live streaming
+
+Video does not travel between browsers. The broadcaster's browser encodes it,
+sends it up one WebSocket, and this host sends it out to everyone watching.
+
+**Why it was changed.** The old version was a WebRTC mesh, and it failed in the
+field exactly as reported: viewers joined and the picture stayed black. The
+host's own `/api/ice` endpoint had said why the whole time — `"relay": "none"`.
+Two ends behind carrier-grade NAT, which is most mobile networks, have no route
+to each other at all, and no amount of retrying finds a path that does not
+exist. It also multiplied the broadcaster's upload by the size of the audience.
+Relaying costs one upload from the broadcaster no matter how many watch.
+
+**Why a WebSocket and not a plain streaming response.** Measured through the
+Cloudflare quick tunnel this host runs behind: a never-ending chunked HTTP
+response is released in ~128 KB bursts no matter how often the server flushes.
+At 4 KB every 250 ms the first thirty-four frames arrived together after 8.65
+seconds. The same frames over a WebSocket arrived flat at ~430 ms with no
+bursts. A quiet webcam compresses small, so chunked HTTP would have put a
+stream ten seconds behind and still called it live.
+
+**Endpoints**
+
+| route | what it does |
+|---|---|
+| `POST /api/stream/open` | authenticates the broadcaster once and returns a short-lived key. Requires a **PIN-protected** handle: a broadcast puts a face and a voice on a name, and nothing afterwards could show it was not the owner |
+| `GET /api/stream/ws?role=push&s=<cid>` | the broadcaster's socket. First message is the key; media frames carry a one-byte format index |
+| `GET /api/stream/ws?role=watch&s=<cid>` | a viewer's socket. First message says which formats the browser can decode |
+| `GET /api/stream/list` | what is live, with formats, viewer counts and bitrate |
+
+**Two formats, on demand.** No single container reaches every browser: iPhone
+Safari will not play WebM, and Firefox cannot record MP4. So the broadcaster
+streams the fast one — WebM pieces arrive every 400 ms, an MP4 fragment cannot
+leave the encoder until a whole group of pictures is done, which measured at
+one and a half to two seconds — and starts a second format only when somebody
+joins who cannot play the first. Nobody's upload is spent on a copy nobody is
+watching. Measured cost of that switch: about seven seconds before the first
+picture, against 0.2 seconds for a viewer who can play what is already flowing.
+
+**Limits**, in `stream.mjs`, derived from what this machine actually does
+(~18-20 MB/s sustained out through the tunnel, measured):
+
+| limit | value | why |
+|---|---|---|
+| concurrent streams | 8 | video is the only thing here that can take the upstream from everyone else |
+| viewers per stream / total | 200 / 400 | ~95 viewers at 1.5 Mbps, ~250 at 600 kbps, before the line is the wall |
+| broadcast bitrate | 4000 kbps summed over formats | above it the push is closed, with the number in the refusal |
+| stream length | 4 hours | |
+| how far back a joiner may start | 12 s or 8 MB | a joiner is given the header and the newest **keyframe**, not whatever byte was passing |
+| slow viewer | 4 MB backlog, 8 s grace | then dropped with a reason, and the app rejoins at the live edge. Never a gap: a gap in a media stream is not recoverable |
+
+**Metrics** appear in the operator panel under `stream`: counts, bytes and
+rates only. No addresses, no per-viewer identity. The address watcher exists
+for abuse control and this subsystem does not feed it, here as everywhere else.
+
+**What is not proven.** iPhone playback is written against
+`ManagedMediaSource` and could not be tested on a real iPhone from this
+machine; it is built and said plainly rather than claimed. A Firefox
+broadcaster cannot produce MP4 at all, so an iPhone cannot watch a Firefox
+broadcast — the app says so instead of showing a spinner.
 
 ## Decentralisation: what works, and what this log cannot do
 
