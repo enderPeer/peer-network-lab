@@ -16,7 +16,13 @@ import { createRequire } from 'node:module';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, 'public/peer-social-preview.html');
-const DATA_DIR = resolve(here, 'server-data');
+// Overridable so tests can run against a throwaway log. Without this the only
+// way to exercise validation, auth and the economy gates is to append to the
+// live network — which is how a real tester's handle once got claimed by a
+// probe that was only meant to check whether the hole was still open.
+const DATA_DIR = process.env.PEER_DATA_DIR
+  ? resolve(process.env.PEER_DATA_DIR)
+  : resolve(here, 'server-data');
 const LOG = resolve(DATA_DIR, 'acts.jsonl');
 const PORT = Number(process.argv[2] ?? 5210);
 
@@ -63,7 +69,11 @@ function makeLimiter(limit, windowMs) {
     return b.count <= limit;
   };
 }
-const actLimiter = makeLimiter(20, 60_000);        // 20 acts/min/IP
+// Operator-tunable because a private deployment, or a test run driving the host
+// as fast as it can answer, is not the abuse this is aimed at. The public
+// default is unchanged, and the refusal message below reads the same number.
+const ACT_RATE = Number(process.env.PEER_ACT_RATE) > 0 ? Number(process.env.PEER_ACT_RATE) : 20;
+const actLimiter = makeLimiter(ACT_RATE, 60_000);  // 20 acts/min/IP by default
 const registerLimiter = makeLimiter(8, 3_600_000); // 8 registrations/hour/IP
 const pinFailLimiter = makeLimiter(12, 600_000);   // 12 failed PIN tries/10min/IP
 const readLimiter = makeLimiter(600, 60_000);      // 600 reads/min/IP
@@ -157,6 +167,28 @@ function redactPostAct(orig, idx) {
   orig.text = '';
   delete orig.media;
   orig.redacted = true;
+}
+
+// The act index that minted a post's node. A revision is itself a `post` act
+// carrying the index it revises, so follow the chain back; a revision of a
+// revision is legal and lands on the same node.
+function mintIndexOf(idx) {
+  let seen = 0;
+  while (acts[idx] && acts[idx].t === 'post' && Number.isInteger(acts[idx].target) && seen++ < 64) {
+    idx = acts[idx].target;
+  }
+  return idx;
+}
+
+// Every act that wrote text into one node. Redacting only the mint left the
+// revisions intact, so the newest text — the version people had actually been
+// reading — stayed downloadable from /api/acts and readable through the bot
+// API's event stream, while the app told the author it had been removed.
+function redactNode(mintIdx) {
+  for (let ai = 1; ai < acts.length; ai++) {
+    const a = acts[ai];
+    if (ai === mintIdx || (a.t === 'post' && a.target === mintIdx && !a.redacted)) redactPostAct(a, ai);
+  }
 }
 
 // Atomic rewrite of the whole log. acts[0] is the in-memory seedWorld and
@@ -487,6 +519,7 @@ function validate(act) {
     case 'post': {
       if (tooLong(act.text, 1000, 'post')) return tooLong(act.text, 1000, 'post');
       if (!str(act.author, 24) || !str(act.text, 1000) || !inR(act.a)) return 'bad post';
+      if (act.ref !== undefined && unknownTarget(act.ref)) return unknownTarget(act.ref);
       // A post naming an existing one is an UPDATE, not a new publication:
       // records are immutable, so revising a node can only mean authoring a
       // further record about it. Absent target = the ordinary minting case.
@@ -510,6 +543,7 @@ function validate(act) {
     }
     case 'opinion':
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.p) || !inR(act.r)) return 'bad opinion';
+      if (unknownTarget(act.target)) return unknownTarget(act.target);
       break;
     case 'review':
       if (act.upd !== undefined) {
@@ -521,9 +555,11 @@ function validate(act) {
       }
       if (tooLong(act.text, 1000, 'comment')) return tooLong(act.text, 1000, 'comment');
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.e) || !inR(act.f) || !str(act.text, 1000)) return 'bad review';
+      if (unknownTarget(act.target)) return unknownTarget(act.target);
       break;
     case 'tag':
       if (!str(act.author, 24) || !str(act.target, 40) || !str(act.name, 20) || !inR(act.r) || !inR(act.c)) return 'bad tag';
+      if (unknownTarget(act.target)) return unknownTarget(act.target);
       break;
     case 'closeEpoch':
       if (!num(act.epoch)) return 'bad epoch';
@@ -557,6 +593,12 @@ function validate(act) {
       return 'editPost is retired — publish a revision instead: {"t":"post","author":…,"text":…,"a":…,"target":<act index>}';
     case 'deletePost': {
       if (!str(act.author, 24) || !Number.isInteger(act.target)) return 'bad delete';
+      // Deletion names the post, not one of the acts that wrote it. A revision
+      // is also a `post` act, so naming one used to pass every check here and
+      // then remove nothing but the edit — the request answered 200 while the
+      // post stayed up wearing its pre-revision text. Walk back to the mint and
+      // record the tombstone against that, so the log says which node died.
+      act.target = mintIndexOf(act.target);
       const orig = acts[act.target];
       if (!orig || orig.t !== 'post') return 'delete target is not a post';
       if (orig.author !== act.author) return 'only the author can delete a post';
@@ -631,6 +673,31 @@ function solvency(actorId) {
   }
   const l = stateCache.st.ledgerById[actorId];
   return l ? l.burnBal : null;
+}
+
+// Does this content id name something replay actually minted?
+//
+// Nothing checked this, so an act naming a content id that does not exist was
+// accepted, charged θ, and then sat in the record forever as "something since
+// removed". Eighteen acts on the live log point at ids that were never minted —
+// the fingerprint of a counter shift, where a client computed an id from its
+// own view and the log later disagreed. The acts are real and stay; this stops
+// the next one. Fails OPEN like the solvency gate: a missing build must never
+// silence the network.
+function contentExists(id) {
+  if (!engineMod || !replayMod) return true;
+  if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+  if (stateCache.len !== acts.length || !stateCache.st) {
+    stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+  }
+  return stateCache.st.g.nodes.has(id);
+}
+
+// Only ids that claim to be minted content are checked. `prof_<id>` targets a
+// person and is resolved elsewhere; anything else is refused by shape already.
+function unknownTarget(id) {
+  if (typeof id !== 'string' || !/^c\d+$/.test(id)) return null;
+  return contentExists(id) ? null : 'no content with id ' + id + ' — it was never minted on this network';
 }
 
 const isDeleted = (st, id) => !!(st.deleted && st.deleted[id]);
@@ -770,7 +837,7 @@ const API_DOC = {
     { method: 'POST', path: '/api/v1/burn', purpose: 'convert reserve into energy so you can keep acting', body: { as: 'id', pin: 'string' } },
   ],
   limits: {
-    acts: '20 per minute per IP', reads: '600 per minute per IP',
+    acts: ACT_RATE + ' per minute per IP', reads: '600 per minute per IP',
     registrations: '8 per hour per IP', postText: 1000, messageText: 500,
   },
   errors: 'Every refusal returns {error} with a sentence saying what is wrong and, where a number is involved, what the limit is and what you sent.',
@@ -825,7 +892,7 @@ function applyAct(act, auth, ip) {
   // still reaches back into the stored log, and removal takes bytes out
   // rather than putting different bytes in.
   if (act.t === 'deletePost') {
-    redactPostAct(acts[act.target], act.target);
+    redactNode(act.target);
     rewriteLog(); gcMedia();
   } else if (act.t === 'deleteAccount') {
     deletedIds.add(act.id);
@@ -1087,7 +1154,7 @@ async function handleBotApi(req, res, url, ip) {
 
   // ── writes ───────────────────────────────────────────────────────────────
   if (req.method !== 'POST') { json(res, 404, { error: 'no such endpoint: ' + req.method + ' /api/v1/' + p + ' — GET /api/v1 lists them all' }); return; }
-  if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most 20 acts per minute from one place' }); return; }
+  if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place' }); return; }
 
   const body = await readBody(req, MAX_ACT_BYTES * 2);
   if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
@@ -1272,7 +1339,7 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/act') {
-    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most 20 acts per minute from one place' }); return; }
+    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place' }); return; }
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > MAX_ACT_BYTES * 2) req.destroy(); });
     req.on('end', () => {

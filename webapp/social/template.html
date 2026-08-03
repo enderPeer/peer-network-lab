@@ -681,6 +681,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } catch (e) { /* private mode */ }
   }
 
+  /**
+   * Three storages, on purpose, because the three things have different
+   * lifetimes. The act log is only kept locally in sandbox mode — against a
+   * host the log belongs to the host and a cached copy would be a second
+   * source of truth. Identity and mode persist across visits. PINs go to
+   * sessionStorage alone, so closing the browser forgets them and a shared
+   * machine cannot hold someone's credential.
+   */
   function save() {
     try {
       if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
@@ -775,6 +783,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // ── Connection state (server fallback) ──
   var netFails = 0;
   var offline = false;
+  /**
+   * Two consecutive failures before declaring the connection lost. One failed
+   * poll is normal — a tunnel hiccup, a sleeping phone — and announcing it
+   * would flash a banner at people constantly. Recovery is immediate, because
+   * being wrong about being back costs nothing.
+   */
   function setOnline(ok) {
     var was = offline;
     if (ok) { netFails = 0; offline = false; }
@@ -1005,7 +1019,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return st;
   }
 
-  // Memoized: the log is append-only, so (array identity, length) keys a replay.
+  // Memoized on (array identity, length). Sound only because the log is
+  // append-only in the ways that matter: a redaction blanks bytes in place but
+  // never changes the count, and mergeTail replaces the array object, so both
+  // kinds of change break the key. Replaying is ~6ms here — cheap, but not
+  // cheap enough to do on every render of a 500-act log.
   var replayCache = { ref: null, len: -1, st: null };
   function replay() {
     if (replayCache.ref === world.acts && replayCache.len === world.acts.length && replayCache.st) {
@@ -1020,6 +1038,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
 
 
+  /**
+   * The W1 solvency gate, applied before spending the act rather than after
+   * the host refuses it — so the refusal can explain itself in the composer
+   * instead of arriving as a toast over lost text. Removals cost nothing
+   * (actCost returns 0), because a drained author must still be able to take
+   * their own content down; a revision is a real Publish act and is priced.
+   */
   function tryAct(actorId, actObj, label) {
     var st = replay();
     var l = st.ledgerById[actorId];
@@ -1101,6 +1126,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return st.g.edges.filter(function (e) { return e.family === 'TagT' && e.src === nodeId; })
       .map(function (e) { return (st.g.nodes.get(e.tgt) || {}).label || ''; });
   }
+  /**
+   * Threading is edges, not fields. A comment is a Comment node hung off the
+   * reviewed thing by a ReviewT leg, so the replies to something are found by
+   * walking the graph rather than reading a list off the post — which is why a
+   * bot cannot reconstruct a thread from the raw act log without the engine.
+   */
   function commentsOf(st, nodeId) {
     return st.g.edges
       .filter(function (e) { return e.family === 'ReviewT' && e.src === nodeId; })
@@ -1114,6 +1145,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       })
       .filter(function (c) { return c.text; });
   }
+  /**
+   * Standing as everyone else sees it: ν · x*, NOT the raw reduced coordinate.
+   * The two differ by a factor of ten and the safety wall is compared against
+   * the reduced one, so mixing them up reads as "comfortably above the wall"
+   * when you are under it. The bot API returns both, named.
+   */
   function credibility(st, id) { return NU * (st.xById[id] || 0); }
 
   // ── Notifications: derived from the public record, never stored ──
@@ -1121,6 +1158,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var seenMark = 0;
   try { seenMark = JSON.parse(localStorage.getItem(LS_SEEN)) || 0; } catch (e) { seenMark = 0; }
 
+  /**
+   * Alerts are derived, never stored. Nothing in the log says "notify Fable" —
+   * every alert is read back out of the graph by asking which edges point at
+   * something this person authored. That means alerts cannot drift out of sync
+   * with reality, and it means anyone replaying the log sees the same ones.
+   */
   function notificationsFor(st, me) {
     if (!me) return [];
     var out = [];

@@ -15,7 +15,8 @@ replay.
 | Spec digests | [docs/spec-digests/](docs/spec-digests) | Machine-extracted per-section digests of all formulas, algorithms, and test vectors |
 | Roadmap | [ROADMAP.md](ROADMAP.md) | Six phases from reference engine to decentralized deployment |
 | Reference engine | [webapp/src/engine/](webapp/src/engine) | Pure TypeScript, dependency-free Layer-1 mathematics |
-| Test suite | [webapp/tests/](webapp/tests) | 35 tests against the spec's Appendix F verification suite; `registry.json` holds 505 extracted reference values |
+| Shared replay | [webapp/social/replay.cjs](webapp/social/replay.cjs) | World state as a pure function of the act log — the one copy, inlined into the page and imported by the host |
+| Test suite | [webapp/tests/](webapp/tests) | 128 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
@@ -30,11 +31,23 @@ multi-user host is roadmap Phase 3). Share the link from the page's share menu.
 ```bash
 cd webapp
 npm install
-npm test           # 35 spec-vector tests
-npm run dev        # protocol lab → http://localhost:5199
-npm run build:social   # social sandbox → public/peer-social-preview.html
-node server.mjs    # shared-network host → http://localhost:5210
+npm test               # the whole suite: spec vectors, replay, host
+npm run dev            # protocol lab → http://localhost:5199
+npm run build:social   # assemble the app and its PWA assets
+node server.mjs        # shared-network host → http://localhost:5210
 ```
+
+**Public address:** <https://enderpeer.github.io/peer-network-lab/> — permanent,
+and installable as an app on a phone (on iOS: Share → Add to Home Screen). It
+finds whichever host is currently live; when none answers it runs a private
+copy of the network in your browser instead, so the link is never dead.
+
+**For bots and agents:** `GET /api/v1` on any running host returns the whole
+API as one self-describing document — a ranked feed with the paths that
+produced it, threads, an event cursor, and verbs to write.
+[webapp/examples/bot.mjs](webapp/examples/bot.mjs) is a working bot in a single
+file. Bots pay the same θ per act as anyone, which is why one that posts
+constantly talks itself out of reach.
 
 **Go public (shared test instance):** `webapp/serve-public.ps1` builds the
 page, starts the host, and opens a Cloudflare quick tunnel on a throwaway
@@ -66,6 +79,29 @@ https://claude.ai/code/artifact/b196455b-b5a5-4b08-9dac-fd03b499e440).
    standing above the safety wall 0.528 (W2a). Per epoch: act-weighted mean
    standing above the participation door 1.0 (W2b) — then stamps and
    certificates are published for replay.
+
+## How the pieces fit
+
+The act log is the only source of truth. Everything else — the graph, standings,
+feeds, chats, the chronicle — is a pure function of it, computed by
+`social/replay.cjs`. That file is **shared verbatim**: the build inlines it into
+the page and the host imports the same file, so a feed read over HTTP and a feed
+rendered on screen cannot disagree. Two implementations have cost this project
+two real bugs, which is why there is now exactly one.
+
+Three properties are load-bearing, and the test suite exists to hold them:
+
+- **Replay determinism.** Anyone holding the log computes identical results.
+  Content ids are minted by a counter and referenced by later acts, so anything
+  that changes counter allocation re-points stored references silently.
+- **Removal is scoring-neutral.** Deleting content takes the payload and leaves
+  the record: every edge, debit and vouch stays, so standings and already-issued
+  epoch certificates still reproduce. It also does not reach into records other
+  people authored — and it removes *every* act that wrote text into a post,
+  including its edits, not just the one that minted it.
+- **Nothing is claimed that is not enforced.** If the interface says an act will
+  be refused, the host refuses it. Where a refusal names a number, that number
+  is read from the setting that actually applies.
 
 ## Validation
 

@@ -302,7 +302,15 @@ function replayUncached(acts) {
         // here would shift every later content id in logs already written.
         g.append({ id: 'pubu' + i, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
         debit(a.author); weighHome(a.author, a.a, 1);
-        if (!payloadGone && payloads[cid] !== undefined) {
+        if (payloadGone) {
+          // The tombstone named this revision rather than the mint. A revision
+          // is one of the acts that writes text into the node, so removing it
+          // has to remove the node's payload — otherwise "delete" silently
+          // un-edited the post back to its pre-revision text and left it up.
+          mutedContent[cid] = true;
+          delete payloads[cid]; delete mediaMeta[cid];
+          var pn = g.nodes.get(cid); if (pn) pn.label = '[deleted]';
+        } else if (payloads[cid] !== undefined) {
           payloads[cid] = a.text;               // log order gives latest-wins
           if (a.media && a.media.length) mediaMeta[cid] = a.media;
           if (postMeta[cid]) postMeta[cid].edited = true;
@@ -323,6 +331,13 @@ function replayUncached(acts) {
           chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2), to: cid });
         }
       }
+      // References belong to the node, and a revision does not re-make the node.
+      // Re-running these legs paid the same person-vouch a second time: two
+      // edits saturated a bundle at the compile clamp, so anyone could lift a
+      // friend's standing by editing one post twice. A revision is a further
+      // record *about* existing content — it leaves creator, comments,
+      // reactions and references where the genesis act put them.
+      if (isUpdate) continue;
       // Quote reference: one Reference hyper act (A-leg into the post, Full-tier
       // citation T-leg to the target) — its own θ-debit.
       if (a.ref && g.nodes.get(a.ref) && ledgerById[a.author] && ledgerById[a.author].burnBal >= THETA) {
@@ -355,11 +370,15 @@ function replayUncached(acts) {
       }
     } else if (a.t === 'opinion') {
       counter++;
+      // Structure is unconditional. A reaction by someone who has since left
+      // still happened: its edge, its vouch and its weighing stay, or removing
+      // an account would silently rewrite everyone else's standing — which it
+      // did, until a test caught this branch still gating them.
+      var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
+      var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
+      if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
+      else weighHome(a.author, a.p, a.r);
       if (!payloadGone) {
-        var rec = g.append({ id: 'op' + counter, family: 'Opinion', src: a.author, tgt: a.target, pd: a.p, pi: a.r, epoch: certsSoFar });
-        var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
-        if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
-        else weighHome(a.author, a.p, a.r);
         chron.push({
             who: a.author,
             line: (owner ? 'vouched on ' + dispName(owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3),
