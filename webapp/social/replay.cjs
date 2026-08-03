@@ -364,8 +364,29 @@ function replayUncached(acts) {
       }
       debit(a.author);
     } else if (a.t === 'review') {
+      // Review/T may name an existing Comment instead of minting a fresh one,
+      // exactly like Publish on a post: the act is then a revision of that
+      // comment. Same rule, same branch shape.
+      var isCmtUpdate = Number.isInteger(a.upd) && actContent[a.upd] !== undefined;
+      var cmid;
+      if (isCmtUpdate) {
+        cmid = actContent[a.upd];
+        g.appendHyper(
+          { id: 'rvAu' + i, family: 'ReviewA', src: a.author, tgt: a.target, pd: a.e, pi: a.f, epoch: certsSoFar },
+          { id: 'rvTu' + i, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
+        );
+        weighHome(a.author, a.e, a.f);
+        if (!payloadGone && payloads[cmid] !== undefined) {
+          payloads[cmid] = a.text;
+          reviewMeta[cmid] = { e: a.e, f: a.f };
+          if (postMeta[cmid]) postMeta[cmid].edited = true;
+          chron.push({ who: a.author, line: 'revised a comment — a further record, the original stands', to: cmid });
+        }
+        debit(a.author);
+      } else {
       counter++;
-      var cmid = 'c' + counter;
+      cmid = 'c' + counter;
+      actContent[i] = cmid;
       if (payloadGone) mutedContent[cmid] = true;
       g.addNode({ id: cmid, kind: 'Comment', label: payloadGone ? '[deleted]' : 'Review ' + counter });
       g.appendHyper(
@@ -376,9 +397,11 @@ function replayUncached(acts) {
       if (!payloadGone) {
         creators[cmid] = a.author; payloads[cmid] = a.text;
         reviewMeta[cmid] = { e: a.e, f: a.f };
+        postMeta[cmid] = { idx: i, ts: a.ts, edited: false, comment: true };
         chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs', to: cmid });
       }
       debit(a.author);
+      }
     } else if (a.t === 'tag') {
       counter++;
       var tid = typeNode(a.name);

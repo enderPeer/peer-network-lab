@@ -75,7 +75,11 @@ const ACT_FIELDS = {
   burn: ['t', 'id', 'amt'],
   post: ['t', 'author', 'text', 'a'],
   opinion: ['t', 'author', 'target', 'p', 'r'],
-  review: ['t', 'author', 'target', 'e', 'f', 'text'],
+  // `target` is the A-leg subject (what is being reviewed). `upd` names an
+  // existing Comment as the T-leg terminus, which makes the act a revision of
+  // that comment instead of minting a new one — Review/T is one of the four
+  // termini v0.24.2 allows to be existing rather than fresh.
+  review: ['t', 'author', 'target', 'e', 'f', 'text', 'upd'],
   tag: ['t', 'author', 'target', 'name', 'r', 'c'],
   closeEpoch: ['t', 'epoch'],
   deposit: ['t', 'id', 'amt'],
@@ -478,6 +482,13 @@ function validate(act) {
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.p) || !inR(act.r)) return 'bad opinion';
       break;
     case 'review':
+      if (act.upd !== undefined) {
+        if (!Number.isInteger(act.upd)) return 'bad comment update target';
+        const orig = acts[act.upd];
+        if (!orig || orig.t !== 'review') return 'update target is not a comment';
+        if (orig.author !== act.author) return 'only the author can revise their own comment';
+        if (orig.redacted) return 'that comment was deleted';
+      }
       if (tooLong(act.text, 1000, 'comment')) return tooLong(act.text, 1000, 'comment');
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.e) || !inR(act.f) || !str(act.text, 1000)) return 'bad review';
       break;
@@ -640,10 +651,16 @@ function rankFeed(st, E, viewer, sort, limit) {
   const creatorOf = (id) => st.creators[id] || null;
 
   if (sort === 'new') {
-    const out = [];
+    // A node can carry several Publish edges now — the genesis one and every
+    // revision — so listing edges shows the same post once per revision. Keep
+    // the newest edge per node: a revised post is one post, at its latest time.
+    const latest = new Map();
     for (const e of st.g.edges) {
-      if (e.family === 'Publish' && st.payloads[e.tgt] !== undefined) out.push({ cid: e.tgt, i: e.appendIndex });
+      if (e.family !== 'Publish' || st.payloads[e.tgt] === undefined) continue;
+      const prev = latest.get(e.tgt);
+      if (prev === undefined || e.appendIndex > prev) latest.set(e.tgt, e.appendIndex);
     }
+    const out = [...latest].map(([cid, i]) => ({ cid, i }));
     out.sort((a, b) => b.i - a.i);
     return out.slice(0, limit)
       .map((r) => ({ ...contentView(st, r.cid), score: null, why: 'chronological, unranked' }))
@@ -715,7 +732,7 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync.' },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
-    { method: 'POST', path: '/api/v1/post', purpose: 'publish', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media' } },
+    { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
     { method: 'POST', path: '/api/v1/comment', purpose: 'comment on a post OR on another comment', body: { as: 'id', pin: 'string', target: 'content id', text: 'string ≤1000', enthusiasm: 'optional -1..1', effort: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/react', purpose: 'react to content, or vouch for a person by targeting prof_<id>', body: { as: 'id', pin: 'string', target: 'content id or prof_id', polarity: 'optional -1..1', reaction: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/tag', purpose: 'tag content into the commons', body: { as: 'id', pin: 'string', target: 'content id', name: 'string ≤20' } },
@@ -1091,6 +1108,22 @@ async function handleBotApi(req, res, url, ip) {
     const raw = { t: 'post', author: me, text: text.trim() || '·', a: num(body.attachment_strength, 0.8) };
     if (body.quote) raw.ref = String(body.quote);
     if (body.attachment) raw.media = [body.attachment];
+    // Revising: name the post to supersede, by content id or act index. This
+    // was silently DROPPED before — a caller asking to revise got a brand new
+    // post and a 200, which is worse than any refusal, because they had no way
+    // to find out. Unrecognised targets now say so.
+    const rev = body.revise ?? body.target;
+    if (rev !== undefined) {
+      let idx = null;
+      if (Number.isInteger(rev)) idx = rev;
+      else if (typeof rev === 'string' && /^c\d+$/.test(rev)) {
+        const meta = st.postMeta[rev];
+        if (!meta) { json(res, 404, { error: 'no such post: ' + rev }); return; }
+        idx = meta.idx;
+      }
+      if (idx === null) { json(res, 400, { error: 'revise must be a content id like "c167" or an act index' }); return; }
+      raw.target = idx;
+    }
     submit(raw); return;
   }
   if (p === 'comment') {

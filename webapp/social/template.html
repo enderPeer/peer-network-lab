@@ -2442,10 +2442,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var shown = 0;
     if (lqSort === 'new') {
-      var newest = [];
+      var newest = [], newestAt = {};
       st.g.edges.forEach(function (e) {
-        if (e.family === 'Publish' && st.payloads[e.tgt]) newest.push({ node: st.g.nodes.get(e.tgt), idx: e.appendIndex });
+        // One entry per node, at its newest Publish. A node now carries a
+        // Publish edge per revision, and listing edges showed a revised post
+        // once for every time it had been revised.
+        if (e.family !== 'Publish' || !st.payloads[e.tgt]) return;
+        if (newestAt[e.tgt] === undefined || e.appendIndex > newestAt[e.tgt]) {
+          newestAt[e.tgt] = e.appendIndex;
+        }
       });
+      for (var nid in newestAt) newest.push({ node: st.g.nodes.get(nid), idx: newestAt[nid] });
       newest.sort(function (a, b) { return b.idx - a.idx; });
       newest.slice(0, feedLimit).forEach(function (r) { box.appendChild(lqPost(st, r.node, null)); });
       shown = Math.min(newest.length, feedLimit);
@@ -3126,10 +3133,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       vu !== who ? h('span', { class: 'gate pass', text: 'read-only — acting stays you' }) : null));
     var ranked, maxRel;
     if (feedMode === 'new') {
-      var newest = [];
+      var newest = [], newestAt = {};
       st.g.edges.forEach(function (e) {
-        if (e.family === 'Publish' && st.payloads[e.tgt]) newest.push({ node: st.g.nodes.get(e.tgt), idx: e.appendIndex });
+        // One entry per node, at its newest Publish. A node now carries a
+        // Publish edge per revision, and listing edges showed a revised post
+        // once for every time it had been revised.
+        if (e.family !== 'Publish' || !st.payloads[e.tgt]) return;
+        if (newestAt[e.tgt] === undefined || e.appendIndex > newestAt[e.tgt]) {
+          newestAt[e.tgt] = e.appendIndex;
+        }
       });
+      for (var nid in newestAt) newest.push({ node: st.g.nodes.get(nid), idx: newestAt[nid] });
       newest.sort(function (a2, b2) { return b2.idx - a2.idx; });
       ranked = newest.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
       maxRel = 1;
