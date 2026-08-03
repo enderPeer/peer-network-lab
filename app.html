@@ -88,7 +88,12 @@ button { font-family: var(--body); cursor: pointer; }
 }
 .wordmark { font-family: var(--display); font-weight: 700; text-transform: uppercase; font-size: 24px; margin: 0; letter-spacing: 0.04em; }
 .wordmark em { font-style: normal; color: var(--ember); }
-.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+/* Eight tabs do not fit a phone, and the page clips horizontal overflow, so
+   the last ones were unreachable rather than merely off-screen — reported as
+   "the Live tab is not shown". The row scrolls on its own instead. */
+.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: 0 0 auto; white-space: nowrap; }
 .tabs button { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 14px; border-radius: 7px; font-weight: 600; }
 .tabs button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
 .switcher { display: flex; gap: 8px; align-items: center; }
@@ -161,6 +166,14 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d63b2f; animation: livepulse 1.4s infinite; vertical-align: middle; }
+@keyframes livepulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+.stream-video { display: block; width: 100%; max-height: 60vh; background: #000; border-radius: 10px; margin: 8px 0; }
+.view-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; white-space: nowrap; cursor: help; }
+body[data-mode='liquid'] .view-chip { color: var(--lq-muted, #888); }
+.lock-warn { border-color: var(--ember); }
+.lock-warn b { color: var(--ember); }
+.g-handle.locked, .lq-ava.locked { outline: 2px solid var(--ember); outline-offset: 1px; }
 .hop-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
 .hop-chip.far { opacity: 0.55; border-style: dashed; }
 .react-count { color: var(--ember); font-size: 11.5px; }
@@ -562,7 +575,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 <script>
 "use strict";var PeerEngine=(()=>{var V=Object.defineProperty;var ve=Object.getOwnPropertyDescriptor;var Me=Object.getOwnPropertyNames;var Ee=Object.prototype.hasOwnProperty;var Ce=(e,t)=>{for(var r in t)V(e,r,{get:t[r],enumerable:!0})},we=(e,t,r,i)=>{if(t&&typeof t=="object"||typeof t=="function")for(let n of Me(t))!Ee.call(e,n)&&n!==r&&V(e,n,{get:()=>t[n],enumerable:!(i=ve(t,n))||i.enumerable});return e};var Re=e=>we(V({},"__esModule",{value:!0}),e);var je={};Ce(je,{ACT_EXPONENT:()=>K,AttestationLedger:()=>re,BETA:()=>M,COGRA_DEFAULTS:()=>ne,DEPTH_MASS:()=>j,DOMAIN_MASKS:()=>v,ETA:()=>y,FAMILIES:()=>R,FEED_DEPTH:()=>D,HALF_FLOOR:()=>S,HOP_MAX:()=>z,KAPPA_SELF:()=>U,L0_DEFAULTS:()=>ue,NU:()=>C,OMEGA_DOMAIN:()=>Ae,OPERATOR:()=>te,PART_FLOOR:()=>B,POL_FLOOR:()=>ie,Q:()=>ee,REFERENCE_CREATORS:()=>Ke,REFERENCE_EPOCH:()=>We,REFERENCE_SEEDS:()=>ze,RawGraph:()=>I,SAFE_FLOOR:()=>w,THETA:()=>_,TILT_SHAPE:()=>W,baseScoreMatrix:()=>de,binaryEntropy:()=>ae,boltzmann:()=>X,buildHops:()=>ye,canValue:()=>Be,cograRank:()=>qe,coherence:()=>J,contentNorm:()=>se,dampedWeight:()=>N,debitAct:()=>_e,dependencyWeights:()=>ge,det2:()=>H,detScore:()=>O,detSign:()=>Q,doubleCoverBFS:()=>Y,emission:()=>ce,evaluateGates:()=>Pe,fpl:()=>E,fpm:()=>x,frobenius:()=>L,hopDistance:()=>Te,mobius:()=>le,pathView:()=>F,rankFeed:()=>Le,refRate:()=>$,referenceGraph:()=>Ve,scoreCandidate:()=>xe,sentimentSlice:()=>T,sigmoid:()=>k,singularValues2:()=>Se,solveStanding:()=>Ie,transmission:()=>fe,transport:()=>Z,vouchAct:()=>me,wallAct:()=>pe});var M=2*Math.log(2),y=.05,S=Math.sqrt(y),C=.1,_=.0528066,w=_/C,ie=1,B=Math.max(ie,w),z=4,D=4,K=.25,W=[1,.5,.25,.125],j=[.5,.25,.125,.125],U=1,Ae=1;function k(e){return 1/(1+Math.exp(-e))}function E(e){return k(M*e)}function x(e){return k(M*Math.abs(e))*Math.tanh(e)}function ae(e){return e<=0||e>=1?0:-e*Math.log(e)-(1-e)*Math.log(1-e)}function X(e){return Math.exp(-M*ae(e))}function J(e){return Math.sqrt(1+e*e)}var v={Tribal:[1,1,1,1],Identity:[1,0,0,1],Epistemic:[0,1,0,1],Economic:[0,0,1,1],Relational:[0,0,1,1],Minimal:[0,0,0,1]};function T(e,t,r){let[i,n,a,s]=r,m=Math.abs(e),l=Math.abs(t);return[[i*x(t*e),n*x(t*m),x(t)],[a*x(l*e),s*E(l*m),E(l)],[x(e),E(m),E(1)]]}function L(e){let t=0;for(let r of e)for(let i of r)t+=i*i;return Math.sqrt(t)}function F(e,t,r,i){let n;if(i==="half")n=[S,S,S,1];else{let[m,l,o,c]=r;n=[m+(1-m)*y,l+(1-l)*y,o+(1-o)*y,c+(1-c)*y]}let a=Math.abs(e),s=Math.abs(t);return[[n[0]*x(t*e),n[1]*x(t*a)],[n[2]*x(s*e),n[3]*E(s*a)]]}function H(e){let t=e[0],r=e[1];return t[0]*r[1]-t[1]*r[0]}function O(e){return Math.sqrt(Math.abs(H(e)))}function Q(e){return H(e)>=0?1:-1}function Se(e){let[t,r]=e[0],[i,n]=e[1],a=(t*t+r*r+i*i+n*n)/2,s=Math.sqrt(Math.max(0,a*a-H(e)**2));return[Math.sqrt(Math.max(0,a+s)),Math.sqrt(Math.max(0,a-s))]}function N(e,t){return e*J(t)*X(t)}var R={Opinion:{family:"Opinion",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["polarity p","reaction r"],signForced:!1,vouchCandidate:!0},Affinity:{family:"Affinity",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["association a","attraction t"],signForced:!1,vouchCandidate:!1},Owner:{family:"Owner",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Publish:{family:"Publish",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Participant:{family:"Participant",domain:"Relational",promoted:!0,tier:"full",paramLabels:["interactivity i","responsibility r"],signForced:!1,vouchCandidate:!1},Registration:{family:"Registration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1},SelfDeclaration:{family:"SelfDeclaration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},SelfReputation:{family:"SelfReputation",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},JoinRequest:{family:"JoinRequest",domain:"Relational",promoted:!0,tier:"half",paramLabels:["urgency u","formality f"],signForced:!1,vouchCandidate:!1},Accept:{family:"Accept",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},Ratify:{family:"Ratify",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},ReviewA:{family:"ReviewA",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["enthusiasm e","effort f"],signForced:!1,vouchCandidate:!1},ReviewT:{family:"ReviewT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["effort f","enthusiasm e"],signForced:!1,vouchCandidate:!1},SendA:{family:"SendA",domain:"Relational",promoted:!0,tier:"full",paramLabels:["directness d","intensity i"],signForced:!1,vouchCandidate:!1},SendT:{family:"SendT",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["intensity i","directness d"],signForced:!1,vouchCandidate:!1},ReferenceA:{family:"ReferenceA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["endorsement e","fidelity f"],signForced:!1,vouchCandidate:!1},ReferenceT:{family:"ReferenceT",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["fidelity f","endorsement e"],signForced:!1,vouchCandidate:!1},TagA:{family:"TagA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["relevance r","confidence c"],signForced:!1,vouchCandidate:!1},TagT:{family:"TagT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["confidence c","relevance r"],signForced:!1,vouchCandidate:!1},Control:{family:"Control",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1}};function ke(e,t){return R[e]?.promoted?v.Tribal:v[t]}var I=class{nodes=new Map;edges=[];preDeg=new Map;addNode(t){return this.nodes.set(t.id,t),this}degree(t){return this.preDeg.get(t)??0}buildRecord(t,r){let i=R[t.family],n=t.domain??i?.domain??"Tribal",a=t.tier??i?.tier??"full",s=ke(t.family,n),m=T(t.pd,t.pi,s),l=F(t.pd,t.pi,s,a),o=O(l),c=i?.signForced?1:Q(l);return{id:t.id,family:t.family,src:t.src,tgt:t.tgt,pd:t.pd,pi:t.pi,domain:n,mask:s,tier:a,tau:r,epoch:t.epoch??0,slice:m,pv:l,frob:L(m),score:o,sign:c,weight:N(o,r),appendIndex:this.edges.length}}bump(t,r=1){this.preDeg.set(t,(this.preDeg.get(t)??0)+r)}append(t){let r=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),i=this.buildRecord(t,r);return this.edges.push(i),this.bump(t.src),this.bump(t.tgt),i}appendHyper(t,r){let i=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),n=r.tauOverride??1-1/(1+Math.max(this.degree(r.src),this.degree(r.tgt))),a=this.buildRecord(t,i);this.edges.push(a);let s=this.buildRecord(r,n);return this.edges.push(s),this.bump(t.src),this.bump(t.tgt),this.bump(r.src),this.bump(r.tgt),[a,s]}outgoing(t){return this.edges.filter(r=>r.src===t)}incoming(t){return this.edges.filter(r=>r.tgt===t)}};function Te(e,t,r=D){let i=new Map([[t,0]]),n=new Set([t]);for(let a=1;a<=r&&n.size;a++){let s=new Set;for(let m of e.edges)m.weight<=0||n.has(m.src)&&(i.has(m.tgt)||(i.set(m.tgt,a),s.add(m.tgt)));n=s}return i}function Y(e,t,r=D){let i=new Map,n=s=>{let m=i.get(s);return m||(m={pos:0,neg:0},i.set(s,m)),m};n(t).pos=1;let a=new Map([[t,{pos:1,neg:0}]]);for(let s=1;s<=r;s++){let m=new Map;for(let l of e.edges){if(l.weight<=0)continue;let o=a.get(l.src);if(!o)continue;let c=m.get(l.tgt);c||(c={pos:0,neg:0},m.set(l.tgt,c)),l.sign>0?(c.pos=Math.max(c.pos,o.pos*l.weight),c.neg=Math.max(c.neg,o.neg*l.weight)):(c.pos=Math.max(c.pos,o.neg*l.weight),c.neg=Math.max(c.neg,o.pos*l.weight))}for(let[l,o]of m){let c=n(l);c.pos=Math.max(c.pos,o.pos),c.neg=Math.max(c.neg,o.neg)}a=m}return i}function se(e,t){let r=e.incoming(t).filter(a=>a.family==="Opinion");if(r.length===0)return 0;let i=r.reduce((a,s)=>a+s.pd,0)/r.length,n=r.reduce((a,s)=>a+s.pi,0)/r.length;return L(T(i,n,v.Tribal))}function Le(e,t,r,i){let n=Y(e,t),a=[];for(let s of e.nodes.values()){if(s.kind==="Actor"||s.kind==="Profile")continue;let l=n.get(s.id)?.pos??0;if(l<=0)continue;let o=i(s.id),c=o?1+r(o)/C:1,p=se(e,s.id);a.push({node:s,bfsWeight:l,amplifier:c,contentNorm:p,relevance:l*c*p})}return a.sort((s,m)=>m.relevance-s.relevance),a}function $(e){return e.burnBal/Math.max(e.actCount,1)/C}function ce(e){return Math.min(1,$(e)/w)}function le(e){return e/(1+e)}function ee(e){let t=Math.tanh(e);return k(M*e)*Math.sqrt(t*(1-y*y*t))}var Fe=ee(1);function me(e){return e<=0?0:Math.pow(ee(le(e))/Fe,K)}function pe(e){return me(Math.max(e,w))}function de(e,t){let r=new Map(e.map((a,s)=>[a,s])),i=e.length,n=Array.from({length:i},(a,s)=>Array.from({length:i},(m,l)=>s===l?U:0));for(let a of t){let s=r.get(a.src);if(s===void 0)continue;let m=r.get(a.rcp)??s;n[s][m]+=a.coeff}return n}function Oe(e,t,r,i){let n=e.length,a=[],s=i*W[r-1];for(let m=0;m<n;m++){let l=new Array(n),o=0;for(let c=0;c<n;c++){let p=m===c?e[m][c]:e[m][c]*Math.pow(pe(t[c]),s);l[c]=p,o+=p}for(let c=0;c<n;c++)l[c]/=o;a.push(l)}return a}function Ne(e,t){let r=e.length,i=Array.from({length:r},()=>new Array(r).fill(0));for(let n=0;n<r;n++)for(let a=0;a<r;a++){let s=e[n][a];if(s!==0)for(let m=0;m<r;m++)i[n][m]+=s*t[a][m]}return i}function Z(e,t,r,i){let n=e.length,a=Array.from({length:n},()=>new Array(n).fill(0)),s=null;for(let l=1;l<=z;l++){let o=Oe(e,t,l,i);s=s?Ne(s,o):o;let c=j[l-1];for(let p=0;p<n;p++)for(let u=0;u<n;u++)a[p][u]+=c*s[p][u]}let m=Array.from({length:n},()=>new Array(n).fill(0));for(let l=0;l<n;l++){for(let o=0;o<n;o++)m[l][o]=r[l]*a[l][o];m[l][l]+=1-r[l]}return m}function Ie(e,t,r={}){let{tilt:i=1,maxIter:n=200,tol:a=1e-13}=r,s=e.map(f=>f.id),m=de(s,t),l=e.map($),o=e.map(f=>Math.max(f.actCount,1)),c=e.map(ce),p=l.slice(),u=[p.slice()],d=1/0,b=0,g=Z(m,p,c,i);for(;b<n;){g=Z(m,p,c,i);let f=new Array(s.length);for(let h=0;h<s.length;h++){let P=0,q=0;for(let A=0;A<s.length;A++){let oe=g[A][h]*o[A];P+=oe*l[A],q+=oe}f[h]=q>0?P/q:l[h]}if(d=Math.max(...f.map((h,P)=>Math.abs(h-p[P]))),p=f,u.push(p.slice()),b++,d<a)break}return{ids:s,x:p,pi:g,iterations:b,residual:d,trace:u}}function Pe(e,t,r){let i=e.map(p=>({id:p.id,burnBal:p.burnBal,pass:p.burnBal>=0})),n=e.map((p,u)=>({id:p.id,stamp:t[u],delta:r.get(p.id)??0})).filter(p=>p.delta>0).map(p=>({id:p.id,stamp:p.stamp,pass:p.stamp>=w})),a=0,s=0,m=0;e.forEach((p,u)=>{let d=r.get(p.id)??0;d<=0||(a+=d,s+=d*t[u],m+=d*(t[u]-B))});let l=a>0?s/a:0,o=a===0||l>=B,c=i.every(p=>p.pass)&&n.every(p=>p.pass)&&o;return{w1:i,w2a:n,epochStamp:l,headroom:m,w2bPass:o,allPass:c}}function _e(e){return{...e,burnBal:e.burnBal-_,actCount:e.actCount+1}}var ue={E0:100,zeta:.5,fee:.5,maturityCycle:10},te="op",re=class{cfg;omega;yLive=0;yLock=0;cycle=0;settledFloor=1;escrow=[];balances=new Map;constructor(t={}){this.cfg={...ue,...t};let{E0:r,zeta:i}=this.cfg;this.omega=r,this.yLive=i*r,this.yLock=(1-i)*r;let n=this.bal(te);n.live=this.yLive,n.tlock=this.yLock}bal(t){let r=this.balances.get(t);return r||(r={reserve:0,live:0,tlock:0,attest:0},this.balances.set(t,r)),r}get totalSupply(){return this.yLive+this.yLock}floor(){return this.totalSupply>0?this.omega/this.totalSupply:1}get bootstrapping(){return this.cycle<this.cfg.maturityCycle}get attestCap(){return this.cfg.E0*Math.log(1/(1-this.cfg.zeta))}faucet(t,r){this.bal(t).reserve+=r}deposit(t,r){let i=this.bal(t);if(r<=0||i.reserve<r-1e-12)throw new Error("insufficient reserve");i.reserve-=r,this.escrow.push({addr:t,amount:r})}burn(t,r,i=t){let n=this.bal(t);if(r<=0||n.live<r-1e-12)throw new Error("insufficient live units");n.live-=r,this.yLive-=r;let a=r*this.settledFloor;return this.bal(i).attest+=a,a}redeem(t,r){let i=this.bal(t);if(r<=0||i.live<r-1e-12)throw new Error("insufficient live units");let n=r*this.floor();return i.live-=r,this.yLive-=r,this.omega-=n,i.reserve+=n,n}transfer(t,r,i,n="live"){let a=this.bal(t);if(i<=0||a[n]<i-1e-12)throw new Error("insufficient units");a[n]-=i,this.bal(r)[n]+=i}closeCycle(){let t=this.floor(),r=this.escrow.reduce((a,s)=>a+s.amount,0),i=this.cycle+1<this.cfg.maturityCycle,n=0;if(r>0){let a=r/t;n=a;let{fee:s,zeta:m}=this.cfg;for(let o of this.escrow){let c=(1-s)*(o.amount/r)*a,p=this.bal(o.addr);i?(p.live+=c*m,p.tlock+=c*(1-m)):p.live+=c}let l=this.bal(te);i?(l.live+=s*m*a,l.tlock+=s*(1-m)*a,this.yLive+=m*a,this.yLock+=(1-m)*a):(l.live+=s*a,this.yLive+=a),this.omega+=r,this.escrow=[]}if(this.cycle+=1,this.cycle===this.cfg.maturityCycle){for(let a of this.balances.values())a.live+=a.tlock,a.tlock=0;this.yLive+=this.yLock,this.yLock=0}return this.settledFloor=this.floor(),{minted:n,floor:this.settledFloor}}};function fe(e){if(e.length===0)return 0;let t=e.reduce((r,i)=>r+i,0)/e.length;return t/(1+t)}function ge(e){let t=e.reduce((r,i)=>r+i,0);return e.map(r=>t>0?r/t:0)}function Be(e){let t=fe(e.childNorms),r=ge(e.childNorms),i=0;for(let n=0;n<r.length;n++)i+=r[n]*(e.childValues[n]??0);return t*i}var ne={k:5,gamma:1,chi:1e-4,halfLifeEpochs:4},De=new Set(["SelfDeclaration","SelfReputation","Registration","Control"]),be={ReviewT:"ReviewA",TagT:"TagA",ReferenceT:"ReferenceA"};function G(e){return Math.max(-1,Math.min(1,e))}function he(e,t,r,i){let n=R[e];if(!n)return 0;let a=n.promoted?v.Tribal:v[n.domain],s=F(t,r,a,n.tier);return N(O(s),i)}function He(e){let t=new Map;for(let r of e){let i=r.src+"|"+r.tgt+"|"+r.family,n=t.get(i);n||(n={family:r.family,src:r.src,tgt:r.tgt,pd:0,pi:0,tau:r.tau,epoch:r.epoch??0,weight:0,key:i},t.set(i,n)),n.pd+=r.pd,n.pi+=r.pi,r.appendIndex>=0&&(n.tau=r.tau,n.epoch=Math.max(n.epoch,r.epoch??0))}for(let r of t.values())r.pd=G(r.pd),r.pi=G(r.pi),r.weight=r.pd===0||r.pi===0?0:he(r.family,r.pd,r.pi,r.tau);return t}function ye(e,t){let r=o=>e.nodes.get(o)?.kind??"Content",i=[],n=[];for(let o of e.edges)if(!De.has(o.family))if(be[o.family]){let c=e.edges[o.appendIndex-1];i.push({t:o,a:c&&c.family===be[o.family]?c:null})}else n.push(o);let a=He(n),s=new Map,m=o=>{if(o.weight<=0||r(o.from)==="Type")return;let c=t.personOf(o.from),p=t.personOf(o.to);if(c===p)return;let u=s.get(c)??[];u.push({...o,from:c,to:p}),s.set(c,u)};for(let o of a.values())m({from:o.src,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch,key:o.key});let l=new Map;for(let{a:o}of i){if(!o)continue;let c=o.src+"|"+o.tgt+"|"+o.family,p=l.get(c)??{pd:0,pi:0};p.pd+=o.pd,p.pi+=o.pi,l.set(c,p)}for(let{t:o,a:c}of i){let p=c?c.src:null,u=o.src,d=t.creatorOf(u);if(p&&d&&t.personOf(p)===t.personOf(d))m({from:u,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch??0,key:o.id});else if(p&&c){let b=l.get(c.src+"|"+c.tgt+"|"+c.family),g=G(b.pd),f=G(b.pi),h=g===0||f===0?0:he(c.family,g,f,c.tau);m({from:p,to:o.tgt,weight:h*o.weight,pdSign:(Math.sign(g)||1)*(Math.sign(o.pd)||1),piNegative:f<0||o.pi<0,epoch:Math.max(c.epoch??0,o.epoch??0),key:c.id+"+"+o.id})}}return s}function Ge(e,t,r,i,n,a){let s=new Map,m=[{node:t,cost:0,keys:"",path:[]}],l=null;for(;m.length;){let c=0;for(let d=1;d<m.length;d++){let b=m[d],g=m[c];(b.cost<g.cost-1e-15||Math.abs(b.cost-g.cost)<=1e-15&&b.keys<g.keys)&&(c=d)}let p=m.splice(c,1)[0],u=s.get(p.node);if(!(u&&(u.cost<p.cost-1e-15||Math.abs(u.cost-p.cost)<=1e-15&&u.keys<=p.keys))){if(s.set(p.node,{cost:p.cost,keys:p.keys}),p.node===r){l=p;break}for(let d of e.get(p.node)??[]){if(i.has(d.to)||n.has(d.key)||p.path.some(g=>g.to===d.to||g.from===d.to))continue;let b=p.cost-Math.log(a*d.weight);m.push({node:d.to,cost:b,keys:p.keys+"/"+d.key,path:p.path.concat(d)})}}}return l?{nodes:[t].concat(l.path.map(c=>c.to)),hops:l.path,m:Math.exp(-l.cost)}:null}function xe(e,t,r,i,n=ne){let a=new Set,s=new Set,m=[];for(let l=0;l<n.k;l++){let o=Ge(e,t,r,a,s,n.gamma);if(!o||o.m<n.chi)break;let c=o.hops.reduce((f,h)=>f*h.pdSign,1),p=o.hops.some(f=>f.piNegative),u=c>0&&!p?1:-1,d=o.hops[o.hops.length-1],b=Math.max(0,i-d.epoch),g=n.halfLifeEpochs===1/0?1:Math.pow(.5,b/n.halfLifeEpochs);m.push({nodes:o.nodes,hops:o.hops,m:o.m,sigma:u,f:g,term:u*o.m*g});for(let f of o.nodes.slice(1,-1))a.add(f);for(let f of o.hops)s.add(f.key)}return{S:m.reduce((l,o)=>l+o.term,0),paths:m}}function qe(e,t,r,i){let n={...ne,...i.cfg??{}},a=ye(e,i),s=i.candidates??(l=>l.kind==="Content"),m=[];for(let l of e.nodes.values()){if(!s(l))continue;let{S:o,paths:c}=xe(a,i.personOf(t),l.id,r,n);c.length!==0&&m.push({node:l,S:o,paths:c})}return m.sort((l,o)=>o.S-l.S),m}function Ve(){let e=new I;return e.addNode({id:"alice",kind:"Actor",label:"Alice"}),e.addNode({id:"bob",kind:"Actor",label:"Bob"}),e.addNode({id:"carol",kind:"Actor",label:"Carol"}),e.addNode({id:"dave",kind:"Actor",label:"Dave"}),e.addNode({id:"profA",kind:"Profile",label:"Profile_A"}),e.addNode({id:"photo",kind:"Content",label:"Photo"}),e.addNode({id:"comment",kind:"Comment",label:"Comment"}),e.addNode({id:"streetart",kind:"Type",label:"StreetArt"}),e.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),e.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"profA",pd:1,pi:.75}),e.append({id:"e1r",family:"SelfReputation",src:"profA",tgt:"alice",pd:1,pi:.75}),e.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),e.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),e.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),e.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),e.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),e.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),e.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),e}var ze=[{id:"alice",burnBal:3,actCount:10},{id:"bob",burnBal:2,actCount:8},{id:"carol",burnBal:4,actCount:12},{id:"dave",burnBal:1,actCount:5}],Ke={photo:"alice",comment:"bob",streetart:"carol",sneakers:"bob"},We={ledgers:[{id:"alice",burnBal:1.2944,actCount:12},{id:"bob",burnBal:1.2472,actCount:11},{id:"carol",burnBal:1.1472,actCount:10},{id:"dave",burnBal:.2,actCount:2},{id:"eve",burnBal:.9,actCount:8}],cells:[{src:"alice",rcp:"bob",coeff:.8638},{src:"alice",rcp:"carol",coeff:.635},{src:"alice",rcp:"eve",coeff:.3969},{src:"bob",rcp:"carol",coeff:.7742},{src:"bob",rcp:"dave",coeff:.6841},{src:"bob",rcp:"eve",coeff:.5062},{src:"carol",rcp:"dave",coeff:.8085},{src:"carol",rcp:"eve",coeff:.7329},{src:"dave",rcp:"eve",coeff:.772}],deltaActs:new Map([["alice",2],["bob",1],["carol",1],["dave",2],["eve",0]]),expectedX:[1.0786557,1.1051839,1.1201615,1.1159692,1.1171834],expectedEpochStamp:1.102,expectedHeadroom:.615};return Re(je);})();
 
-(function(W,T){typeof module=="object"&&module.exports?module.exports=T():W.PeerReplay=T()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function W(T){var B=T.THETA,te=T.NU,re={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function oe(m,t){var u={};for(var n in t)u[(t[n]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=n;for(var d=[],g={},f,c=/@([a-zA-Z0-9_]{1,16})/g;(f=c.exec(m))!==null&&d.length<3;){var s=u[f[1].toLowerCase().replace(/[^a-z0-9]/g,"")];s&&!g[s]&&(g[s]=1,d.push(s))}return d}function Me(m,t,u,n,d){var g=u.map(function(r){return{id:r.id,burnBal:r.burnBal,actCount:r.actCount}}),f=new Map(Object.keys(d).map(function(r){return[r,d[r]]})),c=Object.keys(d).reduce(function(r,R){return r+d[R]},0),s=null;function b(){if(!s){var r=m.solveStanding(g,n,{tilt:1});s=m.evaluateGates(g,r.x,f)}return s}var w={epoch:t,acts:c};Object.defineProperties(w,{stamp:{enumerable:!0,get:function(){return b().epochStamp}},headroom:{enumerable:!0,get:function(){return b().headroom}},pass:{enumerable:!0,get:function(){return b().allPass}}});var N={who:null};return Object.defineProperty(N,"line",{enumerable:!0,get:function(){var r=b();return"epoch "+t+" closed \xB7 stamp "+r.epochStamp.toFixed(3)+" \xB7 "+(r.allPass?"certificate accepted":"wall/door failed")}}),{record:w,chron:N}}function ie(m,t){var u=(t||[]).slice();for(var n in m){var d=m[n],g=Math.max(-1,Math.min(1,d.pd)),f=Math.max(-1,Math.min(1,d.pi));if(g>0&&f>0)u.push({src:d.src,rcp:d.rcp,coeff:Math.sqrt(g*f)});else{var c=Math.sqrt(Math.abs(g)*Math.abs(f));c>0&&u.push({src:d.src,rcp:d.src,coeff:c})}}return u}function Ce(m){for(var t=new T.RawGraph,u=[],n={},d={},g={},f={},c={},s={},b=[],w={},N=[],r=[],R={},ne={},Z=[],J={},l=0,h=0,y={},le={},K=0;K<m.length;K++){var z=m[K];z.t==="deleteAccount"?y[z.id]=!0:z.t==="deletePost"&&(le[z.target]=!0)}var D={},de={},I={},v=new T.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function S(o){try{return o()}catch{return null}}function O(o,p,j,_,G,U){var xe=U||p;t.addNode({id:o,kind:"Actor",label:xe}),t.addNode({id:"prof_"+o,kind:"Profile",label:xe});var Te={id:o,burnBal:j,actCount:_};u.push(Te),n[o]=Te,d[o]=p,g[o]=G}function k(o){return y[o]?"[deleted]":d[o]||o}function M(o){var p=n[o];p.burnBal-=B,p.actCount+=1,w[o]=(w[o]||0)+1}function se(o,p,j,_){var G=o+">"+p,U=s[G]||(s[G]={src:o,rcp:p,pd:0,pi:0});U.pd+=j,U.pi+=_}function F(o,p,j){var _=Math.sqrt(Math.abs(p)*Math.abs(j));_>0&&b.push({src:o,rcp:o,coeff:Math.min(1,_)})}function ke(o){var p="type_"+o.toLowerCase().replace(/[^a-z0-9]/g,"");return t.nodes.get(p)||t.addNode({id:p,kind:"Type",label:"#"+o}),p}for(var C=0;C<m.length;C++){var e=m[C],i=!!(y[e.author]||y[e.from]||y[e.id]||le[C]||typeof e.target=="string"&&D[e.target]||e.t==="dm"&&y[e.to]);if(e.t==="seedWorld")O("alice","Alice",3,10,0),O("bob","Bob",2,8,0),O("carol","Carol",4,12,0),O("dave","Dave",1,5,0),t.addNode({id:"photo",kind:"Content",label:"Photo"}),t.addNode({id:"comment",kind:"Comment",label:"Comment"}),t.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),t.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),t.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),t.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),t.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),t.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),t.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),t.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),t.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),t.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),t.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),f.photo="alice",f.comment="bob",f.sneakers="bob",f.streetart="carol",c.photo=re.photo,c.comment=re.comment,R.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(o){v.faucet(o,10),S(function(){v.transfer("op",o,2,"live")})}),r.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),r.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")O(e.id,e.handle,e.seed,0,e.epoch,i?"[deleted]":e.handle),e.pinHash&&(J[e.id]=e.pinHash),i||t.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),M(e.id),i||F(e.id,1,1),v.faucet(e.id,10),S(function(){v.transfer("op",e.id,2,"live")}),i?n[e.id].deleted=!0:r.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn")n[e.id].burnBal+=e.amt,i||r.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"});else if(e.t==="deposit")S(function(){return v.deposit(e.id,e.amt),!0})&&!i&&r.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var Q=S(function(){return v.burn(e.id,e.x)});Q!=null&&n[e.id]&&(n[e.id].burnBal+=Q,i||r.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+Q.toFixed(3)+" at settled floor \u03C6 "+v.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var pe=S(function(){return v.redeem(e.id,e.x)});pe!=null&&!i&&r.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+pe.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")S(function(){return v.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!i&&r.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+k(e.to)});else if(e.t==="setPin")n[e.id]&&e.pinHash&&(J[e.id]=e.pinHash,i||r.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(n[e.from]&&n[e.to]&&n[e.from].burnBal>=B){var fe=[e.from,e.to].sort(),q="chat_"+fe[0]+"_"+fe[1];t.nodes.get(q)||t.addNode({id:q,kind:"Chat",label:"Chat"}),l++;var ce="m"+l;t.addNode({id:ce,kind:"Message",label:"Message"}),i||t.appendHyper({id:"snA"+l,family:"SendA",src:e.from,tgt:q,pd:.8,pi:.8,epoch:h},{id:"snT"+l,family:"SendT",src:q,tgt:ce,pd:.8,pi:.8,epoch:h}),M(e.from),i||F(e.from,.8,.8),i||Z.push({from:e.from,to:e.to,text:e.text,idx:C})}}else if(e.t==="closeCycle"){var ae=v.closeCycle();r.push({who:null,line:"L0 cycle "+v.cycle+" processed \xB7 minted "+ae.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+ae.floor.toFixed(4)+(v.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="post"){l++;var a="c"+l;de[C]=a,i&&(D[a]=!0),t.addNode({id:a,kind:"Content",label:i?"[deleted]":"Post "+l}),i||t.append({id:"pub"+l,family:"Publish",src:e.author,tgt:a,pd:e.a,pi:1,epoch:h}),M(e.author),i||F(e.author,e.a,1),i||(f[a]=e.author,c[a]=e.text,e.media&&e.media.length&&(ne[a]=e.media),I[a]={idx:C,ts:e.ts,edited:!!e.edited},r.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:a})),e.ref&&t.nodes.get(e.ref)&&n[e.author]&&n[e.author].burnBal>=B&&(l++,i||t.appendHyper({id:"rfA"+l,family:"ReferenceA",src:e.author,tgt:a,pd:.8,pi:.9,epoch:h},{id:"rfT"+l,family:"ReferenceT",src:a,tgt:e.ref,pd:.9,pi:.8,epoch:h}),M(e.author),i||F(e.author,.8,.9),i||r.push({who:e.author,line:"referenced "+((t.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var ue=e.rmen!==void 0?e.rmen:oe(e.text,d),V=0;V<ue.length;V++){var E=ue[V];E===e.author||!n[e.author]||n[e.author].burnBal<B||(l++,i||t.appendHyper({id:"rfA"+l,family:"ReferenceA",src:e.author,tgt:a,pd:.7,pi:.8,epoch:h},{id:"rfT"+l,family:"ReferenceT",src:a,tgt:"prof_"+E,pd:.8,pi:.7,epoch:h}),M(e.author),i||(se(e.author,E,.7,.8),r.push({who:e.author,line:"mentioned "+k(E)+" \u2014 person-vouch compiled",to:a})))}}else if(e.t==="opinion"){if(l++,!i){var he=t.append({id:"op"+l,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:h}),L=e.target.indexOf("prof_")===0?e.target.slice(5):null;L&&L!==e.author?se(e.author,L,e.p,e.r):F(e.author,e.p,e.r),r.push({who:e.author,line:(L?"vouched on "+k(L)+"\u2019s profile":"reacted to "+((t.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+he.tau.toFixed(2)+" \xB7 w "+he.weight.toFixed(3),to:e.target})}M(e.author)}else if(e.t==="review"){l++;var P="c"+l;i&&(D[P]=!0),t.addNode({id:P,kind:"Comment",label:i?"[deleted]":"Review "+l}),i||(t.appendHyper({id:"rvA"+l,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:h},{id:"rvT"+l,family:"ReviewT",src:e.target,tgt:P,pd:e.f,pi:e.e,epoch:h}),F(e.author,e.e,e.f),f[P]=e.author,c[P]=e.text,R[P]={e:e.e,f:e.f},r.push({who:e.author,line:"reviewed "+((t.nodes.get(e.target)||{}).label||"")+" \u2192 minted a Comment \xB7 one act, two legs",to:P})),M(e.author)}else if(e.t==="tag"){l++;var Fe=ke(e.name);i||(t.appendHyper({id:"tgA"+l,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:h},{id:"tgT"+l,family:"TagT",src:e.target,tgt:Fe,pd:e.c,pi:e.r,epoch:h}),F(e.author,e.r,e.c),r.push({who:e.author,line:"tagged "+((t.nodes.get(e.target)||{}).label||"")+" as #"+e.name,to:e.target})),M(e.author)}else if(e.t==="call"){if(n[e.from]&&n[e.to]&&n[e.from].burnBal>=B&&(M(e.from),!i)){Z.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:C});var Pe=e.outcome==="completed"?"\u260E call with "+k(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+k(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+k(e.to)+" \u2014 declined":"\u260E call to "+k(e.to)+" failed to connect";r.push({who:e.from,line:Pe})}}else if(e.t==="editPost"){var H=de[e.target];H&&!D[H]&&c[H]!==void 0&&(c[H]=e.text,I[H]&&(I[H].edited=!0),r.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:H}))}else if(e.t==="deletePost")r.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")r.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="closeEpoch"){var ve=Me(T,e.epoch,u,ie(s,b),w);N.push(ve.record),r.push(ve.chron),w={},h++}}for(var X in s)(y[s[X].src]||y[s[X].rcp])&&delete s[X];b=b.filter(function(o){return!y[o.src]});var me=ie(s,b),Y=T.solveStanding(u,me,{tilt:1}),$={};Y.ids.forEach(function(o,p){$[o]=Y.x[p]});var ge=N.length+1;for(var x in n)if(!(x==="alice"||y[x])){var ye=te*($[x]||0),A=ye/(te+ye),be=1-1/(ge-g[x]+1);A>0&&(t.append({id:"dec_"+x,family:"SelfDeclaration",src:x,tgt:"prof_"+x,pd:1,pi:A,tauOverride:be}),t.append({id:"rep_"+x,family:"SelfReputation",src:"prof_"+x,tgt:x,pd:1,pi:A,tauOverride:be}))}var we={};for(var ee in d)we[ee]=y[ee]?"[deleted]":d[ee];return{g:t,ledgers:u,ledgerById:n,handles:we,creators:f,payloads:c,bundles:s,cells:me,solved:Y,xById:$,deltaActs:w,dmap:new Map(Object.keys(w).map(function(o){return[o,w[o]]})),epochHistory:N,chron:r,epochNow:ge,reviewMeta:R,mediaMeta:ne,dms:Z,pinHash:J,l0:v,deleted:y,postMeta:I}}return{replay:Ce,parseMentions:oe}}return{create:W}});
+(function(Z,M){typeof module=="object"&&module.exports?module.exports=M():Z.PeerReplay=M()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function Z(M){var R=M.THETA,oe=M.NU,ie={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function ne(m,t){var h={};for(var l in t)h[(t[l]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=l;for(var d=[],g={},p,a=/@([a-zA-Z0-9_]{1,16})/g;(p=a.exec(m))!==null&&d.length<3;){var s=h[p[1].toLowerCase().replace(/[^a-z0-9]/g,"")];s&&!g[s]&&(g[s]=1,d.push(s))}return d}function Me(m,t,h,l,d){var g=h.map(function(r){return{id:r.id,burnBal:r.burnBal,actCount:r.actCount}}),p=new Map(Object.keys(d).map(function(r){return[r,d[r]]})),a=Object.keys(d).reduce(function(r,O){return r+d[O]},0),s=null;function y(){if(!s){var r=m.solveStanding(g,l,{tilt:1});s=m.evaluateGates(g,r.x,p)}return s}var w={epoch:t,acts:a};Object.defineProperties(w,{stamp:{enumerable:!0,get:function(){return y().epochStamp}},headroom:{enumerable:!0,get:function(){return y().headroom}},pass:{enumerable:!0,get:function(){return y().allPass}}});var S={who:null};return Object.defineProperty(S,"line",{enumerable:!0,get:function(){var r=y();return"epoch "+t+" closed \xB7 stamp "+r.epochStamp.toFixed(3)+" \xB7 "+(r.allPass?"certificate accepted":"wall/door failed")}}),{record:w,chron:S}}function le(m,t){var h=(t||[]).slice();for(var l in m){var d=m[l],g=Math.max(-1,Math.min(1,d.pd)),p=Math.max(-1,Math.min(1,d.pi));if(g>0&&p>0)h.push({src:d.src,rcp:d.rcp,coeff:Math.sqrt(g*p)});else{var a=Math.sqrt(Math.abs(g)*Math.abs(p));a>0&&h.push({src:d.src,rcp:d.src,coeff:a})}}return h}function ke(m){for(var t=new M.RawGraph,h=[],l={},d={},g={},p={},a={},s={},y=[],w={},S=[],r=[],O={},de={},J=[],K={},n=0,c=0,b={},se={},Q=0;Q<m.length;Q++){var I=m[Q];I.t==="deleteAccount"?b[I.id]=!0:I.t==="deletePost"&&(se[I.target]=!0)}var q={},V={},L={},v=new M.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function _(o){try{return o()}catch{return null}}function j(o,f,D,B,U,W){var Te=W||f;t.addNode({id:o,kind:"Actor",label:Te}),t.addNode({id:"prof_"+o,kind:"Profile",label:Te});var Ce={id:o,burnBal:D,actCount:B};h.push(Ce),l[o]=Ce,d[o]=f,g[o]=U}function F(o){return b[o]?"[deleted]":d[o]||o}function x(o){var f=l[o];f.burnBal-=R,f.actCount+=1,w[o]=(w[o]||0)+1}function pe(o,f,D,B){var U=o+">"+f,W=s[U]||(s[U]={src:o,rcp:f,pd:0,pi:0});W.pd+=D,W.pi+=B}function k(o,f,D){var B=Math.sqrt(Math.abs(f)*Math.abs(D));B>0&&y.push({src:o,rcp:o,coeff:Math.min(1,B)})}function Pe(o){var f="type_"+o.toLowerCase().replace(/[^a-z0-9]/g,"");return t.nodes.get(f)||t.addNode({id:f,kind:"Type",label:"#"+o}),f}for(var T=0;T<m.length;T++){var e=m[T],i=!!(b[e.author]||b[e.from]||b[e.id]||se[T]);if(e.t==="seedWorld")j("alice","Alice",3,10,0),j("bob","Bob",2,8,0),j("carol","Carol",4,12,0),j("dave","Dave",1,5,0),t.addNode({id:"photo",kind:"Content",label:"Photo"}),t.addNode({id:"comment",kind:"Comment",label:"Comment"}),t.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),t.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),t.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),t.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),t.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),t.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),t.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),t.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),t.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),t.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),t.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),p.photo="alice",p.comment="bob",p.sneakers="bob",p.streetart="carol",a.photo=ie.photo,a.comment=ie.comment,O.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(o){v.faucet(o,10),_(function(){v.transfer("op",o,2,"live")})}),r.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),r.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")j(e.id,e.handle,e.seed,0,e.epoch,i?"[deleted]":e.handle),e.pinHash&&(K[e.id]=e.pinHash),i||t.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),x(e.id),i||k(e.id,1,1),v.faucet(e.id,10),_(function(){v.transfer("op",e.id,2,"live")}),i?l[e.id].deleted=!0:r.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn")l[e.id].burnBal+=e.amt,i||r.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"});else if(e.t==="deposit")_(function(){return v.deposit(e.id,e.amt),!0})&&!i&&r.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var X=_(function(){return v.burn(e.id,e.x)});X!=null&&l[e.id]&&(l[e.id].burnBal+=X,i||r.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+X.toFixed(3)+" at settled floor \u03C6 "+v.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var fe=_(function(){return v.redeem(e.id,e.x)});fe!=null&&!i&&r.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+fe.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")_(function(){return v.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!i&&r.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+F(e.to)});else if(e.t==="setPin")l[e.id]&&e.pinHash&&(K[e.id]=e.pinHash,i||r.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(l[e.from]&&l[e.to]&&l[e.from].burnBal>=R){var ae=[e.from,e.to].sort(),E="chat_"+ae[0]+"_"+ae[1];t.nodes.get(E)||t.addNode({id:E,kind:"Chat",label:"Chat"}),n++;var ce="m"+n;t.addNode({id:ce,kind:"Message",label:"Message"}),i||t.appendHyper({id:"snA"+n,family:"SendA",src:e.from,tgt:E,pd:.8,pi:.8,epoch:c},{id:"snT"+n,family:"SendT",src:E,tgt:ce,pd:.8,pi:.8,epoch:c}),x(e.from),i||k(e.from,.8,.8),i||J.push({from:e.from,to:e.to,text:e.text,idx:T})}}else if(e.t==="closeCycle"){var ue=v.closeCycle();r.push({who:null,line:"L0 cycle "+v.cycle+" processed \xB7 minted "+ue.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+ue.floor.toFixed(4)+(v.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){n++;var P="c"+n;V[T]=P,i&&(q[P]=!0),t.addNode({id:P,kind:"Content",label:i?"[deleted]":"Stream "+n}),i||t.append({id:"pub"+n,family:"Publish",src:e.author,tgt:P,pd:e.a,pi:1,epoch:c}),x(e.author),i||(k(e.author,e.a,1),p[P]=e.author,a[P]=e.text,L[P]={idx:T,ts:e.ts,edited:!1,stream:!0},r.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:P}))}else if(e.t==="post"){n++;var u="c"+n;V[T]=u,i&&(q[u]=!0),t.addNode({id:u,kind:"Content",label:i?"[deleted]":"Post "+n}),i||t.append({id:"pub"+n,family:"Publish",src:e.author,tgt:u,pd:e.a,pi:1,epoch:c}),x(e.author),i||k(e.author,e.a,1),i||(p[u]=e.author,a[u]=e.text,e.media&&e.media.length&&(de[u]=e.media),L[u]={idx:T,ts:e.ts,edited:!!e.edited},r.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:u})),e.ref&&t.nodes.get(e.ref)&&l[e.author]&&l[e.author].burnBal>=R&&(n++,i||t.appendHyper({id:"rfA"+n,family:"ReferenceA",src:e.author,tgt:u,pd:.8,pi:.9,epoch:c},{id:"rfT"+n,family:"ReferenceT",src:u,tgt:e.ref,pd:.9,pi:.8,epoch:c}),x(e.author),i||k(e.author,.8,.9),i||r.push({who:e.author,line:"referenced "+((t.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var he=e.rmen!==void 0?e.rmen:ne(e.text,d),Y=0;Y<he.length;Y++){var G=he[Y];G===e.author||!l[e.author]||l[e.author].burnBal<R||(n++,i||t.appendHyper({id:"rfA"+n,family:"ReferenceA",src:e.author,tgt:u,pd:.7,pi:.8,epoch:c},{id:"rfT"+n,family:"ReferenceT",src:u,tgt:"prof_"+G,pd:.8,pi:.7,epoch:c}),x(e.author),i||(pe(e.author,G,.7,.8),r.push({who:e.author,line:"mentioned "+F(G)+" \u2014 person-vouch compiled",to:u})))}}else if(e.t==="opinion"){if(n++,!i){var ve=t.append({id:"op"+n,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:c}),z=e.target.indexOf("prof_")===0?e.target.slice(5):null;z&&z!==e.author?pe(e.author,z,e.p,e.r):k(e.author,e.p,e.r),r.push({who:e.author,line:(z?"vouched on "+F(z)+"\u2019s profile":"reacted to "+((t.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+ve.tau.toFixed(2)+" \xB7 w "+ve.weight.toFixed(3),to:e.target})}x(e.author)}else if(e.t==="review"){n++;var N="c"+n;i&&(q[N]=!0),t.addNode({id:N,kind:"Comment",label:i?"[deleted]":"Review "+n}),i||(t.appendHyper({id:"rvA"+n,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:c},{id:"rvT"+n,family:"ReviewT",src:e.target,tgt:N,pd:e.f,pi:e.e,epoch:c}),k(e.author,e.e,e.f),p[N]=e.author,a[N]=e.text,O[N]={e:e.e,f:e.f},r.push({who:e.author,line:"reviewed "+((t.nodes.get(e.target)||{}).label||"")+" \u2192 minted a Comment \xB7 one act, two legs",to:N})),x(e.author)}else if(e.t==="tag"){n++;var Fe=Pe(e.name);i||(t.appendHyper({id:"tgA"+n,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:c},{id:"tgT"+n,family:"TagT",src:e.target,tgt:Fe,pd:e.c,pi:e.r,epoch:c}),k(e.author,e.r,e.c),r.push({who:e.author,line:"tagged "+((t.nodes.get(e.target)||{}).label||"")+" as #"+e.name,to:e.target})),x(e.author)}else if(e.t==="call"){if(l[e.from]&&l[e.to]&&l[e.from].burnBal>=R&&(x(e.from),!i)){J.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:T});var Ne=e.outcome==="completed"?"\u260E call with "+F(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+F(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+F(e.to)+" \u2014 declined":"\u260E call to "+F(e.to)+" failed to connect";r.push({who:e.from,line:Ne})}}else if(e.t==="editPost"){var H=V[e.target];H&&!q[H]&&a[H]!==void 0&&(a[H]=e.text,L[H]&&(L[H].edited=!0),r.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:H}))}else if(e.t==="deletePost")r.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")r.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="closeEpoch"){var me=Me(M,e.epoch,h,le(s,y),w);S.push(me.record),r.push(me.chron),w={},c++}}for(var $ in s)(b[s[$].src]||b[s[$].rcp])&&delete s[$];y=y.filter(function(o){return!b[o.src]});var ge=le(s,y),A=M.solveStanding(h,ge,{tilt:1}),ee={};A.ids.forEach(function(o,f){ee[o]=A.x[f]});var be=S.length+1;for(var C in l)if(!(C==="alice"||b[C])){var ye=oe*(ee[C]||0),te=ye/(oe+ye),we=1-1/(be-g[C]+1);te>0&&(t.append({id:"dec_"+C,family:"SelfDeclaration",src:C,tgt:"prof_"+C,pd:1,pi:te,tauOverride:we}),t.append({id:"rep_"+C,family:"SelfReputation",src:"prof_"+C,tgt:C,pd:1,pi:te,tauOverride:we}))}var xe={};for(var re in d)xe[re]=b[re]?"[deleted]":d[re];return{g:t,ledgers:h,ledgerById:l,handles:xe,creators:p,payloads:a,bundles:s,cells:ge,solved:A,xById:ee,deltaActs:w,dmap:new Map(Object.keys(w).map(function(o){return[o,w[o]]})),epochHistory:S,chron:r,epochNow:be,reviewMeta:O,mediaMeta:de,dms:J,pinHash:K,l0:v,deleted:b,postMeta:L}}return{replay:ke,parseMentions:ne}}return{create:Z}});
 
 </script>
 <script>
@@ -577,7 +590,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_VIEW = 'peer-sandbox-view-v1';
   // Which tab and which sort you were on survives a reload. Nothing here is
   // protocol state — purely where you were standing.
-  var GEEK_TABS = ['feed', 'chat', 'alerts', 'net', 'econ', 'ledger', 'guide'];
+  var GEEK_TABS = ['feed', 'chat', 'alerts', 'net', 'live', 'econ', 'ledger', 'guide'];
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
@@ -591,11 +604,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var netTarget = null; // network tab: whose reach we are explaining
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
-  var mode = 'liquid';
+  // Geek is the default for everyone now, new accounts included. Simple mode
+  // was the front door and it does not carry the newer surfaces — Live has no
+  // tab there at all, which is why testers on several devices reported the
+  // stream tab simply missing.
+  var mode = 'geek';
   var pins = {};
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
   try { who = JSON.parse(localStorage.getItem(LS_WHO)); } catch (e) { who = null; }
   try { var m0 = JSON.parse(localStorage.getItem(LS_MODE)); if (m0 === 'geek' || m0 === 'liquid') mode = m0; } catch (e) {}
+  // One-time migration: anyone still parked in simple mode from before this
+  // change lands in geek once. A deliberate switch after that is respected —
+  // the migration only ever runs a single time per browser.
+  try {
+    if (!localStorage.getItem('peer-sandbox-geek-default-v1')) {
+      localStorage.setItem('peer-sandbox-geek-default-v1', '1');
+      mode = 'geek';
+      localStorage.setItem(LS_MODE, JSON.stringify(mode));
+    }
+  } catch (e) {}
   // PINs live in sessionStorage only: closing the browser forgets them, so a
   // shared or stolen device never carries them. (One-time migration wipes the
   // old localStorage copy.)
@@ -652,6 +679,73 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   var lastPinHash = {}; // id -> pinHash from latest replay
 
+  // ── Session lock ──────────────────────────────────────────────────────────
+  // A PIN lives in sessionStorage only, so closing the browser forgets it while
+  // the chosen identity (localStorage) survives. That leaves a state the app
+  // used to hide: signed in, apparently fine, but every act bounces off the
+  // host with a 401 and incoming calls are silently dropped. The identity is
+  // not the credential — say so, and make getting the credential back cost
+  // nothing you were in the middle of.
+  function sessionLocked() {
+    return !!(REMOTE && who && lastPinHash[who] && !pins[who]);
+  }
+
+  var unlockQueue = null;      // continuations waiting on one dialog, or null
+  var lockNoticeShown = false; // the silent-failure warning fires once per lock
+  /**
+   * Run `then` with a usable PIN in hand. If the session is unlocked this is
+   * synchronous and invisible; if not, it asks once and then continues the
+   * caller's work. Nothing the caller was doing is discarded.
+   */
+  function withUnlock(then) {
+    if (!sessionLocked()) { then(); return; }
+    // Everything waiting on this one dialog is held and replayed together. The
+    // first version dropped every caller after the first and claimed in a
+    // comment that they queued; two reactions clicked in quick succession lost
+    // the second silently.
+    if (unlockQueue) { unlockQueue.push(then); return; }
+    unlockQueue = [then];
+    var id = who, hash = lastPinHash[who];
+    var label = (function () { try { return replay().handles[id] || id; } catch (e) { return id; } })();
+
+    function drain(ok) {
+      var q = unlockQueue || [];
+      unlockQueue = null;
+      if (!ok) {
+        if (q.length > 1) toast(q.length + ' pending actions were dropped — nothing was recorded.');
+        render();
+        return;
+      }
+      render();
+      q.forEach(function (fn) { try { fn(); } catch (e) {} });
+    }
+
+    function ask(retry) {
+      pinDialog('Unlock ' + label, retry
+        ? 'That PIN did not match. Try again, or cancel — the host locks a handle out after repeated wrong attempts.'
+        : 'Your session expired, so the PIN is gone from this browser. Your handle and everything you posted are untouched — the PIN just proves it is you.')
+        .then(function (pin) {
+          if (pin == null) { drain(false); return; }
+          sha256hex(id + ':' + pin).then(function (hx) {
+            if (hx !== hash) {
+              // Re-ask rather than discard: a typo used to destroy the queued
+              // post, after render() had already cleared the composer.
+              if (!retry) { ask(true); return; }
+              toast('Wrong PIN again — stopping here so the host does not lock ' + label + ' out.');
+              drain(false);
+              return;
+            }
+            pins[id] = pin; save();
+            lockNoticeShown = false; // re-arm the silent-failure warning
+            signalAuthBad = false;   // call polling gave up on the old PIN; let it try again
+            toast('Unlocked. Carrying on where you left off.');
+            drain(true);
+          });
+        });
+    }
+    ask(false);
+  }
+
   // ── Connection state (server fallback) ──
   var netFails = 0;
   var offline = false;
@@ -683,9 +777,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return changed;
   }
 
-  function pushAct(act, onOk) {
+  function pushAct(act, onOk, retried) {
     var actor = act.author || act.from ||
       (act.t === 'closeEpoch' || act.t === 'closeCycle' ? null : act.id) || null;
+    // Ask for the PIN before spending the act, not after the host refuses it.
+    // The act is re-submitted verbatim once unlocked, so a post someone spent
+    // two minutes writing is never lost to an expired session.
+    // Offline first: asking for a credential we cannot use, then discarding the
+    // act at the offline check three lines below, is the worst of both.
+    if (REMOTE && offline && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
+      toast('Still reconnecting — unlock once the connection is back, so nothing is lost.');
+      return;
+    }
+    if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
+      withUnlock(function () { pushAct(act, onOk, retried); });
+      return;
+    }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
     if (!REMOTE) {
       delete act.auth;
@@ -696,10 +803,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); return; }
     act.since = world.acts.length;
     fetch(API + '/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
-      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (x) {
         setOnline(true);
-        if (!x.ok) { toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return; }
+        if (!x.ok) {
+          // 401 means the PIN we hold is stale or wrong. Drop it and ask again,
+          // ONCE — resending the same bad PIN would walk the handle into the
+          // host's PIN-attempt lockout, and retrying forever would be worse
+          // than the original failure.
+          if (x.status === 401 && actor && !retried) {
+            delete pins[actor]; save();
+            withUnlock(function () { pushAct(act, onOk, true); });
+            return;
+          }
+          toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return;
+        }
         mergeTail(x.d); save();
         if (onOk) onOk();
         render();
@@ -707,11 +825,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .catch(function () { setOnline(false); toast('Connection hiccup — nothing was recorded, try again.'); });
   }
 
+  function pollLive() {
+    if (!REMOTE) return;
+    fetch(API + '/api/live', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        var before = liveList.map(function (e) { return e.author; }).join(',');
+        liveList = d.live || [];
+        var after = liveList.map(function (e) { return e.author; }).join(',');
+        // Only re-render when the set actually changed, so a viewer count tick
+        // does not tear down an open composer every eight seconds.
+        if (before !== after && !document.querySelector('.pin-dialog')) render();
+      })
+      .catch(function () {});
+  }
+
   function pollRemote() {
     var ae = document.activeElement;
+    // Never while a credential is being typed, offline or not: the reconnect
+    // render would wipe the dialog out from under the user mid-PIN. Recovering
+    // the connection can wait the five seconds until the next tick.
+    if (document.querySelector('.pin-dialog')) return;
     if (!offline) {
       if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
-      if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet') || document.querySelector('.pin-dialog')) return;
+      // Skip only TRANSIENT forms — ones the user opened and could lose. The
+      // live room's composer is always present, and blocking on it froze the
+      // room permanently: comments and reactions arrived and were never shown.
+      if (document.querySelector('.drawer')
+        || document.querySelector('.mini-form:not(.persistent)')
+        || document.querySelector('.lq-sheet:not(.persistent)')) return;
     }
     fetch(API + '/api/acts?since=' + world.acts.length, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
@@ -757,6 +900,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       REMOTE = true;
       world = { acts: d.acts };
       render();
+      loadIceConfig();
+      pollLive();
+      setInterval(pollLive, 8000);
+      setInterval(reportViews, 4000);
+      window.addEventListener('scroll', function () { reportViews(); }, { passive: true });
       setInterval(pollRemote, 5000);
       setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
       // Background tabs get throttled — poll the moment the tab comes back,
@@ -997,6 +1145,60 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var d = hopCache.map.get(nodeId);
     return d === undefined ? null : d;
   }
+  // ── Views: counted by the host, never by the protocol ─────────────────────
+  // Deliberately not an act. An act costs θ, enters the log and moves standing;
+  // charging people to read, and letting reading move influence, would turn this
+  // into the attention market the whole design refuses. So views are host-side
+  // telemetry: reported for curiosity, never scored, and labelled as such.
+  var viewCounts = {};
+  var viewReported = {};
+  function reportViews() {
+    if (!REMOTE) return;
+    var fresh = [];
+    document.querySelectorAll('[data-cid]').forEach(function (el) {
+      var cid = el.getAttribute('data-cid');
+      if (viewReported[cid]) return;
+      var r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) { viewReported[cid] = 1; fresh.push(cid); }
+    });
+    if (!fresh.length) return;
+    fetch(API + '/api/view', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: fresh }),
+    }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.views) return;
+        viewCounts = d.views;
+        // Patch the chips in place. A full render here would tear down whatever
+        // the reader has open every few seconds, and the counts are the only
+        // thing that changed.
+        paintViewChips();
+      })
+      .catch(function () {});
+  }
+
+  function paintViewChips() {
+    document.querySelectorAll('[data-cid]').forEach(function (el) {
+      var cid = el.getAttribute('data-cid');
+      var n = viewCounts[cid];
+      if (!n) return;
+      var label = n + (n === 1 ? ' view' : ' views');
+      var chip = el.querySelector('.view-chip');
+      if (chip) { chip.textContent = label; return; }
+      var head = el.querySelector('.head') || el.querySelector('.lq-name');
+      if (head) head.appendChild(viewChip(cid));
+    });
+  }
+  function viewChip(cid) {
+    var n = viewCounts[cid];
+    if (!n) return null;
+    return h('span', {
+      class: 'view-chip',
+      title: 'Seen ' + n + ' time' + (n === 1 ? '' : 's') + '. Host-side telemetry only — views never enter the log, the graph, or any score. This network measures commitment, not attention.',
+      text: n + (n === 1 ? ' view' : ' views'),
+    });
+  }
+
   function hopChip(st, nodeId, liquid) {
     if (!who) return null;
     var d = hopsFrom(st, nodeId);
@@ -1347,11 +1549,27 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   // ── PIN dialog + identity switching ──
+  // A dialog that render() tore down used to leave its promise unsettled
+  // forever, which latched the unlock state and permanently disabled acting.
+  // render() now settles it as cancelled instead of silently orphaning it.
+  var activePinDone = null;
+  function dismissPinDialog() {
+    if (activePinDone) { var f = activePinDone; activePinDone = null; f(null); }
+  }
+
   function pinDialog(title, subtitle) {
     return new Promise(function (resolve) {
       var overlay = document.getElementById('overlay');
       var input = h('input', { type: 'password', maxlength: '24', placeholder: '••••', autocomplete: 'off' });
-      function done(v) { overlay.innerHTML = ''; resolve(v); }
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        if (activePinDone === done) activePinDone = null;
+        overlay.innerHTML = '';
+        resolve(v);
+      }
+      activePinDone = done;
       var card = h('div', { class: 'pin-card' },
         h('h3', { text: title }),
         h('p', { class: 'smallnote', text: subtitle }),
@@ -1447,7 +1665,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // If this identity was deleted (possibly from another device), log out.
     if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
     saveView(); // where you are standing survives a reload
+    setTimeout(paintViewChips, 0); // counts already known apply to the new DOM
     root.innerHTML = '';
+    dismissPinDialog(); // settle it before wiping, never orphan the promise
     document.getElementById('overlay').innerHTML = '';
     if (mode === 'liquid') {
       if (!who || !st.ledgerById[who]) renderLiquidHero(st);
@@ -1510,6 +1730,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       lqEnergyBar(me),
       h('button', { class: 'lq-ava', text: (st.handles[who] || '?')[0].toUpperCase(), title: 'You', onclick: function () { lqView = 'you'; render(); } })));
 
+    var lqLock = lockBanner(st, true);
+    if (lqLock) wrap.appendChild(h('div', { class: 'lq-glass lq-card' }, lqLock));
+
     if (lqView === 'feed') wrap.appendChild(lqFeed(st));
     else if (lqView === 'peers') wrap.appendChild(lqPeers(st));
     else if (lqView === 'chats') wrap.appendChild(lqChats(st));
@@ -1564,7 +1787,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
     if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
-    if (lastPinHash[who] && !pins[who]) return; // secured handle without its PIN cannot collect
+    // A locked session cannot collect its mailbox, so incoming calls would
+    // vanish without a trace. Say it once rather than failing silently; the
+    // banner keeps saying it after that.
+    if (lastPinHash[who] && !pins[who]) {
+      if (!lockNoticeShown) {
+        lockNoticeShown = true;
+        toast('Session locked — unlock to receive calls and to act. Your handle is fine.');
+      }
+      return;
+    }
     fetch(API + '/api/signal/poll', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ who: who, auth: pins[who] || '' }),
@@ -1576,6 +1808,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function onSignal(s) {
+    if (['swatch', 'soffer', 'sanswer', 'sice', 'sbye'].indexOf(s.kind) >= 0) { onStreamSignal(s); return; }
     if (s.kind === 'ring') {
       // Rings are re-delivered every poll until answered — process each once.
       if (s.sid) {
@@ -1620,10 +1853,263 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return navigator.mediaDevices.getUserMedia({ audio: true });
   }
 
-  function makePc() {
-    var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  // ICE servers come from the host so an operator can point calls at their own
+  // relay without a rebuild. STUN-only is the fallback if the host is old or
+  // unreachable — that is the configuration that could not reach Turkey.
+  var iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+  var iceRelayKind = null; // 'operator' | 'public' | null
+  function loadIceConfig() {
+    if (!REMOTE) return;
+    fetch(API + '/api/ice', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.iceServers && d.iceServers.length) {
+          iceServers = d.iceServers;
+          iceRelayKind = d.relay || null;
+        }
+      })
+      .catch(function () {});
+  }
+
+  /**
+   * Report the path the call actually took. A relayed call is still encrypted
+   * end to end — the relay forwards packets it cannot read — but it is not
+   * peer-to-peer, and the dock says "peer-to-peer" everywhere else. Saying
+   * "direct" when a third party is forwarding the audio would be exactly the
+   * kind of claim this project keeps having to take back.
+   */
+  function describePath(c) {
+    if (!c.pc || !c.pc.getStats) return;
+    c.pc.getStats(null).then(function (stats) {
+      var pair = null, local = {};
+      stats.forEach(function (r) {
+        if (r.type === 'local-candidate') local[r.id] = r;
+        if (r.type === 'candidate-pair' && (r.selected || r.state === 'succeeded') && !pair) pair = r;
+      });
+      var lc = pair && local[pair.localCandidateId];
+      var relayed = !!(lc && lc.candidateType === 'relay');
+      if (!call || call.pc !== c.pc) return;
+      call.relayed = relayed;
+      callUI();
+      if (relayed) {
+        toast('Connected through a relay — your two networks had no direct path. Still encrypted end to end; the relay cannot hear it, but it does carry it.');
+      }
+    }).catch(function () {});
+  }
+
+  /**
+   * Gather ICE candidates against the current configuration and report what
+   * came back. This exists because a relay that is configured is not the same
+   * as a relay that works: the first thing tried here was a public TURN service
+   * that accepted connections and no longer spoke STUN, which would have looked
+   * like a fix and changed nothing. A 'relay' candidate is the only proof.
+   */
+  function testRelay() {
+    if (!window.RTCPeerConnection) return Promise.resolve({ error: 'This browser has no WebRTC.' });
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    var types = { host: 0, srflx: 0, relay: 0 };
+    try { pc.createDataChannel('probe'); } catch (e) {}
     pc.onicecandidate = function (ev) {
-      if (ev.candidate && call) signalSend('ice', call.peer, JSON.parse(JSON.stringify(ev.candidate)));
+      if (!ev.candidate) return;
+      var m = / typ (\w+)/.exec(ev.candidate.candidate || '');
+      var t = ev.candidate.type || (m && m[1]);
+      if (types[t] !== undefined) types[t]++;
+    };
+    return pc.createOffer()
+      .then(function (o) { return pc.setLocalDescription(o); })
+      .then(function () {
+        return new Promise(function (res) {
+          var settled = false;
+          function fin() { if (!settled) { settled = true; res(); } }
+          pc.onicegatheringstatechange = function () { if (pc.iceGatheringState === 'complete') fin(); };
+          setTimeout(fin, 8000);
+        });
+      })
+      .then(function () {
+        try { pc.close(); } catch (e) {}
+        return { types: types, relayKind: iceRelayKind };
+      })
+      .catch(function (e) { try { pc.close(); } catch (x) {} return { error: e.message }; });
+  }
+
+  // ══ Live streaming ════════════════════════════════════════════════════════
+  // One RTCPeerConnection per viewer, held by the broadcaster. This is a mesh,
+  // so the broadcaster's upload is multiplied by the audience: fine for the
+  // handful of people on a test network, not a design that scales. Saying so
+  // here rather than discovering it at thirty viewers.
+  //
+  // It also inherits the NAT limits of calls exactly: where a call cannot find
+  // a path without a relay, neither can a stream.
+  var live = null;    // broadcaster: {cid, title, stream, peers:{}, t0, timer}
+  var watching = null; // viewer: {author, cid, pc, el, t0}
+  var liveList = [];  // what the host says is on air
+
+  function broadcastStop(note) {
+    if (!live) return;
+    Object.keys(live.peers).forEach(function (p) {
+      try { live.peers[p].close(); } catch (e) {}
+      signalSend('sbye', p, null);
+    });
+    if (live.stream) live.stream.getTracks().forEach(function (t) { t.stop(); });
+    clearInterval(live.timer);
+    fetch(API + '/api/live', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ as: who, auth: pins[who] || '', stop: true }),
+    }).catch(function () {});
+    live = null;
+    render();
+    if (note) toast(note);
+  }
+
+  function broadcastStart(title, withVideo) {
+    if (!REMOTE) { toast('Streaming needs the hosted network.'); return; }
+    if (live) { toast('You are already live.'); return; }
+    if (!navigator.mediaDevices || !window.isSecureContext) {
+      toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo ? { width: 640, height: 360 } : false })
+      .then(function (stream) {
+        // The act first: going live is a priced, recorded gesture, and it mints
+        // the node people will react to. The id can only be read AFTER the act
+        // has landed and been replayed — reading it before attaches the stream
+        // to the previous one, which is exactly what the first version did.
+        pushAct({ t: 'stream', author: who, text: title, a: 0.8 }, function () {
+          var st = replay();
+          var mine = Object.keys(st.creators).filter(function (c) {
+            return st.creators[c] === who && st.postMeta[c] && st.postMeta[c].stream;
+          }).sort(function (a, b) { return st.postMeta[a].idx - st.postMeta[b].idx; });
+          var cid = mine.length ? mine[mine.length - 1] : null;
+          if (!cid) {
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            toast('The network did not record the stream, so there is nothing to join. Nothing was broadcast.');
+            return;
+          }
+          live = { cid: cid, title: title, stream: stream, peers: {}, t0: Date.now(), timer: null };
+          var beat = function () {
+            if (!live) return;
+            fetch(API + '/api/live', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ as: who, auth: pins[who] || '', cid: live.cid, title: live.title, viewers: Object.keys(live.peers).length }),
+            }).catch(function () {});
+          };
+          beat();
+          live.timer = setInterval(beat, 10000);
+          render();
+          toast('You are live on ' + cid + '. Anyone on the network can join from the Live tab.');
+        });
+      })
+      .catch(function () { toast('Could not open the camera or microphone — check browser permissions.'); });
+  }
+
+  /** Broadcaster side: a viewer knocked, give them their own connection. */
+  function serveViewer(viewerId) {
+    if (!live || live.peers[viewerId]) return;
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    live.peers[viewerId] = pc;
+    live.stream.getTracks().forEach(function (t) { pc.addTrack(t, live.stream); });
+    pc.onicecandidate = function (ev) {
+      if (ev.candidate) signalSend('sice', viewerId, JSON.parse(JSON.stringify(ev.candidate)));
+    };
+    pc.onconnectionstatechange = function () {
+      var s = pc.connectionState;
+      if (s === 'failed' || s === 'closed') {
+        try { pc.close(); } catch (e) {}
+        delete live.peers[viewerId];
+        render();
+      }
+    };
+    pc.createOffer()
+      .then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); })
+      .then(function (o) { signalSend('soffer', viewerId, { type: o.type, sdp: o.sdp }); })
+      .catch(function () {});
+  }
+
+  function watchStart(entry) {
+    if (!REMOTE) return;
+    if (watching) watchStop();
+    if (live) { toast('Stop your own stream before watching another.'); return; }
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    watching = { author: entry.author, cid: entry.cid, pc: pc, el: null, t0: Date.now(), pending: [] };
+    pc.onicecandidate = function (ev) {
+      if (ev.candidate && watching) signalSend('sice', watching.author, JSON.parse(JSON.stringify(ev.candidate)));
+    };
+    pc.ontrack = function (ev) {
+      if (!watching) return;
+      watching.media = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
+      render();
+    };
+    pc.onconnectionstatechange = function () {
+      if (!watching || watching.pc !== pc) return;
+      if (pc.connectionState === 'failed') {
+        watchStop();
+        toast('Could not reach the stream — no path between your networks, and no relay configured. Guide → call reachability explains it.');
+      }
+    };
+    signalSend('swatch', entry.author, null);
+    render();
+  }
+
+  function watchStop() {
+    if (!watching) return;
+    signalSend('sbye', watching.author, null);
+    try { watching.pc.close(); } catch (e) {}
+    watching = null;
+    render();
+  }
+
+  /** Stream signals, routed by sender — the mailbox already stamps `from`. */
+  function onStreamSignal(s) {
+    if (s.kind === 'swatch') {
+      if (live) serveViewer(s.from);
+      return;
+    }
+    if (s.kind === 'soffer') {
+      if (!watching || watching.author !== s.from) return;
+      var pc = watching.pc;
+      pc.setRemoteDescription(s.payload)
+        .then(function () {
+          watching.pending.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
+          return pc.createAnswer();
+        })
+        .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
+        .then(function (a) { signalSend('sanswer', s.from, { type: a.type, sdp: a.sdp }); })
+        .catch(function () {});
+      return;
+    }
+    if (s.kind === 'sanswer') {
+      var vpc = live && live.peers[s.from];
+      if (vpc) vpc.setRemoteDescription(s.payload).catch(function () {});
+      return;
+    }
+    if (s.kind === 'sice') {
+      var target = (live && live.peers[s.from]) || (watching && watching.author === s.from ? watching.pc : null);
+      if (!target) return;
+      if (target.remoteDescription) target.addIceCandidate(s.payload).catch(function () {});
+      else if (watching) watching.pending.push(s.payload);
+      return;
+    }
+    if (s.kind === 'sbye') {
+      if (watching && watching.author === s.from) { watchStop(); toast('The stream ended.'); }
+      if (live && live.peers[s.from]) {
+        try { live.peers[s.from].close(); } catch (e) {}
+        delete live.peers[s.from];
+        render();
+      }
+    }
+  }
+
+  function makePc() {
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 2 });
+    // Remember what kinds of candidate we managed to gather. When a call fails
+    // this is the difference between a useful sentence and a shrug: no relay
+    // candidate means the two networks had no path and no relay to fall back
+    // on, which is a configuration answer, not a mystery.
+    call.cand = { host: 0, srflx: 0, relay: 0 };
+    pc.onicecandidate = function (ev) {
+      if (!ev.candidate || !call) return;
+      var t = ev.candidate.type || (/ typ (\w+)/.exec(ev.candidate.candidate || '') || [])[1];
+      if (call.cand && t && call.cand[t] !== undefined) call.cand[t]++;
+      signalSend('ice', call.peer, JSON.parse(JSON.stringify(ev.candidate)));
     };
     pc.ontrack = function (ev) {
       if (!call) return;
@@ -1635,8 +2121,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var cs = call.pc.connectionState;
       if (cs === 'connected' && call.state !== 'live') {
         call.state = 'live'; call.t0 = Date.now(); clearTimeout(call.timer); callUI();
+        describePath(call); // says truthfully whether this call is direct or relayed
       } else if (cs === 'failed') {
-        endCall(true, 'Connection failed — the two networks could not find a direct path.', 'failed');
+        var c = call.cand || {};
+        endCall(true, c.relay
+          ? 'Connection failed even through the relay — one side is probably blocking UDP and TCP relay ports.'
+          : 'Connection failed: no path between these two networks, and no relay was available. '
+            + 'This is what happens when both ends sit behind carrier-grade NAT, common on mobile networks. '
+            + 'The operator can fix it by configuring a TURN relay.', 'failed');
       } else if (cs === 'disconnected') {
         setTimeout(function () {
           if (call && call.pc && call.pc.connectionState === 'disconnected') endCall(true, 'Connection lost.');
@@ -1788,7 +2280,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } else { // live
       var durEl = h('span', { class: 'num', text: fmtDur(call.t0 ? Math.round((Date.now() - call.t0) / 1000) : 0) });
       panel.appendChild(h('div', { class: 'c-title' }, h('span', { class: 'call-live-dot' }), name, ' · ', durEl));
-      panel.appendChild(h('div', { class: 'c-sub', text: 'live — peer-to-peer, unrecorded' }));
+      panel.appendChild(h('div', { class: 'c-sub', text: call.relayed
+        ? 'live — relayed, encrypted end to end, unrecorded'
+        : 'live — peer-to-peer, unrecorded' }));
       panel.appendChild(h('div', { class: 'c-row' },
         h('button', { class: 'call-btn', text: call.muted ? 'Unmute' : 'Mute', onclick: toggleMute }),
         h('button', { class: 'call-btn no', text: 'Hang up', onclick: function () { endCall(true, null); } })));
@@ -2079,13 +2573,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         ? 'for you · ' + score.paths.length + ' path' + (score.paths.length === 1 ? '' : 's')
         : 'your network leans against this';
     }
-    var card = h('div', { class: 'lq-glass lq-card' },
+    var card = h('div', { class: 'lq-glass lq-card', 'data-cid': n.id },
       h('div', { style: 'display:flex; align-items:center; gap:10px' },
         avatar(st.handles[author], 'lq-ava s'),
         h('div', {},
           h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2),
-            (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : '')),
+            (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : ''),
+          viewChip(n.id)),
         sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
       h.apply(null, ['div', { class: 'lq-body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
@@ -2372,15 +2867,26 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
           return b;
         })(),
-        tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
+        tabBtn('net', 'Network'),
+        (function () {
+          var b = tabBtn('live', 'Live');
+          if (liveList.filter(function (e) { return e.author !== who; }).length || live) {
+            b.appendChild(h('span', { class: 'live-dot', style: 'margin-left:5px' }));
+          }
+          return b;
+        })(),
+        tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
-      : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
+      : tab === 'net' ? netTab(st) : tab === 'live' ? liveTab(st) : tab === 'econ' ? econTab(st)
+      : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
+    var geekLock = lockBanner(st, false);
+    if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
       avatar(st.handles[who], 'avatar s'),
@@ -2421,6 +2927,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       margin: x - SAFE_FLOOR,
     };
   }
+  /**
+   * The two states where an identity is signed in but not fully usable, both
+   * of which used to be invisible until something bounced:
+   *   locked    — PIN-secured, but the browser session forgot the PIN
+   *   unsecured — never had a PIN, so anyone who knows the handle can be you
+   * One banner, because to a reader they are the same question: is this
+   * really my account right now?
+   */
+  function lockBanner(st, compact) {
+    if (!REMOTE || !who) return null;
+    var name = st.handles[who] || who;
+    if (sessionLocked()) {
+      return h('div', { class: 'wall-warn lock-warn' },
+        h('b', { text: '🔒 session locked' }),
+        h('div', { class: compact ? 'lq-note' : 'smallnote' },
+          'Your PIN is not in this browser any more — it is forgotten whenever the browser closes, on purpose, so a shared machine cannot keep it. You are still ' + name + ' and nothing you posted is affected; you just cannot act or receive calls until you prove it is you.'),
+        h('button', { class: compact ? 'lq-pill hot' : 'btn small primary', style: 'margin-top:8px',
+          text: 'Unlock', onclick: function () { withUnlock(function () {}); } }));
+    }
+    if (!st.pinHash[who]) {
+      return h('div', { class: 'wall-warn lock-warn' },
+        h('b', { text: '⚠ this handle has no PIN' }),
+        h('div', { class: compact ? 'lq-note' : 'smallnote' },
+          'Anyone who knows the name ' + name + ' can post, message and vouch as you — that has already happened to someone here. Deleting or editing your own posts is refused for the same reason: the host cannot tell it is you. Setting a PIN takes a second and only a hash of it ever enters the record.'),
+        h('button', { class: compact ? 'lq-pill hot' : 'btn small primary', style: 'margin-top:8px',
+          text: 'Secure this handle', onclick: function () { setPinFlow(st, false); } }));
+    }
+    return null;
+  }
+
   function wallBanner(st, id, compact) {
     var w = wallState(st, id);
     if (!w || !w.near) return null;
@@ -2484,6 +3020,32 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * fixed here started as somebody in the network saying plainly that
    * something was wrong — so say out loud that this is a thing you can do.
    */
+  /** Operator-facing: can this instance actually connect two hard networks? */
+  function callHealthCard() {
+    var out = h('div', { class: 'smallnote', text: 'Not tested yet.' });
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'call reachability' }),
+      h('p', { class: 'smallnote', text: 'A call needs a path between two networks. Direct usually works within one country; when both ends sit behind carrier-grade NAT — normal on mobile, and common between countries — it needs a relay. This checks which candidate types this browser can actually obtain.' }),
+      h('button', { class: 'btn small', text: 'Test reachability', onclick: function (ev) {
+        var b = ev.target; b.disabled = true; b.textContent = 'Testing…';
+        out.textContent = 'Gathering candidates (up to 8 seconds)…';
+        testRelay().then(function (r) {
+          b.disabled = false; b.textContent = 'Test again';
+          if (r.error) { out.textContent = 'Could not test: ' + r.error; return; }
+          var t = r.types;
+          out.innerHTML = '';
+          out.appendChild(h('div', { text: 'host ' + t.host + ' · server-reflexive ' + t.srflx + ' · relay ' + t.relay }));
+          out.appendChild(h('div', { style: 'margin-top:6px' , text: t.relay > 0
+            ? 'A relay answered. Calls should connect even between networks with no direct path.'
+            : (r.relayKind === 'operator'
+              ? 'A relay is configured but produced no candidate — wrong credentials, wrong port, or it is not reachable from here. Calls between hard networks will fail.'
+              : 'No relay configured, so calls work only where the two networks can reach each other directly. Set PEER_TURN_URL, PEER_TURN_USER and PEER_TURN_PASS on the host to fix it.') }));
+        });
+      } }),
+      out);
+    return card;
+  }
+
   function contributeNote() {
     return h('div', { class: 'contribute' },
       h('b', { text: 'Found something wrong, or want to change it?' }),
@@ -2618,7 +3180,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var n = f.node;
     var author = st.creators[n.id];
     var tags = tagsOf(st, n.id);
-    var card = h('div', { class: 'post' },
+    var card = h('div', { class: 'post', 'data-cid': n.id },
       h('div', { class: 'head' },
         rank ? h('span', { class: 'rank-chip', text: '#' + rank }) : null,
         avatar(st.handles[author], 'avatar s'),
@@ -2627,6 +3189,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         deltaChip(author, st),
         h('span', { class: 'kindtag', text: 'post' }),
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
+        (st.postMeta[n.id] && st.postMeta[n.id].stream) ? h('span', { class: 'kindtag', text: 'stream' }) : null,
+        viewChip(n.id),
         hopChip(st, n.id, false)),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
@@ -3229,6 +3793,110 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return wrap;
   }
 
+  function liveTab(st) {
+    var wrap = h('div', {});
+
+    // ── broadcaster ────────────────────────────────────────────────────────
+    if (live) {
+      var secs = Math.round((Date.now() - live.t0) / 1000);
+      var nView = Object.keys(live.peers).length;
+      var card = h('div', { class: 'card' },
+        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'on air · ' + fmtDur(secs) + ' · ' + nView + ' watching'),
+        h('h2', { text: live.title }));
+      var self = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
+      self.muted = true;
+      if (live.stream) self.srcObject = live.stream;
+      card.appendChild(self);
+      card.appendChild(h('p', { class: 'smallnote', text: 'Every viewer gets their own connection from this browser, so your upload is multiplied by the audience. That is fine for a handful of people and will not scale past it — there is no media server here.' }));
+      card.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'End stream', onclick: function () { broadcastStop('Stream ended. The act stays in the record; the video was never in it.'); } })));
+      wrap.appendChild(card);
+      if (live.cid) wrap.appendChild(streamRoom(st, live.cid));
+      return wrap;
+    }
+
+    // ── viewer ─────────────────────────────────────────────────────────────
+    if (watching) {
+      var w = h('div', { class: 'card' },
+        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'watching ' + (st.handles[watching.author] || watching.author)));
+      var v = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
+      if (watching.media) v.srcObject = watching.media;
+      w.appendChild(v);
+      if (!watching.media) w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster…' }));
+      w.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop })));
+      wrap.appendChild(w);
+      if (watching.cid) wrap.appendChild(streamRoom(st, watching.cid));
+      return wrap;
+    }
+
+    // ── nobody streaming from here: the list, and the go-live form ─────────
+    var listCard = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'live now' }));
+    if (!liveList.length) {
+      listCard.appendChild(h('p', { class: 'smallnote', text: 'Nobody is broadcasting. Start one below and it appears here for everyone.' }));
+    }
+    liveList.forEach(function (e) {
+      if (e.author === who) return;
+      var row = h('div', { class: 'chat-row' },
+        avatar(st.handles[e.author], 'avatar s'),
+        h('div', { class: 'grow' },
+          h('b', {}, st.handles[e.author] || e.author, ' ', h('span', { class: 'live-dot' })),
+          h('div', { class: 'smallnote', text: e.title || 'live' }),
+          h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000)) })),
+        h('button', { class: 'btn small primary', text: 'Join', onclick: function () { watchStart(e); } }));
+      listCard.appendChild(row);
+    });
+    wrap.appendChild(listCard);
+
+    var title = h('input', { type: 'text', placeholder: 'what is this stream about?', maxlength: '200', style: 'flex:1' });
+    var vid = h('input', { type: 'checkbox' });
+    vid.checked = true;
+    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'go live · −θ' }),
+      h('p', { class: 'smallnote', text: 'Going live is an act: it costs θ and mints a node, which is what lets people react and comment on the stream with the ordinary machinery — priced and recorded like any other gesture. The video itself is peer-to-peer and never enters the record.' }),
+      h('div', { class: 'mini-form' }, title,
+        h('label', { class: 'smallnote' }, vid, ' camera'),
+        h('button', { class: 'btn small primary', text: 'Start streaming', onclick: function () {
+          var t = title.value.trim();
+          if (!t) { toast('Say what the stream is about first.'); return; }
+          broadcastStart(t, vid.checked);
+        } }))));
+    return wrap;
+  }
+
+  /** The room under a stream: the same reactions and comments as any post. */
+  function streamRoom(st, cid) {
+    var node = st.g.nodes.get(cid);
+    if (!node) return h('div', {});
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'the room — ordinary acts against ' + cid + ', priced and recorded' }));
+    var rx = reactionsOn(st, cid);
+    card.appendChild(h('div', { class: 'smallnote', text: rx.n + ' reaction' + (rx.n === 1 ? '' : 's') + (rx.n ? ' · net ' + fmt(rx.net, 2) : '') }));
+    // 'persistent': this composer is always on screen, so it must not block the
+    // poll the way a form the user just opened does.
+    var acts = h('div', { class: 'mini-form persistent' });
+    if (st.creators[cid] !== who) {
+      acts.appendChild(h('button', { class: 'btn small', text: '♥ React · −θ', onclick: function () {
+        tryAct(who, { t: 'opinion', author: who, target: cid, p: 0.8, r: 0.8 }, 'Reacted to the stream.');
+      } }));
+    }
+    var txt = h('input', { type: 'text', placeholder: 'say something in the room… (−θ)', maxlength: '1000', style: 'flex:1' });
+    function send() {
+      var t = txt.value.trim();
+      if (!t) return;
+      tryAct(who, { t: 'review', author: who, target: cid, e: 0.7, f: 0.8, text: t }, null);
+      txt.value = '';
+    }
+    txt.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') send(); });
+    acts.appendChild(txt);
+    acts.appendChild(h('button', { class: 'btn small primary', text: 'Send', onclick: send }));
+    card.appendChild(acts);
+    var comments = commentsOf(st, cid);
+    if (comments.length) card.appendChild(commentTree(st, comments, 0, false));
+    else card.appendChild(h('p', { class: 'smallnote', text: 'Nothing said yet.' }));
+    return card;
+  }
+
   function econTab(st) {
     var l0 = st.l0;
     var w = l0.bal(who);
@@ -3419,6 +4087,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('tr', {}, h('td', { text: 'Ψ / PV' }), h('td', { text: 'stored 3×3 sentiment slice / its softened 2×2 path view used for routing' })),
           h('tr', {}, h('td', { text: 'S' }), h('td', { text: 'feed relevance: path weight × creator amplifier × content norm' })),
           h('tr', {}, h('td', { text: 'x*' }), h('td', { text: 'your reduced standing — fixed point of the conserved transport solve' })))));
+    wrap.appendChild(callHealthCard());
     return wrap;
   }
 
