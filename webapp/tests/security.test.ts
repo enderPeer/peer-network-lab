@@ -43,7 +43,13 @@ beforeAll(async () => {
   ].map((a) => JSON.stringify(a)).join('\n') + '\n');
   child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {
     cwd: ROOT,
-    env: { ...process.env, PEER_DATA_DIR: join(dir, 'server-data'), PEER_ACT_RATE: '400' },
+    // Registration is capped at 8/hour in production; this suite deliberately
+    // tries to register a great many impostors, so it raises the ceiling
+    // rather than spending its budget proving the limiter works.
+    env: {
+      ...process.env, PEER_DATA_DIR: join(dir, 'server-data'),
+      PEER_ACT_RATE: '400', PEER_REGISTER_RATE: '200',
+    },
     stdio: 'ignore',
   });
   for (let i = 0; i < 60; i++) {
@@ -305,5 +311,79 @@ describe('an act must come from an account that exists', () => {
     // and the genuine act is untouched by the noise around it
     expect(replay(acts.filter((a) => !['Luke Skywalker', 'Darth Vader', 'Han Solo'].includes(a.author ?? a.id))).xById.u_real)
       .toBeCloseTo(st.xById.u_real, 12);
+  });
+});
+
+describe('every refusal explains itself', () => {
+  // A message that names your numbers says WHAT happened. On a network whose
+  // rules are unusual — posting costs something, a vouch can lower the person
+  // you back, deletion keeps the record — the question people actually have is
+  // WHY, and answering it in the moment beats documentation nobody opens.
+  it('carries a code, a reason and a next step on a real refusal', async () => {
+    const r = await fetch(BASE + '/api/act', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ t: 'register', id: 'u_thief', handle: 'Ender133', seed: 1, epoch: 0, since: await total() }),
+    });
+    expect(r.status).toBe(400);
+    const b = await r.json() as Record<string, string>;
+    expect(b.code).toBe('HANDLE_TAKEN');
+    expect(b.error).toMatch(/already registered/i);
+    expect(b.why).toMatch(/impersonation|shape a reader resolves/i);
+    expect(b.fix).toBeTruthy();
+    expect(b.docs).toBe('/api/v1/errors');
+  });
+
+  it('gives the same shape to a completely different refusal', async () => {
+    const r = await fetch(BASE + '/api/act', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ t: 'post', author: 'Boba Fett', text: 'x', a: 0.8, since: await total() }),
+    });
+    const b = await r.json() as Record<string, string>;
+    expect(b.code).toBe('NO_SUCH_HANDLE');
+    expect(b.why).toMatch(/never registered|post as anyone/i);
+  });
+
+  it('explains a length refusal with the mechanism, not just the number', async () => {
+    const r = await fetch(BASE + '/api/act', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ t: 'post', author: 'u_ender133', text: 'z'.repeat(1400), a: 0.8, auth: '1234', since: await total() }),
+    });
+    const b = await r.json() as Record<string, string>;
+    expect(b.code).toBe('TOO_LONG');
+    expect(b.error).toMatch(/1400/);              // still names your number
+    expect(b.why).toMatch(/everyone else has to fetch/i);  // and now says why
+  });
+
+  it('publishes the whole catalogue, with a reason for every entry', async () => {
+    const d = await jget(BASE + '/api/v1/errors');
+    expect(Number(d.count)).toBeGreaterThan(20);
+    const list = d.errors as Array<Record<string, string>>;
+    for (const e of list) {
+      expect(e.code, 'code missing').toMatch(/^[A-Z_]+$/);
+      expect(e.why.length, e.code + ' has no explanation').toBeGreaterThan(40);
+      expect(e.fix.length, e.code + ' has no next step').toBeGreaterThan(10);
+      expect(Number(e.http)).toBeGreaterThanOrEqual(400);
+    }
+  });
+
+  it('names the catalogue in the API document, so a bot can find it', async () => {
+    const d = await jget(BASE + '/api/v1');
+    expect(JSON.stringify(d)).toContain('/api/v1/errors');
+  });
+
+  it('never answers a refusal without a code', async () => {
+    // The failure mode: a new refusal added later that nobody catalogued, so
+    // callers get a sentence they cannot branch on.
+    const cases = [
+      { t: 'post', author: 'u_ender133', text: '', a: 5, auth: '1234' },          // out of range
+      { t: 'opinion', author: 'u_ender133', target: 'c99999', p: 0.5, r: 0.5, auth: '1234' },
+      { t: 'deletePost', author: 'u_ender133', target: 99999, auth: '1234' },
+    ];
+    for (const c of cases) {
+      const r = await act(c);
+      expect(r.status, JSON.stringify(c)).toBeGreaterThanOrEqual(400);
+      expect((r.body as Record<string, string>).code, 'no code on: ' + JSON.stringify(c)).toBeTruthy();
+      expect((r.body as Record<string, string>).why, 'no why on: ' + JSON.stringify(c)).toBeTruthy();
+    }
   });
 });

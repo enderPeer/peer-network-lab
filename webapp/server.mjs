@@ -14,6 +14,7 @@ import { timingSafeEqual, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { createAdStore, validBtcAddress } from './ads.mjs';
 import { handleClash, handleSkeleton, takenHandles } from './identity.mjs';
 import { readRegistration, verifyAssertion, newChallenge } from './webauthn.mjs';
+import { refusal, statusFor, catalogueDocument, CATALOGUE } from './errors.mjs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -172,7 +173,11 @@ function makeLimiter(limit, windowMs) {
 // default is unchanged, and the refusal message below reads the same number.
 const ACT_RATE = Number(process.env.PEER_ACT_RATE) > 0 ? Number(process.env.PEER_ACT_RATE) : 20;
 const actLimiter = makeLimiter(ACT_RATE, 60_000);  // 20 acts/min/IP by default
-const registerLimiter = makeLimiter(8, 3_600_000); // 8 registrations/hour/IP
+// Operator-tunable like the act and advert rates, and for the same reason: a
+// suite that exercises registration refusals would otherwise spend its budget
+// proving the limiter works. The public default is unchanged.
+const REGISTER_RATE = Number(process.env.PEER_REGISTER_RATE) > 0 ? Number(process.env.PEER_REGISTER_RATE) : 8;
+const registerLimiter = makeLimiter(REGISTER_RATE, 3_600_000); // 8 registrations/hour/IP by default
 const pinFailLimiter = makeLimiter(12, 600_000);   // 12 failed PIN tries/10min/IP
 const readLimiter = makeLimiter(600, 60_000);      // 600 reads/min/IP
 
@@ -355,6 +360,7 @@ const mirrorState = { ok: null, busy: false, lastFull: 0, snapDay: -1 };
 function mirrorRefuse(res) {
   if (!MIRROR_OF) return false;
   json(res, 503, {
+    code: 'MIRROR_READONLY',
     error: 'this host is a read-only mirror of ' + MIRROR_OF + ' — the app writes to the primary on its own while it answers. If the primary is gone for good, the operator promotes this mirror (delete role.json, restart); until then nothing here accepts acts, because two writers would fork the network.',
     mirrorOf: MIRROR_OF,
   });
@@ -618,7 +624,17 @@ function persist(act) {
   appendFileSync(LOG, JSON.stringify(act) + '\n', 'utf8');
 }
 
+/**
+ * Attach the standing explanation to any refusal that carries a code.
+ *
+ * Doing it here, at the one place every response is written, means a new
+ * refusal cannot be added without an explanation appearing with it — and no
+ * call site has to remember to include one.
+ */
 function json(res, code, body) {
+  if (body && typeof body === 'object' && body.error && body.code && !body.why) {
+    body = { ...body, ...refusal(body.code, body.error) };
+  }
   const buf = JSON.stringify(body);
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
   res.end(buf);
@@ -847,6 +863,46 @@ function authError(act) {
 // the world every log starts from, and forgetting them would refuse the oldest
 // accounts on the network.
 const SEED_ACTORS = new Set(['alice', 'bob', 'carol', 'dave']);
+
+/**
+ * Which catalogued reason is this refusal?
+ *
+ * The messages are written for people and name real numbers, so they cannot
+ * double as identifiers. This is the one place that maps them, kept next to
+ * validate() so a new refusal and its code are added together. Anything
+ * unmatched is reported as BAD_REQUEST rather than as nothing, and the
+ * catalogue endpoint says plainly that the list is not exhaustive.
+ */
+const REFUSAL_CODES = [
+  [/already registered|reads as .* which is already registered/i, 'HANDLE_TAKEN'],
+  [/no such handle|no such recipient|unknown handle|unknown actor|unknown recipient/i, 'NO_SUCH_HANDLE'],
+  [/PIN-secured/i, 'PIN_WRONG'],
+  [/no PIN — set one|has no PIN/i, 'PIN_REQUIRED'],
+  [/cannot be claimed from outside|already posted and has no PIN|already acted and has no PIN/i, 'HANDLE_UNCLAIMABLE'],
+  [/too many PIN attempts/i, 'PIN_ATTEMPTS'],
+  [/passkey refused|not registered to this handle|sign-in has expired/i, 'PASSKEY_REFUSED'],
+  [/characters; the limit is|is too long|the limit is \d+/i, 'TOO_LONG'],
+  [/only the author/i, 'NOT_YOURS'],
+  [/never minted on this network|no content with id/i, 'UNKNOWN_TARGET'],
+  [/already deleted|that comment was deleted/i, 'ALREADY_DELETED'],
+  [/account was deleted/i, 'ACCOUNT_DELETED'],
+  [/not enough energy/i, 'NO_ENERGY'],
+  [/below the safety wall|standing is below/i, 'RATE_TOO_LOW'],
+  [/balance is .* tried to (send|deposit|sell)|not enough balance/i, 'INSUFFICIENT_BALANCE'],
+  [/the price moved|below your minimum/i, 'SLIPPAGE'],
+  [/pool already exists/i, 'POOL_EXISTS'],
+  [/already claimed its tBTC/i, 'ALREADY_CLAIMED'],
+  [/symbol .* is taken|is taken$/i, 'SYMBOL_TAKEN'],
+  [/no payment address/i, 'ADS_CLOSED'],
+  [/approve advert .* before marking it paid/i, 'AD_NOT_APPROVED'],
+  [/url must be a plain/i, 'BAD_URL'],
+  [/engine still loading/i, 'ENGINE_LOADING'],
+];
+function classify(message) {
+  const m = String(message ?? '');
+  for (const [re, code] of REFUSAL_CODES) if (re.test(m)) return code;
+  return 'BAD_REQUEST';
+}
 
 /** Every id that actually exists as an actor. */
 function isRegistered(id) {
@@ -1262,6 +1318,7 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
     { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
     { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them' },
+    { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
     { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
@@ -1273,7 +1330,7 @@ const API_DOC = {
   ],
   limits: {
     acts: ACT_RATE + ' per minute per IP', reads: '600 per minute per IP',
-    registrations: '8 per hour per IP', postText: 1000, messageText: 500,
+    registrations: REGISTER_RATE + ' per hour per IP', postText: 1000, messageText: 500,
   },
   errors: 'Every refusal returns {error} with a sentence saying what is wrong and, where a number is involved, what the limit is and what you sent.',
   etiquette: 'Bots are welcome as participants, not as megaphones. Acting costs energy by design; a bot that posts constantly dilutes its own rate until the network stops listening to it. Read before you write.',
@@ -1335,7 +1392,10 @@ function flushPinUpgrades() {
 
 function applyActInner(act, auth, ip) {
   const err = validate(act);
-  if (err) return { error: err, code: err === 'handle already registered' ? 409 : 400 };
+  if (err) {
+    const kind = classify(err);
+    return { error: err, code: statusFor(kind), errorCode: kind };
+  }
   // A deleted account is gone as an actor — nothing more can be done as it.
   const actorId = act.author ?? act.from ?? act.id;
   if (actorId && deletedIds.has(actorId)) return { error: 'this account was deleted', code: 410 };
@@ -1604,6 +1664,7 @@ async function handleBotApi(req, res, url, ip) {
     return;
   }
 
+  if (req.method === 'GET' && p === 'errors') { json(res, 200, catalogueDocument()); return; }
   if (req.method === 'GET' && p === 'tokens') {
     const asId = q.get('as') ?? '';
     const t = st.tokens;
@@ -1673,7 +1734,7 @@ async function handleBotApi(req, res, url, ip) {
 
   // ── writes ───────────────────────────────────────────────────────────────
   if (req.method !== 'POST') { json(res, 404, { error: 'no such endpoint: ' + req.method + ' /api/v1/' + p + ' — GET /api/v1 lists them all' }); return; }
-  if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place' }); return; }
+  if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place', code: 'RATE_LIMIT' }); return; }
   if (mirrorRefuse(res)) return;
 
   const body = await readBody(req, MAX_ACT_BYTES * 2);
@@ -1683,7 +1744,7 @@ async function handleBotApi(req, res, url, ip) {
 
   const submit = (raw) => {
     const out = applyAct(sanitize(raw), pin, ip);
-    if (out.error) { json(res, out.code, { error: out.error }); return; }
+    if (out.error) { json(res, out.code, { error: out.error, code: out.errorCode }); return; }
     const l = st.ledgerById[me];
     json(res, 200, {
       ok: true, actIndex: out.index, cursor: acts.length,
@@ -1697,14 +1758,14 @@ async function handleBotApi(req, res, url, ip) {
     if (!handle) { json(res, 400, { error: 'handle is required' }); return; }
     const id = 'u_' + handle.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (id === 'u_') { json(res, 400, { error: 'handle must contain letters or digits' }); return; }
-    if (!registerLimiter(ip)) { json(res, 429, { error: 'registration limit reached — try again in an hour' }); return; }
+    if (!registerLimiter(ip)) { json(res, 429, { error: 'registration limit reached — this host takes ' + REGISTER_RATE + ' per hour from one address', code: 'RATE_LIMIT' }); return; }
     const raw = { t: 'register', id, handle, seed: 1, epoch: st.epochNow };
     if (body.pin) {
       if (String(body.pin).length < 4) { json(res, 400, { error: 'pin must be at least 4 characters' }); return; }
       raw.pinHash = createHash('sha256').update(id + ':' + body.pin, 'utf8').digest('hex');
     }
     const out = applyAct(sanitize(raw), '', ip);
-    if (out.error) { json(res, out.code, { error: out.error }); return; }
+    if (out.error) { json(res, out.code, { error: out.error, code: out.errorCode }); return; }
     json(res, 200, {
       ok: true, id, handle, secured: !!raw.pinHash, actIndex: out.index,
       next: 'GET /api/v1/whoami?as=' + id + ' — and keep your pin, it cannot be recovered.',
@@ -1916,7 +1977,7 @@ const server = createServer((req, res) => {
     // Say so rather than blackholing: a banned tester who can read the reason
     // can argue with it, and an abuser learning they are blocked is not a
     // secret worth keeping.
-    json(res, 403, { error: 'this address is blocked by the operator' + (ban.reason ? ': ' + ban.reason : '') + (ban.until ? ' — until ' + new Date(ban.until).toISOString() : '') });
+    json(res, 403, { code: 'BLOCKED', error: 'this address is blocked by the operator' + (ban.reason ? ': ' + ban.reason : '') + (ban.until ? ' — until ' + new Date(ban.until).toISOString() : '') });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/acts') {
@@ -1948,8 +2009,8 @@ const server = createServer((req, res) => {
       chunks.push(c);
     });
     req.on('end', () => {
-      if (size === 0 || size > cap) { json(res, 413, { error: 'media too large' }); return; }
-      if (mediaDirSize() + size > MEDIA_STORE_CAP) { json(res, 507, { error: 'media store full — test instance capacity reached' }); return; }
+      if (size === 0 || size > cap) { json(res, 413, { error: 'media too large', code: 'TOO_LARGE' }); return; }
+      if (mediaDirSize() + size > MEDIA_STORE_CAP) { json(res, 507, { error: 'media store full — test instance capacity reached', code: 'STORE_FULL' }); return; }
       const buf = Buffer.concat(chunks);
       const hash = createHash('sha256').update(buf).digest('hex');
       const file = join(MEDIA_DIR, hash);
@@ -1986,7 +2047,7 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/act') {
-    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place' }); return; }
+    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place', code: 'RATE_LIMIT' }); return; }
   if (mirrorRefuse(res)) return;
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > MAX_ACT_BYTES * 2) req.destroy(); });
@@ -2000,10 +2061,10 @@ const server = createServer((req, res) => {
       act = sanitize(act); // whitelist fields; auth/since never persist
       if (hasControlChars(act)) { json(res, 400, { error: 'unprintable characters are not allowed' }); return; }
       if (act.t === 'register' && !registerLimiter(ip)) {
-        json(res, 429, { error: 'registration limit reached — try again in an hour' }); return;
+        json(res, 429, { error: 'registration limit reached — this host takes ' + REGISTER_RATE + ' per hour from one address', code: 'RATE_LIMIT' }); return;
       }
       const out = applyAct(act, auth, ip);
-      if (out.error) { json(res, out.code, { error: out.error }); return; }
+      if (out.error) { json(res, out.code, { error: out.error, code: out.errorCode }); return; }
       json(res, 200, { acts: acts.slice(Math.min(since, acts.length)), since: Math.min(since, acts.length), total: acts.length });
     });
     return;
