@@ -3725,12 +3725,92 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * optional: an advert that names nothing shows everywhere, which is the
    * honest default rather than a hidden one.
    */
+  /**
+   * Where is this reader, as far as their own device is concerned?
+   *
+   * The browser's timezone and language, nothing else. NOT their IP address:
+   * this project keeps caller addresses for blocking abuse and promised, in
+   * public and in a test, that they would never become a targeting input.
+   * Aiming adverts by where somebody connects from is the surveillance
+   * business this network argues against — so region targeting is answered by
+   * the device describing itself, which it already does to every site.
+   */
+  function myRegion() {
+    var out = {};
+    try {
+      var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      out.tz = tz.toLowerCase();                       // 'europe/berlin'
+      out.area = tz.split('/')[0].toLowerCase();       // 'europe'
+      out.city = (tz.split('/')[1] || '').toLowerCase();
+    } catch (e) {}
+    var lang = (navigator.language || '').toLowerCase();
+    out.lang = lang.split('-')[0];                     // 'de'
+    out.locale = lang;                                 // 'de-de'
+    if (lang.indexOf('-') > 0) out.country = lang.split('-')[1];
+    return out;
+  }
+
+  /** Content this reader has acted on — for post-level targeting. */
+  function myTouched(st) {
+    var out = {};
+    if (!who || !st || !st.g) return out;
+    st.g.edges.forEach(function (e) {
+      if (e.src !== who) return;
+      if (e.family === 'Opinion' || e.family === 'ReviewA' || e.family === 'TagA' || e.family === 'Publish') out[e.tgt] = 1;
+    });
+    return out;
+  }
+
+  /**
+   * Does this advert apply to this reader, on this tab?
+   *
+   * Any single criterion matching is enough — an advertiser naming both a tag
+   * and a region means "either", not "both", because the alternative is
+   * advertisers accidentally aiming at nobody. Naming nothing shows it to
+   * everyone, which is the honest default rather than a hidden one.
+   *
+   * Every branch reads either the public act log or this device's own locale.
+   * The host sends the same list to everybody and is never told the answer.
+   */
   function adApplies(ad, st, where) {
-    if (ad.placement && ad.placement.length && ad.placement.indexOf(where) < 0) return null;
-    if (!ad.tags || !ad.tags.length) return { why: null };
-    var mine = myTags(st);
-    for (var i = 0; i < ad.tags.length; i++) {
-      if (mine[ad.tags[i]]) return { why: ad.tags[i] };
+    var aim = ad.aim || ad;
+    if (aim.placement && aim.placement.length && aim.placement.indexOf(where) < 0) return null;
+
+    var any = (aim.tags && aim.tags.length) || (aim.people && aim.people.length)
+      || (aim.posts && aim.posts.length) || (aim.regions && aim.regions.length);
+    if (!any) return { why: null };
+
+    // aimed at me by name
+    if (aim.people && aim.people.indexOf(who) >= 0) {
+      return { why: 'you were named directly by the advertiser' };
+    }
+    // aimed at people who engaged with a particular post
+    if (aim.posts && aim.posts.length) {
+      var touched = myTouched(st);
+      for (var pi = 0; pi < aim.posts.length; pi++) {
+        if (touched[aim.posts[pi]]) {
+          return { why: 'you engaged with ' + aim.posts[pi] };
+        }
+      }
+    }
+    // aimed at a subject in the commons
+    if (aim.tags && aim.tags.length) {
+      var mine = myTags(st);
+      for (var i = 0; i < aim.tags.length; i++) {
+        if (mine[aim.tags[i]]) return { why: 'you have engaged with #' + aim.tags[i] };
+      }
+    }
+    // aimed at a place, as this device describes itself
+    if (aim.regions && aim.regions.length) {
+      var r = myRegion();
+      for (var ri = 0; ri < aim.regions.length; ri++) {
+        var want = String(aim.regions[ri]).toLowerCase();
+        if (want === r.lang || want === r.locale || want === r.country
+            || want === r.area || want === r.city || want === r.tz
+            || (r.tz && r.tz.indexOf(want) >= 0)) {
+          return { why: 'your device reports ' + (r.tz || r.locale) + ', which the advertiser asked for' };
+        }
+      }
     }
     return null;
   }
@@ -3758,9 +3838,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // device against a public log.
     if (entry.why) {
       card.appendChild(h('p', { class: 'smallnote' },
-        'Shown because you have engaged with #' + entry.why + '. That match was made in this browser, from the public log — the host was never told who you are, and no profile of you exists anywhere.'));
+        'Shown because ' + entry.why + '. That match was made in this browser — from the public log and your own device settings. The host sends the same advert list to everyone and was never told who you are; where you connect from is never used.'));
     } else {
-      card.appendChild(h('p', { class: 'smallnote', text: 'Shown to everyone here. This advert names no subject, so nothing about you was consulted.' }));
+      card.appendChild(h('p', { class: 'smallnote', text: 'Shown to everyone here. This advert names no audience, so nothing about you was consulted.' }));
+    }
+    if (ad.byHandle) {
+      card.appendChild(h('p', { class: 'smallnote', text: 'Bought by ' + ad.byHandle + ' for ' + (ad.paidTbtc || 0) + ' tBTC, which was burned rather than paid to anyone.' }));
     }
     card.appendChild(h('p', { class: 'smallnote', text: 'This is not an act. It holds no standing, sits outside the graph, and changes nobody’s feed score — including its own, because it has none. Money buys this box and nothing else in the network.' }));
     return card;
@@ -4591,22 +4674,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       } }),
       h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
 
-    var table = h('table', { class: 'standings' },
-      h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
-    var addrs = [];
-    l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
-    addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
-    addrs.forEach(function (r) {
-      table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
-        h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
-        h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
-    });
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Addresses' }), table,
-      h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
     
     // ── The PEER token and its pools ─────────────────────────────────────────
     // Tokens are value the epoch mints; standing is reputation the graph
@@ -4726,34 +4793,46 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         } }))));
 
     // ── Buy a placement ──────────────────────────────────────────────────────
-    // Deliberately in the economy tab and not the composer: writing a post and
-    // buying a box are different acts, and only one of them is a protocol act.
-    // The form is honest about the order of operations, because the thing that
-    // goes wrong with prepaid advertising is people paying before a human has
-    // read what they wrote.
+    // Paid in tBTC, live the moment the act lands. There is no review queue in
+    // front of it: on a test network with play money, a queue was ceremony
+    // around something nobody could actually buy. Publish first, moderate
+    // after — the advertiser or the operator can stop one with a single act.
+    var adPrice = st.adPricePerDay || 0.0002;
+    var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
+
     var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Buy a placement' }),
-      h('p', { class: 'smallnote', text: 'A paid box in the feed. It is not an act: it mints nothing, holds no standing, and cannot move any ranking — including its own. Money buys this box and nothing else in the network.' }));
+      h('h2', { text: 'Buy a placement' }));
+    adCard2.appendChild(h('p', { class: 'smallnote', text:
+      'A box in the feed, paid for in tBTC — sandbox money, and it is BURNED rather than paid to anyone, because advertising should destroy value here the way every other commitment does. It goes live immediately.' }));
+    adCard2.appendChild(h('p', { class: 'smallnote', text:
+      'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
 
     var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
     var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
-    var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric' });
-    var adMail = h('input', { type: 'text', placeholder: 'how to reach you', style: 'flex:1', maxlength: '120' });
-    var adOut = h('div', { class: 'smallnote' });
+    var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric', value: '7' });
+    var adCost = h('span', { class: 'smallnote' });
+    function priceIt() {
+      var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
+      var c = Math.round(adPrice * d * 1e6) / 1e6;
+      adCost.textContent = c + ' tBTC · you hold ' + Math.round(myTbtc * 1e6) / 1e6
+        + (c > myTbtc ? ' — not enough' : '');
+      adCost.className = 'smallnote' + (c > myTbtc ? ' warn' : '');
+    }
+    adDays.addEventListener('input', priceIt);
+    priceIt();
 
-    // Placement: where it may appear.
+    // ── targeting ──
     var places = ['feed', 'live', 'record'];
     var placeBoxes = {};
-    var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'show it in:' }));
+    var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'where:' }));
     places.forEach(function (pl) {
       var cb = h('input', { type: 'checkbox' });
       placeBoxes[pl] = cb;
       placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
     });
-    placeRow.appendChild(h('span', { class: 'smallnote', text: '(none ticked = everywhere)' }));
+    placeRow.appendChild(h('span', { class: 'smallnote', text: '(none = everywhere)' }));
 
-    // Subject: commons tags. Offered from what the network actually uses, so
-    // nobody targets a tag that does not exist.
+    var chosenTags = {};
     var known = [];
     st.g.nodes.forEach(function (n) {
       if (n.kind === 'Type') {
@@ -4762,75 +4841,96 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
     });
     known.sort();
-    var chosen = {};
     var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
-    if (!known.length) {
-      tagRow.appendChild(h('span', { class: 'smallnote', text: 'nobody has tagged anything yet, so there is no subject to aim at.' }));
-    }
-    known.slice(0, 24).forEach(function (tg) {
+    if (!known.length) tagRow.appendChild(h('span', { class: 'smallnote', text: 'nothing has been tagged yet.' }));
+    known.slice(0, 20).forEach(function (tg) {
       var b = h('button', { class: 'btn small ghost', text: '#' + tg });
       b.onclick = function () {
-        if (chosen[tg]) { delete chosen[tg]; b.className = 'btn small ghost'; }
-        else { chosen[tg] = 1; b.className = 'btn small primary'; }
+        if (chosenTags[tg]) { delete chosenTags[tg]; b.className = 'btn small ghost'; }
+        else { chosenTags[tg] = 1; b.className = 'btn small primary'; }
       };
       tagRow.appendChild(b);
     });
 
+    var peopleIn = h('input', { type: 'text', placeholder: 'handles, comma separated', style: 'flex:1' });
+    var postsIn = h('input', { type: 'text', placeholder: 'c123, c456', style: 'flex:1' });
+    var regionIn = h('input', { type: 'text', placeholder: 'de, en-gb, europe, europe/berlin', style: 'flex:1' });
+
     adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
-    adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adMail));
+    adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adCost));
     adCard2.appendChild(placeRow);
     adCard2.appendChild(tagRow);
-    adCard2.appendChild(h('p', { class: 'smallnote', text: 'Naming a subject means the advert is only shown to people who have engaged with that tag — and that match happens in their browser, against the public log, so the host never learns who saw it and no profile of anyone is built. Where you connect from is never used: that data exists for blocking abuse and nothing else.' }));
+    adCard2.appendChild(h('div', { class: 'mini-form' },
+      h('span', { class: 'smallnote', text: 'people:' }), peopleIn));
+    adCard2.appendChild(h('div', { class: 'mini-form' },
+      h('span', { class: 'smallnote', text: 'engaged with:' }), postsIn));
+    adCard2.appendChild(h('div', { class: 'mini-form' },
+      h('span', { class: 'smallnote', text: 'region:' }), regionIn));
+    adCard2.appendChild(h('p', { class: 'smallnote', text:
+      'Naming several kinds of audience means ANY of them, not all — otherwise advertisers aim at nobody by accident. Naming none shows it to everyone.' }));
+    adCard2.appendChild(h('p', { class: 'smallnote', text:
+      'How the aiming works, exactly: every criterion is sent to EVERY reader and matched in their own browser — against the public act log for people, posts and subjects, and against their device\u2019s own timezone and language for region. The host serves an identical list to everybody and never learns who saw what. Your IP address is not used and never will be: that data exists here for blocking abuse and nothing else.' }));
+
     adCard2.appendChild(h('div', { class: 'mini-form persistent' },
-      h('button', { class: 'btn small primary', text: 'Ask for a quote', onclick: function () {
+      h('button', { class: 'btn small primary', text: 'Publish placement · −θ', onclick: function () {
+        var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
         var placement = [];
         places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
-        var tags = Object.keys(chosen);
-        adOut.textContent = 'sending…';
-        fetch(API + '/api/ads', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: adText.value.trim(), url: adUrl.value.trim(),
-            days: parseInt(adDays.value, 10) || 7, contact: adMail.value.trim(),
-            placement: placement, tags: tags,
-          }),
-        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-          .then(function (res) {
-            adOut.innerHTML = '';
-            if (!res.ok) { adOut.appendChild(h('b', { text: res.d.error || 'refused' })); return; }
-            adOut.appendChild(h('b', { text: 'Quoted. Do NOT pay yet.' }));
-            adOut.appendChild(h('div', { text: 'Your id is ' + res.d.id + '. A person reads every advert before it can be paid for — check back with the button below, and only send when it says approved.' }));
-            adOut.appendChild(h('div', { class: 'mono', style: 'margin-top:6px', text: res.d.amountSats + ' sats (' + res.d.amountBtc + ' BTC)' }));
-            adOut.appendChild(h('div', { class: 'mono', text: 'to ' + res.d.payTo }));
-            adOut.appendChild(h('div', { class: 'smallnote', text: 'Send exactly that amount, not a rounded one: the odd figure is what identifies your advert among everyone paying into the same address.' }));
-          })
-          .catch(function () { adOut.textContent = 'the host did not answer.'; });
-      } }),
-      (function () {
-        var idIn = h('input', { type: 'text', placeholder: 'advert id', style: 'width:120px' });
-        var btn = h('button', { class: 'btn small', text: 'Check status', onclick: function () {
-          var id = idIn.value.trim();
-          if (!id) return;
-          fetch(API + '/api/ads/' + encodeURIComponent(id), { cache: 'no-store' })
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-              adOut.innerHTML = '';
-              if (d.error) { adOut.appendChild(h('b', { text: d.error })); return; }
-              adOut.appendChild(h('b', { text: d.id + ' — ' + d.status }));
-              adOut.appendChild(h('div', { text: d.next || '' }));
-              if (d.payTo) {
-                adOut.appendChild(h('div', { class: 'mono', style: 'margin-top:6px', text: d.amountSats + ' sats to ' + d.payTo }));
-              }
-            })
-            .catch(function () { adOut.textContent = 'the host did not answer.'; });
-        } });
-        return h('span', { class: 'row' }, idIn, btn);
-      })()));
-    adCard2.appendChild(adOut);
-    if (!REMOTE) {
-      adOut.textContent = 'Placements need the hosted network — this browser is running its own private copy.';
+        var split = function (v) {
+          return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12);
+        };
+        // Handles are typed by name; the act carries ids, so resolve here
+        // rather than making the advertiser look them up.
+        var byName = {};
+        for (var idk in st.handles) byName[(st.handles[idk] || '').toLowerCase()] = idk;
+        var people = split(peopleIn.value).map(function (n) { return byName[n.toLowerCase()] || n; });
+        tryAct(who, {
+          t: 'advert', author: who,
+          text: adText.value.trim(), url: adUrl.value.trim(), days: d,
+          placement: placement, tags: Object.keys(chosenTags),
+          people: people, posts: split(postsIn.value), regions: split(regionIn.value),
+        }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' tBTC, which was burned.');
+      } })));
+    if (!myTbtc) {
+      adCard2.appendChild(h('p', { class: 'smallnote warn', text:
+        'You hold no tBTC. Claim 0.01 above — once per account — or trade for some in a pool.' }));
+    }
+
+    // Your own placements, and the one control that matters after publishing.
+    var mineAds = (st.adverts || []).filter(function (a) { return a.by === who && !a.stopped; });
+    if (mineAds.length) {
+      var list = h('div', { style: 'margin-top:10px' }, h('p', { class: 'eyebrow', text: 'your placements' }));
+      mineAds.forEach(function (a) {
+        list.appendChild(h('div', { class: 'kv' },
+          h('span', { text: a.text.slice(0, 40) }),
+          h('b', {}, h('button', { class: 'btn small', text: 'Stop', onclick: function () {
+            tryAct(who, { t: 'adStop', author: who, ad: a.id }, 'Stopped. The act stays in the record; the box is gone.');
+          } }))));
+      });
+      adCard2.appendChild(list);
     }
     wrap.appendChild(adCard2);
+
+    // The Layer-0 address table lives at the BOTTOM now. It is the most
+    // technical thing on this screen and the least often wanted: people come
+    // here for their balance, their pools and their placements, and having to
+    // scroll past a ledger of raw addresses to reach them was backwards.
+    var table = h('table', { class: 'standings' },
+      h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
+    var addrs = [];
+    l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
+    addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
+    addrs.forEach(function (r) {
+      table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
+        h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
+        h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
+        h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
+        h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
+        h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
+    });
+    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'Addresses' }), table,
+      h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
 
     return wrap;
   }

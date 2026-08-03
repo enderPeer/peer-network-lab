@@ -236,6 +236,28 @@ function replayUncached(acts) {
   var btcClaimed = {};
   var pools = {};        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
   var tokenDist = [];    // per epoch: { epoch, minted, carried, to: {id: amt} }
+  // ── Adverts ───────────────────────────────────────────────────────────
+  //
+  // An advert is now an ACT, paid for in tBTC, and it goes up the moment it
+  // lands. That is a deliberate reversal of the earlier design, which quoted a
+  // real bitcoin price and waited for a person to approve it: on a test
+  // network, play money and instant publication are honest, while real money
+  // and a review queue were ceremony around something nobody could actually
+  // buy. Publish-then-moderate, not moderate-then-publish — the author or the
+  // operator can stop one afterwards.
+  //
+  // What has NOT changed, and must not: an advert mints no node, creates no
+  // edge, compiles no vouch and holds no standing. Being in the log makes its
+  // payment verifiable; it does not put it in the graph. Money still buys a
+  // box and nothing else.
+  //
+  // The tBTC paid is BURNED rather than transferred. Advertising should
+  // destroy value the way every other commitment here does — routing it to an
+  // operator would make the one party who cannot be voted out the only party
+  // who profits from attention.
+  var AD_TBTC_PER_DAY = 0.0002;
+  var adverts = [];      // {id, by, text, url, days, paid, at, until, aim, stopped}
+  var adSeq = 0;
   var earnedBurn = {};   // burn an account acquired, EXCLUDING the register grant
   var tokenCarry = 0;
   var tokEpochN = 0;
@@ -267,6 +289,25 @@ function replayUncached(acts) {
     // question is 'may this happen now' rather than 'did this happen'.
     if (!ledgerById[who]) return 'unknown actor';
     if (ledgerById[who].burnBal < THETA) return 'not enough energy';
+    if (a.t === 'advert') {
+      var days = Math.floor(a.days);
+      if (!(days >= 1 && days <= 90)) return 'an advert runs between 1 and 90 days';
+      if (typeof a.text !== 'string' || !a.text.trim()) return 'the advert needs text';
+      if (a.text.length > 280) return 'advert text is ' + a.text.length + ' characters; the limit is 280';
+      if (typeof a.url !== 'string' || !/^https?:\/\/[^\s]{3,300}$/i.test(a.url)) return 'url must be a plain http(s) link';
+      var cost = round6(AD_TBTC_PER_DAY * days);
+      if (balOf('tBTC', who) < cost) {
+        return 'this advert costs ' + cost + ' tBTC for ' + days + ' day(s) and you hold ' + round6(balOf('tBTC', who));
+      }
+      return null;
+    }
+    if (a.t === 'adStop') {
+      var ad = null;
+      for (var ai = 0; ai < adverts.length; ai++) if (adverts[ai].id === a.ad) ad = adverts[ai];
+      if (!ad) return 'no advert with id ' + a.ad;
+      if (ad.by !== who && !a.operator) return 'only the advertiser can stop their own advert';
+      return null;
+    }
     if (a.t === 'btcClaim') {
       if (btcClaimed[who]) return 'this account already claimed its tBTC — one claim per account, ever';
       return null;
@@ -672,7 +713,8 @@ function replayUncached(acts) {
     } else if (a.t === 'deleteAccount') {
       chron.push({ who: a.id, line: 'account deleted — content redacted, handle stays reserved' });
     } else if (a.t === 'btcClaim' || a.t === 'assetCreate' || a.t === 'tokenSend'
-        || a.t === 'poolCreate' || a.t === 'poolAdd' || a.t === 'poolRemove' || a.t === 'poolSwap') {
+        || a.t === 'poolCreate' || a.t === 'poolAdd' || a.t === 'poolRemove' || a.t === 'poolSwap'
+        || a.t === 'advert' || a.t === 'adStop') {
       // The host refuses invalid token acts at the door with the same
       // tokenActError the replay consults, so a served log contains only
       // applicable ones. The check runs here anyway: a hand-edited or foreign
@@ -680,7 +722,30 @@ function replayUncached(acts) {
       if (tokenActError(a) === null) {
         debit(a.author); // an act like any other: θ down, N up — and no edge,
                          // no vouch, no weighing. Value moves; standing does not.
-        if (a.t === 'btcClaim') {
+        if (a.t === 'advert') {
+          adSeq++;
+          var adDays = Math.floor(a.days);
+          var adCost = round6(AD_TBTC_PER_DAY * adDays);
+          tokDebit('tBTC', a.author, adCost);
+          tokenSupply.tBTC = round6(tokenSupply.tBTC - adCost);  // burned, not moved
+          adverts.push({
+            id: 'ad' + adSeq, by: a.author, text: a.text.trim(), url: a.url,
+            days: adDays, paid: adCost, at: a.ts || 0,
+            until: (a.ts || 0) + adDays * 86400000,
+            aim: {
+              placement: Array.isArray(a.placement) ? a.placement : [],
+              tags: Array.isArray(a.tags) ? a.tags : [],
+              people: Array.isArray(a.people) ? a.people : [],
+              posts: Array.isArray(a.posts) ? a.posts : [],
+              regions: Array.isArray(a.regions) ? a.regions : [],
+            },
+            stopped: false,
+          });
+          if (!payloadGone) chron.push({ who: a.author, line: 'bought a placement for ' + adDays + ' day(s) · burned ' + adCost + ' tBTC · it holds no standing and ranks nothing' });
+        } else if (a.t === 'adStop') {
+          for (var as = 0; as < adverts.length; as++) if (adverts[as].id === a.ad) adverts[as].stopped = true;
+          if (!payloadGone) chron.push({ who: a.author, line: 'stopped advert ' + a.ad });
+        } else if (a.t === 'btcClaim') {
           btcClaimed[a.author] = true;
           tokCredit('tBTC', a.author, TBTC_CLAIM);
           tokenSupply.tBTC = round6(tokenSupply.tBTC + TBTC_CLAIM);
@@ -859,6 +924,8 @@ function replayUncached(acts) {
     tokens: { bal: tokenBal, meta: tokenMeta, supply: tokenSupply, claimed: btcClaimed,
       dist: tokenDist, carry: tokenCarry, epochN: tokEpochN },
     pools: pools,
+    adverts: adverts,
+    adPricePerDay: AD_TBTC_PER_DAY,
     tokenActError: tokenActError,
     // act index -> the node that act minted. Exposed because API clients were
     // deriving ids themselves and deriving them wrong — the counter also ticks

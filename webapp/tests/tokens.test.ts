@@ -385,3 +385,84 @@ describe('the registration grant is a starter, not a stake', () => {
     expect(replay(acts).tokens.bal.PEER.u_al).toBe(5000);
   });
 });
+
+describe('adverts: paid in tBTC, live at once, still outside the graph', () => {
+  const funded = () => [...world('al', 'bo'),
+    post('al', 'P'), like('bo', 'c1'), close(),
+    { t: 'btcClaim', author: 'u_al' },
+  ];
+  const buy = (extra: Record<string, unknown> = {}) => ({
+    t: 'advert', author: 'u_al', text: 'A shop.', url: 'https://example.org', days: 5, ts: 1000, ...extra,
+  });
+
+  it('burns the tBTC rather than paying it to anyone', () => {
+    // Routing advertising money to an operator would make the one party who
+    // cannot be voted out the only party who profits from attention.
+    const before = replay(funded()).tokens;
+    const after = replay([...funded(), buy()]).tokens;
+    const cost = 0.0002 * 5;
+    expect(after.bal.tBTC.u_al).toBeCloseTo(before.bal.tBTC.u_al - cost, 9);
+    expect(after.supply.tBTC).toBeCloseTo(before.supply.tBTC - cost, 9);
+    // nobody received it
+    for (const [id, v] of Object.entries(after.bal.tBTC)) {
+      if (id !== 'u_al') expect(v).toBe((before.bal.tBTC as Record<string, number>)[id] ?? 0);
+    }
+  });
+
+  it('is live immediately, with no approval step anywhere', () => {
+    const st = replay([...funded(), buy()]);
+    expect(st.adverts).toHaveLength(1);
+    expect(st.adverts[0].stopped).toBe(false);
+    expect(st.adverts[0].until).toBe(1000 + 5 * 86400000);
+  });
+
+  it('still creates no edge and no standing — the wall that matters', () => {
+    const base = funded();
+    const a = replay(base);
+    const b = replay([...base, buy()]);
+    expect(b.g.edges.length).toBe(a.g.edges.length);
+    expect(Object.keys(b.bundles)).toEqual(Object.keys(a.bundles));
+    // the advertiser moves only by the θ of having acted, like any act
+    const plain = replay([...base, post('al', 'an ordinary post')]);
+    expect(b.xById.u_al).toBeCloseTo(plain.xById.u_al, 9);
+  });
+
+  it('refuses an advert nobody can pay for', () => {
+    const broke = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
+    const st = replay(broke);
+    expect(st.tokenActError(buy())).toMatch(/costs .* tBTC .* and you hold/);
+    expect(replay([...broke, buy()]).adverts).toHaveLength(0);
+  });
+
+  it('refuses text and links that would abuse the box', () => {
+    const st = replay(funded());
+    expect(st.tokenActError(buy({ url: 'javascript:alert(1)' }))).toMatch(/plain http/);
+    expect(st.tokenActError(buy({ text: '' }))).toMatch(/needs text/);
+    expect(st.tokenActError(buy({ text: 'z'.repeat(300) }))).toMatch(/280/);
+    expect(st.tokenActError(buy({ days: 0 }))).toMatch(/1 and 90/);
+    expect(st.tokenActError(buy({ days: 500 }))).toMatch(/1 and 90/);
+  });
+
+  it('lets the advertiser stop their own and nobody else stop it', () => {
+    const live = [...funded(), buy()];
+    expect(replay(live).tokenActError({ t: 'adStop', author: 'u_bo', ad: 'ad1' }))
+      .toMatch(/only the advertiser/);
+    const stopped = replay([...live, { t: 'adStop', author: 'u_al', ad: 'ad1' }]);
+    expect(stopped.adverts[0].stopped).toBe(true);
+  });
+
+  it('carries the targeting as data, matched nowhere in the replay', () => {
+    // The host and the replay only carry the criteria. Deciding whether a
+    // reader matches happens in that reader's browser, which is why nobody
+    // has to be identified for targeting to work.
+    const st = replay([...funded(), buy({
+      placement: ['feed'], tags: ['photography'], people: ['u_bo'],
+      posts: ['c1'], regions: ['de', 'europe/berlin'],
+    })]);
+    const aim = st.adverts[0].aim;
+    expect(aim.placement).toEqual(['feed']);
+    expect(aim.people).toEqual(['u_bo']);
+    expect(aim.posts).toEqual(['c1']);
+    expect(aim.regions).toEqual(['de', 'europe/berlin']);
+  });
+});

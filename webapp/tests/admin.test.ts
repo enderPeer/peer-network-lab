@@ -40,6 +40,15 @@ const admin = (path: string, opts: RequestInit = {}) =>
   });
 const adminJson = async (path: string) => (await admin(path)).json() as Promise<Record<string, any>>;
 const jget = async (u: string) => (await fetch(u)).json() as Promise<Record<string, any>>;
+const total = async () => (await jget(BASE + '/api/acts')).total as number;
+/** Append an act, always against the caller's current view of the log. */
+const act = async (a: Record<string, unknown>) => {
+  const r = await fetch(BASE + '/api/act', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...a, since: await total() }),
+  });
+  return { status: r.status, body: (await r.json()) as Record<string, string> };
+};
 
 function seedDir(base: string) {
   const d = mkdtempSync(join(tmpdir(), base));
@@ -206,174 +215,71 @@ describe('bitcoin addresses are checked, not trusted', () => {
   });
 });
 
-describe('a paid placement is not an act', () => {
-  let adId = '';
 
-  it('takes a proposal and quotes an amount unique to it', async () => {
+
+describe('the operator’s bitcoin address', () => {
+  it('still passes its own checksum', () => {
+    // Adverts are paid in tBTC now, so nothing here quotes this address any
+    // more — but the operator still publishes it, and a typo in deployment
+    // should fail a test rather than send a donation where no key exists.
+    expect(validBtcAddress('bc1qzs7ca605hl5xsxnesjurqck0ycsps7s5ty73jr')).toBe(true);
+  });
+});
+
+describe('adverts, after the move to tBTC', () => {
+  // The old model quoted a real bitcoin price and waited for a human to
+  // approve. On a test network that was ceremony around something nobody could
+  // buy, so adverts became acts paid in play money and shown immediately.
+  it('points the old proposal endpoint at the act that replaced it', async () => {
     const r = await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'A shop that sells nothing.', url: 'https://example.org/shop', days: 7, contact: 'a@example.org' }),
-    });
-    expect(r.status).toBe(200);
-    const b = await r.json();
-    adId = b.id;
-    expect(b.payTo).toBe(ADDR);
-    expect(b.amountSats).toBeGreaterThan(0);
-    // The offset is what lets one address attribute payments.
-    expect(b.amountSats % 20000).not.toBe(0);
-    expect(b.important).toMatch(/Do not pay yet/i);
-  });
-
-  it('appends nothing to the act log', async () => {
-    const total = (await jget(BASE + '/api/acts')).total;
-    await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'Another advert.', url: 'https://example.org/2', days: 3 }),
-    });
-    expect((await jget(BASE + '/api/acts')).total).toBe(total);
-    const raw = readFileSync(join(dir, 'server-data', 'acts.jsonl'), 'utf8');
-    expect(raw).not.toContain('Another advert');
-    expect(raw).not.toContain('example.org');
-  });
-
-  it('stays invisible until it is both approved and paid', async () => {
-    expect((await jget(BASE + '/api/ads')).ads).toHaveLength(0);
-    await admin('ads', { method: 'POST', body: JSON.stringify({ id: adId, action: 'approve' }) });
-    expect((await jget(BASE + '/api/ads')).ads).toHaveLength(0);
-    await admin('ads', { method: 'POST', body: JSON.stringify({ id: adId, action: 'paid' }) });
-    const live = (await jget(BASE + '/api/ads')).ads;
-    expect(live).toHaveLength(1);
-    expect(live[0].label).toBe('paid placement');
-  });
-
-  it('refuses to be marked paid before it has been read', async () => {
-    const r = await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'Unread advert.', url: 'https://example.org/3', days: 1 }),
-    });
-    const id = (await r.json()).id;
-    const bad = await admin('ads', { method: 'POST', body: JSON.stringify({ id, action: 'paid' }) });
-    expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toMatch(/approve/i);
-  });
-
-  it('holds no standing and no content node, because it is in no graph', async () => {
-    // The structural claim, checked rather than asserted in prose: the ad's
-    // text exists nowhere the protocol can see.
-    const feed = await jget(BASE + '/api/v1/feed?as=u_op');
-    expect(JSON.stringify(feed)).not.toContain('A shop that sells nothing');
-    const events = await jget(BASE + '/api/v1/events?since=0&limit=200');
-    expect(JSON.stringify(events)).not.toContain('A shop that sells nothing');
-  });
-
-  it('rejects a link that is not a plain http(s) url', async () => {
-    for (const url of ['javascript:alert(1)', 'data:text/html,x', 'ftp://x.org', 'not a url']) {
-      const r = await fetch(BASE + '/api/ads', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'x', url, days: 1 }),
-      });
-      expect(r.status, url).toBe(400);
-    }
-  });
-
-  it('says plainly, in the public API, that money buys nothing else', async () => {
-    const d = await jget(BASE + '/api/ads');
-    expect(d.whatItIsNot).toMatch(/no standing/i);
-    expect(d.whatItIsNot).toMatch(/feed score/i);
-  });
-
-  it('refuses proposals when no payment address is configured', async () => {
-    const r = await fetch(OPEN + '/api/ads', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: 'x', url: 'https://example.org', days: 1 }),
     });
-    expect(r.status).toBe(400);
-    expect((await r.json()).error).toMatch(/no payment address/i);
-  });
-});
-
-describe('ad targeting, and the line it must not cross', () => {
-  let tId = '';
-
-  it('takes a placement and a subject, normalising both', async () => {
-    const r = await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: 'For people who read specifications.', url: 'https://example.org/spec', days: 5,
-        placement: ['feed', 'live'], tags: ['Photography', 'photography', 'pro to col', '!!!'],
-      }),
-    });
-    expect(r.status).toBe(200);
-    tId = (await r.json()).id;
-    const ads = (await adminJson('ads')).ads as Array<Record<string, any>>;
-    const mine = ads.find((a) => a.id === tId)!;
-    expect(mine.placement).toEqual(['feed', 'live']);
-    expect(mine.tags).toEqual(['photography', 'protocol']); // lowercased, cleaned, deduped
+    expect(r.status).toBe(410);
+    const b = await r.json() as Record<string, string>;
+    expect(b.error).toMatch(/adverts are acts now/i);
+    expect(b.error).toMatch(/t:"advert"/);
   });
 
-  it('refuses a placement that is not a real surface', async () => {
-    const r = await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'x', url: 'https://example.org', days: 1, placement: ['inbox'] }),
-    });
-    expect(r.status).toBe(400);
-    expect((await r.json()).error).toMatch(/feed, live, record/);
-  });
-
-  it('ships the criteria to every reader, so matching can happen on their device', async () => {
-    // The whole design: the browser decides whether an advert applies to it.
-    // If the host filtered instead, it would have to know who was asking.
-    await admin('ads', { method: 'POST', body: JSON.stringify({ id: tId, action: 'approve' }) });
-    await admin('ads', { method: 'POST', body: JSON.stringify({ id: tId, action: 'paid' }) });
-    const live = (await jget(BASE + '/api/ads')).ads as Array<Record<string, any>>;
-    const mine = live.find((a) => a.id === tId)!;
-    expect(mine.placement).toEqual(['feed', 'live']);
-    expect(mine.tags).toEqual(['photography', 'protocol']);
-  });
-
-  it('serves the same advert list to everyone, with no per-reader filtering', async () => {
-    // Two callers who look nothing alike must receive byte-identical lists —
-    // any difference would mean the host had formed an opinion about them.
-    const a = await (await fetch(BASE + '/api/ads', {
-      headers: { 'CF-Connecting-IP': '198.51.100.7', 'User-Agent': 'one' },
-    })).text();
-    const b = await (await fetch(BASE + '/api/ads', {
-      headers: { 'CF-Connecting-IP': '203.0.113.44', 'User-Agent': 'two' },
-    })).text();
+  it('serves the live list to everyone identically, and says how aiming works', async () => {
+    const d = await jget(BASE + '/api/ads');
+    expect(Array.isArray(d.ads)).toBe(true);
+    expect(String(d.targeting)).toMatch(/matched in the reader/i);
+    expect(String(d.targeting)).toMatch(/never used/i);       // the IP promise
+    expect(String(d.whatItIsNot)).toMatch(/no standing/i);
+    expect(String(d.moderation)).toMatch(/Publish first/i);
+    // two callers who look nothing alike receive byte-identical lists
+    const a = await (await fetch(BASE + '/api/ads', { headers: { 'CF-Connecting-IP': '198.51.100.7' } })).text();
+    const b = await (await fetch(BASE + '/api/ads', { headers: { 'CF-Connecting-IP': '203.0.113.44' } })).text();
     expect(a).toBe(b);
   });
 
-  it('never accepts a reader identity on the advert endpoint', async () => {
-    // Passing "as" is meaningless here by construction; assert it changes
-    // nothing, so a future refactor cannot quietly make it meaningful.
-    const plain = await (await fetch(BASE + '/api/ads')).text();
-    const withWho = await (await fetch(BASE + '/api/ads?as=u_op')).text();
-    expect(withWho).toBe(plain);
-  });
-
-  it('keeps targeting out of the act log entirely', async () => {
-    const raw = readFileSync(join(dir, 'server-data', 'acts.jsonl'), 'utf8');
-    expect(raw).not.toContain('photography');
-    expect(raw).not.toContain('For people who read specifications');
-  });
-
-  it('leaves an untargeted advert visible to everyone', async () => {
-    const r = await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'For anyone at all.', url: 'https://example.org/all', days: 1 }),
-    });
-    const id = (await r.json()).id;
-    const ads = (await adminJson('ads')).ads as Array<Record<string, any>>;
-    const mine = ads.find((a) => a.id === id)!;
-    expect(mine.placement).toEqual([]);
-    expect(mine.tags).toEqual([]);
+  it('refuses an advert act from someone with no tBTC, naming the price', async () => {
+    const r = await act({ t: 'advert', author: 'u_op', text: 'x', url: 'https://example.org', days: 3, auth: '1234' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/tBTC/);
+    expect(r.body.code).toBeTruthy();
+    expect(r.body.why).toBeTruthy();
   });
 });
 
-describe('the configured payment address', () => {
-  it('is the operator’s own, and passes its own checksum', () => {
-    // The live address, checked here so a typo in deployment fails a test
-    // rather than sending someone's payment where no key exists.
-    expect(validBtcAddress('bc1qzs7ca605hl5xsxnesjurqck0ycsps7s5ty73jr')).toBe(true);
+describe('a refusal must never explain itself wrongly', () => {
+  it('classifies an unaffordable advert as a balance problem, not a malformed act', async () => {
+    // Found live: this fell through to BAD_REQUEST, whose explanation said the
+    // act was malformed. It was not — the act was perfect and the wallet was
+    // empty. A wrong explanation is worse than none, because it sends someone
+    // to check the wrong thing.
+    const r = await act({ t: 'advert', author: 'u_op', text: 'x', url: 'https://example.org', days: 3, auth: '1234' });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('INSUFFICIENT_BALANCE');
+    expect(r.body.why).toMatch(/do not hold/i);
+    expect(r.body.why).not.toMatch(/malformed/i);
+  });
+
+  it('classifies advert shape problems separately from balance ones', async () => {
+    const bad = await act({ t: 'advert', author: 'u_op', text: 'x', url: 'javascript:alert(1)', days: 3, auth: '1234' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('BAD_URL');
+    expect(bad.body.why).toMatch(/everyone and a link is the one thing they will click/i);
   });
 });

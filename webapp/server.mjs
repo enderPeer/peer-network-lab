@@ -35,7 +35,7 @@ const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
   'editPost', 'deletePost', 'deleteAccount', 'call', 'stream',
   'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap',
-  'setKey']);
+  'setKey', 'advert', 'adStop']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -202,6 +202,8 @@ const ACT_FIELDS = {
   closeCycle: ['t'],
   setPin: ['t', 'id', 'pinHash'],
   setKey: ['t', 'id', 'credId', 'cose', 'label'],
+  advert: ['t', 'author', 'text', 'url', 'days', 'placement', 'tags', 'people', 'posts', 'regions'],
+  adStop: ['t', 'author', 'ad', 'operator'],
   dm: ['t', 'from', 'to', 'text'],
 };
 // post gains optional reference + media fields
@@ -888,7 +890,9 @@ const REFUSAL_CODES = [
   [/account was deleted/i, 'ACCOUNT_DELETED'],
   [/not enough energy/i, 'NO_ENERGY'],
   [/below the safety wall|standing is below/i, 'RATE_TOO_LOW'],
-  [/balance is .* tried to (send|deposit|sell)|not enough balance/i, 'INSUFFICIENT_BALANCE'],
+  [/balance is .* tried to (send|deposit|sell)|not enough balance|costs .* and you hold|you hold \d/i, 'INSUFFICIENT_BALANCE'],
+  [/runs between 1 and 90 days|advert text is|the advert needs text/i, 'BAD_REQUEST'],
+  [/only the advertiser|no advert with id/i, 'NOT_YOURS'],
   [/the price moved|below your minimum/i, 'SLIPPAGE'],
   [/pool already exists/i, 'POOL_EXISTS'],
   [/already claimed its tBTC/i, 'ALREADY_CLAIMED'],
@@ -1080,11 +1084,22 @@ function validate(act) {
     case 'poolCreate':
     case 'poolAdd':
     case 'poolRemove':
-    case 'poolSwap': {
+    case 'poolSwap':
+    case 'advert':
+    case 'adStop': {
       if (!str(act.author, 24)) return 'bad actor';
+      if (act.t === 'advert') {
+        // Targeting is matched on the reader's device, so the host only checks
+        // that the criteria are the right shape and small enough to ship to
+        // everyone. It never evaluates them, and never learns who matched.
+        for (const f of ['placement', 'tags', 'people', 'posts', 'regions']) {
+          if (act[f] !== undefined && (!Array.isArray(act[f]) || act[f].length > 12)) return f + ' must be a list of at most 12 entries';
+          if (Array.isArray(act[f])) for (const v of act[f]) if (!str(v, 40)) return 'bad ' + f + ' entry';
+        }
+      }
       // Numbers must be finite before any arithmetic sees them: an Infinity
       // deposited into a pool would poison every price after it.
-      for (const f of ['supply', 'amt', 'amtA', 'amtB', 'shares', 'minOut']) {
+      for (const f of ['supply', 'amt', 'amtA', 'amtB', 'shares', 'minOut', 'days']) {
         if (act[f] !== undefined && (typeof act[f] !== 'number' || !Number.isFinite(act[f]))) return f + ' must be a finite number';
       }
       for (const f of ['sym', 'symA', 'symB', 'to', 'pool', 'sell', 'name']) {
@@ -2342,18 +2357,40 @@ const server = createServer((req, res) => {
   // ── Paid placements: public surface ─────────────────────────────────────
   if (url.pathname === '/api/ads') {
     if (req.method === 'GET') {
-      json(res, 200, {
-        ads: adStore.live(),
-        accepting: !!BTC_ADDRESS,
-        priceSatsPerDay: adStore.stats().priceSatsPerDay,
-        howItWorks: 'POST here with {text, url, days, contact} to propose one. An operator reads it, then quotes you a bitcoin amount unique to your advert so the payment can be matched to it. Nothing goes live before it is both approved and paid.',
-        whatItIsNot: 'A paid placement is not an act. It mints nothing, holds no standing, sits outside the graph and changes no feed score. Money buys this box and nothing else in the network.',
-      });
+      worldState().then((st) => {
+        const now = Date.now();
+        const live = !st ? [] : st.adverts
+          .filter((a) => !a.stopped && a.until > now)
+          .map((a) => ({
+            id: a.id, by: a.by, byHandle: st.handles[a.by] || a.by,
+            text: a.text, url: a.url, label: 'paid placement',
+            paidTbtc: a.paid, until: a.until,
+            aim: a.aim,
+            note: 'Paid with tBTC — sandbox value, burned rather than paid to anyone. This is not in the graph: it holds no standing and changes no feed score.',
+          }));
+        json(res, 200, {
+          ads: live,
+          priceTbtcPerDay: st ? st.adPricePerDay : null,
+          howItWorks: 'Post an `advert` act with {text, url, days} and optional targeting. It costs θ like any act plus tBTC for the days you buy, and it is live the moment it lands — there is no approval queue. The tBTC is burned, not paid to anyone.',
+          whatItIsNot: 'An advert holds no standing, sits in no graph and changes no feed score, including its own. Money buys this box and nothing else in the network.',
+          targeting: 'placement (feed/live/record), tags, people (handle ids), posts (content ids — shown to anyone who engaged with them), regions (a country or language code). ALL of it is matched in the reader\'s browser against the public log and their own device locale. The host serves an identical list to everyone and never learns who saw what. Where someone connects from is never used.',
+          moderation: 'Publish first, moderate after: the advertiser or the operator can stop an advert with an `adStop` act. A test network with play money does not need a review queue in front of the button.',
+        });
+      }).catch(() => json(res, 503, { error: 'engine still loading', code: 'ENGINE_LOADING' }));
       return;
     }
     if (req.method === 'POST') {
-      if (mirrorRefuse(res)) return;
-      if (!adLimiter(ip)) { json(res, 429, { error: 'slow down — this host takes at most ' + AD_RATE + ' advert proposals per hour from one address' }); return; }
+      // Adverts are acts now. Kept as a signpost rather than a 404, because
+      // the old endpoint was documented and somebody may still be pointing at
+      // it — a dead route that explains itself is worth four lines.
+      json(res, 410, {
+        code: 'NOT_FOUND',
+        error: 'adverts are acts now: POST /api/act with {t:"advert", author, text, url, days} and optional placement/tags/people/posts/regions. It costs tBTC, goes live immediately, and there is no approval step.',
+      });
+      return;
+    }
+    if (false) {
+      if (!adLimiter(ip)) { json(res, 429, { error: 'unused' }); return; }
       readBody(req, 8192).then((body) => {
         if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
         const out = adStore.submit(body, BTC_ADDRESS);
