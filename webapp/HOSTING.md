@@ -260,3 +260,70 @@ The host never watches the chain. It cannot: it holds no key and no wallet, and
 polling a public explorer for your address would tell that explorer your
 server's IP is interested in it. Confirming a payment is one glance at the
 wallet you actually control.
+
+## Decentralisation: what works, and what this log cannot do
+
+### The archive — the network readable with every machine switched off
+
+```powershell
+.\publish-site.ps1 -HostUrl https://<primary> -Archive -ArchiveMedia
+```
+
+This publishes the act log itself next to the app, on the same free static
+hosting. When no host answers, the app loads it instead of falling back to an
+empty private sandbox — which is a working app but somebody *else's* network,
+with none of these people in it.
+
+The manifest carries the act count and a SHA-256 of the file. The app **refuses
+a snapshot that does not match**, because a truncated archive that looks live is
+worse than none: everything computed from it would be wrong and nothing would
+say so. `site/.gitattributes` stops git rewriting line endings, since a
+published hash describing a file nobody receives is an integrity claim that
+quietly does not hold.
+
+This is also the security copy. Anyone can download `archive/acts.jsonl`,
+replay it with `social/replay.cjs`, and get the same standings, feeds and
+balances the live host computes. That is what makes it a *verifiable* copy
+rather than a backup you have to trust.
+
+### Free infrastructure that actually works here
+
+| what | where | cost |
+|---|---|---|
+| the app | GitHub Pages | free, permanent |
+| the archive (log + media) | GitHub Pages, beside the app | free |
+| the live host | any machine you own, behind a Cloudflare quick tunnel | free |
+| read-only mirrors | any other machine, `-MirrorOf` | free |
+| a permanent hostname | a named Cloudflare tunnel + a domain | domain only |
+
+`host.json` now carries an ordered `urls` list of any length — primary first,
+then every mirror — so `-Mirrors https://a,https://b` adds as many read
+fallbacks as you have machines. The app walks the list top to bottom and stops
+at the first that answers.
+
+### What CANNOT be done: merging two write-accepting hosts
+
+Not a missing feature. Acts reference each other **by index**: a deletion names
+the position of the post it removes, a revision names the position of the post
+it supersedes, a comment edit names the position of the comment. Merging two
+logs means interleaving them, and interleaving changes every index after the
+first insertion — so every deletion and every revision in the merged log would
+point at a different act than the one its author meant.
+
+That is why there is exactly one writer, and why a mirror refuses writes rather
+than queueing them for reconciliation. A queue would imply a merge that cannot
+be performed.
+
+**What would unlock it: content-addressed act ids.** If each act named its
+referents by a hash of their content rather than by position, the union of two
+logs could be sorted into one canonical order and both sides would converge —
+because replay is already a pure function of an ordered list. The specification
+calls for exactly this (the authored-act substrate, Phase 3/4), and it is a
+migration rather than a patch: every existing reference would have to be
+rewritten once, and the whole point of this record is that it does not get
+rewritten.
+
+So the honest position today: **writes are centralised on one host, reads are
+decentralised across mirrors and a free static archive, and the record itself is
+portable and verifiable by anyone.** The step that would make writes
+decentralised is named above rather than pretended at.

@@ -25,7 +25,16 @@ param(
   #   -UpdateSlot fallback -FromTunnelLog   (the mirror's tunnel changed)
   # Reads the currently published host.json from Pages first, so neither
   # machine can wipe the other's entry by publishing from its own folder.
-  [ValidateSet('', 'primary', 'fallback')][string]$UpdateSlot = ''
+  [ValidateSet('', 'primary', 'fallback')][string]$UpdateSlot = '',
+  # Any number of read-only mirrors, tried in order after the primary.
+  [string[]]$Mirrors = @(),
+  # Publish the act log itself alongside the app, so the network stays
+  # READABLE when every host is off. Costs nothing: it is a static file on
+  # hosting that is already paid for by nobody.
+  [switch]$Archive,
+  # Include media blobs in the archive. Bigger, but it is the difference
+  # between an archive you can read and one you can look at.
+  [switch]$ArchiveMedia
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -67,7 +76,59 @@ $cfg = [ordered]@{
   updated = $stamp
   note    = 'Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.'
 }
-if ($FallbackUrl) { $cfg.Insert(1, 'urls', @($HostUrl, $FallbackUrl.TrimEnd('/'))) }
+# urls is the ordered probe list: primary, then every mirror. One entry or
+# ten, the app walks it top to bottom and stops at the first that answers.
+$allUrls = @()
+if ($HostUrl) { $allUrls += $HostUrl.TrimEnd('/') }
+if ($FallbackUrl) { $allUrls += $FallbackUrl.TrimEnd('/') }
+foreach ($m in $Mirrors) { if ($m) { $allUrls += $m.TrimEnd('/') } }
+$allUrls = $allUrls | Select-Object -Unique
+if ($allUrls.Count -gt 1) { $cfg.Insert(1, 'urls', @($allUrls)) }
+
+# ── The archive: the network as a file ───────────────────────────────────
+#
+# A snapshot of the act log published next to the app. When no host answers,
+# the app loads this instead of falling back to an empty private sandbox, so
+# the record survives every machine being switched off — and anyone can
+# download it, replay it and check every number in it for themselves.
+#
+# The manifest carries the act count and a SHA-256 of the file. The app
+# refuses a snapshot that does not match, because a truncated archive that
+# looks live is worse than none: everything computed from it would be wrong
+# and nothing would say so.
+if ($Archive) {
+  $srcLog = Join-Path $here 'server-data\acts.jsonl'
+  if (-not (Test-Path $srcLog)) { throw "no act log at $srcLog" }
+  $archDir = Join-Path $site 'archive'
+  New-Item -ItemType Directory -Force $archDir | Out-Null
+  Copy-Item $srcLog (Join-Path $archDir 'acts.jsonl') -Force
+  $lineCount = (Get-Content $srcLog | Where-Object { $_.Trim() } | Measure-Object).Count
+  $sha = (Get-FileHash (Join-Path $archDir 'acts.jsonl') -Algorithm SHA256).Hash.ToLower()
+  $man = [ordered]@{
+    acts    = $lineCount
+    sha256  = $sha
+    at      = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    host    = $HostUrl
+    media   = [bool]$ArchiveMedia
+    note    = 'A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.'
+  }
+  [System.IO.File]::WriteAllText(
+    (Join-Path $archDir 'manifest.json'),
+    ($man | ConvertTo-Json),
+    (New-Object System.Text.UTF8Encoding $false))
+  Write-Output ("archive -> $lineCount acts, sha256 " + $sha.Substring(0, 16) + '...')
+
+  if ($ArchiveMedia) {
+    $srcMedia = Join-Path $here 'server-data\media'
+    if (Test-Path $srcMedia) {
+      $dstMedia = Join-Path $archDir 'media'
+      New-Item -ItemType Directory -Force $dstMedia | Out-Null
+      Copy-Item (Join-Path $srcMedia '*') $dstMedia -Force -ErrorAction SilentlyContinue
+      $mb = [math]::Round(((Get-ChildItem $dstMedia -File | Measure-Object Length -Sum).Sum / 1MB), 1)
+      Write-Output "archive -> media included ($mb MB)"
+    }
+  }
+}
 # WriteAllText with an explicit no-BOM encoder: PowerShell 5.1's -Encoding utf8
 # emits a byte-order mark, and a BOM in front of JSON breaks strict parsers.
 [System.IO.File]::WriteAllText(

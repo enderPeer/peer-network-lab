@@ -25,7 +25,7 @@ import { JSDOM } from 'jsdom';
 const PAGE = resolve(__dirname, '../public/peer-social-preview.html');
 
 /** Boot the built page offline, optionally already signed in. */
-async function boot(seed: Record<string, string> = {}) {
+async function boot(seed: Record<string, string> = {}, fetchImpl?: (url: string) => Promise<unknown>) {
   const source = readFileSync(PAGE, 'utf8');
   const dom = new JSDOM(source, {
     runScripts: 'dangerously',
@@ -34,7 +34,8 @@ async function boot(seed: Record<string, string> = {}) {
     beforeParse(win) {
       // No host, so the app falls back to its own in-browser copy of the
       // network: deterministic, and no sockets in a test.
-      (win as unknown as { fetch: unknown }).fetch = () => Promise.reject(new Error('offline'));
+      (win as unknown as { fetch: unknown }).fetch = fetchImpl
+        ?? (() => Promise.reject(new Error('offline')));
       for (const [k, v] of Object.entries(seed)) win.localStorage.setItem(k, v);
     },
   });
@@ -101,6 +102,43 @@ describe('the built page is an application, not just valid JavaScript', () => {
       dom.window.close();
     }
   }, 40000);
+
+  it('reads the published archive when no host answers', async () => {
+    // The point of the archive: every machine can be switched off and the
+    // record is still there, on hosting nobody pays for. A snapshot that does
+    // not match its manifest must be refused rather than shown, because
+    // everything computed from a truncated log would be wrong and silent.
+    const acts = [
+      { t: 'register', id: 'u_arch', handle: 'Archived', seed: 1, epoch: 0 },
+      { t: 'burn', id: 'u_arch', amt: 1 },
+      { t: 'post', author: 'u_arch', text: 'this survived every host dying', a: 0.8, rmen: [] },
+    ];
+    const body = acts.map((a2) => JSON.stringify(a2)).join('\n') + '\n';
+
+    const serve = (manifestActs: number) => (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: manifestActs, sha256: 'x'.repeat(64), at: Date.now() }) });
+      }
+      if (u.includes('archive/acts.jsonl')) {
+        return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      }
+      return Promise.reject(new Error('offline'));   // no host answers
+    };
+
+    // Honest manifest: the archive loads and the network is readable.
+    const good = await boot({}, serve(acts.length));
+    expect(good.errors, good.errors.join(' | ')).toEqual([]);
+    expect(good.root!.textContent, 'archive not loaded').toMatch(/reading a published archive/i);
+    expect(good.root!.textContent).toMatch(/3 acts/);
+    good.dom.window.close();
+
+    // Manifest says four acts, the file has three: refuse it.
+    const bad = await boot({}, serve(acts.length + 1));
+    expect(bad.root!.textContent, 'a mismatched archive was shown as real')
+      .not.toMatch(/reading a published archive/i);
+    bad.dom.window.close();
+  }, 30000);
 
   it('draws every economy sub-tab without throwing', async () => {
     // The economy screen holds four unrelated jobs now. Each is a place the
