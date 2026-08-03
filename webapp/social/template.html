@@ -664,7 +664,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return !!(REMOTE && who && lastPinHash[who] && !pins[who]);
   }
 
-  var unlockPending = false;   // one dialog at a time, however many acts queue
+  var unlockQueue = null;      // continuations waiting on one dialog, or null
   var lockNoticeShown = false; // the silent-failure warning fires once per lock
   /**
    * Run `then` with a usable PIN in hand. If the session is unlocked this is
@@ -673,23 +673,51 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    */
   function withUnlock(then) {
     if (!sessionLocked()) { then(); return; }
-    if (unlockPending) { toast('Enter your PIN in the dialog first.'); return; }
-    unlockPending = true;
+    // Everything waiting on this one dialog is held and replayed together. The
+    // first version dropped every caller after the first and claimed in a
+    // comment that they queued; two reactions clicked in quick succession lost
+    // the second silently.
+    if (unlockQueue) { unlockQueue.push(then); return; }
+    unlockQueue = [then];
     var id = who, hash = lastPinHash[who];
     var label = (function () { try { return replay().handles[id] || id; } catch (e) { return id; } })();
-    pinDialog('Unlock ' + label, 'Your session expired, so the PIN is gone from this browser. Your handle and everything you posted are untouched — the PIN just proves it is you.')
-      .then(function (pin) {
-        if (pin == null) { unlockPending = false; render(); return; }
-        sha256hex(id + ':' + pin).then(function (hx) {
-          unlockPending = false;
-          if (hx !== hash) { toast('Wrong PIN — that is not the one securing ' + label + '.'); render(); return; }
-          pins[id] = pin; save();
-          lockNoticeShown = false; // re-arm for the next expiry
-          toast('Unlocked. Carrying on where you left off.');
-          render();
-          then();
+
+    function drain(ok) {
+      var q = unlockQueue || [];
+      unlockQueue = null;
+      if (!ok) {
+        if (q.length > 1) toast(q.length + ' pending actions were dropped — nothing was recorded.');
+        render();
+        return;
+      }
+      render();
+      q.forEach(function (fn) { try { fn(); } catch (e) {} });
+    }
+
+    function ask(retry) {
+      pinDialog('Unlock ' + label, retry
+        ? 'That PIN did not match. Try again, or cancel — the host locks a handle out after repeated wrong attempts.'
+        : 'Your session expired, so the PIN is gone from this browser. Your handle and everything you posted are untouched — the PIN just proves it is you.')
+        .then(function (pin) {
+          if (pin == null) { drain(false); return; }
+          sha256hex(id + ':' + pin).then(function (hx) {
+            if (hx !== hash) {
+              // Re-ask rather than discard: a typo used to destroy the queued
+              // post, after render() had already cleared the composer.
+              if (!retry) { ask(true); return; }
+              toast('Wrong PIN again — stopping here so the host does not lock ' + label + ' out.');
+              drain(false);
+              return;
+            }
+            pins[id] = pin; save();
+            lockNoticeShown = false; // re-arm the silent-failure warning
+            signalAuthBad = false;   // call polling gave up on the old PIN; let it try again
+            toast('Unlocked. Carrying on where you left off.');
+            drain(true);
+          });
         });
-      });
+    }
+    ask(false);
   }
 
   // ── Connection state (server fallback) ──
@@ -729,6 +757,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // Ask for the PIN before spending the act, not after the host refuses it.
     // The act is re-submitted verbatim once unlocked, so a post someone spent
     // two minutes writing is never lost to an expired session.
+    // Offline first: asking for a credential we cannot use, then discarding the
+    // act at the offline check three lines below, is the worst of both.
+    if (REMOTE && offline && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
+      toast('Still reconnecting — unlock once the connection is back, so nothing is lost.');
+      return;
+    }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
       withUnlock(function () { pushAct(act, onOk, retried); });
       return;
@@ -767,9 +801,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   function pollRemote() {
     var ae = document.activeElement;
+    // Never while a credential is being typed, offline or not: the reconnect
+    // render would wipe the dialog out from under the user mid-PIN. Recovering
+    // the connection can wait the five seconds until the next tick.
+    if (document.querySelector('.pin-dialog')) return;
     if (!offline) {
       if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
-      if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet') || document.querySelector('.pin-dialog')) return;
+      if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet')) return;
     }
     fetch(API + '/api/acts?since=' + world.acts.length, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
@@ -1406,11 +1444,27 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   // ── PIN dialog + identity switching ──
+  // A dialog that render() tore down used to leave its promise unsettled
+  // forever, which latched the unlock state and permanently disabled acting.
+  // render() now settles it as cancelled instead of silently orphaning it.
+  var activePinDone = null;
+  function dismissPinDialog() {
+    if (activePinDone) { var f = activePinDone; activePinDone = null; f(null); }
+  }
+
   function pinDialog(title, subtitle) {
     return new Promise(function (resolve) {
       var overlay = document.getElementById('overlay');
       var input = h('input', { type: 'password', maxlength: '24', placeholder: '••••', autocomplete: 'off' });
-      function done(v) { overlay.innerHTML = ''; resolve(v); }
+      var settled = false;
+      function done(v) {
+        if (settled) return;
+        settled = true;
+        if (activePinDone === done) activePinDone = null;
+        overlay.innerHTML = '';
+        resolve(v);
+      }
+      activePinDone = done;
       var card = h('div', { class: 'pin-card' },
         h('h3', { text: title }),
         h('p', { class: 'smallnote', text: subtitle }),
@@ -1507,6 +1561,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
     saveView(); // where you are standing survives a reload
     root.innerHTML = '';
+    dismissPinDialog(); // settle it before wiping, never orphan the promise
     document.getElementById('overlay').innerHTML = '';
     if (mode === 'liquid') {
       if (!who || !st.ledgerById[who]) renderLiquidHero(st);
