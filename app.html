@@ -229,6 +229,32 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
 .vouch-effect.good { border-color: #4a7a55; background: rgba(74,122,85,.10); }
 .vouch-effect p { margin: 5px 0 0; }
 .a2hs.refusal b { display: block; margin-bottom: 2px; }
+/* Label/value pairs. The class was used on every economy panel and had no
+   rule at all, so on a narrow screen the text ran together: "minted so
+   far275000.00hard cap". A two-column grid with the value right-aligned is
+   what it always looked like it was meant to be. */
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+  align-items: baseline; margin: 8px 0; }
+.kv > span { color: var(--dim, #a29a92); font-size: 13px; }
+.kv > b { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) {
+  /* Long values wrap under their label rather than squeezing it to nothing. */
+  .kv { grid-template-columns: 1fr; gap: 1px 0; }
+  .kv > span { margin-top: 6px; }
+  .kv > b { text-align: left; }
+}
+
+/* The mint attribution table: several numbers per row, so it scrolls
+   sideways inside its own box rather than widening the page. */
+.mint-epoch { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.mint-table { width: 100%; margin-top: 8px; font-size: 12px; }
+.mint-epoch { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.lnk { background: none; border: 0; padding: 0; color: var(--accent, #d8b26a);
+  font: inherit; cursor: pointer; text-decoration: underline; }
+.tx { display: flex; gap: 10px; padding: 7px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.tx:last-child { border-bottom: 0; }
+.tx-who { flex: 0 0 auto; min-width: 74px; color: var(--dim, #a29a92); }
+
 /* ── Feed lanes ────────────────────────────────────────────────────────────
    The switcher is a horizontal strip that scrolls rather than wrapping, so it
    keeps its shape on a narrow phone instead of growing a second row and
@@ -700,7 +726,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 <script>
 "use strict";var PeerEngine=(()=>{var V=Object.defineProperty;var ve=Object.getOwnPropertyDescriptor;var Me=Object.getOwnPropertyNames;var Ee=Object.prototype.hasOwnProperty;var Ce=(e,t)=>{for(var r in t)V(e,r,{get:t[r],enumerable:!0})},we=(e,t,r,i)=>{if(t&&typeof t=="object"||typeof t=="function")for(let n of Me(t))!Ee.call(e,n)&&n!==r&&V(e,n,{get:()=>t[n],enumerable:!(i=ve(t,n))||i.enumerable});return e};var Re=e=>we(V({},"__esModule",{value:!0}),e);var Ue={};Ce(Ue,{ACT_EXPONENT:()=>K,AttestationLedger:()=>re,BETA:()=>M,COGRA_DEFAULTS:()=>ne,DEPTH_MASS:()=>j,DOMAIN_MASKS:()=>v,ETA:()=>y,FAMILIES:()=>R,FEED_DEPTH:()=>D,HALF_FLOOR:()=>S,HOP_MAX:()=>z,KAPPA_SELF:()=>U,L0_DEFAULTS:()=>ue,NU:()=>C,OMEGA_DOMAIN:()=>Ae,OPERATOR:()=>te,PART_FLOOR:()=>B,POL_FLOOR:()=>ie,Q:()=>ee,REFERENCE_CREATORS:()=>We,REFERENCE_EPOCH:()=>je,REFERENCE_SEEDS:()=>Ke,RawGraph:()=>I,SAFE_FLOOR:()=>w,THETA:()=>_,TILT_SHAPE:()=>W,baseScoreMatrix:()=>de,binaryEntropy:()=>ae,boltzmann:()=>X,buildHops:()=>ye,canValue:()=>De,cograRank:()=>Ve,coherence:()=>J,contentNorm:()=>se,dampedWeight:()=>N,debitAct:()=>Be,dependencyWeights:()=>ge,det2:()=>H,detScore:()=>O,detSign:()=>Q,doubleCoverBFS:()=>Y,emission:()=>ce,evaluateGates:()=>_e,fpl:()=>E,fpm:()=>x,frobenius:()=>L,hopDistance:()=>Te,mobius:()=>le,pathView:()=>F,rankFeed:()=>Fe,refRate:()=>$,referenceGraph:()=>ze,scoreCandidate:()=>xe,sentimentSlice:()=>T,sigmoid:()=>k,singularValues2:()=>Se,solveStanding:()=>Pe,transmission:()=>fe,transport:()=>Z,vouchAct:()=>me,wallAct:()=>pe});var M=2*Math.log(2),y=.05,S=Math.sqrt(y),C=.1,_=.0528066,w=_/C,ie=1,B=Math.max(ie,w),z=4,D=4,K=.25,W=[1,.5,.25,.125],j=[.5,.25,.125,.125],U=1,Ae=1;function k(e){return 1/(1+Math.exp(-e))}function E(e){return k(M*e)}function x(e){return k(M*Math.abs(e))*Math.tanh(e)}function ae(e){return e<=0||e>=1?0:-e*Math.log(e)-(1-e)*Math.log(1-e)}function X(e){return Math.exp(-M*ae(e))}function J(e){return Math.sqrt(1+e*e)}var v={Tribal:[1,1,1,1],Identity:[1,0,0,1],Epistemic:[0,1,0,1],Economic:[0,0,1,1],Relational:[0,0,1,1],Minimal:[0,0,0,1]};function T(e,t,r){let[i,n,a,s]=r,m=Math.abs(e),l=Math.abs(t);return[[i*x(t*e),n*x(t*m),x(t)],[a*x(l*e),s*E(l*m),E(l)],[x(e),E(m),E(1)]]}function L(e){let t=0;for(let r of e)for(let i of r)t+=i*i;return Math.sqrt(t)}function F(e,t,r,i){let n;if(i==="half")n=[S,S,S,1];else{let[m,l,o,c]=r;n=[m+(1-m)*y,l+(1-l)*y,o+(1-o)*y,c+(1-c)*y]}let a=Math.abs(e),s=Math.abs(t);return[[n[0]*x(t*e),n[1]*x(t*a)],[n[2]*x(s*e),n[3]*E(s*a)]]}function H(e){let t=e[0],r=e[1];return t[0]*r[1]-t[1]*r[0]}function O(e){return Math.sqrt(Math.abs(H(e)))}function Q(e){return H(e)>=0?1:-1}function Se(e){let[t,r]=e[0],[i,n]=e[1],a=(t*t+r*r+i*i+n*n)/2,s=Math.sqrt(Math.max(0,a*a-H(e)**2));return[Math.sqrt(Math.max(0,a+s)),Math.sqrt(Math.max(0,a-s))]}function N(e,t){return e*J(t)*X(t)}var R={Opinion:{family:"Opinion",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["polarity p","reaction r"],signForced:!1,vouchCandidate:!0},Affinity:{family:"Affinity",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["association a","attraction t"],signForced:!1,vouchCandidate:!1},Owner:{family:"Owner",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Publish:{family:"Publish",domain:"Economic",promoted:!0,tier:"full",paramLabels:["attachment a","(fixed 1)"],signForced:!1,vouchCandidate:!1},Participant:{family:"Participant",domain:"Relational",promoted:!0,tier:"full",paramLabels:["interactivity i","responsibility r"],signForced:!1,vouchCandidate:!1},Registration:{family:"Registration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1},SelfDeclaration:{family:"SelfDeclaration",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},SelfReputation:{family:"SelfReputation",domain:"Identity",promoted:!1,tier:"full",paramLabels:["(fixed 1)","bond p_i"],signForced:!1,vouchCandidate:!1},JoinRequest:{family:"JoinRequest",domain:"Relational",promoted:!0,tier:"half",paramLabels:["urgency u","formality f"],signForced:!1,vouchCandidate:!1},Accept:{family:"Accept",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},Ratify:{family:"Ratify",domain:"Relational",promoted:!0,tier:"half",paramLabels:["comfort c","equity e"],signForced:!1,vouchCandidate:!0},ReviewA:{family:"ReviewA",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["enthusiasm e","effort f"],signForced:!1,vouchCandidate:!1},ReviewT:{family:"ReviewT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["effort f","enthusiasm e"],signForced:!1,vouchCandidate:!1},SendA:{family:"SendA",domain:"Relational",promoted:!0,tier:"full",paramLabels:["directness d","intensity i"],signForced:!1,vouchCandidate:!1},SendT:{family:"SendT",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["intensity i","directness d"],signForced:!1,vouchCandidate:!1},ReferenceA:{family:"ReferenceA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["endorsement e","fidelity f"],signForced:!1,vouchCandidate:!1},ReferenceT:{family:"ReferenceT",domain:"Tribal",promoted:!1,tier:"full",paramLabels:["fidelity f","endorsement e"],signForced:!1,vouchCandidate:!1},TagA:{family:"TagA",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["relevance r","confidence c"],signForced:!1,vouchCandidate:!1},TagT:{family:"TagT",domain:"Epistemic",promoted:!1,tier:"marginal",paramLabels:["confidence c","relevance r"],signForced:!1,vouchCandidate:!1},Control:{family:"Control",domain:"Minimal",promoted:!1,tier:"marginal",paramLabels:["(fixed 1)","(fixed 1)"],signForced:!0,vouchCandidate:!1}};function ke(e,t){return R[e]?.promoted?v.Tribal:v[t]}var I=class{nodes=new Map;edges=[];preDeg=new Map;addNode(t){return this.nodes.set(t.id,t),this}degree(t){return this.preDeg.get(t)??0}buildRecord(t,r){let i=R[t.family],n=t.domain??i?.domain??"Tribal",a=t.tier??i?.tier??"full",s=ke(t.family,n),m=T(t.pd,t.pi,s),l=F(t.pd,t.pi,s,a),o=O(l),c=i?.signForced?1:Q(l);return{id:t.id,family:t.family,src:t.src,tgt:t.tgt,pd:t.pd,pi:t.pi,domain:n,mask:s,tier:a,tau:r,epoch:t.epoch??0,slice:m,pv:l,frob:L(m),score:o,sign:c,weight:N(o,r),appendIndex:this.edges.length}}bump(t,r=1){this.preDeg.set(t,(this.preDeg.get(t)??0)+r)}append(t){let r=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),i=this.buildRecord(t,r);return this.edges.push(i),this.bump(t.src),this.bump(t.tgt),i}appendHyper(t,r){let i=t.tauOverride??1-1/(1+Math.max(this.degree(t.src),this.degree(t.tgt))),n=r.tauOverride??1-1/(1+Math.max(this.degree(r.src),this.degree(r.tgt))),a=this.buildRecord(t,i);this.edges.push(a);let s=this.buildRecord(r,n);return this.edges.push(s),this.bump(t.src),this.bump(t.tgt),this.bump(r.src),this.bump(r.tgt),[a,s]}outgoing(t){return this.edges.filter(r=>r.src===t)}incoming(t){return this.edges.filter(r=>r.tgt===t)}};function Te(e,t,r=D){let i=new Map([[t,0]]),n=new Set([t]);for(let a=1;a<=r&&n.size;a++){let s=new Set;for(let m of e.edges)m.weight<=0||n.has(m.src)&&(i.has(m.tgt)||(i.set(m.tgt,a),s.add(m.tgt)));n=s}return i}function Y(e,t,r=D){let i=new Map,n=s=>{let m=i.get(s);return m||(m={pos:0,neg:0},i.set(s,m)),m};n(t).pos=1;let a=new Map([[t,{pos:1,neg:0}]]);for(let s=1;s<=r;s++){let m=new Map;for(let l of e.edges){if(l.weight<=0)continue;let o=a.get(l.src);if(!o)continue;let c=m.get(l.tgt);c||(c={pos:0,neg:0},m.set(l.tgt,c)),l.sign>0?(c.pos=Math.max(c.pos,o.pos*l.weight),c.neg=Math.max(c.neg,o.neg*l.weight)):(c.pos=Math.max(c.pos,o.neg*l.weight),c.neg=Math.max(c.neg,o.pos*l.weight))}for(let[l,o]of m){let c=n(l);c.pos=Math.max(c.pos,o.pos),c.neg=Math.max(c.neg,o.neg)}a=m}return i}var Le=new Set(["Opinion","Publish"]);function se(e,t){let r=e.incoming(t).filter(a=>Le.has(a.family));if(r.length===0)return 0;let i=r.reduce((a,s)=>a+s.pd,0)/r.length,n=r.reduce((a,s)=>a+s.pi,0)/r.length;return L(T(i,n,v.Tribal))}function Fe(e,t,r,i){let n=Y(e,t),a=[];for(let s of e.nodes.values()){if(s.kind==="Actor"||s.kind==="Profile")continue;let l=n.get(s.id)?.pos??0;if(l<=0)continue;let o=i(s.id),c=o?1+r(o)/C:1,p=se(e,s.id);a.push({node:s,bfsWeight:l,amplifier:c,contentNorm:p,relevance:l*c*p})}return a.sort((s,m)=>m.relevance-s.relevance),a}function $(e){return e.burnBal/Math.max(e.actCount,1)/C}function ce(e){return Math.min(1,$(e)/w)}function le(e){return e/(1+e)}function ee(e){let t=Math.tanh(e);return k(M*e)*Math.sqrt(t*(1-y*y*t))}var Oe=ee(1);function me(e){return e<=0?0:Math.pow(ee(le(e))/Oe,K)}function pe(e){return me(Math.max(e,w))}function de(e,t){let r=new Map(e.map((a,s)=>[a,s])),i=e.length,n=Array.from({length:i},(a,s)=>Array.from({length:i},(m,l)=>s===l?U:0));for(let a of t){let s=r.get(a.src);if(s===void 0)continue;let m=r.get(a.rcp)??s;n[s][m]+=a.coeff}return n}function Ne(e,t,r,i){let n=e.length,a=[],s=i*W[r-1];for(let m=0;m<n;m++){let l=new Array(n),o=0;for(let c=0;c<n;c++){let p=m===c?e[m][c]:e[m][c]*Math.pow(pe(t[c]),s);l[c]=p,o+=p}for(let c=0;c<n;c++)l[c]/=o;a.push(l)}return a}function Ie(e,t){let r=e.length,i=Array.from({length:r},()=>new Array(r).fill(0));for(let n=0;n<r;n++)for(let a=0;a<r;a++){let s=e[n][a];if(s!==0)for(let m=0;m<r;m++)i[n][m]+=s*t[a][m]}return i}function Z(e,t,r,i){let n=e.length,a=Array.from({length:n},()=>new Array(n).fill(0)),s=null;for(let l=1;l<=z;l++){let o=Ne(e,t,l,i);s=s?Ie(s,o):o;let c=j[l-1];for(let p=0;p<n;p++)for(let u=0;u<n;u++)a[p][u]+=c*s[p][u]}let m=Array.from({length:n},()=>new Array(n).fill(0));for(let l=0;l<n;l++){for(let o=0;o<n;o++)m[l][o]=r[l]*a[l][o];m[l][l]+=1-r[l]}return m}function Pe(e,t,r={}){let{tilt:i=1,maxIter:n=200,tol:a=1e-13}=r,s=e.map(f=>f.id),m=de(s,t),l=e.map($),o=e.map(f=>Math.max(f.actCount,1)),c=e.map(ce),p=l.slice(),u=[p.slice()],d=1/0,b=0,g=Z(m,p,c,i);for(;b<n;){g=Z(m,p,c,i);let f=new Array(s.length);for(let h=0;h<s.length;h++){let P=0,q=0;for(let A=0;A<s.length;A++){let oe=g[A][h]*o[A];P+=oe*l[A],q+=oe}f[h]=q>0?P/q:l[h]}if(d=Math.max(...f.map((h,P)=>Math.abs(h-p[P]))),p=f,u.push(p.slice()),b++,d<a)break}return{ids:s,x:p,pi:g,iterations:b,residual:d,trace:u}}function _e(e,t,r){let i=e.map(p=>({id:p.id,burnBal:p.burnBal,pass:p.burnBal>=0})),n=e.map((p,u)=>({id:p.id,stamp:t[u],delta:r.get(p.id)??0})).filter(p=>p.delta>0).map(p=>({id:p.id,stamp:p.stamp,pass:p.stamp>=w})),a=0,s=0,m=0;e.forEach((p,u)=>{let d=r.get(p.id)??0;d<=0||(a+=d,s+=d*t[u],m+=d*(t[u]-B))});let l=a>0?s/a:0,o=a===0||l>=B,c=i.every(p=>p.pass)&&n.every(p=>p.pass)&&o;return{w1:i,w2a:n,epochStamp:l,headroom:m,w2bPass:o,allPass:c}}function Be(e){return{...e,burnBal:e.burnBal-_,actCount:e.actCount+1}}var ue={E0:100,zeta:.5,fee:.5,maturityCycle:10},te="op",re=class{cfg;omega;yLive=0;yLock=0;cycle=0;settledFloor=1;escrow=[];balances=new Map;constructor(t={}){this.cfg={...ue,...t};let{E0:r,zeta:i}=this.cfg;this.omega=r,this.yLive=i*r,this.yLock=(1-i)*r;let n=this.bal(te);n.live=this.yLive,n.tlock=this.yLock}bal(t){let r=this.balances.get(t);return r||(r={reserve:0,live:0,tlock:0,attest:0},this.balances.set(t,r)),r}get totalSupply(){return this.yLive+this.yLock}floor(){return this.totalSupply>0?this.omega/this.totalSupply:1}get bootstrapping(){return this.cycle<this.cfg.maturityCycle}get attestCap(){return this.cfg.E0*Math.log(1/(1-this.cfg.zeta))}faucet(t,r){this.bal(t).reserve+=r}deposit(t,r){let i=this.bal(t);if(r<=0||i.reserve<r-1e-12)throw new Error("insufficient reserve");i.reserve-=r,this.escrow.push({addr:t,amount:r})}burn(t,r,i=t){let n=this.bal(t);if(r<=0||n.live<r-1e-12)throw new Error("insufficient live units");n.live-=r,this.yLive-=r;let a=r*this.settledFloor;return this.bal(i).attest+=a,a}redeem(t,r){let i=this.bal(t);if(r<=0||i.live<r-1e-12)throw new Error("insufficient live units");let n=r*this.floor();return i.live-=r,this.yLive-=r,this.omega-=n,i.reserve+=n,n}transfer(t,r,i,n="live"){let a=this.bal(t);if(i<=0||a[n]<i-1e-12)throw new Error("insufficient units");a[n]-=i,this.bal(r)[n]+=i}closeCycle(){let t=this.floor(),r=this.escrow.reduce((a,s)=>a+s.amount,0),i=this.cycle+1<this.cfg.maturityCycle,n=0;if(r>0){let a=r/t;n=a;let{fee:s,zeta:m}=this.cfg;for(let o of this.escrow){let c=(1-s)*(o.amount/r)*a,p=this.bal(o.addr);i?(p.live+=c*m,p.tlock+=c*(1-m)):p.live+=c}let l=this.bal(te);i?(l.live+=s*m*a,l.tlock+=s*(1-m)*a,this.yLive+=m*a,this.yLock+=(1-m)*a):(l.live+=s*a,this.yLive+=a),this.omega+=r,this.escrow=[]}if(this.cycle+=1,this.cycle===this.cfg.maturityCycle){for(let a of this.balances.values())a.live+=a.tlock,a.tlock=0;this.yLive+=this.yLock,this.yLock=0}return this.settledFloor=this.floor(),{minted:n,floor:this.settledFloor}}};function fe(e){if(e.length===0)return 0;let t=e.reduce((r,i)=>r+i,0)/e.length;return t/(1+t)}function ge(e){let t=e.reduce((r,i)=>r+i,0);return e.map(r=>t>0?r/t:0)}function De(e){let t=fe(e.childNorms),r=ge(e.childNorms),i=0;for(let n=0;n<r.length;n++)i+=r[n]*(e.childValues[n]??0);return t*i}var ne={k:5,gamma:1,chi:1e-4,halfLifeEpochs:4},He=new Set(["SelfDeclaration","SelfReputation","Registration","Control"]),be={ReviewT:"ReviewA",TagT:"TagA",ReferenceT:"ReferenceA"};function G(e){return Math.max(-1,Math.min(1,e))}function he(e,t,r,i){let n=R[e];if(!n)return 0;let a=n.promoted?v.Tribal:v[n.domain],s=F(t,r,a,n.tier);return N(O(s),i)}function Ge(e){let t=new Map;for(let r of e){let i=r.src+"|"+r.tgt+"|"+r.family,n=t.get(i);n||(n={family:r.family,src:r.src,tgt:r.tgt,pd:0,pi:0,tau:r.tau,epoch:r.epoch??0,weight:0,key:i},t.set(i,n)),n.pd+=r.pd,n.pi+=r.pi,r.appendIndex>=0&&(n.tau=r.tau,n.epoch=Math.max(n.epoch,r.epoch??0))}for(let r of t.values())r.pd=G(r.pd),r.pi=G(r.pi),r.weight=r.pd===0||r.pi===0?0:he(r.family,r.pd,r.pi,r.tau);return t}function ye(e,t){let r=o=>e.nodes.get(o)?.kind??"Content",i=[],n=[];for(let o of e.edges)if(!He.has(o.family))if(be[o.family]){let c=e.edges[o.appendIndex-1];i.push({t:o,a:c&&c.family===be[o.family]?c:null})}else n.push(o);let a=Ge(n),s=new Map,m=o=>{if(o.weight<=0||r(o.from)==="Type")return;let c=t.personOf(o.from),p=t.personOf(o.to);if(c===p)return;let u=s.get(c)??[];u.push({...o,from:c,to:p}),s.set(c,u)};for(let o of a.values())m({from:o.src,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch,key:o.key});let l=new Map;for(let{a:o}of i){if(!o)continue;let c=o.src+"|"+o.tgt+"|"+o.family,p=l.get(c)??{pd:0,pi:0};p.pd+=o.pd,p.pi+=o.pi,l.set(c,p)}for(let{t:o,a:c}of i){let p=c?c.src:null,u=o.src,d=t.creatorOf(u);if(p&&d&&t.personOf(p)===t.personOf(d))m({from:u,to:o.tgt,weight:o.weight,pdSign:Math.sign(o.pd)||1,piNegative:o.pi<0,epoch:o.epoch??0,key:o.id});else if(p&&c){let b=l.get(c.src+"|"+c.tgt+"|"+c.family),g=G(b.pd),f=G(b.pi),h=g===0||f===0?0:he(c.family,g,f,c.tau);m({from:p,to:o.tgt,weight:h*o.weight,pdSign:(Math.sign(g)||1)*(Math.sign(o.pd)||1),piNegative:f<0||o.pi<0,epoch:Math.max(c.epoch??0,o.epoch??0),key:c.id+"+"+o.id})}}return s}function qe(e,t,r,i,n,a){let s=new Map,m=[{node:t,cost:0,keys:"",path:[]}],l=null;for(;m.length;){let c=0;for(let d=1;d<m.length;d++){let b=m[d],g=m[c];(b.cost<g.cost-1e-15||Math.abs(b.cost-g.cost)<=1e-15&&b.keys<g.keys)&&(c=d)}let p=m.splice(c,1)[0],u=s.get(p.node);if(!(u&&(u.cost<p.cost-1e-15||Math.abs(u.cost-p.cost)<=1e-15&&u.keys<=p.keys))){if(s.set(p.node,{cost:p.cost,keys:p.keys}),p.node===r){l=p;break}for(let d of e.get(p.node)??[]){if(i.has(d.to)||n.has(d.key)||p.path.some(g=>g.to===d.to||g.from===d.to))continue;let b=p.cost-Math.log(a*d.weight);m.push({node:d.to,cost:b,keys:p.keys+"/"+d.key,path:p.path.concat(d)})}}}return l?{nodes:[t].concat(l.path.map(c=>c.to)),hops:l.path,m:Math.exp(-l.cost)}:null}function xe(e,t,r,i,n=ne){let a=new Set,s=new Set,m=[];for(let l=0;l<n.k;l++){let o=qe(e,t,r,a,s,n.gamma);if(!o||o.m<n.chi)break;let c=o.hops.reduce((f,h)=>f*h.pdSign,1),p=o.hops.some(f=>f.piNegative),u=c>0&&!p?1:-1,d=o.hops[o.hops.length-1],b=Math.max(0,i-d.epoch),g=n.halfLifeEpochs===1/0?1:Math.pow(.5,b/n.halfLifeEpochs);m.push({nodes:o.nodes,hops:o.hops,m:o.m,sigma:u,f:g,term:u*o.m*g});for(let f of o.nodes.slice(1,-1))a.add(f);for(let f of o.hops)s.add(f.key)}return{S:m.reduce((l,o)=>l+o.term,0),paths:m}}function Ve(e,t,r,i){let n={...ne,...i.cfg??{}},a=ye(e,i),s=i.candidates??(l=>l.kind==="Content"),m=[];for(let l of e.nodes.values()){if(!s(l))continue;let{S:o,paths:c}=xe(a,i.personOf(t),l.id,r,n);c.length!==0&&m.push({node:l,S:o,paths:c})}return m.sort((l,o)=>o.S-l.S),m}function ze(){let e=new I;return e.addNode({id:"alice",kind:"Actor",label:"Alice"}),e.addNode({id:"bob",kind:"Actor",label:"Bob"}),e.addNode({id:"carol",kind:"Actor",label:"Carol"}),e.addNode({id:"dave",kind:"Actor",label:"Dave"}),e.addNode({id:"profA",kind:"Profile",label:"Profile_A"}),e.addNode({id:"photo",kind:"Content",label:"Photo"}),e.addNode({id:"comment",kind:"Comment",label:"Comment"}),e.addNode({id:"streetart",kind:"Type",label:"StreetArt"}),e.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),e.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"profA",pd:1,pi:.75}),e.append({id:"e1r",family:"SelfReputation",src:"profA",tgt:"alice",pd:1,pi:.75}),e.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),e.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),e.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),e.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),e.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),e.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),e.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),e}var Ke=[{id:"alice",burnBal:3,actCount:10},{id:"bob",burnBal:2,actCount:8},{id:"carol",burnBal:4,actCount:12},{id:"dave",burnBal:1,actCount:5}],We={photo:"alice",comment:"bob",streetart:"carol",sneakers:"bob"},je={ledgers:[{id:"alice",burnBal:1.2944,actCount:12},{id:"bob",burnBal:1.2472,actCount:11},{id:"carol",burnBal:1.1472,actCount:10},{id:"dave",burnBal:.2,actCount:2},{id:"eve",burnBal:.9,actCount:8}],cells:[{src:"alice",rcp:"bob",coeff:.8638},{src:"alice",rcp:"carol",coeff:.635},{src:"alice",rcp:"eve",coeff:.3969},{src:"bob",rcp:"carol",coeff:.7742},{src:"bob",rcp:"dave",coeff:.6841},{src:"bob",rcp:"eve",coeff:.5062},{src:"carol",rcp:"dave",coeff:.8085},{src:"carol",rcp:"eve",coeff:.7329},{src:"dave",rcp:"eve",coeff:.772}],deltaActs:new Map([["alice",2],["bob",1],["carol",1],["dave",2],["eve",0]]),expectedX:[1.0786557,1.1051839,1.1201615,1.1159692,1.1171834],expectedEpochStamp:1.102,expectedHeadroom:.615};return Re(Ue);})();
 
-(function(Re,L){typeof module=="object"&&module.exports?module.exports=L():Re.PeerReplay=L()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function Re(L){var U=L.THETA,_e=L.NU,ut={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function dt(k,r){var C={};for(var s in r)C[(r[s]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=s;for(var h=[],S={},v,a=/@([a-zA-Z0-9_]{1,16})/g;(v=a.exec(k))!==null&&h.length<3;){var w=C[v[1].toLowerCase().replace(/[^a-z0-9]/g,"")];w&&!S[w]&&(S[w]=1,h.push(w))}return h}function qt(k,r,C,s,h){var S=C.map(function(i){return{id:i.id,burnBal:i.burnBal,actCount:i.actCount}}),v=new Map(Object.keys(h).map(function(i){return[i,h[i]]})),a=Object.keys(h).reduce(function(i,_){return i+h[_]},0),w=null;function K(){if(!w){var i=k.solveStanding(S,s,{tilt:1});w=k.evaluateGates(S,i.x,v)}return w}var O={epoch:r,acts:a};Object.defineProperties(O,{stamp:{enumerable:!0,get:function(){return K().epochStamp}},headroom:{enumerable:!0,get:function(){return K().headroom}},pass:{enumerable:!0,get:function(){return K().allPass}}});var G={who:null};return Object.defineProperty(G,"line",{enumerable:!0,get:function(){var i=K();return"epoch "+r+" closed \xB7 stamp "+i.epochStamp.toFixed(3)+" \xB7 "+(i.allPass?"certificate accepted":"wall/door failed")}}),{record:O,chron:G}}function ft(k,r){var C=(r||[]).slice();for(var s in k){var h=k[s],S=Math.max(-1,Math.min(1,h.pd)),v=Math.max(-1,Math.min(1,h.pi));if(S>0&&v>0)C.push({src:h.src,rcp:h.rcp,coeff:Math.sqrt(S*v)});else{var a=Math.sqrt(Math.abs(S)*Math.abs(v));a>0&&C.push({src:h.src,rcp:h.src,coeff:a})}}return C}function Dt(k){for(var r=new L.RawGraph,C=[],s={},h={},S={},v={},a={},w={},K=[],O={},G=[],i=[],_={},me={},ve={},Ee=[],Oe={},l=0,g=0,$={},ht={},Ne={},He={},Fe=0;Fe<k.length;Fe++){var N=k[Fe];if(N.t==="deleteAccount")$[N.id]=!0;else if(N.t==="deletePost")ht[N.target]=!0;else if(N.t==="register"&&N.handle){var le=jt(N.handle);le&&Ne[le]&&Ne[le]!==N.id?He[N.id]=!0:le&&(Ne[le]=N.id)}}var ue={},q={},H={},B=new L.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function ee(t){try{return t()}catch{return null}}function de(t,o,m,y,R,d){var p=d||o;r.addNode({id:t,kind:"Actor",label:p}),r.addNode({id:"prof_"+t,kind:"Profile",label:p});var ce={id:t,burnBal:m,actCount:y};C.push(ce),s[t]=ce,h[t]=o,S[t]=R}function jt(t){for(var o="",m="",y=String(t||"").toLowerCase(),R=0;R<y.length;R++){var d=y[R];d==="0"?d="o":d==="1"||d==="i"||d==="l"?d="l":d==="5"?d="s":d==="8"?d="b":d==="2"&&(d="z"),!(!/[a-z0-9]/.test(d)||d===m)&&(o+=d,m=d)}return o}function T(t){if($[t])return"[deleted]";var o=h[t]||t;return He[t]?o+" ("+t+", not the original)":o}function Z(t){return!!s[t]}function M(t){var o=s[t];o&&(o.burnBal-=U,o.actCount+=1,O[t]=(O[t]||0)+1)}function pt(t,o,m,y){var R=t+">"+o,d=w[R]||(w[R]={src:t,rcp:o,pd:0,pi:0});d.pd+=m,d.pi+=y}var zt=5e3,Kt=.9,Zt=365,at=1825e4,Yt=.2,Ut=.3,Ie=.01,Le=1e-9,te={},re={PEER:{name:"Peer epoch token",creator:null},tBTC:{name:"test bitcoin \u2014 sandbox value, backed by nothing",creator:null}},F={PEER:0,tBTC:0},qe={},Q={},De=[],je=2e-4,Y=[],ct=0,fe={},oe=0,ie=0,he=[];function f(t){return Math.round(t*1e6)/1e6}function P(t,o){return te[t]&&te[t][o]||0}function W(t,o,m){if(m>0){var y=te[t]||(te[t]={});y[o]=(y[o]||0)+m}}function J(t,o,m){te[t][o]-=m}function ze(t,o){return t<o?t+"/"+o:o+"/"+t}function mt(t){var o=t.author;if(!s[o])return"unknown actor";if(s[o].burnBal<U)return"not enough energy";if(t.t==="advert"){var m=Math.floor(t.days);if(!(m>=1&&m<=90))return"an advert runs between 1 and 90 days";if(typeof t.text!="string"||!t.text.trim())return"the advert needs text";if(t.text.length>280)return"advert text is "+t.text.length+" characters; the limit is 280";if(typeof t.url!="string"||!/^https?:\/\/[^\s]{3,300}$/i.test(t.url))return"url must be a plain http(s) link";var y=f(je*m);return P("tBTC",o)<y?"this advert costs "+y+" tBTC for "+m+" day(s) and you hold "+f(P("tBTC",o)):null}if(t.t==="adStop"){for(var R=null,d=0;d<Y.length;d++)Y[d].id===t.ad&&(R=Y[d]);return R?R.by!==o&&!t.operator?"only the advertiser can stop their own advert":null:"no advert with id "+t.ad}if(t.t==="btcClaim")return qe[o]?"this account already claimed its tBTC \u2014 one claim per account, ever":null;if(t.t==="assetCreate")return/^[A-Z][A-Z0-9]{2,7}$/.test(t.sym||"")?re[t.sym]?"symbol "+t.sym+" is taken":!(t.supply>0)||t.supply>1e9?"supply must be between 0 and 1,000,000,000":typeof t.name!="string"||!t.name.trim()||t.name.length>60?"the asset needs a name, at most 60 characters":null:"symbol must be 3-8 characters, A-Z and digits, starting with a letter";if(t.t==="tokenSend")return re[t.sym]?t.amt>0?s[t.to]?t.to===o?"sending to yourself moves nothing":P(t.sym,o)<t.amt?"balance is "+f(P(t.sym,o))+" "+t.sym+", tried to send "+t.amt:null:"unknown recipient":"amount must be positive":"no such asset: "+t.sym;if(t.t==="poolCreate")return!re[t.symA]||!re[t.symB]?"both assets must exist":t.symA===t.symB?"a pool needs two different assets":Q[ze(t.symA,t.symB)]?"the "+ze(t.symA,t.symB)+" pool already exists \u2014 add liquidity to it instead":!(t.amtA>0)||!(t.amtB>0)?"both starting amounts must be positive":P(t.symA,o)<t.amtA?"balance is "+f(P(t.symA,o))+" "+t.symA+", tried to deposit "+t.amtA:P(t.symB,o)<t.amtB?"balance is "+f(P(t.symB,o))+" "+t.symB+", tried to deposit "+t.amtB:Math.sqrt(t.amtA*t.amtB)<=Le*10?"starting liquidity too small":null;var p=Q[t.pool];if(t.t==="poolAdd"){if(!p)return"no such pool: "+t.pool;if(!(t.amtA>0)||!(t.amtB>0))return"both amounts must be positive";var ce=Math.min(t.amtA/p.resA,t.amtB/p.resB);return P(p.a,o)<ce*p.resA||P(p.b,o)<ce*p.resB?"not enough balance for that deposit":null}if(t.t==="poolRemove"){if(!p)return"no such pool: "+t.pool;var It=p.shares[o]||0;return!(t.shares>0)||t.shares>It+1e-12?"you hold "+f(It)+" shares of "+t.pool+", tried to remove "+t.shares:null}if(t.t==="poolSwap"){if(!p)return"no such pool: "+t.pool;if(t.sell!==p.a&&t.sell!==p.b)return t.pool+" does not trade "+t.sell;if(!(t.amt>0))return"amount must be positive";if(P(t.sell,o)<t.amt)return"balance is "+f(P(t.sell,o))+" "+t.sell+", tried to sell "+t.amt;var tr=t.sell===p.a?p.resA:p.resB,rr=t.sell===p.a?p.resB:p.resA,Lt=rr*(t.amt*.997)/(tr+t.amt*.997);return t.minOut!==void 0&&Lt<t.minOut?"that trade would return "+f(Lt)+", below your minimum of "+t.minOut+" \u2014 the price moved":null}return"unknown token act"}function I(t,o,m){var y=Math.sqrt(Math.abs(o)*Math.abs(m));y>0&&K.push({src:t,rcp:t,coeff:Math.min(1,y)})}function $t(t){var o="type_"+t.toLowerCase().replace(/[^a-z0-9]/g,"");return r.nodes.get(o)||r.addNode({id:o,kind:"Type",label:"#"+t}),o}for(var b=0;b<k.length;b++){var e=k[b],n=!!($[e.author]||$[e.from]||$[e.id]||ht[b]);if(e.t==="seedWorld")de("alice","Alice",3,10,0),de("bob","Bob",2,8,0),de("carol","Carol",4,12,0),de("dave","Dave",1,5,0),r.addNode({id:"photo",kind:"Content",label:"Photo"}),r.addNode({id:"comment",kind:"Comment",label:"Comment"}),r.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),r.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),r.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),r.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),r.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),r.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),r.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),r.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),r.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),r.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),r.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),v.photo="alice",v.comment="bob",v.sneakers="bob",v.streetart="carol",a.photo=ut.photo,a.comment=ut.comment,me.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(t){B.faucet(t,10),ee(function(){B.transfer("op",t,2,"live")})}),i.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),i.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")de(e.id,e.handle,e.seed,0,e.epoch,n?"[deleted]":He[e.id]?e.handle+" ("+e.id+", not the original)":e.handle),e.pinHash&&(Oe[e.id]=e.pinHash),r.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),M(e.id),I(e.id,1,1),B.faucet(e.id,10),ee(function(){B.transfer("op",e.id,2,"live")}),n?s[e.id].deleted=!0:i.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn"){if(!Z(e.id))continue;s[e.id].burnBal+=e.amt,fe[e.id]=(fe[e.id]||0)+e.amt,n||i.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"})}else if(e.t==="deposit")ee(function(){return B.deposit(e.id,e.amt),!0})&&!n&&i.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var ge=ee(function(){return B.burn(e.id,e.x)});ge!=null&&s[e.id]&&(s[e.id].burnBal+=ge,fe[e.id]=(fe[e.id]||0)+ge,n||i.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+ge.toFixed(3)+" at settled floor \u03C6 "+B.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var vt=ee(function(){return B.redeem(e.id,e.x)});vt!=null&&!n&&i.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+vt.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")ee(function(){return B.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!n&&i.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+T(e.to),refs:[{label:T(e.to),id:e.to}]});else if(e.t==="setPin")s[e.id]&&e.pinHash&&(Oe[e.id]=e.pinHash,n||i.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(!Z(e.from)||!Z(e.to))continue;if(s[e.from]&&s[e.to]&&s[e.from].burnBal>=U){var gt=[e.from,e.to].sort(),be="chat_"+gt[0]+"_"+gt[1];r.nodes.get(be)||r.addNode({id:be,kind:"Chat",label:"Chat"}),l++;var bt="m"+l;r.addNode({id:bt,kind:"Message",label:"Message"}),r.appendHyper({id:"snA"+l,family:"SendA",src:e.from,tgt:be,pd:.8,pi:.8,epoch:g},{id:"snT"+l,family:"SendT",src:be,tgt:bt,pd:.8,pi:.8,epoch:g}),M(e.from),I(e.from,.8,.8),n||Ee.push({from:e.from,to:e.to,text:e.text,idx:b})}}else if(e.t==="closeCycle"){var yt=B.closeCycle();i.push({who:null,line:"L0 cycle "+B.cycle+" processed \xB7 minted "+yt.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+yt.floor.toFixed(4)+(B.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){if(!Z(e.author))continue;l++;var D="c"+l;q[b]=D,_[D]=e.author,n&&(ue[D]=!0),r.addNode({id:D,kind:"Content",label:n?"[deleted]":"Stream "+l}),r.append({id:"pub"+l,family:"Publish",src:e.author,tgt:D,pd:e.a,pi:1,epoch:g}),M(e.author),I(e.author,e.a,1),n||(v[D]=e.author,a[D]=e.text,H[D]={idx:b,ts:e.ts,edited:!1,stream:!0},i.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:D}))}else if(e.t==="post"){if(!Z(e.author))continue;var wt=Number.isInteger(e.target)&&q[e.target]!==void 0,u;if(wt)if(u=q[e.target],r.append({id:"pubu"+b,family:"Publish",src:e.author,tgt:u,pd:e.a,pi:1,epoch:g}),M(e.author),I(e.author,e.a,1),n){ue[u]=!0,delete a[u],delete ve[u];var At=r.nodes.get(u);At&&(At.label="[deleted]")}else a[u]!==void 0&&(a[u]=e.text,e.media&&e.media.length&&(ve[u]=e.media),H[u]&&(H[u].edited=!0),i.push({who:e.author,line:"revised a post \u2014 a further record about it, the original stands",to:u}));else l++,u="c"+l,q[b]=u,_[u]=e.author,n&&(ue[u]=!0),r.addNode({id:u,kind:"Content",label:n?"[deleted]":"Post "+l}),r.append({id:"pub"+l,family:"Publish",src:e.author,tgt:u,pd:e.a,pi:1,epoch:g}),M(e.author),I(e.author,e.a,1),n||(v[u]=e.author,a[u]=e.text,e.media&&e.media.length&&(ve[u]=e.media),H[u]={idx:b,ts:e.ts,edited:!!e.edited},i.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:u}));if(wt)continue;e.ref&&r.nodes.get(e.ref)&&s[e.author]&&s[e.author].burnBal>=U&&(l++,r.appendHyper({id:"rfA"+l,family:"ReferenceA",src:e.author,tgt:u,pd:.8,pi:.9,epoch:g},{id:"rfT"+l,family:"ReferenceT",src:u,tgt:e.ref,pd:.9,pi:.8,epoch:g}),M(e.author),I(e.author,.8,.9),n||i.push({who:e.author,line:"referenced "+((r.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var xt=e.rmen!==void 0?e.rmen:dt(e.text,h),Ke=0;Ke<xt.length;Ke++){var ne=xt[Ke];ne===e.author||!s[e.author]||s[e.author].burnBal<U||(l++,r.appendHyper({id:"rfA"+l,family:"ReferenceA",src:e.author,tgt:u,pd:.7,pi:.8,epoch:g},{id:"rfT"+l,family:"ReferenceT",src:u,tgt:"prof_"+ne,pd:.8,pi:.7,epoch:g}),M(e.author),pt(e.author,ne,.7,.8),n||i.push({who:e.author,line:"mentioned "+T(ne)+" \u2014 person-vouch compiled",to:u,refs:[{label:T(ne),id:ne}]}))}}else if(e.t==="opinion"){if(!Z(e.author))continue;l++;var Ct=r.append({id:"op"+l,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:g}),j=e.target.indexOf("prof_")===0?e.target.slice(5):null;j&&j!==e.author?pt(e.author,j,e.p,e.r):I(e.author,e.p,e.r),!j&&_[e.target]&&_[e.target]!==e.author&&he.push({actor:e.author,creator:_[e.target],base:e.p>=0?1:.3}),n||i.push({who:e.author,line:(j?"vouched on "+T(j)+"\u2019s profile":"reacted to "+((r.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+Ct.tau.toFixed(2)+" \xB7 w "+Ct.weight.toFixed(3),to:e.target,refs:j?[{label:T(j),id:j}]:[{label:(r.nodes.get(e.target)||{}).label||e.target,id:e.target}]}),M(e.author)}else if(e.t==="review"){if(!Z(e.author))continue;var Qt=Number.isInteger(e.upd)&&q[e.upd]!==void 0,c;Qt?(c=q[e.upd],r.appendHyper({id:"rvAu"+b,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:g},{id:"rvTu"+b,family:"ReviewT",src:e.target,tgt:c,pd:e.f,pi:e.e,epoch:g}),I(e.author,e.e,e.f),!n&&a[c]!==void 0&&(a[c]=e.text,me[c]={e:e.e,f:e.f},H[c]&&(H[c].edited=!0),i.push({who:e.author,line:"revised a comment \u2014 a further record, the original stands",to:c})),M(e.author)):(l++,c="c"+l,q[b]=c,_[c]=e.author,n&&(ue[c]=!0),r.addNode({id:c,kind:"Comment",label:n?"[deleted]":"Review "+l}),r.appendHyper({id:"rvA"+l,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:g},{id:"rvT"+l,family:"ReviewT",src:e.target,tgt:c,pd:e.f,pi:e.e,epoch:g}),I(e.author,e.e,e.f),_[e.target]&&_[e.target]!==e.author&&he.push({actor:e.author,creator:_[e.target],base:1.2}),n||(v[c]=e.author,a[c]=e.text,me[c]={e:e.e,f:e.f},H[c]={idx:b,ts:e.ts,edited:!1,comment:!0},i.push({who:e.author,line:"reviewed "+((r.nodes.get(e.target)||{}).label||"something since removed")+" \u2192 minted a Comment \xB7 one act, two legs",to:c,refs:[{label:(r.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]})),M(e.author))}else if(e.t==="tag"){if(!Z(e.author))continue;l++;var Wt=$t(e.name);r.appendHyper({id:"tgA"+l,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:g},{id:"tgT"+l,family:"TagT",src:e.target,tgt:Wt,pd:e.c,pi:e.r,epoch:g}),I(e.author,e.r,e.c),n||i.push({who:e.author,line:"tagged "+((r.nodes.get(e.target)||{}).label||"something since removed")+" as #"+e.name,to:e.target,refs:[{label:(r.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]}),M(e.author)}else if(e.t==="call"){if(s[e.from]&&s[e.to]&&s[e.from].burnBal>=U&&(M(e.from),!n)){Ee.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:b});var Jt=e.outcome==="completed"?"\u260E call with "+T(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+T(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+T(e.to)+" \u2014 declined":"\u260E call to "+T(e.to)+" failed to connect";i.push({who:e.from,line:Jt})}}else if(e.t==="editPost"){var V=q[e.target];V&&!ue[V]&&a[V]!==void 0&&(a[V]=e.text,H[V]&&(H[V].edited=!0),i.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:V}))}else if(e.t==="deletePost")i.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")i.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="btcClaim"||e.t==="assetCreate"||e.t==="tokenSend"||e.t==="poolCreate"||e.t==="poolAdd"||e.t==="poolRemove"||e.t==="poolSwap"||e.t==="advert"||e.t==="adStop"){if(mt(e)===null){if(M(e.author),e.t==="advert"){ct++;var ye=Math.floor(e.days),we=f(je*ye);J("tBTC",e.author,we),F.tBTC=f(F.tBTC-we),Y.push({id:"ad"+ct,by:e.author,text:e.text.trim(),url:e.url,days:ye,paid:we,at:e.ts||0,until:(e.ts||0)+ye*864e5,aim:{placement:Array.isArray(e.placement)?e.placement:[],tags:Array.isArray(e.tags)?e.tags:[],people:Array.isArray(e.people)?e.people:[],posts:Array.isArray(e.posts)?e.posts:[],regions:Array.isArray(e.regions)?e.regions:[]},stopped:!1}),n||i.push({who:e.author,line:"bought a placement for "+ye+" day(s) \xB7 burned "+we+" tBTC \xB7 it holds no standing and ranks nothing"})}else if(e.t==="adStop"){for(var Ae=0;Ae<Y.length;Ae++)Y[Ae].id===e.ad&&(Y[Ae].stopped=!0);n||i.push({who:e.author,line:"stopped advert "+e.ad})}else if(e.t==="btcClaim")qe[e.author]=!0,W("tBTC",e.author,Ie),F.tBTC=f(F.tBTC+Ie),n||i.push({who:e.author,line:"claimed "+Ie+" tBTC \u2014 sandbox value, one claim per account"});else if(e.t==="assetCreate")re[e.sym]={name:e.name.trim(),creator:e.author},F[e.sym]=e.supply,W(e.sym,e.author,e.supply),n||i.push({who:e.author,line:"minted "+e.supply+" "+e.sym+" \u2014 \u201C"+e.name.trim()+"\u201D \u2014 a fun asset, worth what a pool says it is",refs:[{label:T(e.author),id:e.author}]});else if(e.t==="tokenSend")J(e.sym,e.author,e.amt),W(e.sym,e.to,e.amt),n||i.push({who:e.author,line:"sent "+e.amt+" "+e.sym+" to "+T(e.to),refs:[{label:T(e.to),id:e.to}]});else if(e.t==="poolCreate"){var xe=ze(e.symA,e.symB),pe=xe.split("/")[0],Ze=xe.split("/")[1],Ce=pe===e.symA?e.amtA:e.amtB,Be=pe===e.symA?e.amtB:e.amtA;J(pe,e.author,Ce),J(Ze,e.author,Be);var Bt=Math.sqrt(Ce*Be),Ye={};Ye[e.author]=Bt-Le,Ye._locked=Le,Q[xe]={a:pe,b:Ze,resA:Ce,resB:Be,totalShares:Bt,shares:Ye,swaps:0,volA:0,volB:0},n||i.push({who:e.author,line:"opened the "+xe+" pool with "+f(Ce)+" "+pe+" + "+f(Be)+" "+Ze})}else if(e.t==="poolAdd"){var A=Q[e.pool],Ue=Math.min(e.amtA/A.resA,e.amtB/A.resB),$e=Ue*A.resA,Qe=Ue*A.resB;J(A.a,e.author,$e),J(A.b,e.author,Qe);var Tt=Ue*A.totalShares;A.resA+=$e,A.resB+=Qe,A.totalShares+=Tt,A.shares[e.author]=(A.shares[e.author]||0)+Tt,n||i.push({who:e.author,line:"added liquidity to "+e.pool+" ("+f($e)+" "+A.a+" + "+f(Qe)+" "+A.b+")"})}else if(e.t==="poolRemove"){var E=Q[e.pool],Mt=e.shares/E.totalShares,We=Mt*E.resA,Je=Mt*E.resB;E.shares[e.author]-=e.shares,E.totalShares-=e.shares,E.resA-=We,E.resB-=Je,W(E.a,e.author,We),W(E.b,e.author,Je),n||i.push({who:e.author,line:"withdrew from "+e.pool+" ("+f(We)+" "+E.a+" + "+f(Je)+" "+E.b+")"})}else if(e.t==="poolSwap"){var x=Q[e.pool],ae=e.sell===x.a,Vt=ae?x.resA:x.resB,Xt=ae?x.resB:x.resA,kt=e.amt*.997,Te=Xt*kt/(Vt+kt);J(e.sell,e.author,e.amt),ae?(x.resA+=e.amt,x.resB-=Te):(x.resB+=e.amt,x.resA-=Te);var St=ae?x.b:x.a;W(St,e.author,Te),x.swaps++,ae?x.volA+=e.amt:x.volB+=e.amt,n||i.push({who:e.author,line:"swapped "+f(e.amt)+" "+e.sell+" \u2192 "+f(Te)+" "+St+" in "+e.pool})}}}else if(e.t==="closeEpoch"){var Pt=qt(L,e.epoch,C,ft(w,K),O);G.push(Pt.record),i.push(Pt.chron),O={},g++,ie++;for(var Gt=F.PEER>=at?0:Math.min(zt*Math.pow(Kt,Math.floor((ie-1)/Zt)),at-F.PEER),Me=f(Gt+oe),ke={},Ve=0,Xe={},Ge=0;Ge<he.length;Ge++){var X=he[Ge],Se=s[X.actor];if(!(!Se||Se.actCount===0)){var Rt=fe[X.actor]||0;if(!(Rt<=0)){var er=U*Se.actCount,et=Math.max(0,Rt-er)/Se.actCount/_e;if(!(et<Yt)){var tt=X.actor+">"+X.creator;Xe[tt]=(Xe[tt]||0)+1;var _t=X.base*(1/(1+Ut*(Xe[tt]-1)))*(et/(1+et));ke[X.creator]=(ke[X.creator]||0)+_t,Ve+=_t}}}}if(Ve>0&&Me>0){var se=0,rt={};for(var ot in ke){var Pe=Math.floor(Me*ke[ot]/Ve*1e6)/1e6;Pe<=0||(W("PEER",ot,Pe),rt[ot]=Pe,se=f(se+Pe))}F.PEER=f(F.PEER+se),oe=Math.max(0,f(Me-se)),De.push({epoch:ie,minted:se,carried:oe,to:rt}),i.push({line:"epoch "+ie+" minted "+se+" PEER across "+Object.keys(rt).length+" creator(s) \u2014 engagement-weighted, \u03B1\u0302-gated, never standing"})}else oe=Me,De.push({epoch:ie,minted:0,carried:oe,to:{}});he=[]}}var Et=ft(w,K),it=L.solveStanding(C,Et,{tilt:1}),nt={};it.ids.forEach(function(t,o){nt[t]=it.x[o]});var Ot=G.length+1;for(var z in s)if(z!=="alice"){var Nt=_e*(nt[z]||0),st=Nt/(_e+Nt),Ht=1-1/(Ot-S[z]+1);st>0&&(r.append({id:"dec_"+z,family:"SelfDeclaration",src:z,tgt:"prof_"+z,pd:1,pi:st,tauOverride:Ht}),r.append({id:"rep_"+z,family:"SelfReputation",src:"prof_"+z,tgt:z,pd:1,pi:st,tauOverride:Ht}))}var Ft={};for(var lt in h)Ft[lt]=$[lt]?"[deleted]":h[lt];return{g:r,ledgers:C,ledgerById:s,handles:Ft,creators:v,payloads:a,bundles:w,cells:Et,solved:it,xById:nt,deltaActs:O,dmap:new Map(Object.keys(O).map(function(t){return[t,O[t]]})),epochHistory:G,chron:i,epochNow:Ot,reviewMeta:me,mediaMeta:ve,dms:Ee,pinHash:Oe,l0:B,deleted:$,postMeta:H,tokens:{bal:te,meta:re,supply:F,claimed:qe,dist:De,carry:oe,epochN:ie},pools:Q,adverts:Y,adPricePerDay:je,tokenActError:mt,actContent:q}}return{replay:Dt,parseMentions:dt}}return{create:Re}});
+(function(Oe,q){typeof module=="object"&&module.exports?module.exports=q():Oe.PeerReplay=q()})(typeof globalThis<"u"?globalThis:this,function(){"use strict";function Oe(q){var U=q.THETA,He=q.NU,ft={photo:"Street shot from the underpass \u2014 first light.",comment:"Grain placement is deliberate. This holds up."};function at(S,r){var C={};for(var s in r)C[(r[s]||"").toLowerCase().replace(/[^a-z0-9]/g,"")]=s;for(var f=[],R={},v,p=/@([a-zA-Z0-9_]{1,16})/g;(v=p.exec(S))!==null&&f.length<3;){var w=C[v[1].toLowerCase().replace(/[^a-z0-9]/g,"")];w&&!R[w]&&(R[w]=1,f.push(w))}return f}function Zt(S,r,C,s,f){var R=C.map(function(i){return{id:i.id,burnBal:i.burnBal,actCount:i.actCount}}),v=new Map(Object.keys(f).map(function(i){return[i,f[i]]})),p=Object.keys(f).reduce(function(i,E){return i+f[E]},0),w=null;function Z(){if(!w){var i=S.solveStanding(R,s,{tilt:1});w=S.evaluateGates(R,i.x,v)}return w}var H={epoch:r,acts:p};Object.defineProperties(H,{stamp:{enumerable:!0,get:function(){return Z().epochStamp}},headroom:{enumerable:!0,get:function(){return Z().headroom}},pass:{enumerable:!0,get:function(){return Z().allPass}}});var G={who:null};return Object.defineProperty(G,"line",{enumerable:!0,get:function(){var i=Z();return"epoch "+r+" closed \xB7 stamp "+i.epochStamp.toFixed(3)+" \xB7 "+(i.allPass?"certificate accepted":"wall/door failed")}}),{record:H,chron:G}}function pt(S,r){var C=(r||[]).slice();for(var s in S){var f=S[s],R=Math.max(-1,Math.min(1,f.pd)),v=Math.max(-1,Math.min(1,f.pi));if(R>0&&v>0)C.push({src:f.src,rcp:f.rcp,coeff:Math.sqrt(R*v)});else{var p=Math.sqrt(Math.abs(R)*Math.abs(v));p>0&&C.push({src:f.src,rcp:f.src,coeff:p})}}return C}function Wt(S){for(var r=new q.RawGraph,C=[],s={},f={},R={},v={},p={},w={},Z=[],H={},G=[],i=[],E={},ge={},be={},Ne=[],Fe={},u=0,g=0,$={},ct={},Ie={},Le={},qe=0;qe<S.length;qe++){var N=S[qe];if(N.t==="deleteAccount")$[N.id]=!0;else if(N.t==="deletePost")ct[N.target]=!0;else if(N.t==="register"&&N.handle){var ue=Yt(N.handle);ue&&Ie[ue]&&Ie[ue]!==N.id?Le[N.id]=!0:ue&&(Ie[ue]=N.id)}}var de={},j={},F={},B=new q.AttestationLedger({E0:100,zeta:.5,fee:.5,maturityCycle:10});function ee(t){try{return t()}catch{return null}}function he(t,o,m,y,_,h){var a=h||o;r.addNode({id:t,kind:"Actor",label:a}),r.addNode({id:"prof_"+t,kind:"Profile",label:a});var ve={id:t,burnBal:m,actCount:y};C.push(ve),s[t]=ve,f[t]=o,R[t]=_}function Yt(t){for(var o="",m="",y=String(t||"").toLowerCase(),_=0;_<y.length;_++){var h=y[_];h==="0"?h="o":h==="1"||h==="i"||h==="l"?h="l":h==="5"?h="s":h==="8"?h="b":h==="2"&&(h="z"),!(!/[a-z0-9]/.test(h)||h===m)&&(o+=h,m=h)}return o}function T(t){if($[t])return"[deleted]";var o=f[t]||t;return Le[t]?o+" ("+t+", not the original)":o}function W(t){return!!s[t]}function M(t){var o=s[t];o&&(o.burnBal-=U,o.actCount+=1,H[t]=(H[t]||0)+1)}function mt(t,o,m,y){var _=t+">"+o,h=w[_]||(w[_]={src:t,rcp:o,pd:0,pi:0});h.pd+=m,h.pi+=y}var Ut=5e3,$t=.9,Qt=365,vt=1825e4,Jt=.2,Vt=.3,je=.01,ze=1e-9,te={},re={PEER:{name:"Peer epoch token",creator:null},tBTC:{name:"test bitcoin \u2014 sandbox value, backed by nothing",creator:null}},I={PEER:0,tBTC:0},De={},Q={},Ke=[],Ze=2e-4,Y=[],gt=0,fe={},oe=0,ie=0,ae=[];function l(t){return Math.round(t*1e6)/1e6}function P(t,o){return te[t]&&te[t][o]||0}function J(t,o,m){if(m>0){var y=te[t]||(te[t]={});y[o]=(y[o]||0)+m}}function V(t,o,m){te[t][o]-=m}function We(t,o){return t<o?t+"/"+o:o+"/"+t}function bt(t){var o=t.author;if(!s[o])return"unknown actor";if(s[o].burnBal<U)return"not enough energy";if(t.t==="advert"){var m=Math.floor(t.days);if(!(m>=1&&m<=90))return"an advert runs between 1 and 90 days";if(typeof t.text!="string"||!t.text.trim())return"the advert needs text";if(t.text.length>280)return"advert text is "+t.text.length+" characters; the limit is 280";if(typeof t.url!="string"||!/^https?:\/\/[^\s]{3,300}$/i.test(t.url))return"url must be a plain http(s) link";var y=l(Ze*m);return P("tBTC",o)<y?"this advert costs "+y+" tBTC for "+m+" day(s) and you hold "+l(P("tBTC",o)):null}if(t.t==="adStop"){for(var _=null,h=0;h<Y.length;h++)Y[h].id===t.ad&&(_=Y[h]);return _?_.by!==o&&!t.operator?"only the advertiser can stop their own advert":null:"no advert with id "+t.ad}if(t.t==="btcClaim")return De[o]?"this account already claimed its tBTC \u2014 one claim per account, ever":null;if(t.t==="assetCreate")return/^[A-Z][A-Z0-9]{2,7}$/.test(t.sym||"")?re[t.sym]?"symbol "+t.sym+" is taken":!(t.supply>0)||t.supply>1e9?"supply must be between 0 and 1,000,000,000":typeof t.name!="string"||!t.name.trim()||t.name.length>60?"the asset needs a name, at most 60 characters":null:"symbol must be 3-8 characters, A-Z and digits, starting with a letter";if(t.t==="tokenSend")return re[t.sym]?t.amt>0?s[t.to]?t.to===o?"sending to yourself moves nothing":P(t.sym,o)<t.amt?"balance is "+l(P(t.sym,o))+" "+t.sym+", tried to send "+t.amt:null:"unknown recipient":"amount must be positive":"no such asset: "+t.sym;if(t.t==="poolCreate")return!re[t.symA]||!re[t.symB]?"both assets must exist":t.symA===t.symB?"a pool needs two different assets":Q[We(t.symA,t.symB)]?"the "+We(t.symA,t.symB)+" pool already exists \u2014 add liquidity to it instead":!(t.amtA>0)||!(t.amtB>0)?"both starting amounts must be positive":P(t.symA,o)<t.amtA?"balance is "+l(P(t.symA,o))+" "+t.symA+", tried to deposit "+t.amtA:P(t.symB,o)<t.amtB?"balance is "+l(P(t.symB,o))+" "+t.symB+", tried to deposit "+t.amtB:Math.sqrt(t.amtA*t.amtB)<=ze*10?"starting liquidity too small":null;var a=Q[t.pool];if(t.t==="poolAdd"){if(!a)return"no such pool: "+t.pool;if(!(t.amtA>0)||!(t.amtB>0))return"both amounts must be positive";var ve=Math.min(t.amtA/a.resA,t.amtB/a.resB);return P(a.a,o)<ve*a.resA||P(a.b,o)<ve*a.resB?"not enough balance for that deposit":null}if(t.t==="poolRemove"){if(!a)return"no such pool: "+t.pool;var Dt=a.shares[o]||0;return!(t.shares>0)||t.shares>Dt+1e-12?"you hold "+l(Dt)+" shares of "+t.pool+", tried to remove "+t.shares:null}if(t.t==="poolSwap"){if(!a)return"no such pool: "+t.pool;if(t.sell!==a.a&&t.sell!==a.b)return t.pool+" does not trade "+t.sell;if(!(t.amt>0))return"amount must be positive";if(P(t.sell,o)<t.amt)return"balance is "+l(P(t.sell,o))+" "+t.sell+", tried to sell "+t.amt;var nr=t.sell===a.a?a.resA:a.resB,sr=t.sell===a.a?a.resB:a.resA,Kt=sr*(t.amt*.997)/(nr+t.amt*.997);return t.minOut!==void 0&&Kt<t.minOut?"that trade would return "+l(Kt)+", below your minimum of "+t.minOut+" \u2014 the price moved":null}return"unknown token act"}function L(t,o,m){var y=Math.sqrt(Math.abs(o)*Math.abs(m));y>0&&Z.push({src:t,rcp:t,coeff:Math.min(1,y)})}function Xt(t){var o="type_"+t.toLowerCase().replace(/[^a-z0-9]/g,"");return r.nodes.get(o)||r.addNode({id:o,kind:"Type",label:"#"+t}),o}for(var b=0;b<S.length;b++){var e=S[b],n=!!($[e.author]||$[e.from]||$[e.id]||ct[b]);if(e.t==="seedWorld")he("alice","Alice",3,10,0),he("bob","Bob",2,8,0),he("carol","Carol",4,12,0),he("dave","Dave",1,5,0),r.addNode({id:"photo",kind:"Content",label:"Photo"}),r.addNode({id:"comment",kind:"Comment",label:"Comment"}),r.addNode({id:"streetart",kind:"Type",label:"#StreetArt"}),r.addNode({id:"sneakers",kind:"Item",label:"Sneakers"}),r.append({id:"e1",family:"SelfDeclaration",src:"alice",tgt:"prof_alice",pd:1,pi:.75}),r.append({id:"e1r",family:"SelfReputation",src:"prof_alice",tgt:"alice",pd:1,pi:.75}),r.append({id:"e2",family:"Opinion",src:"alice",tgt:"photo",pd:.9,pi:.7}),r.append({id:"e3",family:"ReviewA",src:"bob",tgt:"photo",pd:.7,pi:.8}),r.append({id:"e4",family:"ReviewT",src:"photo",tgt:"comment",pd:.8,pi:.7}),r.append({id:"e5",family:"TagA",src:"carol",tgt:"comment",pd:.8,pi:.9}),r.append({id:"e6",family:"TagT",src:"comment",tgt:"streetart",pd:.9,pi:.8}),r.append({id:"e7",family:"Affinity",src:"alice",tgt:"streetart",pd:.6,pi:.8}),r.append({id:"e8",family:"Owner",src:"bob",tgt:"sneakers",pd:.7,pi:1}),v.photo="alice",v.comment="bob",v.sneakers="bob",v.streetart="carol",p.photo=ft.photo,p.comment=ft.comment,ge.comment={e:.7,f:.8},["alice","bob","carol","dave"].forEach(function(t){B.faucet(t,10),ee(function(){B.transfer("op",t,2,"live")})}),i.push({who:"alice",line:"posted Photo \u2014 seed world",to:"photo"}),i.push({who:"bob",line:"reviewed Photo, minting a Comment \u2014 seed world",to:"comment"});else if(e.t==="register")he(e.id,e.handle,e.seed,0,e.epoch,n?"[deleted]":Le[e.id]?e.handle+" ("+e.id+", not the original)":e.handle),e.pinHash&&(Fe[e.id]=e.pinHash),r.append({id:"reg_"+e.id,family:"Registration",src:e.id,tgt:"prof_"+e.id,pd:1,pi:1}),M(e.id),L(e.id,1,1),B.faucet(e.id,10),ee(function(){B.transfer("op",e.id,2,"live")}),n?s[e.id].deleted=!0:i.push({who:e.id,line:"registered \xB7 genesis attestation "+e.seed.toFixed(2)+" \xB7 \u03B8-debit"+(e.pinHash?" \xB7 PIN-secured":"")});else if(e.t==="burn"){if(!W(e.id))continue;s[e.id].burnBal+=e.amt,fe[e.id]=(fe[e.id]||0)+e.amt,n||i.push({who:e.id,line:"burned +"+e.amt.toFixed(2)+" reserve (legacy faucet)"})}else if(e.t==="deposit")ee(function(){return B.deposit(e.id,e.amt),!0})&&!n&&i.push({who:e.id,line:"deposited "+e.amt.toFixed(2)+" reserve \u2192 escrow (mints at the next cycle boundary)"});else if(e.t==="burnL0"){var ye=ee(function(){return B.burn(e.id,e.x)});ye!=null&&s[e.id]&&(s[e.id].burnBal+=ye,fe[e.id]=(fe[e.id]||0)+ye,n||i.push({who:e.id,line:"burned "+e.x.toFixed(2)+" live units \u2192 attestation +"+ye.toFixed(3)+" at settled floor \u03C6 "+B.settledFloor.toFixed(3)}))}else if(e.t==="redeem"){var yt=ee(function(){return B.redeem(e.id,e.x)});yt!=null&&!n&&i.push({who:e.id,line:"redeemed "+e.x.toFixed(2)+" live units \u2192 "+yt.toFixed(3)+" reserve (floor-preserving)"})}else if(e.t==="transferL0")ee(function(){return B.transfer(e.from,e.to,e.x,e.cls==="tlock"?"tlock":"live"),!0})&&!n&&i.push({who:e.from,line:"sent "+e.x.toFixed(2)+" "+(e.cls==="tlock"?"time-locked":"live")+" units to "+T(e.to),refs:[{label:T(e.to),id:e.to}]});else if(e.t==="setPin")s[e.id]&&e.pinHash&&(Fe[e.id]=e.pinHash,n||i.push({who:e.id,line:"secured the handle with a PIN"}));else if(e.t==="dm"){if(!W(e.from)||!W(e.to))continue;if(s[e.from]&&s[e.to]&&s[e.from].burnBal>=U){var wt=[e.from,e.to].sort(),we="chat_"+wt[0]+"_"+wt[1];r.nodes.get(we)||r.addNode({id:we,kind:"Chat",label:"Chat"}),u++;var At="m"+u;r.addNode({id:At,kind:"Message",label:"Message"}),r.appendHyper({id:"snA"+u,family:"SendA",src:e.from,tgt:we,pd:.8,pi:.8,epoch:g},{id:"snT"+u,family:"SendT",src:we,tgt:At,pd:.8,pi:.8,epoch:g}),M(e.from),L(e.from,.8,.8),n||Ne.push({from:e.from,to:e.to,text:e.text,idx:b})}}else if(e.t==="closeCycle"){var xt=B.closeCycle();i.push({who:null,line:"L0 cycle "+B.cycle+" processed \xB7 minted "+xt.minted.toFixed(2)+" receipt units \xB7 settled floor \u03C6 "+xt.floor.toFixed(4)+(B.cycle===10?" \xB7 maturity conversion: all time-locked units are now live":"")})}else if(e.t==="stream"){if(!W(e.author))continue;u++;var z="c"+u;j[b]=z,E[z]=e.author,n&&(de[z]=!0),r.addNode({id:z,kind:"Content",label:n?"[deleted]":"Stream "+u}),r.append({id:"pub"+u,family:"Publish",src:e.author,tgt:z,pd:e.a,pi:1,epoch:g}),M(e.author),L(e.author,e.a,1),n||(v[z]=e.author,p[z]=e.text,F[z]={idx:b,ts:e.ts,edited:!1,stream:!0},i.push({who:e.author,line:"went live \xB7 "+e.text.slice(0,60),to:z}))}else if(e.t==="post"){if(!W(e.author))continue;var Ct=Number.isInteger(e.target)&&j[e.target]!==void 0,d;if(Ct)if(d=j[e.target],r.append({id:"pubu"+b,family:"Publish",src:e.author,tgt:d,pd:e.a,pi:1,epoch:g}),M(e.author),L(e.author,e.a,1),n){de[d]=!0,delete p[d],delete be[d];var Bt=r.nodes.get(d);Bt&&(Bt.label="[deleted]")}else p[d]!==void 0&&(p[d]=e.text,e.media&&e.media.length&&(be[d]=e.media),F[d]&&(F[d].edited=!0),i.push({who:e.author,line:"revised a post \u2014 a further record about it, the original stands",to:d}));else u++,d="c"+u,j[b]=d,E[d]=e.author,n&&(de[d]=!0),r.addNode({id:d,kind:"Content",label:n?"[deleted]":"Post "+u}),r.append({id:"pub"+u,family:"Publish",src:e.author,tgt:d,pd:e.a,pi:1,epoch:g}),M(e.author),L(e.author,e.a,1),n||(v[d]=e.author,p[d]=e.text,e.media&&e.media.length&&(be[d]=e.media),F[d]={idx:b,ts:e.ts,edited:!!e.edited},i.push({who:e.author,line:"posted \xB7 attachment "+e.a.toFixed(2),to:d}));if(Ct)continue;e.ref&&r.nodes.get(e.ref)&&s[e.author]&&s[e.author].burnBal>=U&&(u++,r.appendHyper({id:"rfA"+u,family:"ReferenceA",src:e.author,tgt:d,pd:.8,pi:.9,epoch:g},{id:"rfT"+u,family:"ReferenceT",src:d,tgt:e.ref,pd:.9,pi:.8,epoch:g}),M(e.author),L(e.author,.8,.9),n||i.push({who:e.author,line:"referenced "+((r.nodes.get(e.ref)||{}).label||e.ref)+" \u2014 content-intrinsic citation",to:e.ref}));for(var Tt=e.rmen!==void 0?e.rmen:at(e.text,f),Ye=0;Ye<Tt.length;Ye++){var ne=Tt[Ye];ne===e.author||!s[e.author]||s[e.author].burnBal<U||(u++,r.appendHyper({id:"rfA"+u,family:"ReferenceA",src:e.author,tgt:d,pd:.7,pi:.8,epoch:g},{id:"rfT"+u,family:"ReferenceT",src:d,tgt:"prof_"+ne,pd:.8,pi:.7,epoch:g}),M(e.author),mt(e.author,ne,.7,.8),n||i.push({who:e.author,line:"mentioned "+T(ne)+" \u2014 person-vouch compiled",to:d,refs:[{label:T(ne),id:ne}]}))}}else if(e.t==="opinion"){if(!W(e.author))continue;u++;var Mt=r.append({id:"op"+u,family:"Opinion",src:e.author,tgt:e.target,pd:e.p,pi:e.r,epoch:g}),D=e.target.indexOf("prof_")===0?e.target.slice(5):null;D&&D!==e.author?mt(e.author,D,e.p,e.r):L(e.author,e.p,e.r),!D&&E[e.target]&&E[e.target]!==e.author&&ae.push({actor:e.author,creator:E[e.target],base:e.p>=0?1:.3,cid:e.target,kind:e.p>=0?"reaction":"dislike"}),n||i.push({who:e.author,line:(D?"vouched on "+T(D)+"\u2019s profile":"reacted to "+((r.nodes.get(e.target)||{}).label||e.target))+" ("+e.p.toFixed(2)+", "+e.r.toFixed(2)+") \xB7 \u03C4 "+Mt.tau.toFixed(2)+" \xB7 w "+Mt.weight.toFixed(3),to:e.target,refs:D?[{label:T(D),id:D}]:[{label:(r.nodes.get(e.target)||{}).label||e.target,id:e.target}]}),M(e.author)}else if(e.t==="review"){if(!W(e.author))continue;var Gt=Number.isInteger(e.upd)&&j[e.upd]!==void 0,c;Gt?(c=j[e.upd],r.appendHyper({id:"rvAu"+b,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:g},{id:"rvTu"+b,family:"ReviewT",src:e.target,tgt:c,pd:e.f,pi:e.e,epoch:g}),L(e.author,e.e,e.f),!n&&p[c]!==void 0&&(p[c]=e.text,ge[c]={e:e.e,f:e.f},F[c]&&(F[c].edited=!0),i.push({who:e.author,line:"revised a comment \u2014 a further record, the original stands",to:c})),M(e.author)):(u++,c="c"+u,j[b]=c,E[c]=e.author,n&&(de[c]=!0),r.addNode({id:c,kind:"Comment",label:n?"[deleted]":"Review "+u}),r.appendHyper({id:"rvA"+u,family:"ReviewA",src:e.author,tgt:e.target,pd:e.e,pi:e.f,epoch:g},{id:"rvT"+u,family:"ReviewT",src:e.target,tgt:c,pd:e.f,pi:e.e,epoch:g}),L(e.author,e.e,e.f),E[e.target]&&E[e.target]!==e.author&&ae.push({actor:e.author,creator:E[e.target],base:1.2,cid:e.target,kind:"comment"}),n||(v[c]=e.author,p[c]=e.text,ge[c]={e:e.e,f:e.f},F[c]={idx:b,ts:e.ts,edited:!1,comment:!0},i.push({who:e.author,line:"reviewed "+((r.nodes.get(e.target)||{}).label||"something since removed")+" \u2192 minted a Comment \xB7 one act, two legs",to:c,refs:[{label:(r.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]})),M(e.author))}else if(e.t==="tag"){if(!W(e.author))continue;u++;var er=Xt(e.name);r.appendHyper({id:"tgA"+u,family:"TagA",src:e.author,tgt:e.target,pd:e.r,pi:e.c,epoch:g},{id:"tgT"+u,family:"TagT",src:e.target,tgt:er,pd:e.c,pi:e.r,epoch:g}),L(e.author,e.r,e.c),n||i.push({who:e.author,line:"tagged "+((r.nodes.get(e.target)||{}).label||"something since removed")+" as #"+e.name,to:e.target,refs:[{label:(r.nodes.get(e.target)||{}).label||"something since removed",id:e.target}]}),M(e.author)}else if(e.t==="call"){if(s[e.from]&&s[e.to]&&s[e.from].burnBal>=U&&(M(e.from),!n)){Ne.push({from:e.from,to:e.to,text:"",call:{outcome:e.outcome,dur:e.dur||0},idx:b});var tr=e.outcome==="completed"?"\u260E call with "+T(e.to)+" \xB7 "+Math.floor((e.dur||0)/60)+":"+("0"+(e.dur||0)%60).slice(-2):e.outcome==="missed"?"\u260E called "+T(e.to)+" \u2014 no answer":e.outcome==="declined"?"\u260E called "+T(e.to)+" \u2014 declined":"\u260E call to "+T(e.to)+" failed to connect";i.push({who:e.from,line:tr})}}else if(e.t==="editPost"){var X=j[e.target];X&&!de[X]&&p[X]!==void 0&&(p[X]=e.text,F[X]&&(F[X].edited=!0),i.push({who:e.author,line:"edited a post \u2014 within the 5-minute window",to:X}))}else if(e.t==="deletePost")i.push({who:e.author,line:"deleted a post \u2014 content redacted from the served record"});else if(e.t==="deleteAccount")i.push({who:e.id,line:"account deleted \u2014 content redacted, handle stays reserved"});else if(e.t==="btcClaim"||e.t==="assetCreate"||e.t==="tokenSend"||e.t==="poolCreate"||e.t==="poolAdd"||e.t==="poolRemove"||e.t==="poolSwap"||e.t==="advert"||e.t==="adStop"){if(bt(e)===null){if(M(e.author),e.t==="advert"){gt++;var Ae=Math.floor(e.days),xe=l(Ze*Ae);V("tBTC",e.author,xe),I.tBTC=l(I.tBTC-xe),Y.push({id:"ad"+gt,by:e.author,text:e.text.trim(),url:e.url,days:Ae,paid:xe,at:e.ts||0,until:(e.ts||0)+Ae*864e5,aim:{placement:Array.isArray(e.placement)?e.placement:[],tags:Array.isArray(e.tags)?e.tags:[],people:Array.isArray(e.people)?e.people:[],posts:Array.isArray(e.posts)?e.posts:[],regions:Array.isArray(e.regions)?e.regions:[]},stopped:!1}),n||i.push({who:e.author,line:"bought a placement for "+Ae+" day(s) \xB7 burned "+xe+" tBTC \xB7 it holds no standing and ranks nothing"})}else if(e.t==="adStop"){for(var Ce=0;Ce<Y.length;Ce++)Y[Ce].id===e.ad&&(Y[Ce].stopped=!0);n||i.push({who:e.author,line:"stopped advert "+e.ad})}else if(e.t==="btcClaim")De[e.author]=!0,J("tBTC",e.author,je),I.tBTC=l(I.tBTC+je),n||i.push({who:e.author,line:"claimed "+je+" tBTC \u2014 sandbox value, one claim per account"});else if(e.t==="assetCreate")re[e.sym]={name:e.name.trim(),creator:e.author},I[e.sym]=e.supply,J(e.sym,e.author,e.supply),n||i.push({who:e.author,line:"minted "+e.supply+" "+e.sym+" \u2014 \u201C"+e.name.trim()+"\u201D \u2014 a fun asset, worth what a pool says it is",refs:[{label:T(e.author),id:e.author}]});else if(e.t==="tokenSend")V(e.sym,e.author,e.amt),J(e.sym,e.to,e.amt),n||i.push({who:e.author,line:"sent "+e.amt+" "+e.sym+" to "+T(e.to),refs:[{label:T(e.to),id:e.to}]});else if(e.t==="poolCreate"){var Be=We(e.symA,e.symB),pe=Be.split("/")[0],Ue=Be.split("/")[1],Te=pe===e.symA?e.amtA:e.amtB,Me=pe===e.symA?e.amtB:e.amtA;V(pe,e.author,Te),V(Ue,e.author,Me);var kt=Math.sqrt(Te*Me),$e={};$e[e.author]=kt-ze,$e._locked=ze,Q[Be]={a:pe,b:Ue,resA:Te,resB:Me,totalShares:kt,shares:$e,swaps:0,volA:0,volB:0},n||i.push({who:e.author,line:"opened the "+Be+" pool with "+l(Te)+" "+pe+" + "+l(Me)+" "+Ue})}else if(e.t==="poolAdd"){var A=Q[e.pool],Qe=Math.min(e.amtA/A.resA,e.amtB/A.resB),Je=Qe*A.resA,Ve=Qe*A.resB;V(A.a,e.author,Je),V(A.b,e.author,Ve);var St=Qe*A.totalShares;A.resA+=Je,A.resB+=Ve,A.totalShares+=St,A.shares[e.author]=(A.shares[e.author]||0)+St,n||i.push({who:e.author,line:"added liquidity to "+e.pool+" ("+l(Je)+" "+A.a+" + "+l(Ve)+" "+A.b+")"})}else if(e.t==="poolRemove"){var O=Q[e.pool],Rt=e.shares/O.totalShares,Xe=Rt*O.resA,Ge=Rt*O.resB;O.shares[e.author]-=e.shares,O.totalShares-=e.shares,O.resA-=Xe,O.resB-=Ge,J(O.a,e.author,Xe),J(O.b,e.author,Ge),n||i.push({who:e.author,line:"withdrew from "+e.pool+" ("+l(Xe)+" "+O.a+" + "+l(Ge)+" "+O.b+")"})}else if(e.t==="poolSwap"){var x=Q[e.pool],ce=e.sell===x.a,rr=ce?x.resA:x.resB,or=ce?x.resB:x.resA,Pt=e.amt*.997,ke=or*Pt/(rr+Pt);V(e.sell,e.author,e.amt),ce?(x.resA+=e.amt,x.resB-=ke):(x.resB+=e.amt,x.resA-=ke);var _t=ce?x.b:x.a;J(_t,e.author,ke),x.swaps++,ce?x.volA+=e.amt:x.volB+=e.amt,n||i.push({who:e.author,line:"swapped "+l(e.amt)+" "+e.sell+" \u2192 "+l(ke)+" "+_t+" in "+e.pool})}}}else if(e.t==="closeEpoch"){var Et=Zt(q,e.epoch,C,pt(w,Z),H);G.push(Et.record),i.push(Et.chron),H={},g++,ie++;for(var et=I.PEER>=vt?0:Math.min(Ut*Math.pow($t,Math.floor((ie-1)/Qt)),vt-I.PEER),se=l(et+oe),me={},Se=0,Re={},tt={},rt=0;rt<ae.length;rt++){var k=ae[rt],Pe=s[k.actor];if(!(!Pe||Pe.actCount===0)){var Ot=fe[k.actor]||0;if(!(Ot<=0)){var ir=U*Pe.actCount,ot=Math.max(0,Ot-ir)/Pe.actCount/He;if(!(ot<Jt)){var _e=k.actor+">"+k.creator;Re[_e]=(Re[_e]||0)+1;var Ht=1/(1+Vt*(Re[_e]-1)),Nt=ot/(1+ot),it=k.base*Ht*Nt;me[k.creator]=(me[k.creator]||0)+it,Se+=it;var Ft=tt[k.creator]||(tt[k.creator]=[]);Ft.length<40&&Ft.push({actor:k.actor,kind:k.kind,cid:k.cid,base:k.base,damp:l(Ht),lambda:l(Nt),nth:Re[_e],weight:l(it)})}}}}if(Se>0&&se>0){var le=0,nt={};for(var st in me){var Ee=Math.floor(se*me[st]/Se*1e6)/1e6;Ee<=0||(J("PEER",st,Ee),nt[st]=Ee,le=l(le+Ee))}I.PEER=l(I.PEER+le),oe=Math.max(0,l(se-le)),Ke.push({epoch:ie,minted:le,carried:oe,to:nt,pool:se,emission:l(et),totalWeight:l(Se),weights:me,why:tt}),i.push({line:"epoch "+ie+" minted "+le+" PEER across "+Object.keys(nt).length+" creator(s) \u2014 engagement-weighted, \u03B1\u0302-gated, never standing"})}else oe=se,Ke.push({epoch:ie,minted:0,carried:oe,to:{},pool:se,emission:l(et),totalWeight:0,weights:{},why:{},note:"no eligible engagement"});ae=[]}}var It=pt(w,Z),lt=q.solveStanding(C,It,{tilt:1}),ut={};lt.ids.forEach(function(t,o){ut[t]=lt.x[o]});var Lt=G.length+1;for(var K in s)if(K!=="alice"){var qt=He*(ut[K]||0),dt=qt/(He+qt),jt=1-1/(Lt-R[K]+1);dt>0&&(r.append({id:"dec_"+K,family:"SelfDeclaration",src:K,tgt:"prof_"+K,pd:1,pi:dt,tauOverride:jt}),r.append({id:"rep_"+K,family:"SelfReputation",src:"prof_"+K,tgt:K,pd:1,pi:dt,tauOverride:jt}))}var zt={};for(var ht in f)zt[ht]=$[ht]?"[deleted]":f[ht];return{g:r,ledgers:C,ledgerById:s,handles:zt,creators:v,payloads:p,bundles:w,cells:It,solved:lt,xById:ut,deltaActs:H,dmap:new Map(Object.keys(H).map(function(t){return[t,H[t]]})),epochHistory:G,chron:i,epochNow:Lt,reviewMeta:ge,mediaMeta:be,dms:Ne,pinHash:Fe,l0:B,deleted:$,postMeta:F,tokens:{bal:te,meta:re,supply:I,claimed:De,dist:Ke,carry:oe,epochN:ie},pools:Q,adverts:Y,adPricePerDay:Ze,tokenActError:bt,actContent:j}}return{replay:Wt,parseMentions:at}}return{create:Oe}});
 
 </script>
 <script>
@@ -724,6 +750,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // entry point: the specialised lanes are a way to keep going once you know
   // what you came for, not four separate apps.
   var feedLane = 'all';   // 'all' | 'reels' | 'music' | 'gallery'
+  var econView = 'wallet'; // 'wallet' | 'pools' | 'layer0' | 'ledger'
   var nowPlaying = null;  // {cid, el} — the music lane's single audio element
   var API = ''; // '' = this origin; set by resolveHost() when served statically
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
@@ -765,6 +792,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['all', 'reels', 'music', 'gallery'].indexOf(v0.feedLane) >= 0) feedLane = v0.feedLane;
+      if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
     }
@@ -786,7 +814,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, feedLane: feedLane, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, feedLane: feedLane, econView: econView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -4895,6 +4923,169 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return card;
   }
 
+  // ══ Wallet ═══════════════════════════════════════════════════════════════
+  //
+  // The point of this screen is that a balance is never asked to be believed.
+  // Every number on it is followed by the arithmetic that produced it and the
+  // acts it came from, because "you earned 2,341 PEER" is a claim and
+  // "because bob commented on c123, weight 1.2 x damping 1.00 x their rate
+  // factor 0.65" is something anyone holding the log can check.
+
+  /** 1st, 2nd, 3rd, 4th — "their 2th" read like a bug, because it was one. */
+  function ordinal(n) {
+    var mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return n + 'th';
+    return n + ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+  }
+
+  function walletView(st) {
+    var wrap = h('div', {});
+    var tok = st.tokens;
+    var mine = tok.dist.filter(function (d) { return d.to[who]; });
+    var earned = mine.reduce(function (a, d) { return a + d.to[who]; }, 0);
+
+    // ── what you hold ──
+    var hold = h('div', { class: 'card' }, h('h2', { text: 'Your balances' }));
+    var kv = h('div', { class: 'kv' });
+    var syms = Object.keys(tok.meta);
+    var anyHeld = false;
+    syms.forEach(function (sym) {
+      var b = (tok.bal[sym] && tok.bal[sym][who]) || 0;
+      if (b <= 0 && sym !== 'PEER' && sym !== 'tBTC') return;
+      if (b > 0) anyHeld = true;
+      kv.appendChild(h('span', { text: sym }));
+      kv.appendChild(h('b', { class: 'num', text: fmt(b, 6) }));
+    });
+    hold.appendChild(kv);
+    if (!anyHeld) {
+      hold.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER arrives when an epoch closes and someone has engaged with what you made; tBTC is claimable once, below.' }));
+    }
+    wrap.appendChild(hold);
+
+    // ── the network-wide picture, so your share has a denominator ──
+    var em = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'PEER in the network' }),
+      h('div', { class: 'kv' },
+        h('span', { text: 'minted so far' }), h('b', { class: 'num', text: fmt(tok.supply.PEER, 2) }),
+        h('span', { text: 'hard cap' }), h('b', { class: 'num', text: '18,250,000' }),
+        h('span', { text: 'epochs closed' }), h('b', { class: 'num', text: String(tok.epochN) }),
+        h('span', { text: 'waiting to be paid out' }), h('b', { class: 'num', text: fmt(tok.carry, 2) })),
+      h('div', { class: 'kv' },
+        h('span', { text: 'you hold' }), h('b', { class: 'num', text: fmt((tok.bal.PEER && tok.bal.PEER[who]) || 0, 2) }),
+        h('span', { text: 'your share of everything minted' }),
+        h('b', { class: 'num', text: tok.supply.PEER > 0 ? (((tok.bal.PEER && tok.bal.PEER[who]) || 0) / tok.supply.PEER * 100).toFixed(2) + '%' : '—' })),
+      h('p', { class: 'smallnote', text: 'Emission is 5000 per epoch in year one, falling 0.9 every 365 epochs, capped at 18.25M — the poolsite curve on this network\u2019s clock. Anything an epoch cannot distribute carries into the next one, so nothing is lost.' }));
+    wrap.appendChild(em);
+
+    // ── what actually produced your tokens ──
+    var why = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'What generated your PEER' }));
+    if (!mine.length) {
+      why.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER goes to CREATORS, weighted by the engagement their work drew — so it arrives when other people react to or comment on what you made, not when you act. A reaction counts 1.0, a comment 1.2, a negative reaction 0.3.' }));
+      why.appendChild(h('p', { class: 'smallnote', text: 'Two things damp it, both deliberately: the tenth nudge from the same person is worth a fraction of the first, and a weigher with no burned commitment counts for nothing at all.' }));
+    } else {
+      why.appendChild(h('p', { class: 'smallnote', text: 'Total earned: ' + fmt(earned, 2) + ' PEER across ' + mine.length + ' epoch(s). Every line below is checkable against the same log you are reading.' }));
+      mine.slice(-6).reverse().forEach(function (d) {
+        var box = h('div', { class: 'mint-epoch' });
+        var share = d.totalWeight > 0 ? (d.weights[who] || 0) / d.totalWeight : 0;
+        box.appendChild(h('div', { class: 'kv' },
+          h('span', { text: 'epoch ' + d.epoch }), h('b', { class: 'num', text: '+' + fmt(d.to[who], 4) + ' PEER' }),
+          h('span', { text: 'the pool that epoch' }), h('b', { class: 'num', text: fmt(d.pool, 2) + ' (emission ' + fmt(d.emission, 0) + ' + carried ' + fmt(d.pool - d.emission, 2) + ')' }),
+          h('span', { text: 'your weight of the total' }),
+          h('b', { class: 'num', text: fmt(d.weights[who] || 0, 4) + ' of ' + fmt(d.totalWeight, 4) + ' = ' + (share * 100).toFixed(2) + '%' })));
+        var lines = d.why && d.why[who];
+        if (lines && lines.length) {
+          var tbl = h('table', { class: 'standings mint-table' },
+            h('tr', {}, h('th', { text: 'who' }), h('th', { text: 'did what' }),
+              h('th', { class: 'r', text: 'base' }), h('th', { class: 'r', text: 'damping' }),
+              h('th', { class: 'r', text: 'their rate' }), h('th', { class: 'r', text: 'weight' })));
+          lines.forEach(function (l) {
+            tbl.appendChild(h('tr', {},
+              h('td', { text: st.handles[l.actor] || l.actor }),
+              h('td', {}, l.kind + ' on ', h('button', { class: 'lnk', text: l.cid, onclick: function () {
+                focusNode = l.cid; tab = 'feed'; feedLane = 'all'; saveView(); render();
+              } }), l.nth > 1 ? h('span', { class: 'smallnote', text: ' (their ' + ordinal(l.nth) + ')' }) : null),
+              h('td', { class: 'r num', text: fmt(l.base, 2) }),
+              h('td', { class: 'r num', text: '\u00d7' + fmt(l.damp, 3) }),
+              h('td', { class: 'r num', text: '\u00d7' + fmt(l.lambda, 3) }),
+              h('td', { class: 'r num', text: fmt(l.weight, 4) })));
+          });
+          box.appendChild(tbl);
+          box.appendChild(h('p', { class: 'smallnote', text: 'base \u00d7 damping \u00d7 their rate = weight. Damping falls the more often the same person engages with you; "their rate" is that person\u2019s own commitment \u03bb(\u03b1\u0302), so a backer who has burned more counts for more.' }));
+        }
+        why.appendChild(box);
+      });
+      if (mine.length > 6) {
+        why.appendChild(h('p', { class: 'smallnote', text: 'Showing the last 6 of ' + mine.length + ' epochs you earned in.' }));
+      }
+    }
+    wrap.appendChild(why);
+
+    // ── claim + send ──
+    var act1 = h('div', { class: 'card', style: 'margin-top:14px' }, h('h2', { text: 'Move value' }));
+    if (!tok.claimed[who]) {
+      act1.appendChild(h('div', { class: 'mini-form' },
+        h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC \u00b7 \u2212\u03b8', onclick: function () {
+          tryAct(who, { t: 'btcClaim', author: who }, 'Claimed. Sandbox value with a bitcoin-shaped name \u2014 backed by nothing, once per account.');
+        } }),
+        h('span', { class: 'smallnote', text: 'one claim per account, ever' })));
+    }
+    var sSym = h('select', {});
+    syms.forEach(function (sym) {
+      if (((tok.bal[sym] && tok.bal[sym][who]) || 0) > 0) sSym.appendChild(h('option', { value: sym, text: sym }));
+    });
+    var sTo = h('select', {});
+    st.ledgers.forEach(function (l) { if (l.id !== who && !st.deleted[l.id]) sTo.appendChild(h('option', { value: l.id, text: st.handles[l.id] || l.id })); });
+    var sAmt = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
+    act1.appendChild(h('div', { class: 'mini-form' }, sSym, sAmt, h('span', { class: 'smallnote', text: 'to' }), sTo,
+      h('button', { class: 'btn small', text: 'Send \u00b7 \u2212\u03b8', onclick: function () {
+        var v = parseFloat(sAmt.value);
+        if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+        tryAct(who, { t: 'tokenSend', author: who, sym: sSym.value, to: sTo.value, amt: v }, 'Sent.');
+      } })));
+    wrap.appendChild(act1);
+    return wrap;
+  }
+
+  // ══ Every value movement, in order ═══════════════════════════════════════
+  //
+  // Derived from the log rather than kept as a second ledger, so it cannot
+  // disagree with what actually happened.
+  function valueLedger(st) {
+    var wrap = h('div', {});
+    var rows = [];
+    st.tokens.dist.forEach(function (d) {
+      for (var k in d.to) rows.push({ idx: -1, epoch: d.epoch, kind: 'mint', who: k, text: '+' + fmt(d.to[k], 4) + ' PEER \u2014 epoch ' + d.epoch + ' distribution' });
+    });
+    st.chron.forEach(function (c, i) {
+      var l = c.line || '';
+      if (/claimed .* tBTC|minted \d+ |sent .* to |swapped |added liquidity|withdrew from|opened the .* pool|bought a placement|stopped advert/.test(l)) {
+        rows.push({ idx: i, kind: 'act', who: c.who, text: l });
+      }
+    });
+    var mineOnly = false;
+    var box = h('div', { class: 'card' },
+      h('div', { class: 'panel-head' },
+        h('p', { class: 'eyebrow', style: 'margin:0', text: 'every value movement, newest first' }),
+        h('button', { class: 'btn small', text: 'only mine', onclick: function () { mineOnly = !mineOnly; draw(); } })));
+    var list = h('div', {});
+    function draw() {
+      list.innerHTML = '';
+      var shown = rows.filter(function (r) { return !mineOnly || r.who === who; }).slice().reverse().slice(0, 120);
+      if (!shown.length) { list.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet.' })); return; }
+      shown.forEach(function (r) {
+        list.appendChild(h('div', { class: 'tx' },
+          h('span', { class: 'tx-who', text: st.handles[r.who] || r.who || '\u2014' }),
+          h('span', { class: 'grow', text: r.text })));
+      });
+    }
+    draw();
+    box.appendChild(list);
+    box.appendChild(h('p', { class: 'smallnote', text: 'Read from the act log, not stored separately \u2014 so this cannot drift from what happened. Mints are the epoch distributions; everything else is an act somebody paid \u03b8 for.' }));
+    wrap.appendChild(box);
+    return wrap;
+  }
+
   function econTab(st) {
     var l0 = st.l0;
     var w = l0.bal(who);
@@ -4902,326 +5093,361 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var escrowTotal = l0.escrow.reduce(function (s, e) { return s + e.amount; }, 0);
     var wrap = h('div', {});
 
-    wrap.appendChild(h('div', { class: 'card' },
-      h('h2', { text: 'Layer 0 — the reserve receipt' }),
-      h('div', { class: 'kv' },
-        h('span', { text: 'reserve pool Ω' }), h('b', { class: 'num', text: fmt(l0.omega, 3) }),
-        h('span', { text: 'live Y_L' }), h('b', { class: 'num', text: fmt(l0.yLive, 3) }),
-        h('span', { text: 'time-locked Y_T' }), h('b', { class: 'num', text: fmt(l0.yLock, 3) })),
-      h('div', { class: 'kv' },
-        h('span', { text: 'floor φ = Ω/Y' }), h('b', { class: 'num', text: fmt(l0.floor(), 4) }),
-        h('span', { text: 'settled φ' }), h('b', { class: 'num', text: fmt(l0.settledFloor, 4) }),
-        h('span', { text: 'cycle k' }), h('b', { class: 'num', text: l0.cycle + ' (' + (l0.bootstrapping ? 'bootstrapping, maturity at 10' : 'normal phase') + ')' })),
-      h('div', { class: 'kv' },
-        h('span', { text: 'escrow Q' }), h('b', { class: 'num', text: fmt(escrowTotal, 2) }),
-        h('span', { text: 'A_max = E₀·ln(1/(1−ζ))' }), h('b', { class: 'num', text: fmt(l0.attestCap, 2) }),
-        h('span', { text: 'operator' }), h('b', { class: 'num', text: fmt(op.live, 1) + ' L · ' + fmt(op.tlock, 1) + ' T' })),
-      h('p', { class: 'smallnote', text: 'One conserved receipt, two redemption classes. The floor only ever rises: burning destroys supply against an unchanged pool; issuance mints at the pre-issuance floor; redemption pays out at it. ζ = f = 0.5 (spec placeholders). Every burn credits the attestation A at the settled floor — and A is exactly the burn value Layer 1 reads.' })));
-
-    var amtD = h('input', { type: 'text', placeholder: '5', style: 'width:60px', inputmode: 'decimal' });
-    var amtB = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
-    var amtR = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
-    var amtT = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
-    var peerSel = h('select', {});
-    st.ledgers.forEach(function (l) {
-      if (l.id !== who && !l.deleted) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
-    });
-    function num(inp, dflt) { var v = parseFloat(inp.value); return isFinite(v) && v > 0 ? v : dflt; }
-
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Your wallet' }),
-      h('div', { class: 'kv' },
-        h('span', { text: 'external reserve' }), h('b', { class: 'num', text: fmt(w.reserve, 3) }),
-        h('span', { text: 'live' }), h('b', { class: 'num', text: fmt(w.live, 3) }),
-        h('span', { text: 'time-locked' }), h('b', { class: 'num', text: fmt(w.tlock, 3) }),
-        h('span', { text: 'attestation A' }), h('b', { class: 'num', text: fmt(w.attest, 3) })),
-      h('div', { class: 'mini-form' }, amtD,
-        h('button', { class: 'btn small primary', text: 'Deposit → escrow', onclick: function () {
-          var x = num(amtD, 5);
-          if (w.reserve < x) { toast('Not enough external reserve.'); return; }
-          pushAct({ t: 'deposit', id: who, amt: x }, function () { toast('Escrowed. Mints at the next cycle boundary: (1−f)·ζ live + (1−f)·(1−ζ) time-locked to you, fee to the operator.'); });
-        } })),
-      h('div', { class: 'mini-form' }, amtB,
-        h('button', { class: 'btn small primary', text: 'Burn live → attestation', onclick: function () {
-          var x = num(amtB, 1);
-          if (w.live < x) { toast('Not enough live units.'); return; }
-          pushAct({ t: 'burnL0', id: who, x: x }, function () { toast('Destroyed forever. Attestation credited at the settled floor — this is your Layer-1 burn value.'); });
-        } })),
-      h('div', { class: 'mini-form' }, amtR,
-        h('button', { class: 'btn small', text: 'Redeem live → reserve', onclick: function () {
-          var x = num(amtR, 1);
-          if (w.live < x) { toast('Not enough live units.'); return; }
-          pushAct({ t: 'redeem', id: who, x: x }, function () { toast('Redeemed at the floor — exits value, never lowers φ.'); });
-        } })),
-      h('div', { class: 'mini-form' }, amtT, peerSel,
-        h('button', { class: 'btn small', text: 'Send live units', onclick: function () {
-          var x = num(amtT, 1);
-          if (!peerSel.value) { toast('No peer to send to.'); return; }
-          if (w.live < x) { toast('Not enough live units.'); return; }
-          pushAct({ t: 'transferL0', from: who, to: peerSel.value, x: x, cls: 'live' }, function () { toast('Transferred — class-internal, touches no Ω, φ, or A.'); });
-        } })),
-      h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close L0 cycle ' + l0.cycle + ' (process escrow, settle floor)', onclick: function () {
-        pushAct({ t: 'closeCycle' }, function () { toast('Cycle boundary: escrow minted at the pre-issuance floor, settlement committed.'); });
-      } }),
-      h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
-
-    
-    // ── The PEER token and its pools ─────────────────────────────────────────
-    // Tokens are value the epoch mints; standing is reputation the graph
-    // computes. The interface keeps saying that, because a screen where both
-    // appear is exactly where the two would otherwise blur together.
     var tok = st.tokens, myPools = st.pools;
     function round6(x) { return Math.round(x * 1e6) / 1e6; }
     function tbal(sym) { return (tok.bal[sym] && tok.bal[sym][who]) || 0; }
 
-    var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'PEER — the epoch token' }),
-      h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled by their commitment rate λ(α̂) and gated at α̂ ≥ 0.2. Value, never standing: no balance enters any score.' }));
-    var bkv = h('div', { class: 'kv' });
-    var symsAll = Object.keys(tok.meta);
-    for (var ti = 0; ti < symsAll.length; ti++) {
-      var sym0 = symsAll[ti];
-      if (tbal(sym0) > 0 || sym0 === 'PEER' || sym0 === 'tBTC') {
-        bkv.appendChild(h('span', { text: sym0 }));
-        bkv.appendChild(h('b', { class: 'num', text: round6(tbal(sym0)) + '' }));
-      }
-    }
-    tCard.appendChild(bkv);
-    tCard.appendChild(h('p', { class: 'smallnote', text: 'Supply: ' + round6(tok.supply.PEER) + ' PEER minted over ' + tok.epochN + ' epoch(s) · ' + round6(tok.carry) + ' carried to the next · your distributions ride on people engaging with what you make.' }));
-    if (!tok.claimed[who]) {
-      tCard.appendChild(h('div', { class: 'mini-form' },
-        h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC · −θ', onclick: function () {
-          tryAct(who, { t: 'btcClaim', author: who }, 'Claimed 0.01 tBTC — sandbox value, one claim per account, backed by nothing.');
-        } }),
-        h('span', { class: 'smallnote', text: 'test bitcoin: a bitcoin-shaped name on sandbox value. The host holds no keys; nothing here touches the real chain.' })));
-    }
-    var myDist = [];
-    for (var di = 0; di < tok.dist.length; di++) if (tok.dist[di].to[who]) myDist.push(tok.dist[di]);
-    if (myDist.length) {
-      var dl = myDist.slice(-5).map(function (d) { return 'epoch ' + d.epoch + ': +' + d.to[who]; }).join(' · ');
-      tCard.appendChild(h('p', { class: 'smallnote', text: 'Your last distributions — ' + dl }));
-    }
-    wrap.appendChild(tCard);
+    // ── Sub-tabs ─────────────────────────────────────────────────────────
+    // The economy screen had grown into one long scroll holding four
+    // unrelated jobs: what you hold, what the pools are doing, the Layer-0
+    // receipt system, and the history. Splitting them means the wallet is
+    // reachable without scrolling past a ledger of raw addresses.
+    var views = [['wallet', 'Wallet'], ['pools', 'Pools & ads'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
+    var bar = h('div', { class: 'lanes' });
+    views.forEach(function (v) {
+      var b = h('button', { class: 'lane' + (econView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
+      b.onclick = function () { econView = v[0]; saveView(); render(); };
+      bar.appendChild(b);
+    });
+    wrap.appendChild(bar);
 
-    // ── pools ──
-    var pCard = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Liquidity pools' }),
-      h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
-    var pids = Object.keys(myPools);
-    if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. Open the first one below — PEER/tBTC is the intended opening pair.' }));
-    pids.forEach(function (pid) {
-      var pl = myPools[pid];
-      var mine = pl.shares[who] || 0;
-      var row = h('div', { class: 'kv' },
-        h('span', { text: pid }), h('b', { class: 'num', text: round6(pl.resA) + ' ' + pl.a + ' / ' + round6(pl.resB) + ' ' + pl.b }),
-        h('span', { text: 'price' }), h('b', { class: 'num', text: '1 ' + pl.a + ' = ' + round6(pl.resB / pl.resA) + ' ' + pl.b }),
-        h('span', { text: 'your share' }), h('b', { class: 'num', text: (pl.totalShares > 0 ? (mine / pl.totalShares * 100).toFixed(2) : '0.00') + '% · ' + pl.swaps + ' swap(s)' }));
-      pCard.appendChild(row);
+    if (econView === 'wallet') {
+      wrap.appendChild(walletView(st));
+    }
 
-      var sellSel = h('select', {}, h('option', { value: pl.a, text: 'sell ' + pl.a }), h('option', { value: pl.b, text: 'sell ' + pl.b }));
-      var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
-      var quote = h('span', { class: 'smallnote' });
-      function requote() {
-        var v = parseFloat(amtIn.value);
-        if (!isFinite(v) || v <= 0) { quote.textContent = ''; return; }
-        var inA = sellSel.value === pl.a;
-        var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
-        var out = rout * (v * 0.997) / (rin + v * 0.997);
-        quote.textContent = '→ ' + round6(out) + ' ' + (inA ? pl.b : pl.a) + ' (incl. 0.3% fee)';
+    if (econView === 'wallet') {
+      var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'PEER — the epoch token' }),
+        h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled by their commitment rate λ(α̂) and gated at α̂ ≥ 0.2. Value, never standing: no balance enters any score.' }));
+      var bkv = h('div', { class: 'kv' });
+      var symsAll = Object.keys(tok.meta);
+      for (var ti = 0; ti < symsAll.length; ti++) {
+        var sym0 = symsAll[ti];
+        if (tbal(sym0) > 0 || sym0 === 'PEER' || sym0 === 'tBTC') {
+          bkv.appendChild(h('span', { text: sym0 }));
+          bkv.appendChild(h('b', { class: 'num', text: round6(tbal(sym0)) + '' }));
+        }
       }
-      amtIn.addEventListener('input', requote);
-      sellSel.addEventListener('change', requote);
-      pCard.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
-        h('button', { class: 'btn small primary', text: 'Swap · −θ', onclick: function () {
+      tCard.appendChild(bkv);
+      tCard.appendChild(h('p', { class: 'smallnote', text: 'Supply: ' + round6(tok.supply.PEER) + ' PEER minted over ' + tok.epochN + ' epoch(s) · ' + round6(tok.carry) + ' carried to the next · your distributions ride on people engaging with what you make.' }));
+      if (!tok.claimed[who]) {
+        tCard.appendChild(h('div', { class: 'mini-form' },
+          h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC · −θ', onclick: function () {
+            tryAct(who, { t: 'btcClaim', author: who }, 'Claimed 0.01 tBTC — sandbox value, one claim per account, backed by nothing.');
+          } }),
+          h('span', { class: 'smallnote', text: 'test bitcoin: a bitcoin-shaped name on sandbox value. The host holds no keys; nothing here touches the real chain.' })));
+      }
+      var myDist = [];
+      for (var di = 0; di < tok.dist.length; di++) if (tok.dist[di].to[who]) myDist.push(tok.dist[di]);
+      if (myDist.length) {
+        var dl = myDist.slice(-5).map(function (d) { return 'epoch ' + d.epoch + ': +' + d.to[who]; }).join(' · ');
+        tCard.appendChild(h('p', { class: 'smallnote', text: 'Your last distributions — ' + dl }));
+      }
+      wrap.appendChild(tCard);
+
+    }
+
+    if (econView === 'pools') {
+      // ── pools ──
+      var pCard = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Liquidity pools' }),
+        h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
+      var pids = Object.keys(myPools);
+      if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. Open the first one below — PEER/tBTC is the intended opening pair.' }));
+      pids.forEach(function (pid) {
+        var pl = myPools[pid];
+        var mine = pl.shares[who] || 0;
+        var row = h('div', { class: 'kv' },
+          h('span', { text: pid }), h('b', { class: 'num', text: round6(pl.resA) + ' ' + pl.a + ' / ' + round6(pl.resB) + ' ' + pl.b }),
+          h('span', { text: 'price' }), h('b', { class: 'num', text: '1 ' + pl.a + ' = ' + round6(pl.resB / pl.resA) + ' ' + pl.b }),
+          h('span', { text: 'your share' }), h('b', { class: 'num', text: (pl.totalShares > 0 ? (mine / pl.totalShares * 100).toFixed(2) : '0.00') + '% · ' + pl.swaps + ' swap(s)' }));
+        pCard.appendChild(row);
+
+        var sellSel = h('select', {}, h('option', { value: pl.a, text: 'sell ' + pl.a }), h('option', { value: pl.b, text: 'sell ' + pl.b }));
+        var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
+        var quote = h('span', { class: 'smallnote' });
+        function requote() {
           var v = parseFloat(amtIn.value);
-          if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+          if (!isFinite(v) || v <= 0) { quote.textContent = ''; return; }
           var inA = sellSel.value === pl.a;
           var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
-          var expect = rout * (v * 0.997) / (rin + v * 0.997);
-          // 2% slippage guard by default: if the pool moved between this
-          // render and the act landing, the act refuses instead of filling
-          // at a price the screen never showed.
-          tryAct(who, { t: 'poolSwap', author: who, pool: pid, sell: sellSel.value, amt: v, minOut: expect * 0.98 }, 'Swapped in ' + pid + '.');
-        } }), quote));
+          var out = rout * (v * 0.997) / (rin + v * 0.997);
+          quote.textContent = '→ ' + round6(out) + ' ' + (inA ? pl.b : pl.a) + ' (incl. 0.3% fee)';
+        }
+        amtIn.addEventListener('input', requote);
+        sellSel.addEventListener('change', requote);
+        pCard.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
+          h('button', { class: 'btn small primary', text: 'Swap · −θ', onclick: function () {
+            var v = parseFloat(amtIn.value);
+            if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+            var inA = sellSel.value === pl.a;
+            var rin = inA ? pl.resA : pl.resB, rout = inA ? pl.resB : pl.resA;
+            var expect = rout * (v * 0.997) / (rin + v * 0.997);
+            // 2% slippage guard by default: if the pool moved between this
+            // render and the act landing, the act refuses instead of filling
+            // at a price the screen never showed.
+            tryAct(who, { t: 'poolSwap', author: who, pool: pid, sell: sellSel.value, amt: v, minOut: expect * 0.98 }, 'Swapped in ' + pid + '.');
+          } }), quote));
 
-      var addA = h('input', { type: 'text', placeholder: pl.a, style: 'width:80px', inputmode: 'decimal' });
-      var addB = h('input', { type: 'text', placeholder: pl.b, style: 'width:80px', inputmode: 'decimal' });
-      pCard.appendChild(h('div', { class: 'mini-form' }, addA, addB,
-        h('button', { class: 'btn small', text: 'Add liquidity · −θ', onclick: function () {
-          var va = parseFloat(addA.value), vb = parseFloat(addB.value);
-          if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both amounts, please.'); return; }
-          tryAct(who, { t: 'poolAdd', author: who, pool: pid, amtA: va, amtB: vb }, 'Added liquidity to ' + pid + ' (proportional part of what you offered).');
-        } }),
-        mine > 0 ? h('button', { class: 'btn small', text: 'Withdraw all · −θ', onclick: function () {
-          tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: mine }, 'Withdrew your liquidity from ' + pid + '.');
-        } }) : null));
-    });
-
-    var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
-    var npB = h('input', { type: 'text', placeholder: 'tBTC', style: 'width:70px', maxlength: '8' });
-    var npAmtA = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
-    var npAmtB = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
-    pCard.appendChild(h('div', { class: 'mini-form' }, npA, npAmtA, npB, npAmtB,
-      h('button', { class: 'btn small primary', text: 'Open pool · −θ', onclick: function () {
-        var va = parseFloat(npAmtA.value), vb = parseFloat(npAmtB.value);
-        var sa = (npA.value || 'PEER').trim(), sb = (npB.value || 'tBTC').trim();
-        if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both starting amounts, please.'); return; }
-        tryAct(who, { t: 'poolCreate', author: who, symA: sa, symB: sb, amtA: va, amtB: vb }, 'Opened the ' + sa + '/' + sb + ' pool. The starting ratio IS the starting price.');
-      } })));
-    wrap.appendChild(pCard);
-
-    // ── fun assets ──
-    var faSym = h('input', { type: 'text', placeholder: 'SYM (3-8, A-Z0-9)', style: 'width:130px', maxlength: '8' });
-    var faName = h('input', { type: 'text', placeholder: 'what is it?', style: 'flex:1', maxlength: '60' });
-    var faSupply = h('input', { type: 'text', placeholder: 'supply', style: 'width:90px', inputmode: 'decimal' });
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Mint a fun asset' }),
-      h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER or tBTC and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
-      h('div', { class: 'mini-form' }, faSym, faName, faSupply,
-        h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
-          var sup = parseFloat(faSupply.value);
-          tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
-        } }))));
-
-    // ── Buy a placement ──────────────────────────────────────────────────────
-    // Paid in tBTC, live the moment the act lands. There is no review queue in
-    // front of it: on a test network with play money, a queue was ceremony
-    // around something nobody could actually buy. Publish first, moderate
-    // after — the advertiser or the operator can stop one with a single act.
-    var adPrice = st.adPricePerDay || 0.0002;
-    var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
-
-    var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Buy a placement' }));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'A box in the feed, paid for in tBTC — sandbox money, and it is BURNED rather than paid to anyone, because advertising should destroy value here the way every other commitment does. It goes live immediately.' }));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
-
-    var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
-    var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
-    var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric', value: '7' });
-    var adCost = h('span', { class: 'smallnote' });
-    function priceIt() {
-      var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
-      var c = Math.round(adPrice * d * 1e6) / 1e6;
-      adCost.textContent = c + ' tBTC · you hold ' + Math.round(myTbtc * 1e6) / 1e6
-        + (c > myTbtc ? ' — not enough' : '');
-      adCost.className = 'smallnote' + (c > myTbtc ? ' warn' : '');
-    }
-    adDays.addEventListener('input', priceIt);
-    priceIt();
-
-    // ── targeting ──
-    var places = ['feed', 'live', 'record'];
-    var placeBoxes = {};
-    var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'where:' }));
-    places.forEach(function (pl) {
-      var cb = h('input', { type: 'checkbox' });
-      placeBoxes[pl] = cb;
-      placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
-    });
-    placeRow.appendChild(h('span', { class: 'smallnote', text: '(none = everywhere)' }));
-
-    var chosenTags = {};
-    var known = [];
-    st.g.nodes.forEach(function (n) {
-      if (n.kind === 'Type') {
-        var lab = (n.label || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
-        if (lab && known.indexOf(lab) < 0) known.push(lab);
-      }
-    });
-    known.sort();
-    var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
-    if (!known.length) tagRow.appendChild(h('span', { class: 'smallnote', text: 'nothing has been tagged yet.' }));
-    known.slice(0, 20).forEach(function (tg) {
-      var b = h('button', { class: 'btn small ghost', text: '#' + tg });
-      b.onclick = function () {
-        if (chosenTags[tg]) { delete chosenTags[tg]; b.className = 'btn small ghost'; }
-        else { chosenTags[tg] = 1; b.className = 'btn small primary'; }
-      };
-      tagRow.appendChild(b);
-    });
-
-    var peopleIn = h('input', { type: 'text', placeholder: 'handles, comma separated', style: 'flex:1' });
-    var postsIn = h('input', { type: 'text', placeholder: 'c123, c456', style: 'flex:1' });
-    var regionIn = h('input', { type: 'text', placeholder: 'de, en-gb, europe, europe/berlin', style: 'flex:1' });
-
-    adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
-    adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adCost));
-    adCard2.appendChild(placeRow);
-    adCard2.appendChild(tagRow);
-    adCard2.appendChild(h('div', { class: 'mini-form' },
-      h('span', { class: 'smallnote', text: 'people:' }), peopleIn));
-    adCard2.appendChild(h('div', { class: 'mini-form' },
-      h('span', { class: 'smallnote', text: 'engaged with:' }), postsIn));
-    adCard2.appendChild(h('div', { class: 'mini-form' },
-      h('span', { class: 'smallnote', text: 'region:' }), regionIn));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'Naming several kinds of audience means ANY of them, not all — otherwise advertisers aim at nobody by accident. Naming none shows it to everyone.' }));
-    adCard2.appendChild(h('p', { class: 'smallnote', text:
-      'How the aiming works, exactly: every criterion is sent to EVERY reader and matched in their own browser — against the public act log for people, posts and subjects, and against their device\u2019s own timezone and language for region. The host serves an identical list to everybody and never learns who saw what. Your IP address is not used and never will be: that data exists here for blocking abuse and nothing else.' }));
-
-    adCard2.appendChild(h('div', { class: 'mini-form persistent' },
-      h('button', { class: 'btn small primary', text: 'Publish placement · −θ', onclick: function () {
-        var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
-        var placement = [];
-        places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
-        var split = function (v) {
-          return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12);
-        };
-        // Handles are typed by name; the act carries ids, so resolve here
-        // rather than making the advertiser look them up.
-        var byName = {};
-        for (var idk in st.handles) byName[(st.handles[idk] || '').toLowerCase()] = idk;
-        var people = split(peopleIn.value).map(function (n) { return byName[n.toLowerCase()] || n; });
-        tryAct(who, {
-          t: 'advert', author: who,
-          text: adText.value.trim(), url: adUrl.value.trim(), days: d,
-          placement: placement, tags: Object.keys(chosenTags),
-          people: people, posts: split(postsIn.value), regions: split(regionIn.value),
-        }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' tBTC, which was burned.');
-      } })));
-    if (!myTbtc) {
-      adCard2.appendChild(h('p', { class: 'smallnote warn', text:
-        'You hold no tBTC. Claim 0.01 above — once per account — or trade for some in a pool.' }));
-    }
-
-    // Your own placements, and the one control that matters after publishing.
-    var mineAds = (st.adverts || []).filter(function (a) { return a.by === who && !a.stopped; });
-    if (mineAds.length) {
-      var list = h('div', { style: 'margin-top:10px' }, h('p', { class: 'eyebrow', text: 'your placements' }));
-      mineAds.forEach(function (a) {
-        list.appendChild(h('div', { class: 'kv' },
-          h('span', { text: a.text.slice(0, 40) }),
-          h('b', {}, h('button', { class: 'btn small', text: 'Stop', onclick: function () {
-            tryAct(who, { t: 'adStop', author: who, ad: a.id }, 'Stopped. The act stays in the record; the box is gone.');
-          } }))));
+        var addA = h('input', { type: 'text', placeholder: pl.a, style: 'width:80px', inputmode: 'decimal' });
+        var addB = h('input', { type: 'text', placeholder: pl.b, style: 'width:80px', inputmode: 'decimal' });
+        pCard.appendChild(h('div', { class: 'mini-form' }, addA, addB,
+          h('button', { class: 'btn small', text: 'Add liquidity · −θ', onclick: function () {
+            var va = parseFloat(addA.value), vb = parseFloat(addB.value);
+            if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both amounts, please.'); return; }
+            tryAct(who, { t: 'poolAdd', author: who, pool: pid, amtA: va, amtB: vb }, 'Added liquidity to ' + pid + ' (proportional part of what you offered).');
+          } }),
+          mine > 0 ? h('button', { class: 'btn small', text: 'Withdraw all · −θ', onclick: function () {
+            tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: mine }, 'Withdrew your liquidity from ' + pid + '.');
+          } }) : null));
       });
-      adCard2.appendChild(list);
-    }
-    wrap.appendChild(adCard2);
 
-    // The Layer-0 address table lives at the BOTTOM now. It is the most
-    // technical thing on this screen and the least often wanted: people come
-    // here for their balance, their pools and their placements, and having to
-    // scroll past a ledger of raw addresses to reach them was backwards.
-    var table = h('table', { class: 'standings' },
-      h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
-    var addrs = [];
-    l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
-    addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
-    addrs.forEach(function (r) {
-      table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
-        h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
-        h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
-        h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
-    });
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-      h('h2', { text: 'Addresses' }), table,
-      h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
+      var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
+      var npB = h('input', { type: 'text', placeholder: 'tBTC', style: 'width:70px', maxlength: '8' });
+      var npAmtA = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
+      var npAmtB = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
+      pCard.appendChild(h('div', { class: 'mini-form' }, npA, npAmtA, npB, npAmtB,
+        h('button', { class: 'btn small primary', text: 'Open pool · −θ', onclick: function () {
+          var va = parseFloat(npAmtA.value), vb = parseFloat(npAmtB.value);
+          var sa = (npA.value || 'PEER').trim(), sb = (npB.value || 'tBTC').trim();
+          if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both starting amounts, please.'); return; }
+          tryAct(who, { t: 'poolCreate', author: who, symA: sa, symB: sb, amtA: va, amtB: vb }, 'Opened the ' + sa + '/' + sb + ' pool. The starting ratio IS the starting price.');
+        } })));
+      wrap.appendChild(pCard);
+
+      // ── fun assets ──
+      var faSym = h('input', { type: 'text', placeholder: 'SYM (3-8, A-Z0-9)', style: 'width:130px', maxlength: '8' });
+      var faName = h('input', { type: 'text', placeholder: 'what is it?', style: 'flex:1', maxlength: '60' });
+      var faSupply = h('input', { type: 'text', placeholder: 'supply', style: 'width:90px', inputmode: 'decimal' });
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Mint a fun asset' }),
+        h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER or tBTC and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
+        h('div', { class: 'mini-form' }, faSym, faName, faSupply,
+          h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
+            var sup = parseFloat(faSupply.value);
+            tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
+          } }))));
+
+      // ── Buy a placement ──────────────────────────────────────────────────────
+      // Paid in tBTC, live the moment the act lands. There is no review queue in
+      // front of it: on a test network with play money, a queue was ceremony
+      // around something nobody could actually buy. Publish first, moderate
+      // after — the advertiser or the operator can stop one with a single act.
+      var adPrice = st.adPricePerDay || 0.0002;
+      var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
+
+      var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Buy a placement' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'A box in the feed, paid for in tBTC — sandbox money, and it is BURNED rather than paid to anyone, because advertising should destroy value here the way every other commitment does. It goes live immediately.' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
+
+      var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
+      var adUrl = h('input', { type: 'text', placeholder: 'https://…', style: 'flex:1', maxlength: '300' });
+      var adDays = h('input', { type: 'text', placeholder: 'days', style: 'width:70px', inputmode: 'numeric', value: '7' });
+      var adCost = h('span', { class: 'smallnote' });
+      function priceIt() {
+        var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
+        var c = Math.round(adPrice * d * 1e6) / 1e6;
+        adCost.textContent = c + ' tBTC · you hold ' + Math.round(myTbtc * 1e6) / 1e6
+          + (c > myTbtc ? ' — not enough' : '');
+        adCost.className = 'smallnote' + (c > myTbtc ? ' warn' : '');
+      }
+      adDays.addEventListener('input', priceIt);
+      priceIt();
+
+      // ── targeting ──
+      var places = ['feed', 'live', 'record'];
+      var placeBoxes = {};
+      var placeRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'where:' }));
+      places.forEach(function (pl) {
+        var cb = h('input', { type: 'checkbox' });
+        placeBoxes[pl] = cb;
+        placeRow.appendChild(h('label', { class: 'smallnote' }, cb, ' ' + pl));
+      });
+      placeRow.appendChild(h('span', { class: 'smallnote', text: '(none = everywhere)' }));
+
+      var chosenTags = {};
+      var known = [];
+      st.g.nodes.forEach(function (n) {
+        if (n.kind === 'Type') {
+          var lab = (n.label || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+          if (lab && known.indexOf(lab) < 0) known.push(lab);
+        }
+      });
+      known.sort();
+      var tagRow = h('div', { class: 'mini-form persistent' }, h('span', { class: 'smallnote', text: 'subject:' }));
+      if (!known.length) tagRow.appendChild(h('span', { class: 'smallnote', text: 'nothing has been tagged yet.' }));
+      known.slice(0, 20).forEach(function (tg) {
+        var b = h('button', { class: 'btn small ghost', text: '#' + tg });
+        b.onclick = function () {
+          if (chosenTags[tg]) { delete chosenTags[tg]; b.className = 'btn small ghost'; }
+          else { chosenTags[tg] = 1; b.className = 'btn small primary'; }
+        };
+        tagRow.appendChild(b);
+      });
+
+      var peopleIn = h('input', { type: 'text', placeholder: 'handles, comma separated', style: 'flex:1' });
+      var postsIn = h('input', { type: 'text', placeholder: 'c123, c456', style: 'flex:1' });
+      var regionIn = h('input', { type: 'text', placeholder: 'de, en-gb, europe, europe/berlin', style: 'flex:1' });
+
+      adCard2.appendChild(h('div', { class: 'mini-form' }, adText));
+      adCard2.appendChild(h('div', { class: 'mini-form' }, adUrl, adDays, adCost));
+      adCard2.appendChild(placeRow);
+      adCard2.appendChild(tagRow);
+      adCard2.appendChild(h('div', { class: 'mini-form' },
+        h('span', { class: 'smallnote', text: 'people:' }), peopleIn));
+      adCard2.appendChild(h('div', { class: 'mini-form' },
+        h('span', { class: 'smallnote', text: 'engaged with:' }), postsIn));
+      adCard2.appendChild(h('div', { class: 'mini-form' },
+        h('span', { class: 'smallnote', text: 'region:' }), regionIn));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'Naming several kinds of audience means ANY of them, not all — otherwise advertisers aim at nobody by accident. Naming none shows it to everyone.' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'How the aiming works, exactly: every criterion is sent to EVERY reader and matched in their own browser — against the public act log for people, posts and subjects, and against their device\u2019s own timezone and language for region. The host serves an identical list to everybody and never learns who saw what. Your IP address is not used and never will be: that data exists here for blocking abuse and nothing else.' }));
+
+      adCard2.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small primary', text: 'Publish placement · −θ', onclick: function () {
+          var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
+          var placement = [];
+          places.forEach(function (pl) { if (placeBoxes[pl].checked) placement.push(pl); });
+          var split = function (v) {
+            return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12);
+          };
+          // Handles are typed by name; the act carries ids, so resolve here
+          // rather than making the advertiser look them up.
+          var byName = {};
+          for (var idk in st.handles) byName[(st.handles[idk] || '').toLowerCase()] = idk;
+          var people = split(peopleIn.value).map(function (n) { return byName[n.toLowerCase()] || n; });
+          tryAct(who, {
+            t: 'advert', author: who,
+            text: adText.value.trim(), url: adUrl.value.trim(), days: d,
+            placement: placement, tags: Object.keys(chosenTags),
+            people: people, posts: split(postsIn.value), regions: split(regionIn.value),
+          }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' tBTC, which was burned.');
+        } })));
+      if (!myTbtc) {
+        adCard2.appendChild(h('p', { class: 'smallnote warn', text:
+          'You hold no tBTC. Claim 0.01 above — once per account — or trade for some in a pool.' }));
+      }
+
+      // Your own placements, and the one control that matters after publishing.
+      var mineAds = (st.adverts || []).filter(function (a) { return a.by === who && !a.stopped; });
+      if (mineAds.length) {
+        var list = h('div', { style: 'margin-top:10px' }, h('p', { class: 'eyebrow', text: 'your placements' }));
+        mineAds.forEach(function (a) {
+          list.appendChild(h('div', { class: 'kv' },
+            h('span', { text: a.text.slice(0, 40) }),
+            h('b', {}, h('button', { class: 'btn small', text: 'Stop', onclick: function () {
+              tryAct(who, { t: 'adStop', author: who, ad: a.id }, 'Stopped. The act stays in the record; the box is gone.');
+            } }))));
+        });
+        adCard2.appendChild(list);
+      }
+      wrap.appendChild(adCard2);
+
+    }
+
+    if (econView === 'layer0') {
+      wrap.appendChild(h('div', { class: 'card' },
+        h('h2', { text: 'Layer 0 — the reserve receipt' }),
+        h('div', { class: 'kv' },
+          h('span', { text: 'reserve pool Ω' }), h('b', { class: 'num', text: fmt(l0.omega, 3) }),
+          h('span', { text: 'live Y_L' }), h('b', { class: 'num', text: fmt(l0.yLive, 3) }),
+          h('span', { text: 'time-locked Y_T' }), h('b', { class: 'num', text: fmt(l0.yLock, 3) })),
+        h('div', { class: 'kv' },
+          h('span', { text: 'floor φ = Ω/Y' }), h('b', { class: 'num', text: fmt(l0.floor(), 4) }),
+          h('span', { text: 'settled φ' }), h('b', { class: 'num', text: fmt(l0.settledFloor, 4) }),
+          h('span', { text: 'cycle k' }), h('b', { class: 'num', text: l0.cycle + ' (' + (l0.bootstrapping ? 'bootstrapping, maturity at 10' : 'normal phase') + ')' })),
+        h('div', { class: 'kv' },
+          h('span', { text: 'escrow Q' }), h('b', { class: 'num', text: fmt(escrowTotal, 2) }),
+          h('span', { text: 'A_max = E₀·ln(1/(1−ζ))' }), h('b', { class: 'num', text: fmt(l0.attestCap, 2) }),
+          h('span', { text: 'operator' }), h('b', { class: 'num', text: fmt(op.live, 1) + ' L · ' + fmt(op.tlock, 1) + ' T' })),
+        h('p', { class: 'smallnote', text: 'One conserved receipt, two redemption classes. The floor only ever rises: burning destroys supply against an unchanged pool; issuance mints at the pre-issuance floor; redemption pays out at it. ζ = f = 0.5 (spec placeholders). Every burn credits the attestation A at the settled floor — and A is exactly the burn value Layer 1 reads.' })));
+
+      var amtD = h('input', { type: 'text', placeholder: '5', style: 'width:60px', inputmode: 'decimal' });
+      var amtB = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+      var amtR = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+      var amtT = h('input', { type: 'text', placeholder: '1', style: 'width:60px', inputmode: 'decimal' });
+      var peerSel = h('select', {});
+      st.ledgers.forEach(function (l) {
+        if (l.id !== who && !l.deleted) peerSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+      });
+      function num(inp, dflt) { var v = parseFloat(inp.value); return isFinite(v) && v > 0 ? v : dflt; }
+
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Your wallet' }),
+        h('div', { class: 'kv' },
+          h('span', { text: 'external reserve' }), h('b', { class: 'num', text: fmt(w.reserve, 3) }),
+          h('span', { text: 'live' }), h('b', { class: 'num', text: fmt(w.live, 3) }),
+          h('span', { text: 'time-locked' }), h('b', { class: 'num', text: fmt(w.tlock, 3) }),
+          h('span', { text: 'attestation A' }), h('b', { class: 'num', text: fmt(w.attest, 3) })),
+        h('div', { class: 'mini-form' }, amtD,
+          h('button', { class: 'btn small primary', text: 'Deposit → escrow', onclick: function () {
+            var x = num(amtD, 5);
+            if (w.reserve < x) { toast('Not enough external reserve.'); return; }
+            pushAct({ t: 'deposit', id: who, amt: x }, function () { toast('Escrowed. Mints at the next cycle boundary: (1−f)·ζ live + (1−f)·(1−ζ) time-locked to you, fee to the operator.'); });
+          } })),
+        h('div', { class: 'mini-form' }, amtB,
+          h('button', { class: 'btn small primary', text: 'Burn live → attestation', onclick: function () {
+            var x = num(amtB, 1);
+            if (w.live < x) { toast('Not enough live units.'); return; }
+            pushAct({ t: 'burnL0', id: who, x: x }, function () { toast('Destroyed forever. Attestation credited at the settled floor — this is your Layer-1 burn value.'); });
+          } })),
+        h('div', { class: 'mini-form' }, amtR,
+          h('button', { class: 'btn small', text: 'Redeem live → reserve', onclick: function () {
+            var x = num(amtR, 1);
+            if (w.live < x) { toast('Not enough live units.'); return; }
+            pushAct({ t: 'redeem', id: who, x: x }, function () { toast('Redeemed at the floor — exits value, never lowers φ.'); });
+          } })),
+        h('div', { class: 'mini-form' }, amtT, peerSel,
+          h('button', { class: 'btn small', text: 'Send live units', onclick: function () {
+            var x = num(amtT, 1);
+            if (!peerSel.value) { toast('No peer to send to.'); return; }
+            if (w.live < x) { toast('Not enough live units.'); return; }
+            pushAct({ t: 'transferL0', from: who, to: peerSel.value, x: x, cls: 'live' }, function () { toast('Transferred — class-internal, touches no Ω, φ, or A.'); });
+          } })),
+        h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close L0 cycle ' + l0.cycle + ' (process escrow, settle floor)', onclick: function () {
+          pushAct({ t: 'closeCycle' }, function () { toast('Cycle boundary: escrow minted at the pre-issuance floor, settlement committed.'); });
+        } }),
+        h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
+
+    
+      // ── The PEER token and its pools ─────────────────────────────────────────
+      // Tokens are value the epoch mints; standing is reputation the graph
+      // computes. The interface keeps saying that, because a screen where both
+      // appear is exactly where the two would otherwise blur together.
+      var tok = st.tokens, myPools = st.pools;
+      function round6(x) { return Math.round(x * 1e6) / 1e6; }
+      function tbal(sym) { return (tok.bal[sym] && tok.bal[sym][who]) || 0; }
+
+      // The Layer-0 address table lives at the BOTTOM now. It is the most
+      // technical thing on this screen and the least often wanted: people come
+      // here for their balance, their pools and their placements, and having to
+      // scroll past a ledger of raw addresses to reach them was backwards.
+      var table = h('table', { class: 'standings' },
+        h('tr', {}, h('th', { text: 'address' }), h('th', { class: 'r', text: 'reserve' }), h('th', { class: 'r', text: 'live' }), h('th', { class: 'r', text: 'locked' }), h('th', { class: 'r', text: 'attest A' })));
+      var addrs = [];
+      l0.balances.forEach(function (b, id) { addrs.push({ id: id, b: b }); });
+      addrs.sort(function (a, b) { return b.b.attest - a.b.attest || b.b.live - a.b.live; });
+      addrs.forEach(function (r) {
+        table.appendChild(h('tr', { class: r.id === who ? 'me' : '' },
+          h('td', { text: r.id === 'op' ? 'operator' : (st.handles[r.id] || r.id) }),
+          h('td', { class: 'r num', text: fmt(r.b.reserve, 2) }),
+          h('td', { class: 'r num', text: fmt(r.b.live, 2) }),
+          h('td', { class: 'r num', text: fmt(r.b.tlock, 2) }),
+          h('td', { class: 'r num', text: fmt(r.b.attest, 2) })));
+      });
+      wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Addresses' }), table,
+        h('p', { class: 'smallnote', text: 'The attestation map A : 𝔸 → ℝ≥0 is the layer’s only export — a record of destroyed value, non-transferable, never undone.' })));
+
+    }
+
+    if (econView === 'ledger') {
+      wrap.appendChild(valueLedger(st));
+    }
 
     return wrap;
   }
