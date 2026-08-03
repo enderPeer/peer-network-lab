@@ -241,7 +241,7 @@ function replayUncached(acts) {
       }
     } else if (a.t === 'transferL0') {
       if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; }) && !payloadGone) {
-        chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + dispName(a.to) });
+        chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + dispName(a.to), refs: [{ label: dispName(a.to), id: a.to }] });
       }
     } else if (a.t === 'setPin') {
       if (ledgerById[a.id] && a.pinHash) {
@@ -350,7 +350,7 @@ function replayUncached(acts) {
         // Profile compiles a person-vouch to that actor (cam's spec review).
         debit(a.author); vouch(a.author, mid, 0.7, 0.8);
         if (!payloadGone) {
-          chron.push({ who: a.author, line: 'mentioned ' + dispName(mid) + ' — person-vouch compiled', to: cid });
+          chron.push({ who: a.author, line: 'mentioned ' + dispName(mid) + ' — person-vouch compiled', to: cid, refs: [{ label: dispName(mid), id: mid }] });
         }
       }
     } else if (a.t === 'opinion') {
@@ -360,7 +360,14 @@ function replayUncached(acts) {
         var owner = a.target.indexOf('prof_') === 0 ? a.target.slice(5) : null;
         if (owner && owner !== a.author) vouch(a.author, owner, a.p, a.r);
         else weighHome(a.author, a.p, a.r);
-        chron.push({ who: a.author, line: (owner ? 'vouched on ' + dispName(owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3), to: a.target });
+        chron.push({
+            who: a.author,
+            line: (owner ? 'vouched on ' + dispName(owner) + '’s profile' : 'reacted to ' + ((g.nodes.get(a.target) || {}).label || a.target)) + ' (' + a.p.toFixed(2) + ', ' + a.r.toFixed(2) + ') · τ ' + rec.tau.toFixed(2) + ' · w ' + rec.weight.toFixed(3),
+            to: a.target,
+            refs: owner
+              ? [{ label: dispName(owner), id: owner }]
+              : [{ label: (g.nodes.get(a.target) || {}).label || a.target, id: a.target }],
+          });
       }
       debit(a.author);
     } else if (a.t === 'review') {
@@ -398,7 +405,12 @@ function replayUncached(acts) {
         creators[cmid] = a.author; payloads[cmid] = a.text;
         reviewMeta[cmid] = { e: a.e, f: a.f };
         postMeta[cmid] = { idx: i, ts: a.ts, edited: false, comment: true };
-        chron.push({ who: a.author, line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || '') + ' → minted a Comment · one act, two legs', to: cmid });
+        chron.push({
+          who: a.author,
+          line: 'reviewed ' + ((g.nodes.get(a.target) || {}).label || 'something since removed') + ' → minted a Comment · one act, two legs',
+          to: cmid,
+          refs: [{ label: (g.nodes.get(a.target) || {}).label || 'something since removed', id: a.target }],
+        });
       }
       debit(a.author);
       }
@@ -411,7 +423,12 @@ function replayUncached(acts) {
       );
       weighHome(a.author, a.r, a.c);
       if (!payloadGone) {
-        chron.push({ who: a.author, line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || '') + ' as #' + a.name, to: a.target });
+        chron.push({
+          who: a.author,
+          line: 'tagged ' + ((g.nodes.get(a.target) || {}).label || 'something since removed') + ' as #' + a.name,
+          to: a.target,
+          refs: [{ label: (g.nodes.get(a.target) || {}).label || 'something since removed', id: a.target }],
+        });
       }
       debit(a.author);
     } else if (a.t === 'call') {

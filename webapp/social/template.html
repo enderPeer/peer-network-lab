@@ -206,6 +206,10 @@ body[data-mode='liquid'] .react-count { color: var(--lq-accent); }
 .contribute p { margin: 4px 0 9px; }
 .contribute .row { display: flex; flex-wrap: wrap; gap: 7px; }
 .contribute a.btn { text-decoration: none; }
+.who-link { font: inherit; font-weight: 700; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; border-bottom: 1px dotted var(--line-2); }
+.who-link:hover { color: var(--ember); border-bottom-color: var(--ember); }
+body[data-mode='liquid'] .who-link { color: var(--lq-ink); }
+body[data-mode='liquid'] .who-link:hover { color: var(--lq-accent); }
 .ref-link { font: inherit; font-family: var(--mono); font-size: 0.92em; color: var(--ember); background: var(--ember-soft); border: 0; border-radius: 4px; padding: 0 4px; cursor: pointer; }
 .ref-link:hover { background: var(--ember); color: #fff; }
 body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0,0,0,0.05); }
@@ -1360,15 +1364,31 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return e ? e.src : null;
   }
   /** Walk Comment → its target until a displayable post (or nothing) is reached. */
+  /**
+   * The post to show in order to reveal `nodeId`.
+   *
+   * Deliberately forgiving, because two things routinely break the naive walk.
+   * A comment's post may have had its payload removed — the comment survives
+   * that by design, so it must still be reachable, shown under a [deleted]
+   * parent. And a comment can point at a counter value that never became a
+   * node at all (quote and mention legs consume numbers without minting), in
+   * which case the comment is its own destination rather than a dead link.
+   */
   function resolvePost(st, nodeId) {
-    var cur = nodeId, seen = {};
+    var cur = nodeId, seen = {}, lastComment = null;
     while (cur && !seen[cur]) {
       seen[cur] = 1;
       var n = st.g.nodes.get(cur);
-      if (!n) return null;
-      if (n.kind === 'Comment') { cur = parentOfComment(st, cur); continue; }
-      return st.payloads[cur] ? cur : null;
+      if (!n) break;                       // dangling target — fall back below
+      if (n.kind === 'Comment') {
+        lastComment = cur;
+        cur = parentOfComment(st, cur);
+        continue;
+      }
+      return cur;                          // a post, redacted or not
     }
+    // Nothing above it survives: show the comment itself if it still has text.
+    if (lastComment && st.payloads[lastComment] !== undefined) return lastComment;
     return null;
   }
   /**
@@ -1397,7 +1417,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function jumpTo(st, nodeId) {
-    if (!nodeId || !resolvePost(st, nodeId)) { toast('That act has no post to open — it moved units or closed a period.'); return; }
+    // A person is a destination too: reactions and vouches point at profiles.
+    if (nodeId && nodeId.indexOf('prof_') === 0) {
+      var pid = nodeId.slice(5);
+      if (st.ledgerById[pid]) { openProfile(pid); return; }
+    }
+    if (nodeId && st.ledgerById[nodeId]) { openProfile(nodeId); return; }
+    if (!nodeId || !resolvePost(st, nodeId)) { toast('Nothing to open here — this act moved units or closed a period.'); return; }
     focusNode = nodeId;
     if (mode === 'geek') tab = 'feed'; else lqView = 'feed';
     render();
@@ -4176,17 +4202,68 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return wrap;
   }
 
+  /**
+   * One line of the record, with everything that can be a link made one.
+   *
+   * The record is where people catch up, so a dead end in it is a dead end in
+   * the whole app: an act that names a person or a post should take you there.
+   * Three sources of links, and none of them guesses:
+   *   - the actor, from `who`
+   *   - whatever the line names, from `refs` recorded at replay time — matching
+   *     handles against prose would link "a", "cam" and "Echo" inside ordinary
+   *     words, so the labels come from the same strings that built the line
+   *   - any cN written into the text, via richText
+   */
+  function chronRow(st, c) {
+    var openable = function (id) {
+      if (!id) return false;
+      if (id.indexOf('prof_') === 0) return !!st.ledgerById[id.slice(5)];
+      if (st.ledgerById[id]) return true;
+      return !!resolvePost(st, id);
+    };
+    var row = h('div', { class: openable(c.to) ? 'chron-jump' : '' });
+
+    if (c.who) {
+      row.appendChild(h('button', {
+        class: 'who-link', text: st.handles[c.who] || c.who,
+        title: 'Open ' + (st.handles[c.who] || c.who) + '’s profile',
+        onclick: function (ev) { ev.stopPropagation(); openProfile(c.who); },
+      }));
+      row.appendChild(document.createTextNode(' '));
+    }
+
+    // Split the line on each recorded label, linking those spans exactly.
+    var rest = String(c.line == null ? '' : c.line);
+    (c.refs || []).forEach(function (r) {
+      if (!r || !r.label) return;
+      var at = rest.indexOf(r.label);
+      if (at < 0) return;
+      richText(st, rest.slice(0, at)).forEach(function (n) { row.appendChild(typeof n === 'string' ? document.createTextNode(n) : n); });
+      if (openable(r.id)) {
+        row.appendChild(h('button', {
+          class: 'who-link', text: r.label, title: 'Open ' + r.label,
+          onclick: function (ev) { ev.stopPropagation(); jumpTo(st, r.id); },
+        }));
+      } else {
+        row.appendChild(document.createTextNode(r.label));
+      }
+      rest = rest.slice(at + r.label.length);
+    });
+    richText(st, rest).forEach(function (n) { row.appendChild(typeof n === 'string' ? document.createTextNode(n) : n); });
+
+    if (openable(c.to)) {
+      row.appendChild(h('span', { class: 'jump-hint', text: ' ↗ open' }));
+      row.addEventListener('click', function () { jumpTo(st, c.to); });
+    }
+    return row;
+  }
+
   function ledgerTab(st) {
     var wrap = h('div', {});
     var chron = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'chronicle — the append-only record' }), h('div', { class: 'chron' }));
     var host = chron.lastChild;
     st.chron.slice().reverse().forEach(function (c) {
-      var jumpable = c.to && resolvePost(st, c.to);
-      var row = h('div', { class: jumpable ? 'chron-jump' : '' },
-        c.who ? h('b', {}, st.handles[c.who] + ' ') : '', c.line,
-        jumpable ? h('span', { class: 'jump-hint', text: ' ↗ open' }) : null);
-      if (jumpable) row.addEventListener('click', function () { jumpTo(st, c.to); });
-      host.appendChild(row);
+      host.appendChild(chronRow(st, c));
     });
     wrap.appendChild(chron);
     if (st.epochHistory.length) {
