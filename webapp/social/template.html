@@ -1366,8 +1366,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
   /** θ-cost of an act (posts may carry a quote + mentions, each its own act). */
   function actCost(act, st) {
-    // Corrections are free: replay charges no θ for them, so the W1 gate must
-    // not refuse a drained author the right to delete or fix their own post.
+    // Removals stay free — a drained author must still be able to take their
+    // own content down. A revision is NOT free: it is a real Publish act that
+    // appends an edge and weighs home, so it is priced like the original.
     if (act.t === 'editPost' || act.t === 'deletePost' || act.t === 'deleteAccount') return 0;
     if (act.t !== 'post') return 1;
     var n = 1;
@@ -2664,31 +2665,26 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       frag.appendChild(h('button', { class: btnC, text: '🔒 Set a PIN to edit or delete', onclick: function () { setPinFlow(st, false); } }));
       return frag;
     }
-    var leftMs = pm.ts ? 5 * 60 * 1000 - (Date.now() - pm.ts) : -1;
-    if (leftMs > 0) {
-      var editBtn = h('button', { class: btnC, text: 'Edit · ' + fmtDur(Math.ceil(leftMs / 1000)) + ' left', onclick: function () {
-        toggle(function () {
-          var txt = h('textarea', geek ? {} : { class: 'lq-input', style: 'width:100%; min-height:70px' });
-          txt.value = st.payloads[cid] || '';
-          return h('div', { class: geek ? 'mini-form' : 'lq-sheet' }, txt,
-            h('button', { class: geek ? 'btn small primary' : 'lq-pill hot', text: 'Save edit', onclick: function () {
-              var t2 = txt.value.trim();
-              if (!t2) { toast('Empty text deletes nothing — use Delete for that.'); return; }
-              tryAct(who, { t: 'editPost', author: who, target: pm.idx, text: t2 },
-                'Edited — the served record now carries the new text; the old bytes left the log.');
-            } }));
-        });
-      } });
-      frag.appendChild(editBtn);
-      // The window drains in real time; render() may not run again before it
-      // closes, so the label ticks itself and the button leaves at zero.
-      var tick = setInterval(function () {
-        if (!editBtn.isConnected) { clearInterval(tick); return; }
-        var ms = 5 * 60 * 1000 - (Date.now() - pm.ts);
-        if (ms <= 0) { clearInterval(tick); editBtn.remove(); return; }
-        editBtn.textContent = 'Edit · ' + fmtDur(Math.ceil(ms / 1000)) + ' left';
-      }, 1000);
-    }
+    // No time limit any more. The five-minute window existed only because the
+    // old edit rewrote bytes in the stored log and that had to happen while it
+    // was still nearly fresh. A revision is now an ordinary act appended to the
+    // end, so it can be authored whenever — and it costs θ, like everything.
+    frag.appendChild(h('button', { class: btnC, text: 'Revise · −θ', onclick: function () {
+      toggle(function () {
+        var txt = h('textarea', geek ? {} : { class: 'lq-input', style: 'width:100%; min-height:70px' });
+        txt.value = st.payloads[cid] || '';
+        return h('div', { class: geek ? 'mini-form' : 'lq-sheet' }, txt,
+          h('div', { class: 'smallnote', style: 'flex-basis:100%' },
+            'A revision is a further record about this post, not a rewrite of it. The original act stays in the log with its original text; readers see the latest. To make the old text actually go away, use Delete — that removes the payload.'),
+          h('button', { class: geek ? 'btn small primary' : 'lq-pill hot', text: 'Publish revision · −θ', onclick: function () {
+            var t2 = txt.value.trim();
+            if (!t2) { toast('Empty text deletes nothing — use Delete for that.'); return; }
+            if (t2 === (st.payloads[cid] || '')) { toast('That is the same text; nothing to record.'); return; }
+            tryAct(who, { t: 'post', author: who, text: t2, a: 0.8, target: pm.idx },
+              'Revision published — a second Publish naming the same node. The original record stands; the feed shows the latest.');
+          } }));
+      });
+    } }));
     var delBtn = h('button', { class: btnC, text: 'Delete' });
     delBtn.addEventListener('click', function () {
       if (delBtn.dataset.arm !== '1') {

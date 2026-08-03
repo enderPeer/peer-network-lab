@@ -87,7 +87,10 @@ const ACT_FIELDS = {
   dm: ['t', 'from', 'to', 'text'],
 };
 // post gains optional reference + media fields
-ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media'];
+// `target` names an existing post: the act then updates that node instead of
+// minting a new one (v0.24.2 makes minting a role a record plays, decided by
+// whether its terminal target is its own mint).
+ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media', 'target'];
 ACT_FIELDS.editPost = ['t', 'author', 'target', 'text'];
 ACT_FIELDS.call = ['t', 'from', 'to', 'outcome', 'dur'];
 // Going live is a public gesture, so it is an act and mints a Content node the
@@ -447,9 +450,19 @@ function validate(act) {
     case 'burn':
       if (!str(act.id, 24) || act.amt !== 1) return 'bad burn';
       break;
-    case 'post':
+    case 'post': {
       if (tooLong(act.text, 1000, 'post')) return tooLong(act.text, 1000, 'post');
       if (!str(act.author, 24) || !str(act.text, 1000) || !inR(act.a)) return 'bad post';
+      // A post naming an existing one is an UPDATE, not a new publication:
+      // records are immutable, so revising a node can only mean authoring a
+      // further record about it. Absent target = the ordinary minting case.
+      if (act.target !== undefined) {
+        if (!Number.isInteger(act.target)) return 'bad update target';
+        const orig = acts[act.target];
+        if (!orig || (orig.t !== 'post' && orig.t !== 'stream')) return 'update target is not a post';
+        if (orig.author !== act.author) return 'only the author can update their own post';
+        if (orig.redacted) return 'that post was deleted';
+      }
       if (act.ref !== undefined && !str(act.ref, 40)) return 'bad reference';
       if (act.media !== undefined) {
         if (!Array.isArray(act.media) || act.media.length > 2) return 'bad media';
@@ -460,6 +473,7 @@ function validate(act) {
         }
       }
       break;
+    }
     case 'opinion':
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.p) || !inR(act.r)) return 'bad opinion';
       break;
@@ -494,15 +508,12 @@ function validate(act) {
       if (tooLong(act.text, 500, 'message')) return tooLong(act.text, 500, 'message');
       if (!str(act.from, 24) || !str(act.to, 24) || !str(act.text, 500)) return 'bad message';
       break;
-    case 'editPost': {
-      if (!str(act.author, 24) || !Number.isInteger(act.target) || !str(act.text, 1000)) return 'bad edit';
-      const orig = acts[act.target];
-      if (!orig || orig.t !== 'post') return 'edit target is not a post';
-      if (orig.author !== act.author) return 'only the author can edit a post';
-      if (orig.redacted) return 'that post was deleted';
-      if (!orig.ts || Date.now() - orig.ts > EDIT_WINDOW_MS) return 'edit window closed — posts are editable for 5 minutes';
-      break;
-    }
+    case 'editPost':
+      // Superseded and no longer accepted. It rewrote the bytes of a record
+      // already published, which is the one thing an append-only log must not
+      // do; a revision is now a second post naming the same node, appended
+      // like everything else. Existing editPost acts still replay.
+      return 'editPost is retired — publish a revision instead: {"t":"post","author":…,"text":…,"a":…,"target":<act index>}';
     case 'deletePost': {
       if (!str(act.author, 24) || !Number.isInteger(act.target)) return 'bad delete';
       const orig = acts[act.target];
@@ -763,11 +774,10 @@ function applyAct(act, auth, ip) {
   if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
   // Deletion/edit reach back into the stored log: content bytes leave the
   // file, structure (line count, ids, θ-parity fields) stays.
-  if (act.t === 'editPost') {
-    const orig = acts[act.target];
-    orig.text = act.text; orig.edited = true;
-    rewriteLog();
-  } else if (act.t === 'deletePost') {
+  // editPost no longer reaches here — validate() retires it. Only removal
+  // still reaches back into the stored log, and removal takes bytes out
+  // rather than putting different bytes in.
+  if (act.t === 'deletePost') {
     redactPostAct(acts[act.target], act.target);
     rewriteLog(); gcMedia();
   } else if (act.t === 'deleteAccount') {

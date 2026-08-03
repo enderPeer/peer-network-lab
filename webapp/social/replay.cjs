@@ -288,18 +288,40 @@ function replayUncached(acts) {
         chron.push({ who: a.author, line: 'went live · ' + a.text.slice(0, 60), to: scid });
       }
     } else if (a.t === 'post') {
-      counter++;
-      var cid = 'c' + counter;
-      actContent[i] = cid;
-      if (payloadGone) mutedContent[cid] = true;
-      g.addNode({ id: cid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Post ' + counter });
-      g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
-      debit(a.author); weighHome(a.author, a.a, 1);
-      if (!payloadGone) {
-        creators[cid] = a.author; payloads[cid] = a.text;
-        if (a.media && a.media.length) mediaMeta[cid] = a.media;
-        postMeta[cid] = { idx: i, ts: a.ts, edited: !!a.edited };
-        chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2), to: cid });
+      // Minting is a role this record plays, not a property of its family: an
+      // act mints when its terminal target is its own mint, and names an
+      // existing node otherwise. A post carrying `target` is therefore an
+      // UPDATE — it mints nothing, leaves creator, comments, reactions and
+      // references untouched, and only supersedes the payload. That is the
+      // only way to revise anything when records are immutable.
+      var isUpdate = Number.isInteger(a.target) && actContent[a.target] !== undefined;
+      var cid;
+      if (isUpdate) {
+        cid = actContent[a.target];
+        // Deliberately no counter++: the node already exists, and advancing it
+        // here would shift every later content id in logs already written.
+        g.append({ id: 'pubu' + i, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
+        debit(a.author); weighHome(a.author, a.a, 1);
+        if (!payloadGone && payloads[cid] !== undefined) {
+          payloads[cid] = a.text;               // log order gives latest-wins
+          if (a.media && a.media.length) mediaMeta[cid] = a.media;
+          if (postMeta[cid]) postMeta[cid].edited = true;
+          chron.push({ who: a.author, line: 'revised a post — a further record about it, the original stands', to: cid });
+        }
+      } else {
+        counter++;
+        cid = 'c' + counter;
+        actContent[i] = cid;
+        if (payloadGone) mutedContent[cid] = true;
+        g.addNode({ id: cid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Post ' + counter });
+        g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: cid, pd: a.a, pi: 1, epoch: certsSoFar });
+        debit(a.author); weighHome(a.author, a.a, 1);
+        if (!payloadGone) {
+          creators[cid] = a.author; payloads[cid] = a.text;
+          if (a.media && a.media.length) mediaMeta[cid] = a.media;
+          postMeta[cid] = { idx: i, ts: a.ts, edited: !!a.edited };
+          chron.push({ who: a.author, line: 'posted · attachment ' + a.a.toFixed(2), to: cid });
+        }
       }
       // Quote reference: one Reference hyper act (A-leg into the post, Full-tier
       // citation T-leg to the target) — its own θ-debit.
