@@ -408,6 +408,18 @@ function hashPin(id, pin, likeStored) {
 // single request. Ordinary acts keep the old permissive behaviour.
 const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount']);
 
+/** Has this handle done anything beyond existing? Used to decide whether a
+ *  first PIN is someone securing their own new handle, or a stranger claiming
+ *  an established one. */
+const SUBSTANTIVE = new Set(['post', 'review', 'opinion', 'tag', 'dm', 'stream', 'call']);
+function hasHistory(id) {
+  for (const a of acts) {
+    if (SUBSTANTIVE.has(a.t) && (a.author === id || a.from === id)) return true;
+  }
+  return false;
+}
+const OPERATOR_TOKEN = (process.env.PEER_OPERATOR_TOKEN ?? '').trim();
+
 function authError(act) {
   const actor = act.t === 'register' ? null
     : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'deleteAccount'].includes(act.t) ? act.id : null));
@@ -416,6 +428,20 @@ function authError(act) {
   if (!stored) {
     if (PIN_REQUIRED.has(act.t)) {
       return 'this handle has no PIN — set one before deleting or editing, otherwise anyone could do it in your name';
+    }
+    // Claiming an unsecured handle that already has a history is how a real
+    // tester got locked out of their own account here: setPin was accepted
+    // from anyone, so whoever set a PIN first owned the name. Securing a
+    // handle you just registered is still free; taking over one that has
+    // already spoken is not, because nothing in this act proves you are its
+    // author. There is no key and no email to fall back on, so the only
+    // honest gate left is the operator.
+    if (act.t === 'setPin' && hasHistory(actor)) {
+      const tok = typeof act.auth === 'string' ? act.auth : '';
+      if (!OPERATOR_TOKEN || tok !== OPERATOR_TOKEN) {
+        return 'this handle has already posted and has no PIN, so it cannot be claimed from outside — that is exactly how someone else would take it. The instance operator can set one for you.';
+      }
+      return null;
     }
     return null;
   }

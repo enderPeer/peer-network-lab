@@ -21,10 +21,27 @@ export interface FeedEntry {
  * single Opinion e2; the general node-fold table adds a maturity factor whose
  * inclusion here is a flagged spec ambiguity. We match the fixture.)
  */
+/**
+ * Stance records that fold into a node's sentiment slice.
+ *
+ * Opinion is the obvious one. Publish belongs too, and v0.24.2 says so in
+ * as many words: the genesis exclusion removes the minting act's structural
+ * FIELDS — the ones fixing identity, creator and license — not the record, so
+ * "a genesis Publish folds into p̄_d, p̄_i like any other Publish, because its
+ * author's stance toward the thing they published is a stance like any other".
+ * Reading it the other way makes the first act about a node invisible to the
+ * fold while every later act counts.
+ *
+ * ReviewA is deliberately NOT here. Admitting it moves the Appendix F
+ * reference content norm off its certified 1.798, so the verification suite
+ * says plainly that a review's A-leg is not part of this fold.
+ */
+const STANCE_FAMILIES = new Set(['Opinion', 'Publish']);
+
 export function contentNorm(graph: RawGraph, nodeId: string): number {
   const stance = graph
     .incoming(nodeId)
-    .filter((e) => e.family === 'Opinion');
+    .filter((e) => STANCE_FAMILIES.has(e.family));
   if (stance.length === 0) return 0;
   const pd = stance.reduce((s, e) => s + e.pd, 0) / stance.length;
   const pi = stance.reduce((s, e) => s + e.pi, 0) / stance.length;
