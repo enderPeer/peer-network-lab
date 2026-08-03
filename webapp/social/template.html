@@ -22,6 +22,21 @@
   --display: 'Bahnschrift', 'Avenir Next Condensed', 'Roboto Condensed', 'Arial Narrow', sans-serif;
   --body: 'Charter', 'Bitstream Charter', Cambria, 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  /* Shape and rhythm. Before this the file held radii of 4, 5, 6, 7, 8, 9, 10,
+     12, 14 and 16px chosen one at a time, which is what made the surfaces look
+     unrelated to each other however carefully each was drawn. */
+  --r-xs: 6px;  --r-sm: 9px;  --r-md: 12px;  --r-lg: 16px;  --r-xl: 20px;  --r-pill: 999px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 22px; --s-6: 30px;
+  --z-bar: 20; --z-scrim: 30; --z-drawer: 31; --z-dialog: 40; --z-toast: 50;
+
+  /* Declared at last. --dim and --accent were used with fallbacks and so only
+     appeared to work; --lq-glass-2 and --lq-edge had no fallback at all, so
+     the two rules using them were dropped by every browser in silence. */
+  --dim: var(--muted);
+  --accent: var(--brass);
+  --lq-glass-2: rgba(255, 255, 255, 0.55);
+  --lq-edge: rgba(23, 24, 27, 0.12);
   /* ledger tokens (mainstream view) — paper, ink, one signal colour */
   --lq-paper: #EFEFEA;
   --lq-sheet: #FFFFFF;
@@ -45,6 +60,7 @@
     --lq-paper: #131315; --lq-sheet: #1A1B1E; --lq-sunk: #202126;
     --lq-ink: #ECECE7; --lq-muted: #92949A; --lq-rule: #2C2D32; --lq-rule-2: #3D3E45;
     --lq-accent: #FF5630; --lq-accent-2: #7FA3E8; --lq-gold: #C9A25E; --lq-good: #58B98A;
+    --lq-glass-2: rgba(40, 41, 46, 0.66); --lq-edge: rgba(236, 236, 231, 0.14);
   }
 }
 :root[data-theme="light"] {
@@ -81,23 +97,42 @@ button { font-family: var(--body); cursor: pointer; }
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 10px 2px; margin-bottom: 14px; flex-wrap: wrap;
+  /* The bar sits OUTSIDE .shell so it can span the viewport, but its contents
+     have to line up with the 1220px column grid underneath — otherwise the
+     wordmark hugs the left edge of a wide screen while the page it belongs to
+     starts several hundred pixels further in. */
+  padding: 10px max(18px, calc((100% - 1220px) / 2 + 18px));
+  margin-bottom: var(--s-4); flex-wrap: wrap;
   background: color-mix(in srgb, var(--paper) 88%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
 .wordmark { font-family: var(--display); font-weight: 700; text-transform: uppercase; font-size: 24px; margin: 0; letter-spacing: 0.04em; }
+/* The lockup: a mark, the name, and the word under it. Drawn inline because
+   the page fetches nothing — no icon font, no logo file, and a strict CSP. */
+.brand { display: flex; align-items: center; gap: 9px; }
+.brand .mk { width: 26px; height: 26px; flex: none; }
+.brand .nm { line-height: 1; }
+.brand .nm .wordmark { font-size: 19px; letter-spacing: 0.02em; }
+.brand .nm small { display: block; font-family: var(--display); font-size: 8.5px; letter-spacing: 0.28em; color: var(--muted); text-transform: uppercase; margin-top: 1px; }
+.peer-pill { font-family: var(--mono); font-size: 11px; color: var(--ember); background: var(--ember-soft); border-radius: var(--r-pill); padding: 3px 9px; white-space: nowrap; }
+.post .when { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.standings .rk { color: var(--muted); font-family: var(--mono); font-size: 10.5px; padding-right: 2px; }
+.tagcloud { display: flex; flex-wrap: wrap; gap: 6px; }
+.tagcloud .tt { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card-2); padding: 6px 10px; font-size: 12px; }
+.tagcloud .tt b { display: block; font-family: var(--display); }
+.tagcloud .tt span { color: var(--muted); font-size: 10.5px; }
 .wordmark em { font-style: normal; color: var(--ember); }
 /* Eight tabs do not fit a phone, and the page clips horizontal overflow, so
    the last ones were unreachable rather than merely off-screen — reported as
    "the Live tab is not shown". The row scrolls on its own instead. */
-.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 3px; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { flex: 0 0 auto; white-space: nowrap; }
-.tabs button { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 14px; border-radius: 7px; font-weight: 600; }
+.tabs button { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 14px; border-radius: var(--r-sm); font-weight: 600; }
 .tabs button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
 .switcher { display: flex; gap: 8px; align-items: center; }
-.switcher select { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.switcher select { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px; font-size: 13px; }
 
 .cols { display: grid; grid-template-columns: 256px minmax(0, 1fr) 296px; gap: 16px; align-items: start; }
 /* minmax(0,…) everywhere a track holds user content: a plain 1fr floors at
@@ -124,9 +159,50 @@ html, body { overflow-x: hidden; }
 .post *, .card *, .lq-card *, .comment *, .lq-comment *, .grow { min-width: 0; }
 .rail { position: sticky; top: 62px; }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
-.card + .card { margin-top: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px 20px; box-shadow: var(--shadow); }
+.card + .card { margin-top: var(--s-3); }
 .card h2 { font-family: var(--display); font-size: 17px; margin: 0 0 10px; letter-spacing: 0.01em; }
+
+/* Used on three screens since before it existed as a rule, so those headers
+   had no styling at all: a title and its controls simply stacked. */
+.panel-head { display: flex; align-items: flex-start; gap: var(--s-3); margin-bottom: var(--s-3); }
+.panel-head .grow { min-width: 0; }
+.panel-head h2 { margin: 0 0 2px; }
+.panel-head .sub { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.45; }
+.panel-head .acts { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; flex: none; }
+
+/* A row of headings that reads as one control rather than a set of buttons —
+   the feed's ranking, the alert filters, the economy's sub-views. Distinct
+   from .tabs on purpose: .tabs is the pill group and is used elsewhere. */
+.uline { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); margin-bottom: var(--s-3); }
+.uline::-webkit-scrollbar { display: none; }
+.uline button { flex: 0 0 auto; white-space: nowrap; border: 0; background: transparent; color: var(--muted);
+  font-family: var(--display); font-size: 13px; font-weight: 600; letter-spacing: 0.01em;
+  padding: 8px 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.uline button:hover { color: var(--ink); }
+.uline button.on { color: var(--ink); border-bottom-color: var(--ember); }
+/* In the bar the row is navigation, not a section heading: no rule under it
+   and no gap, or the bar gets a second hairline of its own. */
+.topbar .uline { border-bottom: 0; margin-bottom: 0; min-width: 0; }
+/* A flex child defaults to min-width:auto and refuses to shrink below its
+   content, so on a phone the eight tabs pushed the whole bar wider than the
+   screen instead of scrolling inside it — and took the account controls off
+   the right edge with them. */
+.topbar .uline, .topbar .switcher { min-width: 0; }
+@media (max-width: 760px) {
+  .topbar { padding: 8px 12px; gap: 8px; row-gap: 6px; }
+  .topbar .uline { order: 3; flex: 1 1 100%; }
+  .switcher { flex: 1 1 auto; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
+  .switcher::-webkit-scrollbar { display: none; }
+  .switcher .btn, .switcher select, .peer-pill { flex: 0 0 auto; }
+  .brand .nm small { display: none; }
+}
+
+/* Numbers that should read as measurements rather than prose. */
+.stat-row { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.stat-tile { flex: 1 1 130px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card-2); padding: 12px 14px; }
+.stat-tile b { display: block; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 22px; line-height: 1.1; }
+.stat-tile span { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
 .eyebrow { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
 
 .idcard .who { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
@@ -141,7 +217,7 @@ html, body { overflow-x: hidden; }
 .gauge i { display: block; height: 100%; background: var(--ember); border-radius: 4px; transition: width 0.4s ease; }
 .smallnote { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
 
-.btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
+.btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: var(--r-sm); padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
 .btn:hover { border-color: var(--ember); }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--ember); border-color: var(--ink); color: #FFF4EC; font-weight: 600; }
@@ -3750,8 +3826,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var arch = archiveBanner();
     if (arch) root.appendChild(arch);
     root.appendChild(h('div', { class: 'topbar' },
-      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-      h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
+      brandMark(),
+      h('div', { class: 'uline nav' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
         (function () {
           var b = tabBtn('alerts', 'Alerts');
           var fresh = unseenCount(notificationsFor(st, who));
@@ -3768,6 +3844,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         })(),
         tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
+        // The balance belongs where the account does. It is a real figure —
+        // st.tokens.bal — not a decoration.
+        h('span', { class: 'peer-pill', text: fmt((st.tokens && st.tokens.bal ? st.tokens.bal[who] : 0) || 0, 3) + ' PEER' }),
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
@@ -3792,7 +3871,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     shell.appendChild(h('div', { class: 'cols' },
       h('div', { class: 'rail rail-left' }, idCard(st, me, myX, rate), aboutCard()),
       h('div', { class: 'geek-center' }, center),
-      h('div', { class: 'rail rail-right' }, alertsCard(st), standingsCard(st), epochCard(st))));
+      h('div', { class: 'rail rail-right' }, standingsCard(st), epochCard(st), tagsCard(st), alertsCard(st))));
     shell.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
     root.appendChild(shell);
   }
@@ -3950,6 +4029,43 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab/blob/main/CONTRIBUTING.md', target: '_blank', rel: 'noopener' }, 'How to contribute')));
   }
 
+  /** The wordmark with its mark, used by the bar and the gate. */
+  function brandMark() {
+    var svg = sv('svg', { viewBox: '0 0 32 32', class: 'mk' });
+    var d = sv('path', {
+      d: 'M16 2 L30 16 L16 30 L2 16 Z',
+      fill: 'none', stroke: 'var(--ember)', 'stroke-width': '2.5', 'stroke-linejoin': 'round',
+    });
+    var c = sv('circle', { cx: '16', cy: '16', r: '4.5', fill: 'var(--ember)' });
+    svg.appendChild(d); svg.appendChild(c);
+    return h('div', { class: 'brand' }, svg,
+      h('div', { class: 'nm' },
+        h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+        h('small', { text: 'network' })));
+  }
+
+  /**
+   * The wall-clock stamp of an act by its position in the log.
+   *
+   * A notification carries the append index of the edge that caused it, not a
+   * time — so the time has to come from the act at that index, and only when
+   * that act carries one. Older acts do not.
+   */
+  function actStamp(idx) {
+    var a = world.acts[idx];
+    return a && typeof a.ts === 'number' ? a.ts : 0;
+  }
+
+  /** "2h ago" from a millisecond stamp, or nothing when there is no stamp. */
+  function relAgo(ts) {
+    if (!ts) return '';
+    var s2 = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s2 < 60) return s2 + 's ago';
+    if (s2 < 3600) return Math.floor(s2 / 60) + 'm ago';
+    if (s2 < 86400) return Math.floor(s2 / 3600) + 'h ago';
+    return Math.floor(s2 / 86400) + 'd ago';
+  }
+
   function feedTab(st) {
     var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored; @name mentions and quotes are priced Reference acts)' });
     var att = slider('attachment', 0.8);
@@ -4006,7 +4122,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           : cogra
             ? 'CoGra Σ σ(π)·m(π)·f(Δt) — k-disjoint paths, no standing, balance × taint'
             : 'L1 default — S = W · (1 + standing/ν) · ‖T‖F' }),
-        h('div', { class: 'tabs' },
+        h('div', { class: 'uline' },
           h('button', { class: feedMode === 'l1' ? 'on' : '', text: 'L1', onclick: function () { feedMode = 'l1'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'cogra' ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }))));
@@ -4278,7 +4394,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
         (st.postMeta[n.id] && st.postMeta[n.id].stream) ? h('span', { class: 'kindtag', text: 'stream' }) : null,
         viewChip(n.id),
-        hopChip(st, n.id, false)),
+        hopChip(st, n.id, false),
+        h('span', { class: 'when', text: relAgo(st.postMeta[n.id] && st.postMeta[n.id].ts) })),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);
@@ -5768,19 +5885,48 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     notifs.slice(0, 8).forEach(function (n) {
       card.appendChild(h('p', { class: 'smallnote', style: n.idx > seenMark ? 'border-left:2px solid var(--ember); padding-left:7px' : '' },
         h('b', {}, st.handles[n.who] || n.who), ' ' + (NOTIF_VERB[n.kind] || n.kind) +
-        (n.text ? ' — “' + n.text.slice(0, 40) + '”' : '')));
+        (n.text ? ' — “' + n.text.slice(0, 40) + '”' : ''),
+        h('span', { class: 'when', text: relAgo(actStamp(n.idx)) })));
     });
     markSeen(notifs);
     return card;
   }
 
+  /**
+   * Which tags are actually being used. Counted from the tag edges in the
+   * graph — the figure under each one is how many posts carry it, not a
+   * popularity score and not a guess.
+   */
+  function tagsCard(st) {
+    var count = {};
+    Object.keys(st.payloads).forEach(function (cid) {
+      tagsOf(st, cid).forEach(function (t) { count[t] = (count[t] || 0) + 1; });
+    });
+    var top = Object.keys(count).sort(function (a, b) { return count[b] - count[a]; }).slice(0, 8);
+    if (!top.length) return null;
+    var cloud = h('div', { class: 'tagcloud' });
+    top.forEach(function (t) {
+      // Deliberately not a button. This app has no tag filter, and a chip that
+      // looked clickable and did nothing would be a worse lie than no chip:
+      // the first draft of this assigned to an undeclared `focusTag`, which in
+      // sloppy mode silently invents a global instead of failing.
+      cloud.appendChild(h('span', { class: 'tt' },
+        h('b', { text: t }),
+        h('span', { text: count[t] + (count[t] === 1 ? ' post' : ' posts') })));
+    });
+    return h('div', { class: 'card' }, h('h2', { text: 'Tags in use' }), cloud);
+  }
+
   function standingsCard(st) {
     var table = h('table', { class: 'standings' },
       h('tr', {}, h('th', { text: 'peer' }), h('th', { class: 'r', text: 'rate' }), h('th', { class: 'r', text: 'standing' }), h('th', { text: '' })));
+    var rank = 0;
     st.ledgers.slice().sort(function (a, b) { return (st.xById[b.id] || 0) - (st.xById[a.id] || 0); }).forEach(function (l) {
       if (l.deleted) return;
+      rank += 1;
       var row = h('tr', { class: l.id === who ? 'me' : '' },
-        h('td', {}, st.handles[l.id] + (st.pinHash[l.id] ? ' 🔒' : ''), ' ', deltaChip(l.id, st)),
+        h('td', {}, h('span', { class: 'rk', text: rank + '  ' }),
+          st.handles[l.id] + (st.pinHash[l.id] ? ' 🔒' : ''), ' ', deltaChip(l.id, st)),
         h('td', { class: 'r num', text: fmt(l.burnBal / Math.max(l.actCount, 1), 3) }),
         h('td', { class: 'r num', text: fmt(credibility(st, l.id), 4) }),
         h('td', {}));
