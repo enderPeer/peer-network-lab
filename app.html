@@ -221,6 +221,14 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
 .ad-card { border-style: dashed; border-color: var(--muted, #4a443f); position: relative; }
 .ad-card::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px;
   border-radius: 12px 0 0 12px; background: #8a7a4a; }
+/* A vouch can lower the standing of the person you back. Saying so needs to
+   look like information, not like an error — hence a tinted panel rather than
+   a red one, and no icon that reads as "something went wrong". */
+.vouch-effect { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; margin: 8px 0; }
+.vouch-effect.warn { border-color: #8a7a4a; background: rgba(138,122,74,.10); }
+.vouch-effect.good { border-color: #4a7a55; background: rgba(74,122,85,.10); }
+.vouch-effect p { margin: 5px 0 0; }
+.a2hs.refusal b { display: block; margin-bottom: 2px; }
 .ad-tag { font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 4px;
   background: #8a7a4a; color: #17140f; font-weight: 700; }
 .a2hs .row { display: flex; gap: 8px; margin-top: 9px; }
@@ -860,6 +868,34 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return changed;
   }
 
+  /**
+   * Show a refusal with its reason, not just its sentence.
+   *
+   * The host answers every refusal with a stable `code`, the sentence that
+   * names your actual numbers, `why` the rule exists, and the `fix`. A toast
+   * that only repeats the sentence throws away the two fields that answer the
+   * question people actually have — this network's rules are unusual enough
+   * that "why" is rarely obvious.
+   */
+  function explainRefusal(d) {
+    if (!d || !d.error) { toast('The network refused that action.'); return; }
+    if (!d.why) { toast(d.error); return; }
+    var card = h('div', { class: 'a2hs refusal' },
+      h('b', { text: d.error }),
+      h('div', { class: 'smallnote', style: 'margin-top:6px', text: d.why }));
+    if (d.fix) card.appendChild(h('div', { style: 'margin-top:6px' }, h('b', { text: 'What to do: ' }), d.fix));
+    var row = h('div', { class: 'row', style: 'margin-top:8px' },
+      h('button', { text: 'Got it', onclick: function () { card.remove(); } }));
+    if (d.code) {
+      row.appendChild(h('span', { class: 'smallnote mono', text: d.code }));
+    }
+    card.appendChild(row);
+    var old = document.querySelector('.a2hs.refusal');
+    if (old) old.remove();
+    document.body.appendChild(card);
+    setTimeout(function () { if (card.parentNode) card.remove(); }, 20000);
+  }
+
   function pushAct(act, onOk, retried) {
     var actor = act.author || act.from ||
       (act.t === 'closeEpoch' || act.t === 'closeCycle' ? null : act.id) || null;
@@ -899,7 +935,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             withUnlock(function () { pushAct(act, onOk, true); });
             return;
           }
-          toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return;
+          explainRefusal(x.d); render(); return;
         }
         mergeTail(x.d); save();
         if (onOk) onOk();
@@ -3165,10 +3201,55 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
   }
 
+  /**
+   * What a vouch will actually do to the person you are backing.
+   *
+   * Asked for by @feedback2000, who measured it happening to them: their
+   * credibility fell about a quarter across a window whose only change was
+   * @Fable vouching on them a second time. Standing is a balance/count
+   * mediant of the rates transported to you, so a backer whose own rate is
+   * lower than yours pulls you DOWN — and a vouch reads as a compliment
+   * everywhere else in the world, which is exactly why it has to say so here,
+   * before the act, and not in a guide.
+   *
+   * The arithmetic is the same one the standings table shows, so this is a
+   * reading of state rather than a second implementation of it.
+   */
+  function vouchEffect(st, from, to) {
+    var mine = st.ledgerById[from], theirs = st.ledgerById[to];
+    if (!mine || !theirs || !mine.actCount || !theirs.actCount) {
+      return h('p', { class: 'smallnote', text: 'Not enough history yet to say which way this will move them.' });
+    }
+    var myRate = mine.burnBal / mine.actCount;
+    var theirRate = theirs.burnBal / theirs.actCount;
+    var already = st.bundles && st.bundles[from + '>' + to];
+    var box = h('div', { class: 'vouch-effect' });
+    var verdict, tone;
+    if (myRate > theirRate * 1.02) { verdict = 'LIFTS'; tone = 'good'; }
+    else if (myRate < theirRate * 0.98) { verdict = 'DILUTES'; tone = 'warn'; }
+    else { verdict = 'BARELY MOVES'; tone = ''; }
+    box.className = 'vouch-effect ' + tone;
+    box.appendChild(h('div', {},
+      h('b', { text: verdict }),
+      ' — your rate ' + fmt(myRate, 3) + ' against theirs ' + fmt(theirRate, 3)));
+    box.appendChild(h('p', { class: 'smallnote', text:
+      verdict === 'DILUTES'
+        ? 'Standing is a pooled commitment rate, so backing someone whose rate is higher than yours pulls it toward yours. This is not a bug and it is not an insult — but it is the opposite of what a vouch means anywhere else, so it is worth knowing before you spend the act.'
+        : verdict === 'LIFTS'
+          ? 'Your rate is higher than theirs, so transporting it raises them. Acting lowers your own rate either way; burning raises it.'
+          : 'Your rates are close enough that this will barely move them in either direction.' }));
+    if (already) {
+      box.appendChild(h('p', { class: 'smallnote', text:
+        'You have already vouched for them. Vouches from one person to another fold into a single net stance, so a second one does not double the effect — it deepens the same one.' }));
+    }
+    return box;
+  }
+
   function lqEndorseSheet(st, target) {
     var s = slider('strength', 0.7, 'lq-range');
     return h('div', { class: 'lq-sheet' },
       h('span', { class: 'lq-note', text: 'Backing someone lends them your credibility — it moves your own weight to them.' }),
+      vouchEffect(st, who, target),
       s.row,
       h('button', { class: 'lq-pill hot', onclick: function () {
         var v = Math.max(0.05, s.value());
@@ -5067,14 +5148,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           save(); render();
         } })));
       var p = slider('support', 0.7), r = slider('conviction', 0.7);
-      drawer.appendChild(h('div', { class: 'sect' },
-        h('p', { class: 'eyebrow', text: 'vouch for ' + st.handles[id] }),
-        h('div', { class: 'mini-form' }, p.row, r.row,
-          h('button', { class: 'btn small primary', text: 'Vouch · −θ', onclick: function () {
-            close();
-            tryAct(who, { t: 'opinion', author: who, target: 'prof_' + id, p: p.value(), r: r.value() },
-              'Vouch recorded — a positive folded Opinion on a profile compiles a person-vouch. Your rate now flows to ' + st.handles[id] + '.');
-          } }))));
+      var sect = h('div', { class: 'sect' },
+        h('p', { class: 'eyebrow', text: 'vouch for ' + st.handles[id] }));
+      sect.appendChild(vouchEffect(st, who, id));
+      sect.appendChild(h('div', { class: 'mini-form' }, p.row, r.row,
+        h('button', { class: 'btn small primary', text: 'Vouch · −θ', onclick: function () {
+          close();
+          tryAct(who, { t: 'opinion', author: who, target: 'prof_' + id, p: p.value(), r: r.value() },
+            'Vouch recorded — a positive folded Opinion on a profile compiles a person-vouch. Your rate now flows to ' + st.handles[id] + '.');
+        } })));
+      drawer.appendChild(sect);
     }
     overlay.appendChild(h('div', { class: 'scrim', onclick: close }));
     overlay.appendChild(drawer);
