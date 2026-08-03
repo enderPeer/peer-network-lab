@@ -161,6 +161,11 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d63b2f; animation: livepulse 1.4s infinite; vertical-align: middle; }
+@keyframes livepulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+.stream-video { display: block; width: 100%; max-height: 60vh; background: #000; border-radius: 10px; margin: 8px 0; }
+.view-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; white-space: nowrap; cursor: help; }
+body[data-mode='liquid'] .view-chip { color: var(--lq-muted, #888); }
 .lock-warn { border-color: var(--ember); }
 .lock-warn b { color: var(--ember); }
 .g-handle.locked, .lq-ava.locked { outline: 2px solid var(--ember); outline-offset: 1px; }
@@ -578,7 +583,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_VIEW = 'peer-sandbox-view-v1';
   // Which tab and which sort you were on survives a reload. Nothing here is
   // protocol state — purely where you were standing.
-  var GEEK_TABS = ['feed', 'chat', 'alerts', 'net', 'econ', 'ledger', 'guide'];
+  var GEEK_TABS = ['feed', 'chat', 'alerts', 'net', 'live', 'econ', 'ledger', 'guide'];
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
@@ -799,6 +804,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .catch(function () { setOnline(false); toast('Connection hiccup — nothing was recorded, try again.'); });
   }
 
+  function pollLive() {
+    if (!REMOTE) return;
+    fetch(API + '/api/live', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        var before = liveList.map(function (e) { return e.author; }).join(',');
+        liveList = d.live || [];
+        var after = liveList.map(function (e) { return e.author; }).join(',');
+        // Only re-render when the set actually changed, so a viewer count tick
+        // does not tear down an open composer every eight seconds.
+        if (before !== after && !document.querySelector('.pin-dialog')) render();
+      })
+      .catch(function () {});
+  }
+
   function pollRemote() {
     var ae = document.activeElement;
     // Never while a credential is being typed, offline or not: the reconnect
@@ -807,7 +828,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (document.querySelector('.pin-dialog')) return;
     if (!offline) {
       if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
-      if (document.querySelector('.drawer') || document.querySelector('.mini-form') || document.querySelector('.lq-sheet')) return;
+      // Skip only TRANSIENT forms — ones the user opened and could lose. The
+      // live room's composer is always present, and blocking on it froze the
+      // room permanently: comments and reactions arrived and were never shown.
+      if (document.querySelector('.drawer')
+        || document.querySelector('.mini-form:not(.persistent)')
+        || document.querySelector('.lq-sheet:not(.persistent)')) return;
     }
     fetch(API + '/api/acts?since=' + world.acts.length, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
@@ -854,6 +880,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       world = { acts: d.acts };
       render();
       loadIceConfig();
+      pollLive();
+      setInterval(pollLive, 8000);
+      setInterval(reportViews, 4000);
+      window.addEventListener('scroll', function () { reportViews(); }, { passive: true });
       setInterval(pollRemote, 5000);
       setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
       // Background tabs get throttled — poll the moment the tab comes back,
@@ -1094,6 +1124,60 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var d = hopCache.map.get(nodeId);
     return d === undefined ? null : d;
   }
+  // ── Views: counted by the host, never by the protocol ─────────────────────
+  // Deliberately not an act. An act costs θ, enters the log and moves standing;
+  // charging people to read, and letting reading move influence, would turn this
+  // into the attention market the whole design refuses. So views are host-side
+  // telemetry: reported for curiosity, never scored, and labelled as such.
+  var viewCounts = {};
+  var viewReported = {};
+  function reportViews() {
+    if (!REMOTE) return;
+    var fresh = [];
+    document.querySelectorAll('[data-cid]').forEach(function (el) {
+      var cid = el.getAttribute('data-cid');
+      if (viewReported[cid]) return;
+      var r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) { viewReported[cid] = 1; fresh.push(cid); }
+    });
+    if (!fresh.length) return;
+    fetch(API + '/api/view', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: fresh }),
+    }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.views) return;
+        viewCounts = d.views;
+        // Patch the chips in place. A full render here would tear down whatever
+        // the reader has open every few seconds, and the counts are the only
+        // thing that changed.
+        paintViewChips();
+      })
+      .catch(function () {});
+  }
+
+  function paintViewChips() {
+    document.querySelectorAll('[data-cid]').forEach(function (el) {
+      var cid = el.getAttribute('data-cid');
+      var n = viewCounts[cid];
+      if (!n) return;
+      var label = n + (n === 1 ? ' view' : ' views');
+      var chip = el.querySelector('.view-chip');
+      if (chip) { chip.textContent = label; return; }
+      var head = el.querySelector('.head') || el.querySelector('.lq-name');
+      if (head) head.appendChild(viewChip(cid));
+    });
+  }
+  function viewChip(cid) {
+    var n = viewCounts[cid];
+    if (!n) return null;
+    return h('span', {
+      class: 'view-chip',
+      title: 'Seen ' + n + ' time' + (n === 1 ? '' : 's') + '. Host-side telemetry only — views never enter the log, the graph, or any score. This network measures commitment, not attention.',
+      text: n + (n === 1 ? ' view' : ' views'),
+    });
+  }
+
   function hopChip(st, nodeId, liquid) {
     if (!who) return null;
     var d = hopsFrom(st, nodeId);
@@ -1560,6 +1644,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // If this identity was deleted (possibly from another device), log out.
     if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
     saveView(); // where you are standing survives a reload
+    setTimeout(paintViewChips, 0); // counts already known apply to the new DOM
     root.innerHTML = '';
     dismissPinDialog(); // settle it before wiping, never orphan the promise
     document.getElementById('overlay').innerHTML = '';
@@ -1702,6 +1787,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function onSignal(s) {
+    if (['swatch', 'soffer', 'sanswer', 'sice', 'sbye'].indexOf(s.kind) >= 0) { onStreamSignal(s); return; }
     if (s.kind === 'ring') {
       // Rings are re-delivered every poll until answered — process each once.
       if (s.sid) {
@@ -1823,6 +1909,172 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         return { types: types, relayKind: iceRelayKind };
       })
       .catch(function (e) { try { pc.close(); } catch (x) {} return { error: e.message }; });
+  }
+
+  // ══ Live streaming ════════════════════════════════════════════════════════
+  // One RTCPeerConnection per viewer, held by the broadcaster. This is a mesh,
+  // so the broadcaster's upload is multiplied by the audience: fine for the
+  // handful of people on a test network, not a design that scales. Saying so
+  // here rather than discovering it at thirty viewers.
+  //
+  // It also inherits the NAT limits of calls exactly: where a call cannot find
+  // a path without a relay, neither can a stream.
+  var live = null;    // broadcaster: {cid, title, stream, peers:{}, t0, timer}
+  var watching = null; // viewer: {author, cid, pc, el, t0}
+  var liveList = [];  // what the host says is on air
+
+  function broadcastStop(note) {
+    if (!live) return;
+    Object.keys(live.peers).forEach(function (p) {
+      try { live.peers[p].close(); } catch (e) {}
+      signalSend('sbye', p, null);
+    });
+    if (live.stream) live.stream.getTracks().forEach(function (t) { t.stop(); });
+    clearInterval(live.timer);
+    fetch(API + '/api/live', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ as: who, auth: pins[who] || '', stop: true }),
+    }).catch(function () {});
+    live = null;
+    render();
+    if (note) toast(note);
+  }
+
+  function broadcastStart(title, withVideo) {
+    if (!REMOTE) { toast('Streaming needs the hosted network.'); return; }
+    if (live) { toast('You are already live.'); return; }
+    if (!navigator.mediaDevices || !window.isSecureContext) {
+      toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true, video: withVideo ? { width: 640, height: 360 } : false })
+      .then(function (stream) {
+        // The act first: going live is a priced, recorded gesture, and it mints
+        // the node people will react to. The id can only be read AFTER the act
+        // has landed and been replayed — reading it before attaches the stream
+        // to the previous one, which is exactly what the first version did.
+        pushAct({ t: 'stream', author: who, text: title, a: 0.8 }, function () {
+          var st = replay();
+          var mine = Object.keys(st.creators).filter(function (c) {
+            return st.creators[c] === who && st.postMeta[c] && st.postMeta[c].stream;
+          }).sort(function (a, b) { return st.postMeta[a].idx - st.postMeta[b].idx; });
+          var cid = mine.length ? mine[mine.length - 1] : null;
+          if (!cid) {
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            toast('The network did not record the stream, so there is nothing to join. Nothing was broadcast.');
+            return;
+          }
+          live = { cid: cid, title: title, stream: stream, peers: {}, t0: Date.now(), timer: null };
+          var beat = function () {
+            if (!live) return;
+            fetch(API + '/api/live', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ as: who, auth: pins[who] || '', cid: live.cid, title: live.title, viewers: Object.keys(live.peers).length }),
+            }).catch(function () {});
+          };
+          beat();
+          live.timer = setInterval(beat, 10000);
+          render();
+          toast('You are live on ' + cid + '. Anyone on the network can join from the Live tab.');
+        });
+      })
+      .catch(function () { toast('Could not open the camera or microphone — check browser permissions.'); });
+  }
+
+  /** Broadcaster side: a viewer knocked, give them their own connection. */
+  function serveViewer(viewerId) {
+    if (!live || live.peers[viewerId]) return;
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    live.peers[viewerId] = pc;
+    live.stream.getTracks().forEach(function (t) { pc.addTrack(t, live.stream); });
+    pc.onicecandidate = function (ev) {
+      if (ev.candidate) signalSend('sice', viewerId, JSON.parse(JSON.stringify(ev.candidate)));
+    };
+    pc.onconnectionstatechange = function () {
+      var s = pc.connectionState;
+      if (s === 'failed' || s === 'closed') {
+        try { pc.close(); } catch (e) {}
+        delete live.peers[viewerId];
+        render();
+      }
+    };
+    pc.createOffer()
+      .then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); })
+      .then(function (o) { signalSend('soffer', viewerId, { type: o.type, sdp: o.sdp }); })
+      .catch(function () {});
+  }
+
+  function watchStart(entry) {
+    if (!REMOTE) return;
+    if (watching) watchStop();
+    if (live) { toast('Stop your own stream before watching another.'); return; }
+    var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    watching = { author: entry.author, cid: entry.cid, pc: pc, el: null, t0: Date.now(), pending: [] };
+    pc.onicecandidate = function (ev) {
+      if (ev.candidate && watching) signalSend('sice', watching.author, JSON.parse(JSON.stringify(ev.candidate)));
+    };
+    pc.ontrack = function (ev) {
+      if (!watching) return;
+      watching.media = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
+      render();
+    };
+    pc.onconnectionstatechange = function () {
+      if (!watching || watching.pc !== pc) return;
+      if (pc.connectionState === 'failed') {
+        watchStop();
+        toast('Could not reach the stream — no path between your networks, and no relay configured. Guide → call reachability explains it.');
+      }
+    };
+    signalSend('swatch', entry.author, null);
+    render();
+  }
+
+  function watchStop() {
+    if (!watching) return;
+    signalSend('sbye', watching.author, null);
+    try { watching.pc.close(); } catch (e) {}
+    watching = null;
+    render();
+  }
+
+  /** Stream signals, routed by sender — the mailbox already stamps `from`. */
+  function onStreamSignal(s) {
+    if (s.kind === 'swatch') {
+      if (live) serveViewer(s.from);
+      return;
+    }
+    if (s.kind === 'soffer') {
+      if (!watching || watching.author !== s.from) return;
+      var pc = watching.pc;
+      pc.setRemoteDescription(s.payload)
+        .then(function () {
+          watching.pending.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
+          return pc.createAnswer();
+        })
+        .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
+        .then(function (a) { signalSend('sanswer', s.from, { type: a.type, sdp: a.sdp }); })
+        .catch(function () {});
+      return;
+    }
+    if (s.kind === 'sanswer') {
+      var vpc = live && live.peers[s.from];
+      if (vpc) vpc.setRemoteDescription(s.payload).catch(function () {});
+      return;
+    }
+    if (s.kind === 'sice') {
+      var target = (live && live.peers[s.from]) || (watching && watching.author === s.from ? watching.pc : null);
+      if (!target) return;
+      if (target.remoteDescription) target.addIceCandidate(s.payload).catch(function () {});
+      else if (watching) watching.pending.push(s.payload);
+      return;
+    }
+    if (s.kind === 'sbye') {
+      if (watching && watching.author === s.from) { watchStop(); toast('The stream ended.'); }
+      if (live && live.peers[s.from]) {
+        try { live.peers[s.from].close(); } catch (e) {}
+        delete live.peers[s.from];
+        render();
+      }
+    }
   }
 
   function makePc() {
@@ -2300,13 +2552,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         ? 'for you · ' + score.paths.length + ' path' + (score.paths.length === 1 ? '' : 's')
         : 'your network leans against this';
     }
-    var card = h('div', { class: 'lq-glass lq-card' },
+    var card = h('div', { class: 'lq-glass lq-card', 'data-cid': n.id },
       h('div', { style: 'display:flex; align-items:center; gap:10px' },
         avatar(st.handles[author], 'lq-ava s'),
         h('div', {},
           h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2),
-            (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : '')),
+            (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : ''),
+          viewChip(n.id)),
         sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
       h.apply(null, ['div', { class: 'lq-body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
@@ -2593,14 +2846,23 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
           return b;
         })(),
-        tabBtn('net', 'Network'), tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
+        tabBtn('net', 'Network'),
+        (function () {
+          var b = tabBtn('live', 'Live');
+          if (liveList.filter(function (e) { return e.author !== who; }).length || live) {
+            b.appendChild(h('span', { class: 'live-dot', style: 'margin-left:5px' }));
+          }
+          return b;
+        })(),
+        tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
-      : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
+      : tab === 'net' ? netTab(st) : tab === 'live' ? liveTab(st) : tab === 'econ' ? econTab(st)
+      : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
     var geekLock = lockBanner(st, false);
     if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
@@ -2897,7 +3159,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var n = f.node;
     var author = st.creators[n.id];
     var tags = tagsOf(st, n.id);
-    var card = h('div', { class: 'post' },
+    var card = h('div', { class: 'post', 'data-cid': n.id },
       h('div', { class: 'head' },
         rank ? h('span', { class: 'rank-chip', text: '#' + rank }) : null,
         avatar(st.handles[author], 'avatar s'),
@@ -2906,6 +3168,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         deltaChip(author, st),
         h('span', { class: 'kindtag', text: 'post' }),
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
+        (st.postMeta[n.id] && st.postMeta[n.id].stream) ? h('span', { class: 'kindtag', text: 'stream' }) : null,
+        viewChip(n.id),
         hopChip(st, n.id, false)),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
@@ -3506,6 +3770,110 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     wrap.appendChild(card2);
     setTimeout(function () { tEl.scrollTop = tEl.scrollHeight; }, 30);
     return wrap;
+  }
+
+  function liveTab(st) {
+    var wrap = h('div', {});
+
+    // ── broadcaster ────────────────────────────────────────────────────────
+    if (live) {
+      var secs = Math.round((Date.now() - live.t0) / 1000);
+      var nView = Object.keys(live.peers).length;
+      var card = h('div', { class: 'card' },
+        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'on air · ' + fmtDur(secs) + ' · ' + nView + ' watching'),
+        h('h2', { text: live.title }));
+      var self = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
+      self.muted = true;
+      if (live.stream) self.srcObject = live.stream;
+      card.appendChild(self);
+      card.appendChild(h('p', { class: 'smallnote', text: 'Every viewer gets their own connection from this browser, so your upload is multiplied by the audience. That is fine for a handful of people and will not scale past it — there is no media server here.' }));
+      card.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'End stream', onclick: function () { broadcastStop('Stream ended. The act stays in the record; the video was never in it.'); } })));
+      wrap.appendChild(card);
+      if (live.cid) wrap.appendChild(streamRoom(st, live.cid));
+      return wrap;
+    }
+
+    // ── viewer ─────────────────────────────────────────────────────────────
+    if (watching) {
+      var w = h('div', { class: 'card' },
+        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'watching ' + (st.handles[watching.author] || watching.author)));
+      var v = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
+      if (watching.media) v.srcObject = watching.media;
+      w.appendChild(v);
+      if (!watching.media) w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster…' }));
+      w.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop })));
+      wrap.appendChild(w);
+      if (watching.cid) wrap.appendChild(streamRoom(st, watching.cid));
+      return wrap;
+    }
+
+    // ── nobody streaming from here: the list, and the go-live form ─────────
+    var listCard = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'live now' }));
+    if (!liveList.length) {
+      listCard.appendChild(h('p', { class: 'smallnote', text: 'Nobody is broadcasting. Start one below and it appears here for everyone.' }));
+    }
+    liveList.forEach(function (e) {
+      if (e.author === who) return;
+      var row = h('div', { class: 'chat-row' },
+        avatar(st.handles[e.author], 'avatar s'),
+        h('div', { class: 'grow' },
+          h('b', {}, st.handles[e.author] || e.author, ' ', h('span', { class: 'live-dot' })),
+          h('div', { class: 'smallnote', text: e.title || 'live' }),
+          h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000)) })),
+        h('button', { class: 'btn small primary', text: 'Join', onclick: function () { watchStart(e); } }));
+      listCard.appendChild(row);
+    });
+    wrap.appendChild(listCard);
+
+    var title = h('input', { type: 'text', placeholder: 'what is this stream about?', maxlength: '200', style: 'flex:1' });
+    var vid = h('input', { type: 'checkbox' });
+    vid.checked = true;
+    wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'go live · −θ' }),
+      h('p', { class: 'smallnote', text: 'Going live is an act: it costs θ and mints a node, which is what lets people react and comment on the stream with the ordinary machinery — priced and recorded like any other gesture. The video itself is peer-to-peer and never enters the record.' }),
+      h('div', { class: 'mini-form' }, title,
+        h('label', { class: 'smallnote' }, vid, ' camera'),
+        h('button', { class: 'btn small primary', text: 'Start streaming', onclick: function () {
+          var t = title.value.trim();
+          if (!t) { toast('Say what the stream is about first.'); return; }
+          broadcastStart(t, vid.checked);
+        } }))));
+    return wrap;
+  }
+
+  /** The room under a stream: the same reactions and comments as any post. */
+  function streamRoom(st, cid) {
+    var node = st.g.nodes.get(cid);
+    if (!node) return h('div', {});
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('p', { class: 'eyebrow', text: 'the room — ordinary acts against ' + cid + ', priced and recorded' }));
+    var rx = reactionsOn(st, cid);
+    card.appendChild(h('div', { class: 'smallnote', text: rx.n + ' reaction' + (rx.n === 1 ? '' : 's') + (rx.n ? ' · net ' + fmt(rx.net, 2) : '') }));
+    // 'persistent': this composer is always on screen, so it must not block the
+    // poll the way a form the user just opened does.
+    var acts = h('div', { class: 'mini-form persistent' });
+    if (st.creators[cid] !== who) {
+      acts.appendChild(h('button', { class: 'btn small', text: '♥ React · −θ', onclick: function () {
+        tryAct(who, { t: 'opinion', author: who, target: cid, p: 0.8, r: 0.8 }, 'Reacted to the stream.');
+      } }));
+    }
+    var txt = h('input', { type: 'text', placeholder: 'say something in the room… (−θ)', maxlength: '1000', style: 'flex:1' });
+    function send() {
+      var t = txt.value.trim();
+      if (!t) return;
+      tryAct(who, { t: 'review', author: who, target: cid, e: 0.7, f: 0.8, text: t }, null);
+      txt.value = '';
+    }
+    txt.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') send(); });
+    acts.appendChild(txt);
+    acts.appendChild(h('button', { class: 'btn small primary', text: 'Send', onclick: send }));
+    card.appendChild(acts);
+    var comments = commentsOf(st, cid);
+    if (comments.length) card.appendChild(commentTree(st, comments, 0, false));
+    else card.appendChild(h('p', { class: 'smallnote', text: 'Nothing said yet.' }));
+    return card;
   }
 
   function econTab(st) {

@@ -251,6 +251,26 @@ function replayUncached(acts) {
     } else if (a.t === 'closeCycle') {
       var cyc = l0.closeCycle();
       chron.push({ who: null, line: 'L0 cycle ' + l0.cycle + ' processed · minted ' + cyc.minted.toFixed(2) + ' receipt units · settled floor φ ' + cyc.floor.toFixed(4) + (l0.cycle === 10 ? ' · maturity conversion: all time-locked units are now live' : '') });
+    } else if (a.t === 'stream') {
+      // A stream is a Publish like any other: it mints a Content node, costs
+      // θ, and weighs home. That is the whole point — reactions and comments
+      // during a broadcast are ordinary Opinion and Review acts targeting this
+      // node, so live participation is priced and recorded exactly like every
+      // other gesture instead of living in a parallel, unscored channel. The
+      // video itself is peer-to-peer and never enters the record.
+      counter++;
+      var scid = 'c' + counter;
+      actContent[i] = scid;
+      if (mutedA) mutedContent[scid] = true;
+      g.addNode({ id: scid, kind: 'Content', label: mutedA ? '[deleted]' : 'Stream ' + counter });
+      if (!mutedA) g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: scid, pd: a.a, pi: 1, epoch: certsSoFar });
+      debit(a.author);
+      if (!mutedA) {
+        weighHome(a.author, a.a, 1);
+        creators[scid] = a.author; payloads[scid] = a.text;
+        postMeta[scid] = { idx: i, ts: a.ts, edited: false, stream: true };
+        chron.push({ who: a.author, line: 'went live · ' + a.text.slice(0, 60), to: scid });
+      }
     } else if (a.t === 'post') {
       counter++;
       var cid = 'c' + counter;

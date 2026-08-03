@@ -22,7 +22,7 @@ const PORT = Number(process.argv[2] ?? 5210);
 
 const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
-  'editPost', 'deletePost', 'deleteAccount', 'call']);
+  'editPost', 'deletePost', 'deleteAccount', 'call', 'stream']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -90,6 +90,11 @@ const ACT_FIELDS = {
 ACT_FIELDS.post = ['t', 'author', 'text', 'a', 'ref', 'media'];
 ACT_FIELDS.editPost = ['t', 'author', 'target', 'text'];
 ACT_FIELDS.call = ['t', 'from', 'to', 'outcome', 'dur'];
+// Going live is a public gesture, so it is an act and mints a Content node the
+// way a post does — which is what lets people react and comment on a stream
+// with the ordinary machinery instead of a parallel one. The video itself is
+// peer-to-peer and never touches the log.
+ACT_FIELDS.stream = ['t', 'author', 'text', 'a'];
 ACT_FIELDS.deletePost = ['t', 'author', 'target'];
 ACT_FIELDS.deleteAccount = ['t', 'id'];
 
@@ -267,7 +272,55 @@ const ICE_SERVERS = ICE_TURN_URL
   : ICE_STUN;
 const ICE_IS_OWN_TURN = !!ICE_TURN_URL;
 
-const SIGNAL_KINDS = new Set(['ring', 'accept', 'ice', 'hangup', 'decline']);
+// Stream signalling reuses the call mailbox. The broadcaster holds one peer
+// connection per viewer, so every stream signal is routed by its sender: the
+// mailbox already stamps `from`, which is exactly the key the broadcaster needs.
+const SIGNAL_KINDS = new Set([
+  'ring', 'accept', 'ice', 'hangup', 'decline',
+  'swatch',  // viewer → broadcaster: let me in
+  'soffer',  // broadcaster → viewer: here is the media
+  'sanswer', // viewer → broadcaster: accepted
+  'sice',    // both ways, routed by sender
+  'sbye',    // either side: I am done
+]);
+
+// ── Live registry: who is broadcasting RIGHT NOW ──────────────────────────
+// The stream act records that a stream happened; being live is ephemeral and
+// belongs nowhere near an append-only log. Broadcasters heartbeat, and an entry
+// that stops beating disappears on its own — no "end stream" act to lose.
+const LIVE_TTL = 25_000;
+const liveStreams = new Map(); // author id -> {cid, title, since, ts, viewers}
+
+function liveNow() {
+  const now = Date.now();
+  const out = [];
+  for (const [id, s] of liveStreams) {
+    if (now - s.ts > LIVE_TTL) { liveStreams.delete(id); continue; }
+    out.push({ author: id, cid: s.cid, title: s.title, since: s.since, viewers: s.viewers ?? 0 });
+  }
+  return out;
+}
+
+// ── View counts: deliberately NOT protocol ────────────────────────────────
+// This network's premise is that influence is transported commitment, not
+// attention. A view count is an attention metric, so it is kept strictly out
+// of the act log, out of the graph and out of every score: host-side telemetry
+// that anyone may ignore. It is shown because people asked to see it, and it is
+// labelled so nobody mistakes it for standing.
+const viewCounts = new Map();   // content id -> count
+const viewSeen = new Map();     // "ip|cid" -> last counted at
+const VIEW_DEDUPE_MS = 6 * 60 * 60 * 1000;
+
+function countView(cid, ip) {
+  const key = ip + '|' + cid;
+  const now = Date.now();
+  const last = viewSeen.get(key);
+  if (last && now - last < VIEW_DEDUPE_MS) return false;
+  if (viewSeen.size > 50000) viewSeen.clear(); // memory backstop
+  viewSeen.set(key, now);
+  viewCounts.set(cid, (viewCounts.get(cid) ?? 0) + 1);
+  return true;
+}
 const SIGNAL_TTL = 90_000;      // undelivered signals evaporate
 const SIGNAL_RING_TTL = 45_000; // a stale ring must not pop up minutes later
 const SIGNAL_BOX_CAP = 64;      // per-recipient queue bound
@@ -462,6 +515,9 @@ function validate(act) {
       if (!str(act.id, 24)) return 'bad id';
       if (!acts.some((a) => a.t === 'register' && a.id === act.id)) return 'unknown handle';
       if (deletedIds.has(act.id)) return 'already deleted';
+      break;
+    case 'stream':
+      if (!str(act.author, 24) || !str(act.text, 200) || !inR(act.a)) return 'bad stream';
       break;
     case 'call':
       // The caller's client records the outcome after the call ends; the voice
@@ -1214,6 +1270,68 @@ const server = createServer((req, res) => {
       box.push({ sid: signalSeq++, from: msg.from, kind: msg.kind, payload, ts: now });
       signalBoxes.set(msg.to, box);
       json(res, 200, { ok: true });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/live') {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
+    json(res, 200, { live: liveNow() });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/live') {
+    if (!signalLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let m;
+      try { m = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      const id = typeof m.as === 'string' ? m.as : '';
+      if (!id || id.length > 24) { json(res, 400, { error: 'bad handle' }); return; }
+      const aerr = authError({ t: 'dm', from: id, auth: typeof m.auth === 'string' ? m.auth : '' });
+      if (aerr) {
+        if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
+        json(res, 401, { error: aerr }); return;
+      }
+      if (m.stop) { liveStreams.delete(id); json(res, 200, { ok: true, live: false }); return; }
+      const prev = liveStreams.get(id);
+      liveStreams.set(id, {
+        cid: typeof m.cid === 'string' ? m.cid.slice(0, 40) : (prev && prev.cid) || null,
+        title: typeof m.title === 'string' ? m.title.slice(0, 200) : (prev && prev.title) || '',
+        since: prev ? prev.since : Date.now(),
+        ts: Date.now(),
+        viewers: Number.isInteger(m.viewers) && m.viewers >= 0 ? Math.min(m.viewers, 9999) : 0,
+      });
+      json(res, 200, { ok: true, live: true });
+    });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/view') {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let m;
+      try { m = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      const ids = Array.isArray(m.ids) ? m.ids.slice(0, 60) : [];
+      // Only count ids that name real, readable content. Without this any
+      // caller could inflate a counter for c9999999 and litter the map with
+      // things that do not exist. The replayed state is already cached.
+      const st = stateCache.st;
+      let added = 0;
+      for (const cid of ids) {
+        if (typeof cid !== 'string' || !/^c\d+$/.test(cid)) continue;
+        if (st && st.payloads[cid] === undefined) continue;
+        if (countView(cid, ip)) added++;
+      }
+      json(res, 200, { counted: added, views: Object.fromEntries(viewCounts) });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/views') {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
+    json(res, 200, {
+      views: Object.fromEntries(viewCounts),
+      note: 'Host-side telemetry, not protocol. Views never enter the act log, the graph, or any score — this network measures commitment, not attention.',
     });
     return;
   }
