@@ -827,7 +827,7 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/post/CID?depth=N', purpose: 'one post with its reactions and comment thread' },
     { method: 'GET', path: '/api/v1/alerts?as=ID', purpose: 'what happened to you: reactions, comments, mentions, quotes, messages, calls' },
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
-    { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync.' },
+    { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
     { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
     { method: 'POST', path: '/api/v1/comment', purpose: 'comment on a post OR on another comment', body: { as: 'id', pin: 'string', target: 'content id', text: 'string ≤1000', enthusiasm: 'optional -1..1', effort: 'optional -1..1' } },
@@ -1140,12 +1140,20 @@ async function handleBotApi(req, res, url, ip) {
           deletePost: 'deleted a post', deleteAccount: 'deleted their account',
           closeEpoch: 'the epoch closed', closeCycle: 'the economic cycle closed', seedWorld: 'the world was seeded',
         }[a.t] || a.t;
+        // The node this act minted, or (for a revision) the node it wrote to.
+        // Asked for by an API client whose replies went to a self-derived id
+        // that did not exist: with this field there is nothing left to derive.
+        const idx = since + i;
+        const node = st.actContent[idx]
+          ?? (a.t === 'post' && Number.isInteger(a.target) ? st.actContent[a.target] : null)
+          ?? (a.t === 'review' && Number.isInteger(a.upd) ? st.actContent[a.upd] : null);
         return {
-          at: since + i, kind: a.t,
+          at: idx, kind: a.t,
           who, whoHandle: who ? nameOf(st, who) : null,
           what: say,
           text: a.redacted ? null : (a.text ?? null),
           target: a.target ?? null,
+          node: node ?? null,
         };
       }),
     });

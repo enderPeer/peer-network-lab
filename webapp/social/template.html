@@ -1931,7 +1931,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function signalTick(force) {
     if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
-    if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
+    // Fast polling is not only for calls: a stream handshake is the same
+    // offer/answer/ICE dance, and at the idle cadence every leg of it waited
+    // up to 5 seconds — three legs, ~15 seconds of black screen before the
+    // first frame could even arrive. Live or watching polls like a call does.
+    if (!call && !live && !watching && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, busy ~1.2s
     // A locked session cannot collect its mailbox, so incoming calls would
     // vanish without a trace. Say it once rather than failing silently; the
     // banner keeps saying it after that.
@@ -2148,8 +2152,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   /** Broadcaster side: a viewer knocked, give them their own connection. */
   function serveViewer(viewerId) {
-    if (!live || live.peers[viewerId]) return;
+    if (!live) return;
+    // A knock is authoritative. The viewer who sent it holds a brand-new
+    // connection, so whatever we still hold under that handle can never
+    // complete — and keeping it also swallowed the knock: a viewer who
+    // reloaded mid-join was ignored forever, because their stale entry
+    // tripped this guard and nothing ever cleared it.
+    var old = live.peers[viewerId];
+    if (old) { try { old.close(); } catch (e) {} delete live.peers[viewerId]; }
     var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
+    pc.pendingIce = []; // candidates that arrive before the answer is applied
     live.peers[viewerId] = pc;
     live.stream.getTracks().forEach(function (t) { pc.addTrack(t, live.stream); });
     pc.onicecandidate = function (ev) {
@@ -2159,14 +2171,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var s = pc.connectionState;
       if (s === 'failed' || s === 'closed') {
         try { pc.close(); } catch (e) {}
-        delete live.peers[viewerId];
+        if (live && live.peers[viewerId] === pc) delete live.peers[viewerId];
         render();
       }
     };
     pc.createOffer()
       .then(function (o) { return pc.setLocalDescription(o).then(function () { return o; }); })
       .then(function (o) { signalSend('soffer', viewerId, { type: o.type, sdp: o.sdp }); })
-      .catch(function () {});
+      .catch(function () {
+        // A swallowed failure here left a zombie in live.peers that blocked
+        // every retry from this viewer. Clean up and say goodbye, so their
+        // side stops waiting instead of sitting on "Connecting…" forever.
+        try { pc.close(); } catch (e) {}
+        if (live && live.peers[viewerId] === pc) delete live.peers[viewerId];
+        signalSend('sbye', viewerId, null);
+      });
   }
 
   function watchStart(entry) {
@@ -2174,13 +2193,24 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (watching) watchStop();
     if (live) { toast('Stop your own stream before watching another.'); return; }
     var pc = new RTCPeerConnection({ iceServers: iceServers, iceCandidatePoolSize: 1 });
-    watching = { author: entry.author, cid: entry.cid, pc: pc, el: null, t0: Date.now(), pending: [] };
+    pc.pendingIce = []; // candidates that arrive before the offer is applied
+    // The video element is created ONCE and reused across renders. render()
+    // rebuilds the whole app, and a fresh <video> each pass needs a fresh
+    // autoplay grant each pass — Safari grants none of them for unmuted
+    // video, so a perfectly connected stream still showed black. Muted
+    // playback is the one thing every browser autoplays; sound is one tap
+    // away, and that tap is the user gesture the browser wants.
+    var el = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
+    el.muted = true;
+    watching = { author: entry.author, cid: entry.cid, pc: pc, el: el, t0: Date.now(), muted: true };
     pc.onicecandidate = function (ev) {
       if (ev.candidate && watching) signalSend('sice', watching.author, JSON.parse(JSON.stringify(ev.candidate)));
     };
     pc.ontrack = function (ev) {
       if (!watching) return;
       watching.media = (ev.streams && ev.streams[0]) || new MediaStream([ev.track]);
+      watching.el.srcObject = watching.media;
+      watching.el.play().catch(function () {});
       render();
     };
     pc.onconnectionstatechange = function () {
@@ -2190,12 +2220,32 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         toast('Could not reach the stream — no path between your networks, and no relay configured. Guide → call reachability explains it.');
       }
     };
+    // Knock until the offer arrives. One knock was one mailbox entry: if it
+    // crossed with a goodbye, or the broadcaster's tab was asleep when it
+    // landed, the viewer waited on a stream that would never call back.
+    // Re-knocking is idempotent — the broadcaster rebuilds the connection
+    // for whoever knocks — and stops as soon as the offer is in.
     signalSend('swatch', entry.author, null);
+    signalTick(true);
+    watching.knock = setInterval(function () {
+      if (!watching || watching.pc !== pc) return;
+      if (!pc.remoteDescription) signalSend('swatch', entry.author, null);
+    }, 5000);
+    // And give up honestly rather than connecting forever: the likeliest
+    // reason nothing answers is that the broadcaster's phone locked, which
+    // kills their timers and soon their heartbeat.
+    watching.deadline = setTimeout(function () {
+      if (!watching || watching.pc !== pc || watching.media) return;
+      watchStop();
+      toast('The stream did not answer within 45 seconds. The broadcaster may have locked their screen or backgrounded the app — broadcasting stops when the phone sleeps.');
+    }, 45000);
     render();
   }
 
   function watchStop() {
     if (!watching) return;
+    clearInterval(watching.knock);
+    clearTimeout(watching.deadline);
     signalSend('sbye', watching.author, null);
     try { watching.pc.close(); } catch (e) {}
     watching = null;
@@ -2213,7 +2263,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var pc = watching.pc;
       pc.setRemoteDescription(s.payload)
         .then(function () {
-          watching.pending.splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
+          (pc.pendingIce || []).splice(0).forEach(function (c) { pc.addIceCandidate(c).catch(function () {}); });
           return pc.createAnswer();
         })
         .then(function (a) { return pc.setLocalDescription(a).then(function () { return a; }); })
@@ -2223,14 +2273,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     if (s.kind === 'sanswer') {
       var vpc = live && live.peers[s.from];
-      if (vpc) vpc.setRemoteDescription(s.payload).catch(function () {});
+      if (vpc) {
+        vpc.setRemoteDescription(s.payload).then(function () {
+          // Candidates that shared a poll batch with this answer waited here.
+          // setRemoteDescription is asynchronous, so while the batch was being
+          // processed remoteDescription was still null and every one of the
+          // viewer's candidates was thrown away — the broadcaster then knew no
+          // address for the viewer, and over any real NAT the stream never
+          // connected. The call path has had this buffer from day one; the
+          // stream path lacked it, which is most of why calls worked between
+          // the same two machines that could not stream.
+          (vpc.pendingIce || []).splice(0).forEach(function (c) { vpc.addIceCandidate(c).catch(function () {}); });
+        }).catch(function () {});
+      }
       return;
     }
     if (s.kind === 'sice') {
       var target = (live && live.peers[s.from]) || (watching && watching.author === s.from ? watching.pc : null);
       if (!target) return;
+      // Buffer on the connection the candidate is FOR. The old fallback pushed
+      // into the viewer-side queue whether or not the candidate belonged to
+      // it, which cross-wired connections and dropped broadcaster-side ICE.
       if (target.remoteDescription) target.addIceCandidate(s.payload).catch(function () {});
-      else if (watching) watching.pending.push(s.payload);
+      else (target.pendingIce = target.pendingIce || []).push(s.payload);
       return;
     }
     if (s.kind === 'sbye') {
@@ -3957,10 +4022,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var card = h('div', { class: 'card' },
         h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'on air · ' + fmtDur(secs) + ' · ' + nView + ' watching'),
         h('h2', { text: live.title }));
-      var self = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
-      self.muted = true;
-      if (live.stream) self.srcObject = live.stream;
-      card.appendChild(self);
+      // One element, reused across renders — a fresh one each pass restarts
+      // playback and re-asks the autoplay question. Muted: your own camera.
+      if (!live.el) {
+        live.el = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
+        live.el.muted = true;
+        if (live.stream) live.el.srcObject = live.stream;
+      }
+      card.appendChild(live.el);
+      live.el.play().catch(function () {});
       card.appendChild(h('p', { class: 'smallnote', text: 'Every viewer gets their own connection from this browser, so your upload is multiplied by the audience. That is fine for a handful of people and will not scale past it — there is no media server here.' }));
       card.appendChild(h('div', { class: 'mini-form persistent' },
         h('button', { class: 'btn small', text: 'End stream', onclick: function () { broadcastStop('Stream ended. The act stays in the record; the video was never in it.'); } })));
@@ -3973,12 +4043,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (watching) {
       var w = h('div', { class: 'card' },
         h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), 'watching ' + (st.handles[watching.author] || watching.author)));
-      var v = h('video', { class: 'stream-video', autoplay: '', playsinline: '' });
-      if (watching.media) v.srcObject = watching.media;
+      var v = watching.el;
+      if (watching.media && v.srcObject !== watching.media) v.srcObject = watching.media;
       w.appendChild(v);
-      if (!watching.media) w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster…' }));
-      w.appendChild(h('div', { class: 'mini-form persistent' },
-        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop })));
+      // Re-appending pauses media in some engines; muted play is always
+      // allowed, so this resumes without needing a fresh gesture.
+      if (watching.media) v.play().catch(function () {});
+      if (!watching.media) {
+        w.appendChild(h('p', { class: 'smallnote', text: 'Connecting to the broadcaster… knocking every few seconds; if nothing answers within 45s this gives up and says why.' }));
+      }
+      var vrow = h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }));
+      if (watching.media && watching.muted) {
+        // Sound cannot start by itself — the browser requires the tap, so the
+        // tap is a button instead of a mystery.
+        vrow.insertBefore(h('button', { class: 'btn small primary', text: '🔊 Sound on', onclick: function () {
+          if (!watching) return;
+          watching.muted = false;
+          watching.el.muted = false;
+          watching.el.play().catch(function () {});
+          render();
+        } }), vrow.firstChild);
+      }
+      w.appendChild(vrow);
       wrap.appendChild(w);
       if (watching.cid) wrap.appendChild(streamRoom(st, watching.cid));
       return wrap;

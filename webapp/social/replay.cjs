@@ -534,6 +534,11 @@ function replayUncached(acts) {
     epochHistory: epochHistory, chron: chron, epochNow: epochNow,
     reviewMeta: reviewMeta, mediaMeta: mediaMeta, dms: dms, pinHash: pinHash, l0: l0,
     deleted: deletedActors, postMeta: postMeta,
+    // act index -> the node that act minted. Exposed because API clients were
+    // deriving ids themselves and deriving them wrong — the counter also ticks
+    // for hyperedge legs (quotes, mentions), which nothing documented, so a
+    // client that counted posts landed one id off and its replies went nowhere.
+    actContent: actContent,
   };
 }
 

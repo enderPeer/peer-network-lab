@@ -302,3 +302,27 @@ describe('acts may not name content that was never minted', () => {
     expect(r.status).toBe(200);
   });
 });
+
+describe('events name the node they minted', () => {
+  it('a post event carries the content id, so clients never derive one', async () => {
+    // An API client derived node ids by counting posts. The counter also ticks
+    // for hyperedge legs, so the derived id was off by one and a real reply
+    // went to a node that did not exist. The event stream now says the id.
+    await act({ t: 'post', author: 'u_secured', text: 'node field check', a: 0.8, auth: '1234' });
+    const idx = (await total()) - 1;
+    const d = await get(`/api/v1/events?since=${idx}&limit=1`) as { events: Array<Record<string, unknown>> };
+    expect(d.events[0].kind).toBe('post');
+    expect(String(d.events[0].node)).toMatch(/^c\d+$/);
+  });
+
+  it('a revision event carries the node it wrote to, not a fresh one', async () => {
+    const p = await act({ t: 'post', author: 'u_secured', text: 'original for node test', a: 0.8, auth: '1234' });
+    expect(p.status).toBe(200);
+    const mintIdx = (await total()) - 1;
+    const mintNode = ((await get(`/api/v1/events?since=${mintIdx}&limit=1`)) as { events: Array<Record<string, unknown>> }).events[0].node;
+    await act({ t: 'post', author: 'u_secured', text: 'revised for node test', a: 0.8, target: mintIdx, auth: '1234' });
+    const revIdx = (await total()) - 1;
+    const revNode = ((await get(`/api/v1/events?since=${revIdx}&limit=1`)) as { events: Array<Record<string, unknown>> }).events[0].node;
+    expect(revNode).toBe(mintNode);
+  });
+});
