@@ -3297,6 +3297,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           });
         } }),
         h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
+        // A PIN is a shared secret whose hash is published; a passkey is not.
+        // Offered right beside it, so the stronger option is not buried.
+        passkeySupported ? h('button', { class: 'btn small primary', text: '+ Passkey', onclick: function () { addPasskey(st); } }) : null,
         h('button', { class: 'btn small ghost', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
       h('p', { class: 'smallnote', text: 'Every act costs θ and raises N — acting dilutes your rate. Endorsements transport rates; nothing mints standing.' }));
   }

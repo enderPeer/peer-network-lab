@@ -128,10 +128,16 @@ function replayUncached(acts) {
   // retract the vouches it compiled. Removal cannot be used to launder
   // standing that other people already received.
   var deletedActors = {}, deletedPostIdx = {};
+  var seenSkel = {}, handleTwin = {};
   for (var pre = 0; pre < acts.length; pre++) {
     var pact = acts[pre];
     if (pact.t === 'deleteAccount') deletedActors[pact.id] = true;
     else if (pact.t === 'deletePost') deletedPostIdx[pact.target] = true;
+    else if (pact.t === 'register' && pact.handle) {
+      var sk = skel(pact.handle);
+      if (sk && seenSkel[sk] && seenSkel[sk] !== pact.id) handleTwin[pact.id] = true;
+      else if (sk) seenSkel[sk] = pact.id;
+    }
   }
   // Content whose payload was removed. Read for display and to refuse edits;
   // it no longer propagates, because muting is never inherited from a target.
@@ -156,8 +162,40 @@ function replayUncached(acts) {
   }
   // Name for human-readable chronicle text: never the real handle of a
   // deleted account — the Record is served to everyone.
-  function dispName(id) { return deletedActors[id] ? '[deleted]' : (handles[id] || id); }
-  function debit(id) { var l = ledgerById[id]; l.burnBal -= THETA; l.actCount += 1; deltaActs[id] = (deltaActs[id] || 0) + 1; }
+  // Handles registered AFTER an existing one whose readable shape they share.
+  // Registration refuses these now, but two were created before the check
+  // existed — both wearing "Ender133" — and one of them posted. Deleting them
+  // would rewrite the log; the honest alternative is to stop the record from
+  // repeating their claim, so a later namesake is shown with its own id.
+  function skel(hh) {
+    var out = '', prev = '';
+    var low = String(hh || '').toLowerCase();
+    for (var si = 0; si < low.length; si++) {
+      var c = low[si];
+      if (c === '0') c = 'o'; else if (c === '1' || c === 'i' || c === 'l') c = 'l';
+      else if (c === '5') c = 's'; else if (c === '8') c = 'b'; else if (c === '2') c = 'z';
+      if (!/[a-z0-9]/.test(c) || c === prev) continue;
+      out += c; prev = c;
+    }
+    return out;
+  }
+  function dispName(id) {
+    if (deletedActors[id]) return '[deleted]';
+    var hh = handles[id] || id;
+    // A namesake is never shown as the name alone: the whole point of the
+    // record is that a name on an act identifies one person.
+    return handleTwin[id] ? hh + ' (' + id + ', not the original)' : hh;
+  }
+  // An act naming an actor that never registered is not a protocol event, it
+  // is noise in the file. It used to reach here and throw, which took the
+  // whole host down — a replay that crashes on input is a denial of service
+  // with extra steps. Unknown actors are skipped, everywhere, always.
+  function known(id) { return !!ledgerById[id]; }
+  function debit(id) {
+    var l = ledgerById[id];
+    if (!l) return;
+    l.burnBal -= THETA; l.actCount += 1; deltaActs[id] = (deltaActs[id] || 0) + 1;
+  }
   function vouch(author, target, p, r) {
     var key = author + '>' + target;
     var b = bundles[key] || (bundles[key] = { src: author, rcp: target, pd: 0, pi: 0 });
@@ -340,7 +378,11 @@ function replayUncached(acts) {
       chron.push({ who: 'alice', line: 'posted Photo — seed world', to: 'photo' });
       chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world', to: 'comment' });
     } else if (a.t === 'register') {
-      addActor(a.id, a.handle, a.seed, 0, a.epoch, payloadGone ? '[deleted]' : a.handle);
+      // The LABEL is what every screen renders — standings, the graph, the
+      // feed byline. A later namesake must never render as the bare name it
+      // copied, or the interface repeats the impersonation on every surface.
+      addActor(a.id, a.handle, a.seed, 0, a.epoch,
+        payloadGone ? '[deleted]' : (handleTwin[a.id] ? a.handle + ' (' + a.id + ', not the original)' : a.handle));
       if (a.pinHash) pinHash[a.id] = a.pinHash;
       g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
       debit(a.id); weighHome(a.id, 1, 1);
@@ -351,6 +393,7 @@ function replayUncached(acts) {
       if (payloadGone) ledgerById[a.id].deleted = true;
       else chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
     } else if (a.t === 'burn') {
+      if (!known(a.id)) continue;
       // legacy faucet-burn (pre-economy acts in the shared log)
       ledgerById[a.id].burnBal += a.amt;
       earnedBurn[a.id] = (earnedBurn[a.id] || 0) + a.amt;
@@ -381,6 +424,7 @@ function replayUncached(acts) {
         if (!payloadGone) chron.push({ who: a.id, line: 'secured the handle with a PIN' });
       }
     } else if (a.t === 'dm') {
+      if (!known(a.from) || !known(a.to)) continue;
       if (ledgerById[a.from] && ledgerById[a.to] && ledgerById[a.from].burnBal >= THETA) {
         var pair = [a.from, a.to].sort();
         var chatId = 'chat_' + pair[0] + '_' + pair[1];
@@ -401,6 +445,7 @@ function replayUncached(acts) {
       var cyc = l0.closeCycle();
       chron.push({ who: null, line: 'L0 cycle ' + l0.cycle + ' processed · minted ' + cyc.minted.toFixed(2) + ' receipt units · settled floor φ ' + cyc.floor.toFixed(4) + (l0.cycle === 10 ? ' · maturity conversion: all time-locked units are now live' : '') });
     } else if (a.t === 'stream') {
+      if (!known(a.author)) continue;
       // A stream is a Publish like any other: it mints a Content node, costs
       // θ, and weighs home. That is the whole point — reactions and comments
       // during a broadcast are ordinary Opinion and Review acts targeting this
@@ -421,6 +466,7 @@ function replayUncached(acts) {
         chron.push({ who: a.author, line: 'went live · ' + a.text.slice(0, 60), to: scid });
       }
     } else if (a.t === 'post') {
+      if (!known(a.author)) continue;   // a ghost author writes nothing
       // Minting is a role this record plays, not a property of its family: an
       // act mints when its terminal target is its own mint, and names an
       // existing node otherwise. A post carrying `target` is therefore an
@@ -503,6 +549,7 @@ function replayUncached(acts) {
         }
       }
     } else if (a.t === 'opinion') {
+      if (!known(a.author)) continue;
       counter++;
       // Structure is unconditional. A reaction by someone who has since left
       // still happened: its edge, its vouch and its weighing stay, or removing
@@ -531,6 +578,7 @@ function replayUncached(acts) {
       }
       debit(a.author);
     } else if (a.t === 'review') {
+      if (!known(a.author)) continue;
       // Review/T may name an existing Comment instead of minting a fresh one,
       // exactly like Publish on a post: the act is then a revision of that
       // comment. Same rule, same branch shape.
@@ -579,6 +627,7 @@ function replayUncached(acts) {
       debit(a.author);
       }
     } else if (a.t === 'tag') {
+      if (!known(a.author)) continue;
       counter++;
       var tid = typeNode(a.name);
       g.appendHyper(

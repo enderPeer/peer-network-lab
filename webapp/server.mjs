@@ -10,8 +10,10 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, copyFileSync, readdirSync, unlinkSync, statSync, renameSync } from 'node:fs';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { createAdStore, validBtcAddress } from './ads.mjs';
+import { handleClash, handleSkeleton, takenHandles } from './identity.mjs';
+import { readRegistration, verifyAssertion, newChallenge } from './webauthn.mjs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -31,7 +33,8 @@ const PORT = Number(process.argv[2] ?? 5210);
 const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
   'editPost', 'deletePost', 'deleteAccount', 'call', 'stream',
-  'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap']);
+  'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap',
+  'setKey']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -193,6 +196,7 @@ const ACT_FIELDS = {
   transferL0: ['t', 'from', 'to', 'x', 'cls'],
   closeCycle: ['t'],
   setPin: ['t', 'id', 'pinHash'],
+  setKey: ['t', 'id', 'credId', 'cose', 'label'],
   dm: ['t', 'from', 'to', 'text'],
 };
 // post gains optional reference + media fields
@@ -625,20 +629,117 @@ function json(res, code, body) {
 // verifies the hash and STRIPS auth before the act enters the public log.
 // Replay BOTH sources in log order (newest wins): a PIN set after
 // registration must survive a restart, or protection silently evaporates.
-const pinIndex = new Map();
-for (const a of acts) {
-  if ((a.t === 'register' || a.t === 'setPin') && a.pinHash) pinIndex.set(a.id, a.pinHash);
+// Registered passkeys, rebuilt from the log exactly like the PIN index. The
+// public half is all that is stored, and it is useless to anyone who copies it.
+const keyIndex = new Map();   // actor -> [{credId, cose, signCount, label}]
+
+// Outstanding sign-in challenges. In memory, short-lived, single-use: a
+// challenge that could be reused is a signature that could be replayed, which
+// is the whole thing a passkey is supposed to prevent.
+const CHALLENGE_TTL = 120_000;
+const challenges = new Map(); // challenge -> {actor, at}
+function issueChallenge(actor) {
+  const now = Date.now();
+  for (const [c, v] of challenges) if (now - v.at > CHALLENGE_TTL) challenges.delete(c);
+  if (challenges.size > 5000) challenges.clear();
+  const c = newChallenge();
+  challenges.set(c, { actor, at: now });
+  return c;
+}
+function takeChallenge(c, actor) {
+  const v = challenges.get(c);
+  if (!v) return false;
+  challenges.delete(c);                       // single use, always
+  return v.actor === actor && Date.now() - v.at <= CHALLENGE_TTL;
 }
 
-function hashPin(id, pin, likeStored) {
-  if (typeof likeStored === 'string' && likeStored.startsWith('fnv')) {
-    // parity with the client's non-secure-context fallback hash
-    let h = 0x811c9dc5;
-    const s = id + ':' + pin;
-    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-    return 'fnv' + h.toString(16);
+// The relying party is the origin the browser sees. Behind the tunnel that is
+// the public hostname, not localhost, so it comes from configuration rather
+// than a guess — a wrong rpId makes every passkey silently unusable.
+const RP_ID = (process.env.PEER_RP_ID ?? '').trim();
+const RP_ORIGIN = (process.env.PEER_RP_ORIGIN ?? '').trim();
+
+const pinIndex = new Map();
+// Accounts whose stored hash was proven correct this request but is still in a
+// crackable legacy format. Filled by authError, flushed once the act is
+// accepted — never on a failed attempt, or a wrong guess would rewrite the log.
+const pinUpgrades = new Map();
+for (const a of acts) {
+  if ((a.t === 'register' || a.t === 'setPin') && a.pinHash) pinIndex.set(a.id, a.pinHash);
+  if (a.t === 'setKey') {
+    const list = keyIndex.get(a.id) ?? [];
+    if (a.credId === null) keyIndex.set(a.id, []);            // explicit removal
+    else { keyIndex.set(a.id, list.filter((k) => k.credId !== a.credId).concat([{ credId: a.credId, cose: a.cose, signCount: a.signCount ?? 0, label: a.label ?? 'passkey' }])); }
   }
-  return createHash('sha256').update(id + ':' + pin, 'utf8').digest('hex');
+}
+
+// ── PIN storage ───────────────────────────────────────────────────────────
+//
+// The stored hash sits in a PUBLIC log. sha256(id + ':' + pin) over a numeric
+// PIN is therefore not a secret at all: the whole four-digit keyspace is ten
+// thousand hashes, which a laptop finishes before the page has finished
+// loading. Six digits is a million — still seconds. Rate limiting the login
+// door does nothing about this, because the attacker never touches the door.
+//
+// PBKDF2-HMAC-SHA256 with a per-account random salt is the minimum honest
+// answer: the salt kills precomputation across accounts, and the iteration
+// count sets a price per guess that the defender pays once per login and the
+// attacker pays ten thousand times. It does NOT make a four-digit PIN strong —
+// nothing can — which is why passkeys exist alongside it.
+//
+// Format: pbkdf2$<iterations>$<salt-hex>$<hash-hex>. Old sha256 and fnv hashes
+// still verify, so nobody is locked out; they are upgraded in place on the
+// next correct login.
+const PIN_ITERATIONS = 210_000;   // OWASP 2023 floor for PBKDF2-HMAC-SHA256
+
+function fnvHash(id, pin) {
+  let h = 0x811c9dc5;
+  const s = id + ':' + pin;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return 'fnv' + h.toString(16);
+}
+
+function pbkdf2Pin(pin, saltHex, iter) {
+  return pbkdf2Sync(pin, Buffer.from(saltHex, 'hex'), iter, 32, 'sha256').toString('hex');
+}
+
+/** A stored hash in any format this host has ever written. */
+function validPinHash(v) {
+  if (typeof v !== 'string') return false;
+  if (/^[a-f0-9]{64}$/.test(v)) return true;             // legacy sha256
+  if (/^fnv[0-9a-f]{1,8}$/.test(v)) return true;         // legacy non-secure-context
+  const m = /^pbkdf2\$(\d{4,7})\$([a-f0-9]{32})\$([a-f0-9]{64})$/.exec(v);
+  return !!m && Number(m[1]) >= 100_000;                 // refuse a weakened cost
+}
+
+/** Freshly hash a PIN in the current format. */
+function newPinHash(pin) {
+  const salt = randomBytes(16).toString('hex');
+  return 'pbkdf2$' + PIN_ITERATIONS + '$' + salt + '$' + pbkdf2Pin(pin, salt, PIN_ITERATIONS);
+}
+
+/**
+ * Does `pin` match what is stored? Constant-time on the modern format; the
+ * legacy formats are compared the same way for consistency.
+ */
+function pinMatches(id, pin, stored) {
+  if (typeof stored !== 'string' || typeof pin !== 'string' || !pin) return false;
+  let expected;
+  const m = /^pbkdf2\$(\d+)\$([a-f0-9]+)\$([a-f0-9]{64})$/.exec(stored);
+  if (m) {
+    expected = 'pbkdf2$' + m[1] + '$' + m[2] + '$' + pbkdf2Pin(pin, m[2], Number(m[1]));
+  } else if (stored.startsWith('fnv')) {
+    expected = fnvHash(id, pin);
+  } else {
+    expected = createHash('sha256').update(id + ':' + pin, 'utf8').digest('hex');
+  }
+  const a = Buffer.from(expected), b = Buffer.from(stored);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** True when the stored hash is one of the crackable legacy formats. */
+function pinNeedsUpgrade(stored) {
+  return typeof stored === 'string' && !stored.startsWith('pbkdf2$');
 }
 
 // Acts that destroy or rewrite existing content are irreversible: a deleted
@@ -687,7 +788,12 @@ const adStore = createAdStore(resolve(DATA_DIR, 'ads.json'), {
 
 function authError(act) {
   const actor = act.t === 'register' ? null
-    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'deleteAccount'].includes(act.t) ? act.id : null));
+    // setKey belongs here for the same reason setPin does: attaching a
+    // credential decides who can act as this handle from now on, so it has to
+    // be authorised by whoever can act as it today. It was missing, which made
+    // key registration skip the PIN check entirely — a test caught it before
+    // the endpoint ever shipped.
+    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'setKey', 'deleteAccount'].includes(act.t) ? act.id : null));
   if (!actor) return null; // closeEpoch/closeCycle are communal; register is checked for uniqueness only
   const stored = pinIndex.get(actor);
   if (!stored) {
@@ -710,12 +816,65 @@ function authError(act) {
     }
     return null;
   }
+  // A passkey proves more than a PIN does and is checked first: the signature
+  // covers a challenge this host issued seconds ago and the origin the browser
+  // was actually on, so it cannot be replayed and cannot be phished.
+  const assertion = act.auth && typeof act.auth === 'object' ? act.auth : null;
+  if (assertion) {
+    const keys = keyIndex.get(actor) ?? [];
+    const cred = keys.find((k) => k.credId === assertion.credId);
+    if (!cred) return 'that passkey is not registered to this handle';
+    if (!takeChallenge(assertion.challenge, actor)) return 'that sign-in has expired or was already used — ask for a new challenge';
+    const bad = verifyAssertion(assertion, cred, {
+      challenge: assertion.challenge,
+      origin: RP_ORIGIN || null,
+      rpId: RP_ID || 'localhost',
+    });
+    if (bad) return 'passkey refused: ' + bad;
+    cred.signCount = assertion.signCount ?? cred.signCount;
+    return null;
+  }
   const pin = typeof act.auth === 'string' ? act.auth : '';
-  if (!pin || hashPin(actor, pin, stored) !== stored) return 'this handle is PIN-secured — wrong or missing PIN';
+  if (!pinMatches(actor, pin, stored)) return 'this handle is PIN-secured — wrong or missing PIN';
+  // Correct PIN on a legacy hash: quietly re-store it at the modern cost, so
+  // an account stops being offline-crackable the first time its owner logs in
+  // and nobody has to be told to do anything.
+  if (pinNeedsUpgrade(stored)) pinUpgrades.set(actor, newPinHash(pin));
   return null;
 }
 
+// The four actors seedWorld creates exist without a register act — they are
+// the world every log starts from, and forgetting them would refuse the oldest
+// accounts on the network.
+const SEED_ACTORS = new Set(['alice', 'bob', 'carol', 'dave']);
+
+/** Every id that actually exists as an actor. */
+function isRegistered(id) {
+  if (typeof id !== 'string') return false;
+  if (SEED_ACTORS.has(id)) return true;
+  return acts.some((a) => a.t === 'register' && a.id === id);
+}
+
 function validate(act) {
+  // Who is claiming to have done this, and do they exist?
+  //
+  // Nothing checked. A tester posted as "Luke Skywalker", "Darth Vader" and
+  // "Han Solo" — names that were never registered at all — and the acts were
+  // accepted, written to the log, and then crashed every replay that read
+  // them, taking the host down. Two separate failures from one missing check:
+  // anyone could speak as anyone, and anyone could stop the network.
+  //
+  // register creates the actor, and the communal acts belong to no one.
+  const AUTHORLESS = new Set(['register', 'closeEpoch', 'closeCycle', 'seedWorld']);
+  if (!AUTHORLESS.has(act.t)) {
+    const claimed = act.author ?? act.from ?? act.id;
+    if (claimed !== undefined && !isRegistered(claimed)) {
+      return 'no such handle: ' + String(claimed).slice(0, 40)
+        + ' — an act has to come from an account that exists, or the record stops meaning anything';
+    }
+    if (act.t === 'dm' && !isRegistered(act.to)) return 'no such recipient: ' + String(act.to).slice(0, 40);
+  }
+
   if (!act || typeof act !== 'object' || !ACT_KINDS.has(act.t)) return 'unknown act kind';
   // The per-field checks name their limits; this one used to say only "act too
   // large", which reads as broken content one layer up from where the length
@@ -736,12 +895,21 @@ function validate(act) {
       ? what + ' is too long: ' + v.length + ' characters, the limit is ' + n
       : null;
   switch (act.t) {
-    case 'register':
+    case 'register': {
       if (!str(act.id, 24) || !/^u_[a-z0-9]+$/.test(act.id) || !str(act.handle, 16)) return 'bad registration';
       if (!num(act.seed) || act.seed !== 1) return 'bad seed';
       if (acts.some((a) => a.t === 'register' && a.id === act.id)) return 'handle already registered';
-      if (act.pinHash !== undefined && !(/^[a-f0-9]{64}$/.test(act.pinHash) || /^fnv[0-9a-f]{1,8}$/.test(act.pinHash))) return 'bad pin hash';
+      // The id was the ONLY thing checked, so any free id could wear a name
+      // already in use: a tester registered u_ender1337 and u_ender1338, both
+      // displaying "Ender133", and posted as them. On a network whose whole
+      // premise is that the record shows who did what, a name anyone can wear
+      // is not cosmetic. Handles are now unique by the shape a reader
+      // resolves, not by their bytes.
+      const clash = handleClash(act.handle, takenHandles(acts));
+      if (clash) return clash;
+      if (act.pinHash !== undefined && !validPinHash(act.pinHash)) return 'bad pin hash';
       break;
+    }
     case 'burn':
       if (!str(act.id, 24) || act.amt !== 1) return 'bad burn';
       break;
@@ -841,6 +1009,14 @@ function validate(act) {
       break;
     case 'stream':
       if (!str(act.author, 24) || !str(act.text, 200) || !inR(act.a)) return 'bad stream';
+      break;
+    case 'setKey':
+      if (!str(act.id, 24)) return 'bad key registration';
+      // credId null is "remove every passkey", which must stay possible: a
+      // lost phone should not lock someone out of their own handle forever.
+      if (act.credId !== null) {
+        if (!str(act.credId, 512) || !Array.isArray(act.cose) || act.cose.length > 16) return 'bad credential';
+      }
       break;
     case 'btcClaim':
     case 'assetCreate':
@@ -1125,7 +1301,36 @@ const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call']);
 function applyAct(act, auth, ip) {
   const out = applyActInner(act, auth, ip);
   opsAct(ip, act, out && out.error);
+  if (out && !out.error) flushPinUpgrades();
   return out;
+}
+
+/**
+ * Rewrite a proven-correct legacy PIN hash into the modern format.
+ *
+ * Only ever runs after the PIN was verified, so a wrong guess can never move
+ * anything. The hash is authentication material, not protocol content: it is
+ * in no score, no edge and no certificate, so replacing it changes nothing any
+ * replay computes. Doing this silently, on the owner's next real login, is the
+ * only version that actually protects the people who would never read a notice
+ * telling them to reset their PIN.
+ */
+function flushPinUpgrades() {
+  if (!pinUpgrades.size) return;
+  let touched = false;
+  for (const [id, fresh] of pinUpgrades) {
+    for (let i = acts.length - 1; i >= 1; i--) {
+      const a = acts[i];
+      if ((a.t === 'register' || a.t === 'setPin') && a.id === id && a.pinHash) {
+        a.pinHash = fresh;
+        pinIndex.set(id, fresh);
+        touched = true;
+        break; // newest wins, exactly as the index does
+      }
+    }
+  }
+  pinUpgrades.clear();
+  if (touched) rewriteLog();
 }
 
 function applyActInner(act, auth, ip) {
@@ -1155,6 +1360,11 @@ function applyActInner(act, auth, ip) {
   acts.push(act);
   persist(act);
   if ((act.t === 'register' || act.t === 'setPin') && act.pinHash) pinIndex.set(act.id, act.pinHash);
+  if (act.t === 'setKey') {
+    const list = keyIndex.get(act.id) ?? [];
+    if (act.credId === null) keyIndex.set(act.id, []);
+    else keyIndex.set(act.id, list.filter((k) => k.credId !== act.credId).concat([{ credId: act.credId, cose: act.cose, signCount: act.signCount ?? 0, label: act.label ?? 'passkey' }]));
+  }
   if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
   // Deletion/edit reach back into the stored log: content bytes leave the
   // file, structure (line count, ids, θ-parity fields) stays.
@@ -2002,6 +2212,72 @@ const server = createServer((req, res) => {
     }
     return;
   }
+  // ── Account security: challenges and passkeys ───────────────────────────
+  if (req.method === 'POST' && url.pathname === '/api/auth/challenge') {
+    if (!signalLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
+    readBody(req, 1024).then((body) => {
+      const as = typeof body?.as === 'string' ? body.as : '';
+      if (!as) { json(res, 400, { error: 'as is required' }); return; }
+      // Issued for anyone who asks, deliberately: refusing unknown handles
+      // here would turn this endpoint into a way to enumerate who exists.
+      json(res, 200, {
+        challenge: issueChallenge(as),
+        rpId: RP_ID || url.hostname,
+        credentials: (keyIndex.get(as) ?? []).map((k) => ({ id: k.credId, label: k.label })),
+        expiresInSec: CHALLENGE_TTL / 1000,
+      });
+    }).catch(() => json(res, 400, { error: 'invalid body' }));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/auth/passkey') {
+    if (mirrorRefuse(res)) return;
+    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
+    readBody(req, 16384).then((body) => {
+      const as = typeof body?.as === 'string' ? body.as : '';
+      if (!as || !acts.some((a) => a.t === 'register' && a.id === as)) { json(res, 404, { error: 'unknown handle' }); return; }
+      // Adding a passkey is a change of who can act as this handle, so it has
+      // to be authorised by whoever can act as it NOW. Without this, anyone
+      // could bolt their own key onto someone else's account — the same class
+      // of hole as the handle that could be worn by anyone.
+      const already = pinIndex.get(as);
+      const aerr = authError({ t: 'setKey', id: as, auth: body.auth });
+      if (already && aerr) { json(res, 401, { error: aerr }); return; }
+      if (!already && hasHistory(as)) {
+        json(res, 401, { error: 'this handle has already acted and has no PIN, so a key cannot be attached from outside — that is exactly how someone would take it. Ask the operator.' });
+        return;
+      }
+      if (!takeChallenge(body.challenge, as)) { json(res, 400, { error: 'that challenge has expired or was already used' }); return; }
+      const parsed = readRegistration(body.response ?? {}, {
+        challenge: body.challenge,
+        origin: RP_ORIGIN || null,
+        rpId: RP_ID || url.hostname,
+      });
+      if (parsed.error) { json(res, 400, { error: parsed.error }); return; }
+      const out = applyAct({
+        t: 'setKey', id: as, credId: parsed.credId, cose: parsed.cose,
+        signCount: parsed.signCount, label: String(body.label ?? 'passkey').slice(0, 40),
+      }, body.auth ?? '', ip);
+      if (out.error) { json(res, out.code ?? 400, { error: out.error }); return; }
+      json(res, 200, {
+        ok: true, credId: parsed.credId,
+        note: 'This passkey can now act for ' + as + '. It cannot be guessed, cannot be cracked from the log, and will not sign for a page pretending to be this site.',
+      });
+    }).catch(() => json(res, 400, { error: 'invalid body' }));
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/auth/status') {
+    const as = url.searchParams.get('as') ?? '';
+    const stored = pinIndex.get(as);
+    json(res, 200, {
+      as,
+      hasPin: !!stored,
+      pinStorage: stored ? (stored.startsWith('pbkdf2$') ? 'slow (pbkdf2)' : 'legacy fast hash — upgraded automatically the next time you sign in') : null,
+      passkeys: (keyIndex.get(as) ?? []).map((k) => ({ id: k.credId, label: k.label })),
+      advice: 'A PIN is a shared secret whose hash is in the public log; a passkey is not. Add a passkey if your device offers one.',
+    });
+    return;
+  }
+
   // ── Paid placements: public surface ─────────────────────────────────────
   if (url.pathname === '/api/ads') {
     if (req.method === 'GET') {
