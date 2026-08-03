@@ -161,6 +161,9 @@ html, body { overflow-x: hidden; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 .tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
+.lock-warn { border-color: var(--ember); }
+.lock-warn b { color: var(--ember); }
+.g-handle.locked, .lq-ava.locked { outline: 2px solid var(--ember); outline-offset: 1px; }
 .hop-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
 .hop-chip.far { opacity: 0.55; border-style: dashed; }
 .react-count { color: var(--ember); font-size: 11.5px; }
@@ -650,6 +653,45 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   var lastPinHash = {}; // id -> pinHash from latest replay
 
+  // ── Session lock ──────────────────────────────────────────────────────────
+  // A PIN lives in sessionStorage only, so closing the browser forgets it while
+  // the chosen identity (localStorage) survives. That leaves a state the app
+  // used to hide: signed in, apparently fine, but every act bounces off the
+  // host with a 401 and incoming calls are silently dropped. The identity is
+  // not the credential — say so, and make getting the credential back cost
+  // nothing you were in the middle of.
+  function sessionLocked() {
+    return !!(REMOTE && who && lastPinHash[who] && !pins[who]);
+  }
+
+  var unlockPending = false;   // one dialog at a time, however many acts queue
+  var lockNoticeShown = false; // the silent-failure warning fires once per lock
+  /**
+   * Run `then` with a usable PIN in hand. If the session is unlocked this is
+   * synchronous and invisible; if not, it asks once and then continues the
+   * caller's work. Nothing the caller was doing is discarded.
+   */
+  function withUnlock(then) {
+    if (!sessionLocked()) { then(); return; }
+    if (unlockPending) { toast('Enter your PIN in the dialog first.'); return; }
+    unlockPending = true;
+    var id = who, hash = lastPinHash[who];
+    var label = (function () { try { return replay().handles[id] || id; } catch (e) { return id; } })();
+    pinDialog('Unlock ' + label, 'Your session expired, so the PIN is gone from this browser. Your handle and everything you posted are untouched — the PIN just proves it is you.')
+      .then(function (pin) {
+        if (pin == null) { unlockPending = false; render(); return; }
+        sha256hex(id + ':' + pin).then(function (hx) {
+          unlockPending = false;
+          if (hx !== hash) { toast('Wrong PIN — that is not the one securing ' + label + '.'); render(); return; }
+          pins[id] = pin; save();
+          lockNoticeShown = false; // re-arm for the next expiry
+          toast('Unlocked. Carrying on where you left off.');
+          render();
+          then();
+        });
+      });
+  }
+
   // ── Connection state (server fallback) ──
   var netFails = 0;
   var offline = false;
@@ -681,9 +723,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return changed;
   }
 
-  function pushAct(act, onOk) {
+  function pushAct(act, onOk, retried) {
     var actor = act.author || act.from ||
       (act.t === 'closeEpoch' || act.t === 'closeCycle' ? null : act.id) || null;
+    // Ask for the PIN before spending the act, not after the host refuses it.
+    // The act is re-submitted verbatim once unlocked, so a post someone spent
+    // two minutes writing is never lost to an expired session.
+    if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
+      withUnlock(function () { pushAct(act, onOk, retried); });
+      return;
+    }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
     if (!REMOTE) {
       delete act.auth;
@@ -694,10 +743,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); return; }
     act.since = world.acts.length;
     fetch(API + '/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
-      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (x) {
         setOnline(true);
-        if (!x.ok) { toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return; }
+        if (!x.ok) {
+          // 401 means the PIN we hold is stale or wrong. Drop it and ask again,
+          // ONCE — resending the same bad PIN would walk the handle into the
+          // host's PIN-attempt lockout, and retrying forever would be worse
+          // than the original failure.
+          if (x.status === 401 && actor && !retried) {
+            delete pins[actor]; save();
+            withUnlock(function () { pushAct(act, onOk, true); });
+            return;
+          }
+          toast(x.d && x.d.error ? x.d.error : 'The network refused that action.'); render(); return;
+        }
         mergeTail(x.d); save();
         if (onOk) onOk();
         render();
@@ -1508,6 +1568,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       lqEnergyBar(me),
       h('button', { class: 'lq-ava', text: (st.handles[who] || '?')[0].toUpperCase(), title: 'You', onclick: function () { lqView = 'you'; render(); } })));
 
+    var lqLock = lockBanner(st, true);
+    if (lqLock) wrap.appendChild(h('div', { class: 'lq-glass lq-card' }, lqLock));
+
     if (lqView === 'feed') wrap.appendChild(lqFeed(st));
     else if (lqView === 'peers') wrap.appendChild(lqPeers(st));
     else if (lqView === 'chats') wrap.appendChild(lqChats(st));
@@ -1562,7 +1625,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (signalWhoLast !== who) { signalWhoLast = who; signalAuthBad = false; }
     if (!REMOTE || !who || signalAuthBad || offline) return;
     if (!call && !force) { signalTickN++; if (signalTickN % 4 !== 0) return; } // idle ~5s, in-call ~1.2s
-    if (lastPinHash[who] && !pins[who]) return; // secured handle without its PIN cannot collect
+    // A locked session cannot collect its mailbox, so incoming calls would
+    // vanish without a trace. Say it once rather than failing silently; the
+    // banner keeps saying it after that.
+    if (lastPinHash[who] && !pins[who]) {
+      if (!lockNoticeShown) {
+        lockNoticeShown = true;
+        toast('Session locked — unlock to receive calls and to act. Your handle is fine.');
+      }
+      return;
+    }
     fetch(API + '/api/signal/poll', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ who: who, auth: pins[who] || '' }),
@@ -2379,6 +2451,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
       : tab === 'net' ? netTab(st) : tab === 'econ' ? econTab(st) : tab === 'guide' ? guideTab(st) : ledgerTab(st);
     var shell = h('div', { class: 'shell' });
+    var geekLock = lockBanner(st, false);
+    if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
       avatar(st.handles[who], 'avatar s'),
@@ -2419,6 +2493,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       margin: x - SAFE_FLOOR,
     };
   }
+  /**
+   * The two states where an identity is signed in but not fully usable, both
+   * of which used to be invisible until something bounced:
+   *   locked    — PIN-secured, but the browser session forgot the PIN
+   *   unsecured — never had a PIN, so anyone who knows the handle can be you
+   * One banner, because to a reader they are the same question: is this
+   * really my account right now?
+   */
+  function lockBanner(st, compact) {
+    if (!REMOTE || !who) return null;
+    var name = st.handles[who] || who;
+    if (sessionLocked()) {
+      return h('div', { class: 'wall-warn lock-warn' },
+        h('b', { text: '🔒 session locked' }),
+        h('div', { class: compact ? 'lq-note' : 'smallnote' },
+          'Your PIN is not in this browser any more — it is forgotten whenever the browser closes, on purpose, so a shared machine cannot keep it. You are still ' + name + ' and nothing you posted is affected; you just cannot act or receive calls until you prove it is you.'),
+        h('button', { class: compact ? 'lq-pill hot' : 'btn small primary', style: 'margin-top:8px',
+          text: 'Unlock', onclick: function () { withUnlock(function () {}); } }));
+    }
+    if (!st.pinHash[who]) {
+      return h('div', { class: 'wall-warn lock-warn' },
+        h('b', { text: '⚠ this handle has no PIN' }),
+        h('div', { class: compact ? 'lq-note' : 'smallnote' },
+          'Anyone who knows the name ' + name + ' can post, message and vouch as you — that has already happened to someone here. Deleting or editing your own posts is refused for the same reason: the host cannot tell it is you. Setting a PIN takes a second and only a hash of it ever enters the record.'),
+        h('button', { class: compact ? 'lq-pill hot' : 'btn small primary', style: 'margin-top:8px',
+          text: 'Secure this handle', onclick: function () { setPinFlow(st, false); } }));
+    }
+    return null;
+  }
+
   function wallBanner(st, id, compact) {
     var w = wallState(st, id);
     if (!w || !w.near) return null;
