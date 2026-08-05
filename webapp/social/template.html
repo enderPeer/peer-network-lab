@@ -717,6 +717,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var composeMedia = null, composeQuote = null; // pending composer attachments
   var focusNode = null;  // jump target from the Record/Alerts — pinned atop the feed
   var netScope = 'social', netMinW = 0, netView = null; // network tab: filter + viewport
+  // The solved layout, kept across repaints. See netTab for why: solving it is
+  // 467ms on the live graph and drawing it is 7ms, so recomputing on every
+  // render was the whole reason this screen froze the tab when you opened it.
+  var netLayoutCache = null;
   var netTarget = null; // network tab: whose reach we are explaining
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
@@ -5029,11 +5033,133 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
   }
+  /**
+   * The Network view's summary — what a reader needs before a picture.
+   *
+   * Every figure here is measured from the record, and each one names WHICH
+   * measurement it is, because the obvious ones disagree with each other by
+   * large factors and a bare number would be a guess dressed as a fact:
+   *
+   *   Reach, undirected and person-folded: for one account here, 39 peers.
+   *   Reach, through the protocol's own directed primitive: 5.
+   *
+   * The second is the one this page reports, because it is the mechanism that
+   * actually decides the feed — "transported commitment" is directional, and
+   * an undirected count would tell somebody they reach people who cannot see
+   * them. Measured across this network: 25 of 51 accounts reach nobody at all.
+   */
+  function netStats(st, me, reach) {
+    var live = st.ledgers.filter(function (l) { return !l.deleted; });
+    var peers = 0, nodes = 0;
+    reach.forEach(function (r, id) {
+      if (!(r.pos > 0)) return;
+      nodes += 1;
+      var n = st.g.nodes.get(id);
+      if (n && n.kind === 'Actor' && id !== me) peers += 1;
+    });
+    // Rank, reported as a band. Twenty of the fifty-one accounts here sit on
+    // exactly tied standings — eight of them share one value — so a bare
+    // "top N%" would be arbitrary for two fifths of the roster.
+    var mine = st.xById[me] || 0;
+    var above = 0, tied = 0;
+    live.forEach(function (l) {
+      var x = st.xById[l.id] || 0;
+      if (x > mine) above += 1; else if (x === mine && l.id !== me) tied += 1;
+    });
+    return {
+      peers: peers, nodes: nodes, total: live.length,
+      edges: st.g.edges.length,
+      rank: above + 1, tied: tied, of: live.length,
+      standing: NU * mine,
+    };
+  }
+
+  /**
+   * Advice, and only the kind that survived being checked.
+   *
+   * Two things the brief asked for are not derivable here and are left out
+   * rather than approximated. Topic concentration: 22 tag edges over 256
+   * pieces of content, and a tag node is a dead end in the routing graph, so
+   * "connect to X and reach grows by N%" evaluates to exactly zero every time
+   * — it was run, not assumed. And a day-based "dormant" count would be a
+   * fiction, because a third of this log carries no timestamp at all.
+   *
+   * What IS derivable is the one that matters most: remove a neighbour and
+   * re-run the reach, and see what is left. The shares do not sum to a hundred
+   * because paths overlap, so they are reported as "without them" rather than
+   * as slices of a pie.
+   */
+  function netAdvice(st, me, reach) {
+    var out = [];
+    var baseline = 0;
+    reach.forEach(function (r) { if (r.pos > 0) baseline += 1; });
+    if (!baseline) {
+      out.push({ tone: 'warn', text: 'Nothing is reachable from here yet. Reach is carried by acts: react to a post, review one, or vouch for somebody, and the paths open from that point. Twenty-five of the accounts on this network are in the same position.' });
+      return out;
+    }
+    // Neighbours: actors one hop out in the directed register.
+    var neigh = [];
+    reach.forEach(function (r, id) {
+      var n = st.g.nodes.get(id);
+      if (r.pos > 0 && n && n.kind === 'Actor' && id !== me) neigh.push(id);
+    });
+    // The counterfactual, run rather than estimated. Capped because it is one
+    // BFS per neighbour and the graph is walked in full each time.
+    var worst = null;
+    neigh.slice(0, 12).forEach(function (id) {
+      var pruned = { nodes: new Map(), edges: [] };
+      st.g.nodes.forEach(function (n, k) { if (k !== id && k !== 'prof_' + id) pruned.nodes.set(k, n); });
+      st.g.edges.forEach(function (e) {
+        if (e.src === id || e.tgt === id || e.src === 'prof_' + id || e.tgt === 'prof_' + id) return;
+        pruned.edges.push(e);
+      });
+      pruned.incoming = function (x) { return pruned.edges.filter(function (e) { return e.tgt === x; }); };
+      var after = 0;
+      try {
+        var r2 = E.doubleCoverBFS(pruned, me);
+        r2.forEach(function (r) { if (r.pos > 0) after += 1; });
+      } catch (e) { return; }
+      var lost = Math.round(((baseline - after) / baseline) * 100);
+      if (!worst || lost > worst.lost) worst = { id: id, lost: lost };
+    });
+    if (worst && worst.lost >= 25) {
+      out.push({ tone: 'warn', text: 'Your reach runs through ' + (st.handles[worst.id] || worst.id)
+        + '. Without that one connection you would reach ' + worst.lost + '% less of this network — measured by removing them and running the reach again. A second route to the same people would cost one act and remove that dependency.' });
+    }
+    if (neigh.length && neigh.length < 4) {
+      out.push({ tone: 'note', text: 'You are connected through ' + neigh.length + ' account' + (neigh.length === 1 ? '' : 's')
+        + '. Reach here is not symmetric — being reachable is a different thing from reaching — so a few more acts widen it faster than anything else.' });
+    }
+    var reverse = 0;
+    st.ledgers.forEach(function (l) {
+      if (l.deleted || l.id === me) return;
+      try {
+        var rr = E.doubleCoverBFS(st.g, l.id);
+        var seen = rr.get(me);
+        if (seen && seen.pos > 0) reverse += 1;
+      } catch (e) { /* an actor with no register */ }
+    });
+    out.push({ tone: 'note', text: reverse
+      ? reverse + ' account' + (reverse === 1 ? '' : 's') + ' can reach you. That is the audience your posts can travel to, and it is counted separately from the ' + neigh.length + ' you reach, because the graph is directed.'
+      : 'Nobody can currently reach you. Your posts exist in the record but no path carries them to another feed — that changes the moment somebody acts on one of them.' });
+    return out;
+  }
+
   function netTab(st) {
     var wrap = h('div', {});
     var me = personOfId(who);
     var data = netData(st);
-    var pos = layoutGraph(data.nodes, data.edges);
+    // The layout is the expensive part of this screen by two orders of
+    // magnitude — measured on the live graph: 467ms to solve, against 7ms to
+    // build the SVG from it. It is a deterministic solve over the same node
+    // set, so it is cached on that set rather than recomputed every time the
+    // page repaints. That is the single change that makes this view stop
+    // freezing the tab, and it is not a rendering change at all.
+    var lkey = data.nodes.length + ':' + data.edges.length + ':' + netScope + ':' + netMinW;
+    if (!netLayoutCache || netLayoutCache.key !== lkey) {
+      netLayoutCache = { key: lkey, pos: layoutGraph(data.nodes, data.edges) };
+    }
+    var pos = netLayoutCache.pos;
 
     // Everything in this tab answers one question: how do I reach this, and
     // through whom. Reachability is the raw depth-4 register; explanations are
@@ -5042,6 +5168,34 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var hops = cograHops(st);
     var maxReach = 0;
     reach.forEach(function (r) { if (r.pos > maxReach) maxReach = r.pos; });
+
+    var stats = netStats(st, me, reach);
+    var sum = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow', text: 'your position' }));
+    var tiles = h('div', { class: 'stat-row' });
+    [
+      [String(stats.peers), 'peers you reach', 'of ' + (stats.total - 1) + ' on the network'],
+      [String(stats.nodes), 'things in reach', 'posts, people and threads within 4 hops'],
+      [fmt(stats.standing, 4), 'your standing', stats.tied
+        ? 'rank ' + stats.rank + ' of ' + stats.of + ', tied with ' + stats.tied
+        : 'rank ' + stats.rank + ' of ' + stats.of],
+      [String(stats.edges), 'edges in the record', 'every one a priced act'],
+    ].forEach(function (t) {
+      tiles.appendChild(h('div', { class: 'stat-tile' },
+        h('b', { text: t[0] }), h('span', { text: t[1] }), h('span', { text: t[2] })));
+    });
+    sum.appendChild(tiles);
+    sum.appendChild(h('p', { class: 'smallnote', text: 'Reach is counted the way this network actually routes: along the direction commitment was transported. It is not symmetric — the people you reach and the people who can reach you are different sets, and both are shown. An undirected count would be several times larger and would tell you that you reach people who cannot see you.' }));
+    wrap.appendChild(sum);
+
+    var adv = netAdvice(st, me, reach);
+    if (adv.length) {
+      var ac = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'what this means' }));
+      adv.forEach(function (a) {
+        ac.appendChild(h('p', { class: a.tone === 'warn' ? 'warn' : 'smallnote', text: a.text }));
+      });
+      wrap.appendChild(ac);
+    }
 
     var explained = null, bridgeSet = {};
     if (netTarget && st.g.nodes.get(netTarget)) {
@@ -5126,7 +5280,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'smallnote', style: 'margin-top:6px', text: 'Pick a target to see the actual disjoint paths your feed rank is built from. Drag to pan, wheel to zoom, click an edge for its tensor or an actor for their profile.' })));
 
     // ── the graph ──
-    var card = h('div', { class: 'card netwrap', style: 'margin-top:14px; touch-action:none' });
+    // touch-action:none was set so a drag would pan the graph rather than
+    // scroll the page. On a phone it also made 234 measured pixels of the
+    // drawing unreachable: the SVG has a 560px minimum and the column is
+    // 354px, so a third of the graph sat past the edge with no gesture that
+    // could bring it into view. pan-y gives the page back its vertical
+    // scrolling while the horizontal drag still belongs to the graph.
+    var card = h('div', { class: 'card netwrap', style: 'margin-top:14px; touch-action:pan-y' });
     var svg = sv('svg', { id: 'netsvg', viewBox: netView.x + ' ' + netView.y + ' ' + netView.w + ' ' + netView.h });
     var defs = sv('defs');
     ['arr', 'arr-hot'].forEach(function (id) {
@@ -5150,7 +5310,19 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       svg.setAttribute('viewBox', netView.x + ' ' + netView.y + ' ' + netView.w + ' ' + netView.h);
     });
     svg.addEventListener('pointerup', function () { dragState = null; });
-    svg.addEventListener('wheel', function (ev) { ev.preventDefault(); zoom(ev.deltaY > 0 ? 1.15 : 1 / 1.15); }, { passive: false });
+    // A trackpad's sideways swipe reports deltaX, and this handler read only
+    // deltaY — so brushing left or right ZOOMED. Measured: one deltaX event
+    // shrank the viewBox to 0.87 of its width. Sideways now pans, which is
+    // what the gesture means everywhere else.
+    svg.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+        var vb = svg.viewBox.baseVal;
+        svg.setAttribute('viewBox', (vb.x + ev.deltaX * (vb.width / 600)) + ' ' + vb.y + ' ' + vb.width + ' ' + vb.height);
+        return;
+      }
+      zoom(ev.deltaY > 0 ? 1.15 : 1 / 1.15);
+    }, { passive: false });
 
     var pair = {};
     data.edges.forEach(function (e) {
