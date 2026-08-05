@@ -355,6 +355,26 @@ body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0
 .audio-wrap.wave-none .audio-wave { display: none; }
 body[data-mode='liquid'] .audio-wrap { background: var(--lq-sunk); border-color: var(--lq-rule); border-radius: 4px; }
 .track-now { font-size: 12.5px; color: var(--muted); padding: 2px 0 4px; }
+.album-head { display: flex; gap: 12px; align-items: flex-start; padding: 2px 0 6px; }
+/* Both dimensions, always. The blob can be up to 1280px on its long edge, and
+   an <img> with no height reserves its intrinsic one until it decodes — which
+   would drop the track list several hundred pixels down the page and then
+   snap it back. */
+.album-art { width: 116px; height: 116px; flex: none; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--card-2); }
+.album-meta { flex: 1; min-width: 0; }
+.release-list { margin-top: 8px; border-top: 1px solid var(--line); }
+.release-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 2px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--line); }
+.release-row:hover { color: var(--ember); }
+.release-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-n, .release-when { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+body[data-mode='liquid'] .release-list, body[data-mode='liquid'] .release-row { border-color: var(--lq-rule); }
+.album-title { font-weight: 700; font-size: 14.5px; line-height: 1.3; margin-bottom: 2px; overflow-wrap: anywhere; }
+.audio-wrap.has-cover .track-now { padding-top: 0; }
+body[data-mode='liquid'] .album-art { border-color: var(--lq-rule); border-radius: 4px; }
+.compose-chip.busy { border-style: solid; color: var(--ink); }
+.compose-total { font-size: 11.5px; color: var(--muted); align-self: center; }
+.compose-chip .cover-btn { color: var(--brass, var(--ember)); font-size: 13px; }
+.compose-chip.is-cover { border-style: solid; border-color: var(--brass, var(--ember)); color: var(--ink); }
 .audio-wrap.playlist { padding-bottom: 6px; }
 .track-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
 .track-list { list-style: none; margin: 4px 0 0; padding: 0; max-height: 232px; overflow-y: auto; }
@@ -517,7 +537,10 @@ body[data-mode='liquid'] .reply-btn { padding: 3px 11px; font-size: 12px; }
 .pin-card input { width: 100%; text-align: center; font-size: 18px; letter-spacing: 0.3em; background: var(--card-2); border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 10px; font-family: var(--mono); }
 .pin-card .row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
 
-.toast-host { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 50; width: min(520px, 92vw); }
+/* Bounded, and it overflows from the TOP. A batch used to lay out a 1553px
+   column on a 720px screen, which put the first message — the one saying the
+   selection had been truncated — above the top edge for its whole life. */
+.toast-host { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; z-index: 50; width: min(520px, 92vw); max-height: min(60vh, 340px); overflow: hidden; }
 .toast { background: var(--ink); color: var(--paper); border-radius: 10px; padding: 9px 15px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(20,12,6,0.3); }
 @media (prefers-reduced-motion: no-preference) {
   .toast { animation: rise 0.2s ease-out; }
@@ -682,6 +705,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   .net-hint { display: block; }
 }
 @media (max-width: 560px) {
+  /* Measured budget on a 390px phone: 390 - 20 (shell) - 30 (.post padding)
+     - 2 (border) = 338px of card, and 316px inside the player. 84px of art
+     leaves 220px for the title column, which wraps rather than shrinking the
+     <audio> - the player and the waveform stay siblings of this row precisely
+     so they keep all 316px. */
+  .album-art { width: 84px; height: 84px; }
+  .album-head { gap: 10px; }
+  .album-title { font-size: 14px; }
   .shell { padding: 0 10px 30px; }
   .lq-shell { padding: 10px 10px calc(96px + env(safe-area-inset-bottom, 0px)); }
   .lq-card { padding: 15px 16px; border-radius: 20px; }
@@ -748,7 +779,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var GEEK_TABS = ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide'];
   var econView = 'wallet';   // + 'net'  — the graph lives here now
   var alertView = 'inbound'; // | 'record'
-  var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
+  var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you', 'person'];
+  var lqPersonId = null;   // whose page, when lqView is 'person'
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
   var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new' | 'follow'
@@ -778,8 +810,33 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // thing insisting on a single entry, so a post could never be an album. The
   // order here is the order in the act, which is the order the playlist plays.
   var composeMedia = [], composeQuote = null;
-  var COMPOSE_MAX = 12;          // the host refuses more; see MEDIA_MAX_ENTRIES
-  var composeBusy = false;       // one upload at a time: the host allows 10/min/IP
+  var COMPOSE_MAX = 12;                       // the host refuses more; see MEDIA_MAX_ENTRIES
+  var COMPOSE_MAX_BYTES = 60 * 1024 * 1024;   // and MEDIA_MAX_ACT_BYTES, checked BEFORE uploading
+  // ONE queue for the whole app, not one per composer call.
+  //
+  // Every one of these lives at module scope because the composer is rebuilt
+  // from scratch on every render, and a render can happen at any moment: the
+  // five-second poll that merges somebody else's act calls it. Driven in a
+  // real browser, that is exactly what happened — twelve files were picked,
+  // an unrelated act arrived at 2.1s, the chip row froze at three and the post
+  // went out with twelve attachments the author had never seen, in an order
+  // they were never shown. The queue and the row it draws now outlive any
+  // particular composer instance.
+  var composeQueue = [];         // files waiting their turn, in pick order
+  var composeBusy = false;       // a queue is running
+  var composeDone = 0, composeTotal = 0;
+  var composeChipHost = null;    // the chip row of the composer currently on screen
+  // Bumped every time the attachments are emptied. A file whose upload was
+  // already in flight when that happened belongs to a post that no longer
+  // exists, and pushing it in afterwards is how an attachment nobody picked
+  // rides out on the NEXT post — observed in a real browser, an image landing
+  // in a plain text post whose composer showed no chips at all.
+  var composeGen = 0;
+  function clearCompose() {
+    composeGen += 1;
+    composeQueue = []; composeBusy = false; composeDone = 0; composeTotal = 0;
+    composeMedia = []; composeQuote = null;
+  }
   var focusNode = null;  // jump target from the Record/Alerts — pinned atop the feed
   var netScope = 'social', netMinW = 0, netView = null; // network tab: filter + viewport
   // The solved layout, kept across repaints. See netTab for why: solving it is
@@ -1437,7 +1494,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * (actCost returns 0), because a drained author must still be able to take
    * their own content down; a revision is a real Publish act and is priced.
    */
-  function tryAct(actorId, actObj, label) {
+  function tryAct(actorId, actObj, label, onOk) {
     var st = replay();
     var l = st.ledgerById[actorId];
     if (!l) return;
@@ -1449,7 +1506,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       return;
     }
     Object.keys(st.xById).forEach(function (id) { prevX[id] = st.xById[id]; });
-    pushAct(actObj, function () { if (label) toast(label); });
+    pushAct(actObj, function () { if (label) toast(label); if (onOk) onOk(); });
   }
 
   function toast(msg) {
@@ -2476,10 +2533,38 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * twelve-track post that is the whole album pulled before anybody presses
    * play. Peaks are decoded for the current track only.
    */
-  function audioPlaylist(entries) {
+  /**
+   * `opts` may carry:
+   *   cover  a media entry to draw as the sleeve for the whole list
+   *   title  a line above the caption
+   *   note   what the row of controls says this list IS
+   *   per    one {cover, title, no} per entry, aligned to `entries`
+   *
+   * `per` exists because a catalogue is not an album. When one player holds
+   * tracks from several different posts, a single sleeve is art belonging to
+   * one release hung over another release's music — rendered and measured: the
+   * newest release with a cover won, and its art stayed on screen for every
+   * track of every other release, never changing as the tape advanced. The
+   * per-track entry is also where the track NUMBER comes from, because in a
+   * flattened list `i` is a catalogue-wide index and 'Track 7' for the first
+   * song of the third release is a number in no record at all.
+   */
+  function audioPlaylist(entries, opts) {
+    opts = opts || {};
+    var per = opts.per || null;
+    var cover = opts.cover || (per && per[0] && per[0].cover) || null;
+    var title = opts.title || null;
+    // Whether a SLOT for art is needed at all, which is not the same question
+    // as whether the first track has any. Measured on a real catalogue whose
+    // newest release had no sleeve: no element was built, so the two older
+    // releases that did have one could never show it however far the tape ran.
+    var anyArt = !!cover || !!(per && per.filter(function (p) { return p && p.cover; }).length);
     // A copy. st.mediaMeta[cid] IS the act object's own array — on the host
     // that array is what gets serialised back to disk, so nothing on a screen
-    // may sort, splice or annotate it.
+    // may sort, splice or annotate it. That includes writing a display-only
+    // field onto an entry: it would survive into acts.jsonl, change the file's
+    // hash, and the archive's own manifest check would then refuse the
+    // snapshot outright rather than show it.
     var list = entries.slice();
     var many = list.length > 1;
     var idx = 0;
@@ -2488,8 +2573,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var au = h('audio', { class: 'post-audio', controls: '', preload: 'metadata' });
     var caption = h('div', { class: 'track-now' });
     var rows = many ? h('ol', { class: 'track-list' }) : null;
+    var artEl = null, titleEl = null;
+    if (anyArt) wrap.classList.add('has-cover');
 
-    function trackName(e, i) { return e.n || ('Track ' + (i + 1)); }
+    // The number a track has WHERE IT WAS PUBLISHED, not where it landed in
+    // this list.
+    function trackNo(i) { return per && per[i] && per[i].no ? per[i].no : i + 1; }
+    function trackName(e, i) { return e.n || ('Track ' + trackNo(i)); }
     var peaks = null;
     function draw() {
       var w = cv.clientWidth || 320, hgt = 44;
@@ -2555,6 +2645,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       peaks = wavePeaks[waveKey(entry)] || null;
       wrap.classList.remove('wave-none');
       attachMedia(au, entry);
+      // The sleeve belongs to the track, not to the list.
+      if (per && per[idx]) {
+        if (artEl) {
+        if (per[idx].cover) {
+          artEl.style.visibility = '';
+          artEl.alt = per[idx].cover.n || 'cover art';
+          attachMedia(artEl, per[idx].cover);
+        } else {
+          // A release with no sleeve keeps the box — hidden, not removed — so
+          // the track list does not jump a hundred pixels every time the tape
+          // crosses from one release to another.
+          artEl.style.visibility = 'hidden';
+        }
+      }
+        if (titleEl) {
+          titleEl.textContent = per[idx].title || '';
+          titleEl.style.display = per[idx].title ? '' : 'none';
+        }
+      }
       caption.textContent = many
         ? (idx + 1) + ' of ' + list.length + ' \u00b7 ' + trackName(entry, idx)
         : trackName(entry, idx);
@@ -2580,17 +2689,42 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       draw();
     });
 
-    wrap.appendChild(caption);
+    // The sleeve sits on its OWN row above the player, not beside it.
+    //
+    // Beside it would put the canvas — which is width:100% and whose intrinsic
+    // width draw() sets from clientWidth × devicePixelRatio — into a flex row
+    // that then refuses to shrink. On a phone the card would blow out
+    // sideways, and `overflow-x: hidden` on the body would HIDE that rather
+    // than show it. On this row the art only ever competes with text, and the
+    // <audio> keeps its full width down to a 320px screen.
+    if (anyArt) {
+      artEl = h('img', { class: 'album-art', alt: (cover && cover.n) || 'cover art', decoding: 'async' });
+      if (cover) attachMedia(artEl, cover);   // never a hand-written URL: see mediaURL
+      else artEl.style.visibility = 'hidden';
+      var meta = h('div', { class: 'album-meta' });
+      titleEl = h('div', { class: 'album-title', text: title || '' });
+      if (!title) titleEl.style.display = 'none';
+      meta.appendChild(titleEl);
+      meta.appendChild(caption);
+      if (many && !per) meta.appendChild(h('div', { class: 'smallnote', text: list.length + ' tracks' }));
+      wrap.appendChild(h('div', { class: 'album-head' }, artEl, meta));
+    } else {
+      wrap.appendChild(caption);
+    }
     wrap.appendChild(cv);
     wrap.appendChild(au);
     if (many) {
       wrap.appendChild(h('div', { class: 'track-nav' },
         h('button', { class: 'btn small', text: '\u25c0 Prev', onclick: function () { select(idx - 1, true); } }),
         h('button', { class: 'btn small', text: 'Next \u25b6', onclick: function () { select(idx + 1, true); } }),
-        h('span', { class: 'smallnote', text: list.length + ' tracks, in the order the post recorded them' })));
+        // What this list IS, said by whoever built it. On a post it is one
+        // record's own order; on a person's page it is several posts gathered,
+        // and claiming 'the order the post recorded them' there would be an
+        // assertion about a record that says nothing of the kind.
+        h('span', { class: 'smallnote', text: opts.note || (list.length + ' tracks, in the order the post recorded them') })));
       list.forEach(function (e, i) {
         var li = h('li', { class: 'track-row' },
-          h('span', { class: 'track-no', text: String(i + 1) }),
+          h('span', { class: 'track-no', text: String(trackNo(i)) }),
           h('span', { class: 'track-name', text: trackName(e, i) }),
           Number(e.s) > 0 ? h('span', { class: 'track-size', text: humanBytes(Number(e.s)) }) : null);
         li.addEventListener('click', function () { select(i, true); });
@@ -2601,7 +2735,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     setTimeout(function () { select(0, false); }, 0);
     return wrap;
   }
-  function audioViz(entry) { return audioPlaylist([entry]); }
+  function audioViz(entry) { return audioPlaylist([entry], {}); }
 
   /**
    * Everything a post carries, laid out as one block.
@@ -2610,12 +2744,24 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * are a playlist; everything else keeps its own element. The record's order
    * is preserved within each group and never rewritten.
    */
-  function mediaBlock(entries) {
+  function isAudioEntry(e) { return String(e.m || '').indexOf('audio/') === 0; }
+  function isImageEntry(e) { return String(e.m || '').indexOf('image/') === 0; }
+  function mediaBlock(entries, title) {
     var list = (entries || []).filter(Boolean);
-    var audio = list.filter(function (e) { return String(e.m || '').indexOf('audio/') === 0; });
-    var rest = list.filter(function (e) { return String(e.m || '').indexOf('audio/') !== 0; });
+    var audio = list.filter(isAudioEntry);
+    // A cover is an image the author marked, and only when there is music for
+    // it to be the cover OF. First flag wins rather than throwing: the host
+    // refuses a second one, but a record written before that rule existed
+    // must still draw. And an image marked as a cover on a post with no audio
+    // falls through to the ordinary picture — a flag that makes a picture
+    // disappear is worse than a flag nobody set.
+    var cover = audio.length ? list.filter(function (e) { return isImageEntry(e) && e.cv; })[0] || null : null;
+    // By identity, not by index or by hash: two entries can share a hash, and
+    // the sleeve rendered twice with nothing on screen to say so is a failure
+    // no test that counts players or rows would ever catch.
+    var rest = list.filter(function (e) { return !isAudioEntry(e) && e !== cover; });
     var out = [];
-    if (audio.length) out.push(audioPlaylist(audio));
+    if (audio.length) out.push(audioPlaylist(audio, { cover: cover, title: title }));
     rest.forEach(function (e) { out.push(mediaEl(e)); });
     return out;
   }
@@ -3017,6 +3163,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     else if (lqView === 'peers') wrap.appendChild(lqPeers(st));
     else if (lqView === 'chats') wrap.appendChild(lqChats(st));
     else if (lqView === 'alerts') wrap.appendChild(lqAlerts(st));
+    else if (lqView === 'person' && lqPersonId && lqPersonId !== who) wrap.appendChild(lqPerson(st, lqPersonId));
     else wrap.appendChild(lqYou(st));
 
     var notifs = notificationsFor(st, who);
@@ -3967,15 +4114,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var text = h('textarea', { class: 'lq-input', placeholder: 'Share something… (@name mentions, each reference costs a spark)' });
     var fileIn = h('input', { type: 'file', multiple: '', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'lq-actions', style: 'margin-top:8px' });
-    function renderChips() {
-      chips.innerHTML = '';
-      if (composeQuote) {
-        chips.appendChild(h('span', { class: 'compose-chip' }, '↪ quoting ' + (st.handles[st.creators[composeQuote]] || 'post'),
-          h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
-      }
-      composeMedia.forEach(function (m, i) { chips.appendChild(mediaChip(m, i, renderChips)); });
-    }
-    renderChips();
+    composeChipHost = chips;
+    redrawComposeChips();
     var TEXT_MAX = 1000;
     var counter = h('span', { class: 'charcount' });
     function updateCount() {
@@ -3986,7 +4126,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     text.addEventListener('input', updateCount);
     updateCount();
     fileIn.addEventListener('change', function () {
-      handleMediaPicks(fileIn.files, renderChips);
+      handleMediaPicks(fileIn.files);
       fileIn.value = '';
     });
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
@@ -4002,8 +4142,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           // A copy: once this array is in an act it belongs to the record, and
           // the composer keeps mutating its own.
           if (composeMedia.length) act.media = composeMedia.slice();
-          tryAct(who, act, 'Shared. Every post costs a spark of energy.');
-          composeQuote = null; composeMedia = [];
+          // Cleared only once the host has taken it. Clearing here used to be
+          // synchronous, so a refusal — an entry over the cap, a byte total
+          // over the ceiling — destroyed the caption and every upload with it.
+          tryAct(who, act, 'Shared. Every post costs a spark of energy.', function () {
+            clearCompose();
+            text.value = ''; updateCount();
+            redrawComposeChips();
+          });
         } }, icon('bolt'), 'Share'),
         h('button', { class: 'lq-pill', onclick: function () { fileIn.click(); } }, icon('tag'), 'Media'),
         fileIn),
@@ -4103,7 +4249,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       : String(m.m || '').indexOf('audio/') === 0 ? '🎵 '
         : String(m.m || '').indexOf('image/') === 0 ? '🖼 ' : '📎 ';
     var label = m.n || (String(m.m || '').split('/')[1] || 'file');
-    var chip = h('span', { class: 'compose-chip' }, what + (composeMedia.length > 1 ? (i + 1) + '. ' : '') + label);
+    var chip = h('span', { class: 'compose-chip' + (m.cv ? ' is-cover' : '') },
+      what + (composeMedia.length > 1 ? (i + 1) + '. ' : '') + (m.cv ? 'cover · ' : '') + label);
+    // The cover control appears the moment a picture and a track are on the
+    // same post, and never otherwise — there is nothing for a sleeve to be
+    // the sleeve of on a post with no music.
+    if (isImageEntry(m) && composeMedia.some(isAudioEntry)) {
+      chip.appendChild(h('button', { class: 'cover-btn', title: m.cv ? 'not the cover' : 'make this the cover',
+        text: m.cv ? '★' : '☆', onclick: function () {
+          var on = !m.cv;
+          // One per post, enforced here as well as by the host, so the second
+          // click cannot produce an act the host will refuse.
+          composeMedia.forEach(function (e) { delete e.cv; });
+          if (on) m.cv = 1;
+          redraw();
+        } }));
+    }
     if (i > 0) {
       chip.appendChild(h('button', { title: 'earlier', text: '↑', onclick: function () {
         var t = composeMedia[i - 1]; composeMedia[i - 1] = composeMedia[i]; composeMedia[i] = t; redraw();
@@ -4114,38 +4275,119 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     } }));
     return chip;
   }
+  /**
+   * Draw the chip row — wherever it currently is.
+   *
+   * The upload queue calls this, not a closure handed to it by whichever
+   * composer happened to be on screen when the files were picked. A detached
+   * node is skipped rather than written to: after a repaint the fresh composer
+   * has already claimed composeChipHost, so the next call lands on the live one.
+   */
+  function redrawComposeChips() {
+    var host = composeChipHost;
+    // No isConnected test. That guard was here to skip a stale row and instead
+    // skipped the composer's OWN first draw: a composer claims this variable
+    // while its chip row is still detached, so the row rendered empty and
+    // stayed empty until the upload queue happened to tick again. Staleness is
+    // already handled by construction — every composer overwrites this on the
+    // way up, so the queue always writes to whichever one is on screen now.
+    if (!host) return;
+    host.innerHTML = '';
+    if (composeQuote) {
+      var st0 = replay();
+      host.appendChild(h('span', { class: 'compose-chip' },
+        '↪ quoting ' + (st0.handles[st0.creators[composeQuote]] || 'post'),
+        h('button', { text: '×', title: 'remove', onclick: function () { composeQuote = null; redrawComposeChips(); } })));
+    }
+    composeMedia.forEach(function (m, i) { host.appendChild(mediaChip(m, i, redrawComposeChips)); });
+    if (composeBusy) {
+      // ONE line that updates, not a toast per file. A twelve-image pick used
+      // to emit thirty-four toasts, seventeen alive at once, in a column
+      // measuring 1553px on a 720px screen — so the one message that mattered,
+      // that the selection had been truncated, was laid out above the top edge
+      // and expired unseen.
+      host.appendChild(h('span', { class: 'compose-chip busy' },
+        'uploading ' + (composeDone + 1) + ' of ' + composeTotal
+        + (composeQueue[0] && composeQueue[0].name ? ' · ' + composeQueue[0].name : '')));
+    }
+    var bytes = composeBytes();
+    if (composeMedia.length > 1 && bytes > 0) {
+      host.appendChild(h('span', { class: 'compose-total',
+        text: composeMedia.length + ' files · ' + humanBytes(bytes) }));
+    }
+  }
+  function composeBytes() {
+    return composeMedia.reduce(function (a, e) { return a + (Number(e.s) > 0 ? Number(e.s) : 0); }, 0);
+  }
   var MB = 1024 * 1024;
   /**
    * Several files, uploaded one after another.
    *
-   * Sequential on purpose: the host allows ten uploads a minute from one
-   * address, so twelve tracks fired at once would 429 the last two — and the
-   * two that failed would be the ones nobody noticed were missing. Each file
-   * is added to the list as it lands, so the chips fill in as it goes and a
-   * refusal names the file it refused.
+   * Sequential on purpose — but no longer for the reason first written here.
+   * That reason was the ten-uploads-a-minute limiter, and the limiter is now
+   * forty (MEDIA_RATE, server.mjs), raised precisely so a twelve-track album
+   * could be uploaded at all. What sequencing still buys is worth keeping:
+   * the record's order is the pick order rather than whichever request
+   * finished first, one file's failure names that file, and the progress line
+   * can say something true. Each file joins the list as it lands.
    */
-  function handleMediaPicks(files, done) {
+  function handleMediaPicks(files) {
     var list = Array.prototype.slice.call(files || []);
     if (!list.length) return;
-    var room = COMPOSE_MAX - composeMedia.length;
-    if (room <= 0) { toast('A post carries at most ' + COMPOSE_MAX + ' files.'); return; }
+    // Room counts what is ALREADY QUEUED as well as what has landed. It used
+    // to count only composeMedia.length, so a second selection made while the
+    // first was still uploading believed it had a full allowance — measured,
+    // thirteen, fourteen and fifteen entries reached the host, which then
+    // refused the post outright.
+    var room = COMPOSE_MAX - composeMedia.length - composeQueue.length;
+    if (room <= 0) { toast('A post carries at most ' + COMPOSE_MAX + ' files, and that many are already picked.'); return; }
     if (list.length > room) {
       toast('A post carries at most ' + COMPOSE_MAX + ' files — taking the first ' + room + ' of these ' + list.length + '.');
       list = list.slice(0, room);
     }
+    composeQueue = composeQueue.concat(list);
+    composeTotal = composeDone + composeQueue.length;
+    if (composeBusy) { redrawComposeChips(); return; }   // the running queue picks them up
     composeBusy = true;
-    var i = 0;
-    function step() {
-      if (i >= list.length) { composeBusy = false; done(); return; }
-      var f = list[i]; i += 1;
-      if (list.length > 1) toast('File ' + i + ' of ' + list.length + ': ' + (f.name || 'attachment'));
-      handleMediaPick(f, function (entry) {
-        if (entry) composeMedia.push(entry);
-        done();
-        step();
-      }, function () { done(); step(); });
+    composeDone = 0;
+    composeTotal = composeQueue.length;
+    pumpCompose();
+  }
+  function pumpCompose() {
+    if (!composeQueue.length) {
+      composeBusy = false; composeDone = 0; composeTotal = 0;
+      redrawComposeChips();
+      return;
     }
-    step();
+    redrawComposeChips();
+    var gen = composeGen;
+    var f = composeQueue[0];
+    var next = function () {
+      if (gen !== composeGen) return;      // that post is gone; so is its queue
+      composeQueue.shift();
+      composeDone += 1;
+      redrawComposeChips();
+      pumpCompose();
+    };
+    handleMediaPick(f, function (entry) {
+      if (gen !== composeGen) return;
+      if (entry) composeMedia.push(entry);
+      next();
+    }, next);
+  }
+  /**
+   * Would this file take the post over the ceiling the host enforces?
+   *
+   * Checked BEFORE uploading, against the size about to be sent. Six audio
+   * files of 11 MB are each perfectly legal and together are refused — and
+   * until now the only way to find that out was to upload sixty-six megabytes
+   * and be told afterwards.
+   */
+  function budgetRoom(bytes, name) {
+    if (composeBytes() + bytes <= COMPOSE_MAX_BYTES) return true;
+    toast('“' + (name || 'that file') + '” would take this post over '
+      + Math.round(COMPOSE_MAX_BYTES / MB) + ' MB — it already carries ' + humanBytes(composeBytes()) + '.');
+    return false;
   }
   function handleMediaPick(f, done, fail) {
     // `fail` lets a batch carry on past one file the browser could not read.
@@ -4161,14 +4403,19 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       toast('Preparing image…');
       downscaleImage(f).then(function (blob) {
         if (REMOTE) {
+          if (!budgetRoom(blob.size, f.name)) { giveUp(); return null; }
           return uploadMedia(blob, 'image/jpeg').then(function (d) {
-            done({ h: d.h, m: d.m, s: d.size });
-            toast('Image ready — downscaled and re-encoded on your device.');
+            // The filename travels with an image too. Without it every image
+            // chip read '🖼 N. jpeg', so twelve photos were twelve identical
+            // labels, the reorder arrows moved things nobody could identify,
+            // and a file the queue dropped was impossible to name.
+            done({ h: d.h, m: d.m, n: f.name, s: d.size });
+            if (composeTotal <= 1) toast('Image ready — downscaled and re-encoded on your device.');
           });
         }
         var fr = new FileReader();
         fr.onload = function () {
-          if (fr.result.length > 300 * 1024) { toast('Image too large for the local sandbox.'); giveUp(); return; }
+          if (fr.result.length > 300 * 1024) { toast('“' + f.name + '” is too large for the local sandbox.'); giveUp(); return; }
           done({ d: fr.result, m: 'image/jpeg' });
           toast('Image attached (local).');
         };
@@ -4178,13 +4425,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // Codec this browser cannot decode (often iPhone HEIC): store the
         // original bytes — content is payload, and Safari still displays it.
         if (REMOTE && f.size <= 6 * MB) {
-          toast('This browser can’t re-encode ' + (mime.split('/')[1] || 'that format') + ' — uploading the original.');
+          if (!budgetRoom(f.size, f.name)) { giveUp(); return; }
+          toast('“' + f.name + '”: this browser can’t re-encode ' + (mime.split('/')[1] || 'that format') + ' — uploading the original.');
           uploadMedia(f, mime).then(function (d) {
             done({ h: d.h, m: d.m, n: f.name, s: d.size });
             toast('Uploaded as-is. Note: some browsers can’t display ' + (mime.split('/')[1] || 'this format') + '.');
           }).catch(function (e) { toast(String(e.message || e)); giveUp(); });
         } else {
-          toast('Could not decode that image here (' + (mime || 'unknown type') + '). Try a JPEG/PNG, or on iPhone set the camera to “Most Compatible”.');
+          toast('“' + f.name + '” could not be decoded here (' + (mime || 'unknown type') + ') and was left out. Try a JPEG/PNG, or on iPhone set the camera to “Most Compatible”.');
           giveUp();
         }
       });
@@ -4192,16 +4440,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     if (!REMOTE) { toast(kind === 'video' ? 'Videos need the shared network host.' : kind === 'audio' ? 'Audio needs the shared network host.' : 'File attachments need the shared network host.'); giveUp(); return; }
     var cap = kind === 'video' ? 25 * MB : 12 * MB;
-    if (f.size > cap) { toast((kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'File') + ' too large — ' + Math.round(cap / MB) + ' MB max.'); giveUp(); return; }
-    toast('Uploading ' + kind + '…');
+    if (f.size > cap) { toast('“' + f.name + '” is too large — ' + Math.round(cap / MB) + ' MB max for ' + kind + '.'); giveUp(); return; }
+    if (!budgetRoom(f.size, f.name)) { giveUp(); return; }
     uploadMedia(f, mime).then(function (d) {
       // `s` is the size the host measured of the bytes it stored. It is carried
       // in the record so a reader can be told what a download costs before
       // paying for it — and the host checks it against its own disk, so it can
       // never be a number this page invented.
       done({ h: d.h, m: d.m, n: f.name, s: d.size });
-      toast(kind.charAt(0).toUpperCase() + kind.slice(1) + ' ready.');
-    }).catch(function (e) { toast(String(e.message || e)); giveUp(); });
+    }).catch(function (e) { toast('“' + f.name + '”: ' + String(e.message || e)); giveUp(); });
   }
 
   function lqPost(st, n, score) {
@@ -4427,6 +4674,62 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       } }, icon('star'), 'Back them'));
   }
 
+  /**
+   * Somebody else's page, in the simple mode — which had none at all.
+   *
+   * renderLiquid dispatched feed / peers / chats / alerts and fell through to
+   * lqYou, so every route led either to a list or to your own wallet. The one
+   * person-shaped surface in the app was the geek drawer, and that is painted
+   * from the geek palette: reusing it here would have dropped a grey panel
+   * into a glass page.
+   *
+   * It calls the same songsOf() and audioPlaylist() the drawer calls, so there
+   * is one implementation of the music and one set of bugs in it.
+   */
+  function lqPerson(st, id) {
+    var box = h('div', {});
+    var l = st.ledgerById[id];
+    if (!l) { lqView = 'peers'; return lqPeers(st); }
+    var prof = (st.profiles && st.profiles[id]) || null;
+    var head = h('div', { class: 'lq-glass lq-card' },
+      h('button', { class: 'lq-pill', text: '← Peers', onclick: function () { lqView = 'peers'; render(); } }),
+      h('div', { class: 'lq-peer', style: 'margin-top:10px' },
+        avatar(id, 'lq-ava'),
+        h('div', { class: 'grow' },
+          h('div', { class: 'lq-name' }, st.handles[id] || id, st.pinHash[id] ? ' \ud83d\udd12' : ''),
+          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, id), 3)))));
+    if (prof && prof.bio) head.appendChild(h('p', { style: 'margin-top:8px' }, prof.bio));
+    if (prof && prof.link) {
+      head.appendChild(h('p', { style: 'margin-top:4px' },
+        h('a', { href: prof.link, target: '_blank', rel: 'noopener noreferrer nofollow', text: prof.link })));
+    }
+    head.appendChild(h('div', { class: 'lq-actions', style: 'margin-top:10px' },
+      h('button', { class: 'lq-pill', onclick: function () { chatPeer = id; lqView = 'chats'; render(); } }, icon('bubble'), 'Chat'),
+      followBtn(st, id)));
+    box.appendChild(head);
+
+    var music = musicSection(st, id, true);
+    if (music) box.appendChild(music);
+
+    // Their posts, newest first — the same card the feed draws, so reacting
+    // here is the same priced act it is anywhere else.
+    var theirs = Object.keys(st.payloads).filter(function (cid) {
+      var meta = st.postMeta[cid];
+      return st.creators[cid] === id && meta && !meta.comment && st.g.nodes.get(cid);
+    }).sort(function (a, b) { return st.postMeta[b].idx - st.postMeta[a].idx; }).slice(0, 20);
+    if (theirs.length) {
+      box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'eyebrow', text: 'what they published' })));
+      theirs.forEach(function (cid) {
+        var node = st.g.nodes.get(cid);
+        box.appendChild(lqPost(st, node, null));
+      });
+    } else {
+      box.appendChild(h('div', { class: 'lq-glass lq-card' },
+        h('p', { class: 'lq-note', text: 'Nothing on the record from this handle yet — which is not the same as nothing ever: a post that was taken down leaves no trace here by design.' })));
+    }
+    return box;
+  }
+
   function lqPeers(st) {
     var box = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Peers' }));
     st.ledgers.slice().sort(function (a, b) { return credibility(st, b.id) - credibility(st, a.id); }).forEach(function (l) {
@@ -4439,6 +4742,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             st.pinHash[l.id] ? h('span', { class: 'lq-sub', text: ' · secured' }) : null)));
       if (l.id !== who) {
         var open = null;
+        // The name opens their page. There was no way to reach one from here:
+        // the row offered a chat and an endorsement and nothing that said who
+        // this person is or what they have made.
+        row.querySelector('.lq-name').style.cursor = 'pointer';
+        row.querySelector('.lq-name').addEventListener('click', function () {
+          lqPersonId = l.id; lqView = 'person'; render();
+        });
         row.appendChild(h('button', { class: 'lq-pill', onclick: function () { chatPeer = l.id; lqView = 'chats'; render(); } }, icon('bubble'), ''));
         row.appendChild(h('button', { class: 'lq-pill', onclick: function () {
           if (open) { open.remove(); open = null; return; }
@@ -4766,15 +5076,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var att = slider('attachment', 0.8);
     var fileIn = h('input', { type: 'file', multiple: '', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'row' });
-    function renderChips() {
-      chips.innerHTML = '';
-      if (composeQuote) chips.appendChild(h('span', { class: 'compose-chip' }, '↪ quoting ' + (st.handles[st.creators[composeQuote]] || 'post'),
-        h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
-      composeMedia.forEach(function (m, i) { chips.appendChild(mediaChip(m, i, renderChips)); });
-    }
-    renderChips();
+    composeChipHost = chips;
+    redrawComposeChips();
     fileIn.addEventListener('change', function () {
-      handleMediaPicks(fileIn.files, renderChips);
+      handleMediaPicks(fileIn.files);
       fileIn.value = '';
     });
     // Show the ceiling before it is hit — finding it by trial cost a tester
@@ -4808,7 +5113,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // Clear what the new kind cannot carry, rather than leaving it to be
         // dropped at the door.
         if (k[0] !== 'event') { draft.at = ''; draft.place = ''; draft.fee = ''; draft.cap = ''; }
-        if (k[0] !== 'post') { composeQuote = null; composeMedia = []; }
+        if (k[0] !== 'post') { clearCompose(); }
         render();
       } }));
     });
@@ -4878,8 +5183,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         var act = { t: 'post', author: who, text: t || '·', a: att.value() };
         if (composeQuote) act.ref = composeQuote;
         if (composeMedia.length) act.media = composeMedia.slice();
-        tryAct(who, act, 'Published. Publish mints the Content node; references append as their own acts.');
-        composeQuote = null; composeMedia = []; draft.text = ''; text.value = '';
+        // Same rule as the simple composer: cleared when the host has taken
+        // it, never before. A refusal used to cost the caption and every
+        // upload — measured once at thirteen files, and once at 66 MB.
+        tryAct(who, act, 'Published. Publish mints the Content node; references append as their own acts.', function () {
+          clearCompose(); draft.text = ''; text.value = '';
+          updateCount(); redrawComposeChips();
+        });
         return;
       }
 
@@ -4925,7 +5235,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var runTopQ = function () { query = topQ.value; render(); };
     topQ.addEventListener('keydown', function (e) { if (e.key === 'Enter') runTopQ(); });
     var topRow = h('div', { class: 'card' },
-      h('div', { class: 'mini-form', style: 'margin:0' }, topQ,
+      // `persistent`, because safeToRepaint() treats any .mini-form as a form
+      // somebody is filling in and refuses to repaint while one exists. These
+      // two search rows are permanent furniture on the feed screen, so that
+      // check was ALWAYS false there — measured in a real browser, the
+      // five-second poll never fetched once in eighteen seconds of geek mode,
+      // and the feed simply did not pick up anybody else's acts. Typing is
+      // still protected: the activeElement test above covers it.
+      h('div', { class: 'mini-form persistent', style: 'margin:0' }, topQ,
         h('button', { class: 'btn small primary', text: 'Search', onclick: runTopQ })));
     if (query) {
       topRow.querySelector('.mini-form').appendChild(
@@ -4985,7 +5302,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var qIn = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
     var runQ = function () { query = qIn.value; render(); };
     qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') runQ(); });
-    var qRow = h('div', { class: 'mini-form', style: 'margin-top:8px' }, qIn,
+    var qRow = h('div', { class: 'mini-form persistent', style: 'margin-top:8px' }, qIn,
       h('button', { class: 'btn small primary', text: 'Search', onclick: runQ }));
     if (query) {
       qRow.appendChild(h('button', { class: 'btn small', text: 'Clear', onclick: function () { query = ''; render(); } }));
@@ -5462,6 +5779,97 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var e = liveEntryFor(cid);
     if (!e) return null;
     return h('span', { class: 'kindtag k-live' }, h('span', { class: 'live-dot' }), ' on air · ' + e.viewers + ' watching');
+  }
+
+  /**
+   * Everything one person has published that carries music.
+   *
+   * Scans st.mediaMeta rather than st.creators, for two reasons that are not
+   * about speed alone. The replay writes mediaMeta ONLY in the post branch, so
+   * a comment, a stream and an event structurally cannot appear in it, and a
+   * deleted post has its entry removed — there is no filtering to remember and
+   * therefore none to forget. It is also the smaller map by two orders of
+   * magnitude: measured against the published 754-act log, 12 keys against 249,
+   * 0.0009 ms against 0.0102 ms, and the gap widens with the corpus.
+   *
+   * Ordered by first publication, deliberately. A revision replaces the media
+   * on a post but leaves postMeta.idx at the genesis index, so this is the date
+   * the release entered the record — not the date its files were last swapped.
+   */
+  function songsOf(st, id) {
+    var out = [];
+    Object.keys(st.mediaMeta || {}).forEach(function (cid) {
+      if (st.creators[cid] !== id) return;
+      if (st.payloads[cid] === undefined) return;      // deleted, or its author left
+      var meta = st.postMeta[cid];
+      if (!meta) return;
+      var entries = st.mediaMeta[cid] || [];
+      var tracks = entries.filter(isAudioEntry);
+      if (!tracks.length) return;
+      out.push({
+        cid: cid, idx: meta.idx, ts: meta.ts, tracks: tracks,
+        cover: entries.filter(function (e) { return isImageEntry(e) && e.cv; })[0] || null,
+        title: String(st.payloads[cid] || '').trim(),
+      });
+    });
+    out.sort(function (a, b) { return b.idx - a.idx; });
+    return out;
+  }
+
+  /**
+   * A person's music, on their page.
+   *
+   * ONE player over every track they have released, not one player per
+   * release. That is not a layout preference: audioPlaylist fetches a whole
+   * file on mount to decode its waveform, so a player per release downloads
+   * the entire catalogue the moment somebody opens the page — measured, four
+   * players pulled four complete files with nothing played. The releases are
+   * expressed as rows AROUND the single player instead.
+   *
+   * It says 'releases carrying audio', not 'songs'. The host now checks a
+   * post's declared type against the sidecar the upload wrote, so the word
+   * would hold today — but the log already contains posts published before
+   * that check existed, and this page reads the whole log.
+   */
+  function musicSection(st, id, liquid) {
+    var rows = songsOf(st, id);
+    if (!rows.length) return null;
+    // One row per track, carrying the release it came from. Without this the
+    // player shows one release's sleeve over every other release's music and
+    // numbers the tracks by their position in the catalogue — both of them
+    // claims the record does not make.
+    var tracks = [], per = [];
+    rows.forEach(function (r) {
+      r.tracks.forEach(function (t, j) {
+        tracks.push(t);
+        per.push({ cover: r.cover, title: r.title, no: j + 1 });
+      });
+    });
+    var box = h('div', { class: liquid ? 'lq-glass lq-card' : 'sect' });
+    box.appendChild(h('p', { class: 'eyebrow', text: 'music · ' + rows.length + ' release'
+      + (rows.length === 1 ? '' : 's') + ' carrying audio, ' + tracks.length + ' track'
+      + (tracks.length === 1 ? '' : 's') }));
+    box.appendChild(audioPlaylist(tracks, {
+      per: per,
+      note: tracks.length + ' track' + (tracks.length === 1 ? '' : 's') + ' from '
+        + rows.length + ' release' + (rows.length === 1 ? '' : 's') + ', newest first',
+    }));
+    if (rows.length > 1) {
+      var list = h('div', { class: 'release-list' });
+      rows.forEach(function (r) {
+        var row = h('div', { class: 'release-row' },
+          h('span', { class: 'release-title', text: r.title || '(no words)' }),
+          h('span', { class: 'release-n', text: r.tracks.length + (r.tracks.length === 1 ? ' track' : ' tracks') }),
+          r.ts ? h('span', { class: 'release-when', text: relAgo(r.ts) }) : null);
+        row.addEventListener('click', function () {
+          document.getElementById('overlay').innerHTML = '';
+          jumpTo(st, r.cid);
+        });
+        list.appendChild(row);
+      });
+      box.appendChild(list);
+    }
+    return box;
   }
 
   /** What a post carries, for the attachment filter. */
@@ -7637,6 +8045,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
       return s;
     }
+    var music = musicSection(st, id, false);
+    if (music) drawer.appendChild(music);
     drawer.appendChild(vsect('vouches given', given, 'out'));
     drawer.appendChild(vsect('vouches received', received, 'in'));
     if (id !== who) {
