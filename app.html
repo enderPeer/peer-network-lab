@@ -172,6 +172,12 @@ html, body { overflow-x: hidden; }
    written after the log started stamping have one; the rest show nothing
    rather than a guess. */
 .post .when { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+/* The kind chip carries meaning now, so it is allowed to carry colour: an
+   event with a price and a broadcast that is on air are the two cards a
+   reader must not mistake for an ordinary note. */
+.kindtag.k-event { color: var(--brass); border-color: var(--brass); }
+.kindtag.k-stream { color: var(--ember); border-color: var(--ember); }
+.kindtag.k-live { color: var(--ember); border-color: var(--ember); background: var(--ember-soft); }
 
 .btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
 .btn:hover { border-color: var(--ember); }
@@ -728,6 +734,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var chatQuery = '', chatScope = 'mine', chatOpen = null;
   var eventView = 'soon';   // 'soon' | 'mine' | 'invited' | 'past'
   var feedFile = 'all';     // 'all' | 'image' | 'video' | 'audio' | 'file' | 'text'
+  var feedKind = 'any';     // 'any' | 'post' | 'event' | 'stream' | 'onair'
   // (econView is declared with the tab list above.)
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
@@ -774,6 +781,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new', 'follow', 'old', 'talked', 'backed'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['all', 'image', 'video', 'audio', 'file', 'text'].indexOf(v0.feedFile) >= 0) feedFile = v0.feedFile;
+      if (['any', 'post', 'event', 'stream', 'onair'].indexOf(v0.feedKind) >= 0) feedKind = v0.feedKind;
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
@@ -798,7 +806,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, feedFile: feedFile, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, feedFile: feedFile, feedKind: feedKind, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -2816,6 +2824,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (!navigator.mediaDevices || !window.isSecureContext) {
       toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
     }
+    // The relay refuses a handle with no PIN, and it refuses AFTER the stream
+    // act has already been minted and paid for. Measured on the live log:
+    // twenty-six of twenty-six broadcasts were published by handles that could
+    // not open a relay, burning θ each for a permanent node nobody could ever
+    // join — one of them titled 'no pin'. Ask first.
+    if (!replay().pinHash[who]) {
+      toast('Set a PIN before broadcasting — a stream puts your face and your voice on this handle, and the relay will not carry one without it.');
+      return;
+    }
     navigator.mediaDevices.getUserMedia({
       audio: true,
       video: withVideo ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
@@ -4263,6 +4280,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     // What a post carries. A filter, not a ranking: it removes cards, it never
     // reorders them, so whichever sort is running stays the one in charge.
+    // What a thing IS, beside the filter for what it carries.
+    var whats = [['any', 'All kinds'], ['post', 'Notes'], ['event', 'Events'], ['stream', 'Broadcasts'], ['onair', 'On air now']];
+    var wbar = h('div', { class: 'uline' });
+    whats.forEach(function (k) {
+      wbar.appendChild(h('button', { class: feedKind === k[0] ? 'on' : '', text: k[1],
+        onclick: function () { feedKind = k[0]; feedLimit = 30; saveView(); render(); } }));
+    });
+    head.appendChild(wbar);
+
     var kinds = [['all', 'Everything'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['file', 'Files'], ['text', 'Text only']];
     var fbar = h('div', { class: 'uline' });
     kinds.forEach(function (k) {
@@ -4370,6 +4396,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
       maxRel = ranked.length ? ranked[0].relevance : 1;
     }
+    if (feedKind !== 'any') {
+      ranked = ranked.filter(function (f2) {
+        var meta = st.postMeta[f2.node.id] || {};
+        if (feedKind === 'event') return !!meta.event;
+        if (feedKind === 'stream') return !!meta.stream;
+        if (feedKind === 'onair') return !!liveEntryFor(f2.node.id);
+        return !meta.event && !meta.stream;      // 'post'
+      });
+    }
+
     // The attachment filter, applied after the ordering so it can never
     // change it — it only takes cards out.
     if (feedFile !== 'all') {
@@ -4458,7 +4494,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // it with everything you did not choose is the opposite of what was asked
     // for — it showed a viewer their own unfollowed posts under a heading
     // saying these were the people they follow.
-    if (horizon.length && ['new', 'follow', 'old', 'talked', 'backed'].indexOf(feedMode) < 0 && feedFile === 'all') {
+    if (horizon.length && ['new', 'follow', 'old', 'talked', 'backed'].indexOf(feedMode) < 0
+        && feedFile === 'all' && feedKind === 'any') {
       wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
         h('p', { class: 'eyebrow', text: 'beyond your horizon — exists, not yet reachable in ≤4 hops (' + horizon.length + ')' })));
       horizon.slice(0, 15).forEach(function (n) {
@@ -4669,8 +4706,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'going' }),
       h('span', { class: 'num', text: n + (ev.cap ? ' / ' + ev.cap : '') })));
 
+    var over = !!(ev.at && ev.at < Date.now());
+    if (over) {
+      box.appendChild(h('p', { class: 'smallnote', text: 'This has already happened — the door is closed.' }));
+    }
     var row = h('div', { class: 'mini-form' });
-    if (who && who !== ev.host) {
+    if (who && who !== ev.host && !over) {
       if (mine) {
         row.appendChild(h('button', {
           class: 'btn small', text: 'Withdraw',
@@ -4687,6 +4728,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             ? 'The fee moves from you to the host. It mints nothing and changes no standing — here or theirs.'
             : 'Recorded, and in no score.',
           onclick: function () {
+            // Ask the same function the host applies before claiming anything
+            // happened. In the private sandbox nothing validates an act at
+            // all, so this button used to toast 'Paid and joined.' at somebody
+            // with no balance while the card still read 'going 0'.
+            var why = st.tokenActError && st.tokenActError({
+              t: 'rsvp', author: who, cid: cid, amt: ev.fee || 0, cur: ev.cur || '', to: ev.host,
+            });
+            if (why) { toast(why); return; }
             tryAct(who, { t: 'rsvp', from: who, cid: cid, on: true, amt: ev.fee || 0, cur: ev.cur || '', to: ev.host },
               ev.fee > 0 ? 'Paid and joined.' : 'Joined.');
           },
@@ -4710,6 +4759,27 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       ? 'The fee is a transfer of tokens that already exist. It mints nothing, and neither paying nor being paid moves a standing or an epoch share — while money is moving between two accounts, engagement between them earns nothing either.'
       : 'Going is recorded and enters no score. Reactions and comments on this event are ordinary priced acts and do count, exactly as on any post.' }));
     return box;
+  }
+
+  /**
+   * Is this broadcast on air right now, and can the reader get to it?
+   *
+   * liveList is the host's own answer — it is keyed by the stream's content
+   * id — and until now no feed card looked at it. The only on-air signal in
+   * the whole app was a dot on a tab. Only relay entries are offered: pollLive
+   * already filters to those, because an entry from the older peer-to-peer
+   * build is one this app cannot join, and a Watch button that cannot work is
+   * worse than none.
+   */
+  function liveEntryFor(cid) {
+    for (var i = 0; i < liveList.length; i++) if (liveList[i].cid === cid) return liveList[i];
+    return null;
+  }
+  function onAirChip(st, cid) {
+    if (!(st.postMeta[cid] && st.postMeta[cid].stream)) return null;
+    var e = liveEntryFor(cid);
+    if (!e) return null;
+    return h('span', { class: 'kindtag k-live' }, h('span', { class: 'live-dot' }), ' on air · ' + e.viewers + ' watching');
   }
 
   /** What a post carries, for the attachment filter. */
@@ -4745,9 +4815,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('b', { text: st.handles[author] || '—' }),
         h('span', { class: 'standing-chip', text: fmt(credibility(st, author), 3) }),
         deltaChip(author, st),
-        h('span', { class: 'kindtag', text: 'post' }),
+        // The kind, computed rather than assumed. This chip said 'post' on
+        // every card in the app, including on a gathering with an entry fee —
+        // replay.cjs has written postMeta.event since the day events shipped
+        // and nothing had ever read it. In one feed of three kinds the chip is
+        // the only thing distinguishing them above the fold, so it carries the
+        // price too when there is one.
+        (function () {
+          var meta = st.postMeta[n.id] || {};
+          var ev0 = st.events && st.events[n.id];
+          var kind = meta.event ? 'event' : meta.stream ? 'stream' : 'post';
+          if (ev0 && ev0.fee > 0) kind += ' · ' + fmt(ev0.fee, 6) + ' ' + ev0.cur;
+          return h('span', { class: 'kindtag' + (meta.event ? ' k-event' : meta.stream ? ' k-stream' : ''), text: kind });
+        })(),
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
-        (st.postMeta[n.id] && st.postMeta[n.id].stream) ? h('span', { class: 'kindtag', text: 'stream' }) : null,
+        onAirChip(st, n.id),
         viewChip(n.id),
         hopChip(st, n.id, false),
         // When it was written. Older acts carry no stamp at all — the log only
@@ -4761,8 +4843,22 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           return el;
         })()),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
-    var evm = st.events && st.events[n.id];
+    // A deleted event keeps its entry in st.events — the map is written
+    // unconditionally so that a departure cannot re-cut a closed epoch — but
+    // its payload is gone. Rendering the door from the map alone left a
+    // redacted gathering selling tickets: measured, 0.005 tBTC moved to the
+    // host of an event whose text, title and address had all been removed.
+    var evm = (st.events && st.events[n.id] && st.payloads[n.id] !== undefined) ? st.events[n.id] : null;
     if (evm) card.appendChild(eventPanel(st, n.id, evm));
+    var liveNow = liveEntryFor(n.id);   // see lqPost for the simple-mode twin
+    if (liveNow && st.postMeta[n.id] && st.postMeta[n.id].stream) {
+      card.appendChild(h('div', { class: 'mini-form' },
+        h('button', { class: 'btn small primary', text: 'Watch · on air', onclick: function () {
+          tab = 'live'; saveView(); render();
+          watchStart({ author: liveNow.author, cid: n.id });
+        } }),
+        h('span', { class: 'smallnote', text: 'Relayed through the host — free to watch.' })));
+    }
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
