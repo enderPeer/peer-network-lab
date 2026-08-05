@@ -1,8 +1,8 @@
 {
-    "acts":  764,
-    "sha256":  "94e04e61a91d302bcdab180084d686be59087efc0bb7b6b3ecc89dfaba138cbc",
-    "at":  1785933315078,
-    "host":  "https://aqua-lots-tonight-votes.trycloudflare.com",
+    "acts":  765,
+    "sha256":  "2f53d1f640b0360387ad6fa2884cce7201c968cbb3518a75e0c43016ff6115ca",
+    "at":  1785935545544,
+    "host":  "https://extract-usually-happened-surfing.trycloudflare.com",
     "media":  true,
     "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust."
 }
