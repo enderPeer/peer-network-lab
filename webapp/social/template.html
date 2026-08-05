@@ -675,7 +675,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_VIEW = 'peer-sandbox-view-v1';
   // Which tab and which sort you were on survives a reload. Nothing here is
   // protocol state — purely where you were standing.
-  var GEEK_TABS = ['feed', 'chat', 'alerts', 'net', 'live', 'econ', 'ledger', 'guide'];
+  // Eight tabs never fitted a phone — the last ones were unreachable rather
+  // than merely off-screen, and a tester reported it as "the Live tab is not
+  // shown". Two of them were screens that belong inside another: the graph is
+  // a way of looking at the economy, and the record is the long form of the
+  // alerts. Both are sub-views now, and the row fits.
+  var GEEK_TABS = ['feed', 'chat', 'alerts', 'live', 'econ', 'guide'];
+  var econView = 'wallet';   // + 'net'  — the graph lives here now
+  var alertView = 'inbound'; // | 'record'
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
@@ -684,7 +691,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // deliberately not persisted: a restored query would silently filter
   // somebody's feed the next time they opened the app.
   var query = '';
-  var econView = 'wallet'; // 'wallet' | 'pools' | 'layer0' | 'ledger'
+  var chatQuery = '', chatScope = 'mine', chatOpen = null;
+  // (econView is declared with the tab list above.)
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
   // holds what that snapshot is, so the interface can say so instead of
@@ -729,6 +737,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new', 'follow'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
+      if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
@@ -751,7 +760,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, econView: econView, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, econView: econView, alertView: alertView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -2051,6 +2060,28 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (n.kind === 'Type' && String(n.label).toLowerCase().indexOf(needle) >= 0) out.tags.push(n);
     });
     return out;
+  }
+
+  /**
+   * The wall-clock stamp of an act by its position in the log.
+   *
+   * A notification and a message carry an append index, not a time, so the
+   * time has to come from the act at that index — and only when that act
+   * carries one. Acts older than the stamping change do not.
+   */
+  function actStamp(idx) {
+    var a = world.acts[idx];
+    return a && typeof a.ts === 'number' ? a.ts : 0;
+  }
+
+  /** "2h ago", or nothing at all when there is no stamp to speak from. */
+  function relAgo(ts) {
+    if (!ts) return '';
+    var s2 = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s2 < 60) return s2 + 's ago';
+    if (s2 < 3600) return Math.floor(s2 / 60) + 'm ago';
+    if (s2 < 86400) return Math.floor(s2 / 3600) + 'h ago';
+    return Math.floor(s2 / 86400) + 'd ago';
   }
 
   function actCost(act, st) {
@@ -3902,7 +3933,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
           return b;
         })(),
-        tabBtn('net', 'Network'),
         (function () {
           var b = tabBtn('live', 'Live');
           if (liveList.filter(function (e) { return e.author !== who; }).length || live) {
@@ -3910,15 +3940,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           }
           return b;
         })(),
-        tabBtn('econ', 'Economy'), tabBtn('ledger', 'Record'), tabBtn('guide', 'Guide')),
+        tabBtn('econ', 'Economy'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
-      : tab === 'net' ? netTab(st) : tab === 'live' ? liveTab(st) : tab === 'econ' ? econTab(st)
-      : tab === 'guide' ? guideTab(st) : ledgerTab(st);
+      : tab === 'live' ? liveTab(st) : tab === 'econ' ? econTab(st)
+      : tab === 'guide' ? guideTab(st) : feedTab(st);
     var shell = h('div', { class: 'shell' });
     var geekLock = lockBanner(st, false);
     if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
@@ -3936,7 +3966,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     shell.appendChild(h('div', { class: 'cols' },
       h('div', { class: 'rail rail-left' }, idCard(st, me, myX, rate), aboutCard()),
       h('div', { class: 'geek-center' }, center),
-      h('div', { class: 'rail rail-right' }, alertsCard(st), standingsCard(st), epochCard(st))));
+      h('div', { class: 'rail rail-right' }, alertsCard(st), shapeWidget(st), tagsWidget(st), ageWidget(st), epochCard(st))));
     shell.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
     root.appendChild(shell);
   }
@@ -5021,12 +5051,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   // Geek alerts — same notification feed as simple mode, act-level detail.
   function alertsTab(st) {
+    var outer = h('div', {});
+    var bar = h('div', { class: 'lanes' });
+    [['inbound', 'Inbound'], ['record', 'The record']].forEach(function (v) {
+      var b = h('button', { class: 'lane' + (alertView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
+      b.onclick = function () { alertView = v[0]; saveView(); render(); };
+      bar.appendChild(b);
+    });
+    outer.appendChild(bar);
+    if (alertView === 'record') {
+      // The full chronicle. It is the same material as the alerts, without the
+      // filter that keeps only the acts naming you — so it belongs beside them
+      // rather than in a tab of its own.
+      outer.appendChild(ledgerTab(st));
+      return outer;
+    }
+
     var notifs = notificationsFor(st, who);
     var wrap = h('div', { class: 'card' },
       h('p', { class: 'eyebrow', text: 'alerts — inbound acts naming you (mentions, quotes, backings, comments, messages)' }));
     if (!notifs.length) {
       wrap.appendChild(h('p', { class: 'smallnote', text: 'Nothing inbound yet. Note that inbound acts never enter your feed ranking — this list is the only place they surface.' }));
-      return wrap;
+      outer.appendChild(wrap);
+      return outer;
     }
     notifs.forEach(function (n) {
       var row = h('div', { class: 'alert-row' + (n.idx > seenMark ? ' fresh' : '') },
@@ -5047,10 +5094,67 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       wrap.appendChild(row);
     });
     markSeen(notifs);
-    return wrap;
+    outer.appendChild(wrap);
+    return outer;
+  }
+
+  /** Somebody else's conversation. Readable, and not writable by a bystander. */
+  function publicThreadCard(st, key) {
+    var parts = key.split('|');
+    var every = allThreads(st)[key] || [];
+    var card = h('div', { class: 'card' },
+      h('div', { style: 'display:flex; align-items:center; gap:10px; margin-bottom:8px' },
+        h('button', { class: 'btn small ghost', text: '← close', onclick: function () { chatOpen = null; render(); } }),
+        h('b', { text: (st.handles[parts[0]] || parts[0]) + ' ↔ ' + (st.handles[parts[1]] || parts[1]) }),
+        h('span', { class: 'smallnote', style: 'margin-left:auto', text: 'you are reading, not taking part' })));
+    var tEl = h('div', { class: 'chat-thread' });
+    every.forEach(function (m) {
+      if (m.call) {
+        tEl.appendChild(h('div', { class: 'chat-call', text: st.handles[m.from] + ' · ' + callLabel(m.call) + ' · act #' + m.idx }));
+        return;
+      }
+      tEl.appendChild(h('div', { class: 'chat-msg' + (m.from === who ? ' mine' : '') },
+        h('span', { class: 'm-meta num', text: (st.handles[m.from] || m.from) + ' · act #' + m.idx + ' · ' + relAgo(actStamp(m.idx)) }),
+        h('div', {}, m.text)));
+    });
+    card.appendChild(tEl);
+    if (parts[0] === who || parts[1] === who) {
+      card.appendChild(h('div', { class: 'mini-form' },
+        h('button', { class: 'btn small primary', text: 'Open as your chat', onclick: function () {
+          chatPeer = parts[0] === who ? parts[1] : parts[0]; chatOpen = null; render();
+        } })));
+    }
+    return card;
+  }
+
+  /** A way into the guide from wherever somebody actually gets stuck. */
+  function guidePointer() {
+    return h('div', { class: 'card' },
+      h('p', { class: 'eyebrow', text: 'how this works' }),
+      h('p', { class: 'smallnote', text: 'Messages are priced acts in the public record, and vouching is the only thing here that moves a rate. The guide explains both, and what a standing actually is.' }),
+      h('button', { class: 'btn small', text: 'Open the guide →', onclick: function () { tab = 'guide'; saveView(); render(); } }));
   }
 
   // Geek chats — the same dm acts and threads as simple mode, lab styling.
+  /**
+   * Every conversation on the network, not only yours.
+   *
+   * The messages were always public — a dm act's text sits in /api/acts, in
+   * every mirror and in the published archive — but until now no screen showed
+   * one to somebody who was not in it, and people write differently when a
+   * thing is merely technically readable than when it is browsable. That gap
+   * is closed here on purpose, at the owner's decision, so the app must say so
+   * where somebody is about to type rather than in a footnote.
+   */
+  function allThreads(st) {
+    var out = {};
+    (st.dms || []).forEach(function (m) {
+      var key = [m.from, m.to].sort().join('|');
+      (out[key] || (out[key] = [])).push(m);
+    });
+    return out;
+  }
+
   function chatTab(st) {
     var wrap = h('div', {});
     var threads = dmThreads(st, who);
@@ -5058,8 +5162,68 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     if (!chatPeer) {
       var card = h('div', { class: 'card' },
-        h('p', { class: 'eyebrow', text: 'direct messages — Send acts in the public record, θ-priced, not private' }));
+        h('p', { class: 'eyebrow', text: 'direct messages — Send acts in the public record, θ-priced, not private' }),
+        h('p', { class: 'warn', text: 'Everyone on this network can read and search every conversation here, including this one. Messages are acts in the public record — they always were, and now the app shows them that way. Nothing here is private.' }),
+        h('div', { class: 'lanes' },
+          (function () {
+            var b = h('button', { class: 'lane' + (chatScope === 'mine' ? ' on' : '') }, h('b', { text: 'Your chats' }));
+            b.onclick = function () { chatScope = 'mine'; render(); };
+            return b;
+          })(),
+          (function () {
+            var b = h('button', { class: 'lane' + (chatScope === 'all' ? ' on' : '') }, h('b', { text: 'Everyone' }));
+            b.onclick = function () { chatScope = 'all'; render(); };
+            return b;
+          })()));
+
+      // Search across the conversations in view. Scoped to whichever list is
+      // showing, so the box never reaches further than the tab it sits in.
+      var cq = h('input', { type: 'search', placeholder: 'search these conversations…', value: chatQuery, style: 'flex:1; min-width:0' });
+      var runCq = function () { chatQuery = cq.value; render(); };
+      cq.addEventListener('keydown', function (e) { if (e.key === 'Enter') runCq(); });
+      card.appendChild(h('div', { class: 'mini-form' }, cq,
+        h('button', { class: 'btn small primary', text: 'Search', onclick: runCq }),
+        chatQuery ? h('button', { class: 'btn small', text: 'Clear', onclick: function () { chatQuery = ''; render(); } }) : null));
+
+      if (chatScope === 'all') {
+        var every = allThreads(st);
+        var needle = chatQuery.trim().toLowerCase();
+        var keys = Object.keys(every).filter(function (k) {
+          if (!needle) return true;
+          var parts = k.split('|');
+          if ((st.handles[parts[0]] || '').toLowerCase().indexOf(needle) >= 0) return true;
+          if ((st.handles[parts[1]] || '').toLowerCase().indexOf(needle) >= 0) return true;
+          return every[k].some(function (m) { return (m.text || '').toLowerCase().indexOf(needle) >= 0; });
+        });
+        keys.sort(function (a, b) { return every[b][every[b].length - 1].idx - every[a][every[a].length - 1].idx; });
+        if (!keys.length) card.appendChild(h('p', { class: 'smallnote', text: 'No conversation matches that.' }));
+        keys.slice(0, 60).forEach(function (k) {
+          var parts = k.split('|');
+          var last = every[k][every[k].length - 1];
+          var row = h('div', { class: 'chat-row' },
+            avatar(st.handles[parts[0]], 'avatar s'),
+            h('div', { class: 'grow' },
+              h('b', { text: (st.handles[parts[0]] || parts[0]) + ' ↔ ' + (st.handles[parts[1]] || parts[1]) }),
+              h('div', { class: 'smallnote', text: every[k].length + ' message' + (every[k].length === 1 ? '' : 's')
+                + ' · last ' + relAgo(actStamp(last.idx)) }),
+              h('div', { class: 'smallnote', text: last.call ? callLabel(last.call) : (last.text || '').slice(0, 70) })));
+          row.addEventListener('click', function () { chatOpen = k; render(); });
+          card.appendChild(row);
+        });
+        wrap.appendChild(card);
+        wrap.appendChild(guidePointer());
+        if (chatOpen) wrap.appendChild(publicThreadCard(st, chatOpen));
+        return wrap;
+      }
+
       var peers = Object.keys(threads);
+      if (chatQuery.trim()) {
+        var nq = chatQuery.trim().toLowerCase();
+        peers = peers.filter(function (pid) {
+          if ((st.handles[pid] || '').toLowerCase().indexOf(nq) >= 0) return true;
+          return threads[pid].some(function (m) { return (m.text || '').toLowerCase().indexOf(nq) >= 0; });
+        });
+      }
       peers.sort(function (a, b) { return threads[b][threads[b].length - 1].idx - threads[a][threads[a].length - 1].idx; });
       if (!peers.length) card.appendChild(h('p', { class: 'smallnote', text: 'No conversations yet — start one below or from a profile.' }));
       peers.forEach(function (p) {
@@ -5079,6 +5243,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       card.appendChild(h('div', { class: 'mini-form' }, startSel,
         h('button', { class: 'btn small primary', text: 'Open chat', onclick: function () { chatPeer = startSel.value; render(); } })));
       wrap.appendChild(card);
+      wrap.appendChild(guidePointer());
       return wrap;
     }
 
@@ -5091,6 +5256,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('span', { class: 'standing-chip', text: fmt(credibility(st, chatPeer), 3) }),
         h('button', { class: 'btn small ghost', text: '☎ call', style: 'margin-left:auto',
           onclick: function () { startCall(chatPeer); } })));
+    // The chat is wired to the standing system rather than sitting beside it:
+    // these are the same priced acts the feed uses, aimed at the person you
+    // are talking to. Vouching is the one that moves a rate — a message does
+    // not, and the row says which is which.
+    card2.appendChild(h('div', { class: 'mini-form', style: 'margin-bottom:8px' },
+      h('span', { class: 'smallnote', text: 'their rate ' + fmt(credibility(st, chatPeer), 4) + ' · ' }),
+      followBtn(st, chatPeer, true),
+      h('button', { class: 'btn small', text: 'Vouch · −θ', title: 'A Vouch transports part of your own rate to them — this is the act that moves standing.',
+        onclick: function () { openProfile(chatPeer); } }),
+      h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(chatPeer); } })));
     var tEl = h('div', { class: 'chat-thread' });
     if (!thread.length) tEl.appendChild(h('p', { class: 'smallnote', text: 'Say hello — every message is a priced act (−θ).' }));
     thread.forEach(function (m) {
@@ -5464,7 +5639,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // unrelated jobs: what you hold, what the pools are doing, the Layer-0
     // receipt system, and the history. Splitting them means the wallet is
     // reachable without scrolling past a ledger of raw addresses.
-    var views = [['wallet', 'Wallet'], ['pools', 'Pools & ads'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
+    var views = [['wallet', 'Wallet'], ['net', 'Network'], ['pools', 'Pools & ads'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
     var bar = h('div', { class: 'lanes' });
     views.forEach(function (v) {
       var b = h('button', { class: 'lane' + (econView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
@@ -5473,6 +5648,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
     wrap.appendChild(bar);
 
+    if (econView === 'net') {
+      // The graph is a way of looking at the economy — every edge in it is a
+      // transported rate — so it sits here rather than owning a tab of its own.
+      wrap.appendChild(netTab(st));
+    }
     if (econView === 'wallet') {
       wrap.appendChild(walletView(st));
     }
@@ -6012,6 +6192,85 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return card;
   }
 
+  /**
+   * The side rails as a board of widgets.
+   *
+   * The standings table came out at the owner's request. What replaces it is
+   * the same question asked differently — what is this place made of, and how
+   * old is it — answered from timestamps and tag edges that are already in the
+   * log. Nothing here is a new measurement: there is no session timer and no
+   * attention counter anywhere in this network, and none was added to fill
+   * these cards.
+   */
+  function tagsWidget(st) {
+    var count = {}, last = {};
+    Object.keys(st.payloads).forEach(function (cid) {
+      var meta = st.postMeta[cid];
+      tagsOf(st, cid).forEach(function (t) {
+        count[t] = (count[t] || 0) + 1;
+        var when = meta && meta.ts ? meta.ts : 0;
+        if (when > (last[t] || 0)) last[t] = when;
+      });
+    });
+    var top = Object.keys(count).sort(function (a, b) { return count[b] - count[a]; }).slice(0, 10);
+    if (!top.length) return null;
+    var card = h('div', { class: 'card' },
+      h('h2', { text: 'Tags in use' }),
+      h('p', { class: 'smallnote', text: 'Every tag anyone has attached, and how many pieces of content carry it.' }));
+    top.forEach(function (t) {
+      card.appendChild(h('div', { class: 'kv' },
+        h('span', { text: t }),
+        h('span', { class: 'num', text: String(count[t]) })));
+    });
+    return card;
+  }
+
+  /** How old the things here are — from the stamps the acts carry. */
+  function ageWidget(st) {
+    var now = Date.now();
+    var first = 0, newest = 0;
+    world.acts.forEach(function (a) {
+      if (typeof a.ts !== 'number') return;
+      if (!first || a.ts < first) first = a.ts;
+      if (a.ts > newest) newest = a.ts;
+    });
+    function span(ms) {
+      if (!ms) return '—';
+      var d = Math.floor(ms / 86400000);
+      if (d >= 1) return d + (d === 1 ? ' day' : ' days');
+      var hrs = Math.floor(ms / 3600000);
+      if (hrs >= 1) return hrs + (hrs === 1 ? ' hour' : ' hours');
+      return Math.max(1, Math.floor(ms / 60000)) + ' min';
+    }
+    var mineFrom = 0;
+    world.acts.forEach(function (a) {
+      if (a.t === 'register' && a.id === who && typeof a.ts === 'number' && !mineFrom) mineFrom = a.ts;
+    });
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Age' }));
+    card.appendChild(h('div', { class: 'kv' }, h('span', { text: 'this network' }), h('span', { class: 'num', text: first ? span(now - first) : '—' })));
+    if (mineFrom) card.appendChild(h('div', { class: 'kv' }, h('span', { text: 'your handle' }), h('span', { class: 'num', text: span(now - mineFrom) })));
+    card.appendChild(h('div', { class: 'kv' }, h('span', { text: 'last act' }), h('span', { class: 'num', text: newest ? relAgo(newest) : '—' })));
+    card.appendChild(h('div', { class: 'kv' }, h('span', { text: 'acts recorded' }), h('span', { class: 'num', text: String(world.acts.length - 1) })));
+    card.appendChild(h('p', { class: 'smallnote', text: 'Measured from the stamps in the record. Nothing here counts time spent looking — this network does not collect that.' }));
+    return card;
+  }
+
+  /** What the place is made of right now. */
+  function shapeWidget(st) {
+    var people = st.ledgers.filter(function (l) { return !l.deleted; }).length;
+    var posts = 0, comments = 0;
+    Object.keys(st.payloads).forEach(function (cid) {
+      var meta = st.postMeta[cid];
+      if (meta && meta.comment) comments++; else posts++;
+    });
+    var card = h('div', { class: 'card' }, h('h2', { text: 'The network' }));
+    [['people', people], ['posts', posts], ['comments', comments],
+      ['edges', st.g.edges.length], ['epoch', st.epochNow]].forEach(function (r) {
+      card.appendChild(h('div', { class: 'kv' }, h('span', { text: r[0] }), h('span', { class: 'num', text: String(r[1]) })));
+    });
+    return card;
+  }
+
   function standingsCard(st) {
     var table = h('table', { class: 'standings' },
       h('tr', {}, h('th', { text: 'peer' }), h('th', { class: 'r', text: 'rate' }), h('th', { class: 'r', text: 'standing' }), h('th', { text: '' })));
@@ -6098,6 +6357,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('a', { href: prof.link, target: '_blank', rel: 'noopener noreferrer nofollow', text: prof.link })) : null,
       h('div', { class: 'mini-form sect' },
         followBtn(st, id, true),
+        h('button', { class: 'btn small', text: 'Guide →', title: 'What a standing is, and what moves it.',
+          onclick: function () { close(); tab = 'guide'; saveView(); render(); } }),
         (function () {
           if (id !== who) return null;
           return h('button', { class: 'btn small', text: prof ? 'Edit profile' : 'Add a profile', onclick: function () { profileFlow(st); } });

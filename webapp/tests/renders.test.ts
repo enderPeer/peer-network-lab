@@ -126,22 +126,69 @@ describe('the built page is an application, not just valid JavaScript', () => {
   it('draws every economy sub-tab without throwing', async () => {
     // The economy screen holds four unrelated jobs now. Each is a place the
     // app can go blank on its own.
-    for (const view of ['wallet', 'pools', 'layer0', 'ledger']) {
+    // 'net' joined them when the graph stopped being a tab of its own: it is a
+    // way of looking at the economy, and eight tabs never fitted a phone.
+    for (const view of ['wallet', 'net', 'pools', 'layer0', 'ledger']) {
       const { dom, errors, root } = await boot({
         'peer-sandbox-who-v2': JSON.stringify('alice'),
         'peer-sandbox-mode-v1': JSON.stringify('geek'),
         'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: view }),
       });
       expect(errors, 'the ' + view + ' view threw: ' + errors.join(' | ')).toEqual([]);
-      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(4);
+      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(5);
       expect(root!.textContent!.length, 'the ' + view + ' view rendered nothing').toBeGreaterThan(400);
       dom.window.close();
     }
   }, 40000);
 
+  it('draws the chat tab over a world that has timestamps', async () => {
+    // The sandbox seed carries no `ts` at all, so every "how long ago" path in
+    // the app short-circuits and is never executed by the other tests. That is
+    // exactly how a call to a function that did not exist survived a green
+    // suite and then threw on the live network, taking the whole page with it.
+    // This boots a world WITH stamps and opens the surface that uses them.
+    const now = Date.now();
+    const acts = [
+      { t: 'register', id: 'u_p', handle: 'Pat', seed: 1, epoch: 0, ts: now - 86400000 },
+      { t: 'register', id: 'u_q', handle: 'Quinn', seed: 1, epoch: 0, ts: now - 80000000 },
+      { t: 'burn', id: 'u_p', amt: 1, ts: now - 70000000 },
+      { t: 'burn', id: 'u_q', amt: 1, ts: now - 60000000 },
+      { t: 'post', author: 'u_p', text: 'a stamped post', a: 0.8, rmen: [], ts: now - 50000 },
+      { t: 'dm', from: 'u_p', to: 'u_q', text: 'a stamped message', ts: now - 40000 },
+    ];
+    const NL = String.fromCharCode(10);
+    const body = acts.map((a) => JSON.stringify(a)).join(NL) + NL;
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: now }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_p'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'chat', lqView: 'feed' }),
+    }, serve);
+    expect(errors, 'the chat tab threw over a stamped world: ' + errors.join(' | ')).toEqual([]);
+
+    // ...and the same for every conversation on the network, which is a
+    // different code path and the one that reads the stamps.
+    const everyone = [...root!.querySelectorAll('.lane')].find((b) => /Everyone/.test(b.textContent || ''));
+    expect(everyone, 'no "Everyone" scope in the chat tab').toBeTruthy();
+    (everyone as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(errors, 'browsing every conversation threw: ' + errors.join(' | ')).toEqual([]);
+    expect(root!.textContent, 'the public-chat warning must be on screen')
+      .toMatch(/Everyone on this network can read and search every conversation/);
+    dom.window.close();
+  }, 30000);
+
   it('draws every geek tab without throwing', async () => {
     // One dead tab is the same outage in a smaller place.
-    for (const tab of ['feed', 'chat', 'alerts', 'net', 'live', 'econ', 'ledger', 'guide']) {
+    for (const tab of ['feed', 'chat', 'alerts', 'live', 'econ', 'guide']) {
       const { dom, errors, root } = await boot({
         'peer-sandbox-who-v2': JSON.stringify('alice'),
         'peer-sandbox-mode-v1': JSON.stringify('geek'),
