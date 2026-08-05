@@ -416,9 +416,95 @@ describe('the built page is an application, not just valid JavaScript', () => {
     dom.window.close();
   }, 30000);
 
+  it('lands a browser saved on a deleted tab somewhere real', async () => {
+    // Live, Events and Guide were tabs until the composer made two of them
+    // unnecessary and the profile took the third. Anybody who was last sitting
+    // on one has that name in localStorage, and an unknown tab must fall
+    // through to a screen with something on it — not to a blank shell.
+    for (const stale of ['live', 'events', 'guide', 'net', 'ledger']) {
+      const { dom, errors, root } = await boot({
+        'peer-sandbox-who-v2': JSON.stringify('alice'),
+        'peer-sandbox-mode-v1': JSON.stringify('geek'),
+        'peer-sandbox-view-v1': JSON.stringify({ tab: stale, lqView: 'feed' }),
+      });
+      expect(errors, `a saved '${stale}' tab threw: ` + errors.join(' | ')).toEqual([]);
+      expect(root!.textContent!.length, `a saved '${stale}' tab rendered nothing`).toBeGreaterThan(600);
+      // ...and it lands on the feed, with the feed's own button lit.
+      const lit = [...root!.querySelectorAll('.topbar .tabs button.on')].map((b) => b.textContent);
+      expect(lit, `a saved '${stale}' tab lit the wrong button`).toEqual(['Feed']);
+      dom.window.close();
+    }
+  }, 40000);
+
+  it('the profile carries your events, your music and the guide', async () => {
+    // The two deleted screens each had exactly one job nothing else did:
+    // 'what am I going to' and 'what was I invited to'. The feed cannot answer
+    // either — an rsvp appends no edge, so a gathering somebody PAID to enter
+    // still ranks at zero and never appears. If the profile does not carry
+    // these lanes, being invited becomes invisible in the whole app.
+    const now = Date.now();
+    const acts = [
+      { t: 'register', id: 'u_h', handle: 'Host', seed: 1, epoch: 0 },
+      { t: 'register', id: 'u_g', handle: 'Guest', seed: 1, epoch: 0 },
+      ...Array.from({ length: 4 }, () => ({ t: 'burn', id: 'u_h', amt: 1 })),
+      ...Array.from({ length: 4 }, () => ({ t: 'burn', id: 'u_g', amt: 1 })),
+      // one with no time on it at all — the real network's only gathering is
+      // like this, and reading at:0 as 'happened in 1970' empties the screen
+      { t: 'event', author: 'u_h', text: 'A gathering with no date', at: 0, place: 'somewhere', fee: 0, cur: '', cap: 0 },
+      { t: 'event', author: 'u_h', text: 'Next month', at: now + 30 * 86400000, place: 'here', fee: 0, cur: '', cap: 0 },
+      { t: 'event', author: 'u_h', text: 'Already happened', at: now - 30 * 86400000, place: 'there', fee: 0, cur: '', cap: 0 },
+      { t: 'post', author: 'u_h', text: 'a track', a: 0.8, rmen: [], media: [{ h: 'a'.repeat(64), m: 'audio/mpeg', n: 'Song', s: 1000 }] },
+    ];
+    const NL = String.fromCharCode(10);
+    const body = acts.map((a) => JSON.stringify(a)).join(NL) + NL;
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: now, media: true }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_h'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'profile', lqView: 'feed', eventView: 'soon' }),
+    }, serve);
+    expect(errors, 'the profile threw: ' + errors.join(' | ')).toEqual([]);
+    const text = root!.textContent ?? '';
+
+    expect(text, 'no events section').toContain('your events');
+    // Scoped to the lanes, not the page: 'what you published' below lists
+    // every post including the past event, and a whole-page assertion would
+    // pass or fail for the wrong reason.
+    const lanes = () => root!.querySelector('.your-events')!.textContent ?? '';
+    // 'Coming up' holds the dated future one AND the undated one, and not the
+    // one that has already happened.
+    expect(lanes()).toContain('Next month');
+    expect(lanes()).toContain('A gathering with no date');
+    expect(lanes()).not.toContain('Already happened');
+
+    expect(text, 'no music on your own profile').toContain('release');
+    expect(text, 'the guide did not come with it').toContain('the guide');
+    expect(text, 'the account controls did not move here').toContain('account and security');
+    // Scoped: the posts list below renders its own card, with its own player.
+    expect(root!.querySelectorAll('.your-music audio').length, 'your catalogue must be one player').toBe(1);
+
+    // The Past lane, and the boundary that decides it.
+    const past = [...root!.querySelectorAll('.uline button')].find((b) => b.textContent === 'Past');
+    expect(past, 'no Past lane').toBeTruthy();
+    (past as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 500));
+    const after = root!.querySelector('.your-events')!.textContent ?? '';
+    expect(after).toContain('Already happened');
+    expect(after, 'an event with no time was filed under Past').not.toContain('A gathering with no date');
+    dom.window.close();
+  }, 40000);
+
   it('draws every geek tab without throwing', async () => {
     // One dead tab is the same outage in a smaller place.
-    for (const tab of ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide']) {
+    for (const tab of ['feed', 'chat', 'alerts', 'econ', 'profile']) {
       const { dom, errors, root } = await boot({
         'peer-sandbox-who-v2': JSON.stringify('alice'),
         'peer-sandbox-mode-v1': JSON.stringify('geek'),

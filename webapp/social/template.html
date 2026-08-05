@@ -162,6 +162,11 @@ html, body { overflow-x: hidden; }
    one you cannot start. */
 .livebar { border-color: var(--ember); margin-bottom: 12px; }
 .livebar video { max-height: 180px; }
+/* Folded away, the bar keeps only its heading and its controls. It sits above
+   whatever screen you are on, so it must be possible to get it out of the way
+   without ending the broadcast. */
+.livebar.shut { padding-top: 10px; padding-bottom: 10px; }
+.livebar .track-list, .livebar .comment { max-height: 40vh; overflow-y: auto; }
 
 .btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
 .btn:hover { border-color: var(--ember); }
@@ -746,7 +751,18 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // shown". Two of them were screens that belong inside another: the graph is
   // a way of looking at the economy, and the record is the long form of the
   // alerts. Both are sub-views now, and the row fits.
-  var GEEK_TABS = ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide'];
+  // Five. Broadcasting and announcing a gathering are things you DO from the
+  // composer and read in the feed — they were never places to go, and a tab
+  // each said otherwise. Live folded into the bar that already follows you
+  // across every screen; events and the guide moved into a profile that is
+  // now a tab of its own.
+  //
+  // A name written here and nowhere else dispatches to nothing. It is written
+  // in five places: this list, the restore below, the hash route, the button
+  // row and the dispatcher. The guide still carries two buttons pointing at
+  // 'ledger' and 'net', which have not been tabs for months and have been
+  // quietly opening the feed ever since — fixed in this pass.
+  var GEEK_TABS = ['feed', 'chat', 'alerts', 'econ', 'profile'];
   var econView = 'wallet';   // + 'net'  — the graph lives here now
   var alertView = 'inbound'; // | 'record'
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you', 'person'];
@@ -854,11 +870,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
     }
-    // #live / #feed / #ledger override the restored view: the installed app's
+    // #feed / #chat / #profile override the restored view: the installed app's
     // long-press shortcuts launch with a hash, and a shortcut that opens on
-    // whatever tab was open last is not a shortcut.
+    // whatever tab was open last is not a shortcut. A hash that is not in
+    // GEEK_TABS is ignored rather than obeyed — which is why the manifest's
+    // old #live and #ledger shortcuts opened the feed and looked like they had
+    // worked. The manifest names only tabs that exist now.
     var h0 = (location.hash || '').slice(1);
-    if (GEEK_TABS.indexOf(h0) >= 0) { tab = h0; lqView = h0 === 'chat' ? 'chats' : (LQ_VIEWS.indexOf(h0) >= 0 ? h0 : lqView); }
+    if (GEEK_TABS.indexOf(h0) >= 0) {
+      tab = h0;
+      // The two names the modes spell differently. Without these, #chat and
+      // #profile move geek mode and leave the simple mode where it was.
+      lqView = h0 === 'chat' ? 'chats' : h0 === 'profile' ? 'you'
+        : (LQ_VIEWS.indexOf(h0) >= 0 ? h0 : lqView);
+    }
   } catch (e) {}
 
   function epochOf() {
@@ -3030,35 +3055,129 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
   }
   /** The persistent strip: whatever is on air, and the one button that ends it. */
+  /**
+   * The whole live surface, above every screen.
+   *
+   * There used to be two: a thin bar here and a full page on a Live tab. That
+   * split is what made the tab necessary — the bar had no sound button, no
+   * retry, no byte counter and no room, so a viewer whose stream came up muted
+   * had to go and find another screen to turn the sound on. Broadcasting and
+   * watching are things you do WHILE reading, not places you go, so the whole
+   * surface follows you instead: it is drawn above the feed, the chats, the
+   * alerts, wherever you are, and it disappears the moment you stop.
+   *
+   * `collapsed` keeps it out of the way while it is not being used, because it
+   * sits on top of everything else on the page.
+   */
+  var liveOpen = true;
   function liveBar() {
-    var bar = h('div', { class: 'card livebar' });
+    var st0 = replay();
+    var bar = h('div', { class: 'card livebar' + (liveOpen ? '' : ' shut') });
+
+    function foldBtn() {
+      return h('button', { class: 'btn small ghost', text: liveOpen ? 'Hide' : 'Show',
+        onclick: function () { liveOpen = !liveOpen; render(); } });
+    }
+
     if (live) {
+      var secs = Math.round((Date.now() - live.t0) / 1000);
+      var mine = null;
+      for (var li = 0; li < liveList.length; li++) if (liveList[li].cid === live.cid) mine = liveList[li];
+      var nView = mine ? mine.viewers : 0;
+      // One element, reused across renders — a fresh one each pass restarts
+      // playback and re-asks the autoplay question. Muted: it is your own camera.
       if (!live.el) {
         live.el = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
         live.el.muted = true;
         if (live.stream) live.el.srcObject = live.stream;
       }
       bar.appendChild(h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
-        live.state === 'live' ? ' you are on air · ' + fmtDur(Math.round((Date.now() - live.t0) / 1000)) : ' connecting…'));
-      bar.appendChild(live.el);
+        live.state === 'live'
+          ? ' you are on air · ' + fmtDur(secs) + ' · ' + nView + ' watching'
+          : ' connecting to the host…'));
+      if (live.title) bar.appendChild(h('h2', { text: live.title }));
+      if (liveOpen) {
+        bar.appendChild(live.el);
+        var sending = live.recs.filter(Boolean).map(function (r) { return fmtShort(r.mime); }).join(' + ');
+        bar.appendChild(h('p', { class: 'smallnote', text:
+          'Your video goes to the host once' + (sending ? ' as ' + sending : '') + ', and the host sends it on to everyone watching. '
+          + 'Your upload stays the same whether one person watches or a hundred'
+          + (live.limits && live.limits.maxViewers ? ' — this host will carry up to ' + live.limits.maxViewers + ' viewers per stream' : '') + '.' }));
+        if (live.note) bar.appendChild(h('p', { class: 'smallnote', text: live.note }));
+      }
       bar.appendChild(h('div', { class: 'mini-form persistent' },
         h('button', { class: 'btn small', text: 'End broadcast', onclick: function () {
           broadcastStop('Broadcast ended. The act stays in the record; the video was never in it.');
-        } }),
-        h('button', { class: 'btn small ghost', text: 'Open', onclick: function () { tab = 'live'; saveView(); render(); } })));
+        } }), foldBtn()));
       setTimeout(function () { if (live && live.el && live.el.paused) live.el.play().catch(function () {}); }, 0);
+      if (liveOpen && live.cid) bar.appendChild(streamRoom(st0, live.cid));
       return bar;
     }
-    var st0 = replay();
+
     bar.appendChild(h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
       ' watching ' + (st0.handles[watching.author] || watching.author)));
-    bar.appendChild(watching.el);
-    if (watching.note) bar.appendChild(h('p', { class: 'smallnote', text: watching.note }));
-    bar.appendChild(h('div', { class: 'mini-form persistent' },
-      h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }),
-      h('button', { class: 'btn small ghost', text: 'Open', onclick: function () { tab = 'live'; saveView(); render(); } })));
+    if (liveOpen) bar.appendChild(watching.el);
+    // Every state says something. The failure this replaced was a black
+    // rectangle with no text anywhere on the screen to explain it.
+    if (watching.note) {
+      bar.appendChild(h('p', { class: watching.state === 'refused' || watching.state === 'failed' || watching.state === 'error' ? 'warn' : 'smallnote', text: watching.note }));
+    }
+    if (liveOpen && watching.state === 'playing' && watching.mime) {
+      bar.appendChild(h('p', { class: 'smallnote', text:
+        'Relayed by the host as ' + fmtShort(watching.mime) + ' · ' + Math.round(watching.bytes / 1024) + ' KB received' }));
+    }
+    var vrow = h('div', { class: 'mini-form persistent' },
+      h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }), foldBtn());
+    if (watching.state === 'playing' && watching.muted) {
+      // Sound cannot start by itself — the browser requires a tap, so the tap
+      // is a button rather than a mystery. This lived only on the deleted tab,
+      // which meant a muted stream had its one fix on another screen.
+      vrow.insertBefore(h('button', { class: 'btn small primary', text: '\ud83d\udd0a Sound on', onclick: function () {
+        if (!watching) return;
+        watching.muted = false;
+        watching.el.muted = false;
+        watching.el.play().catch(function () {});
+        render();
+      } }), vrow.firstChild);
+    }
+    if (watching.state === 'failed' || watching.state === 'ended') {
+      vrow.insertBefore(h('button', { class: 'btn small primary', text: 'Try again', onclick: function () {
+        var again = { author: watching.author, cid: watching.cid };
+        watchStop();
+        watchStart(again);
+      } }), vrow.firstChild);
+    }
+    bar.appendChild(vrow);
+    // Deferred on purpose. render() builds this detached and inserts it
+    // afterwards, and moving a media element between parents pauses it — so a
+    // play() called here would be undone a moment later by the insertion.
     setTimeout(function () { if (watching && watching.el && watching.el.paused && watching.state === 'playing') watching.el.play().catch(function () {}); }, 0);
+    if (liveOpen && watching.cid) bar.appendChild(streamRoom(st0, watching.cid));
     return bar;
+  }
+
+  /**
+   * Who is on air, right now — at the top of the feed, and only when somebody
+   * is. This was the Live tab's one irreplaceable job: a broadcast whose post
+   * has scrolled away is otherwise findable only by scrolling to it.
+   */
+  function onAirStrip(st) {
+    var others = liveList.filter(function (e) { return e.author !== who; });
+    if (!others.length || live || watching) return null;
+    var card = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
+        ' on air now · ' + others.length + (others.length === 1 ? ' broadcast' : ' broadcasts')));
+    others.forEach(function (e) {
+      card.appendChild(h('div', { class: 'chat-row' },
+        avatar(e.author, 'avatar s'),
+        h('div', { class: 'grow' },
+          h('b', {}, st.handles[e.author] || e.author),
+          h('div', { class: 'smallnote', text: e.title || 'live' }),
+          h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000))
+            + (e.kbps ? ' · ' + e.kbps + ' kbps' : '') })),
+        h('button', { class: 'btn small primary', text: 'Watch', onclick: function () { watchStart(e); } })));
+    });
+    return card;
   }
 
   function setMode(m) {
@@ -3146,7 +3265,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     wrap.appendChild(h('nav', { class: 'lq-glass lq-nav' },
       navBtn('feed', 'Feed', 'feed'), navBtn('peers', 'Peers', 'peers'),
       navBtn('chats', 'Chats', 'bubble'), navBtn('alerts', 'Alerts', 'bolt', fresh),
-      navBtn('you', 'You', 'you')));
+      // The KEY stays 'you'. It is written into LQ_VIEWS, the restore, the
+      // dispatcher and the header avatar, and renaming it in one place is
+      // exactly how the guide ended up with two buttons that opened the feed.
+      navBtn('you', 'Profile', 'you')));
     root.appendChild(wrap);
   }
 
@@ -3529,7 +3651,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         if (m.t === 'ready') {
           startRendition(0);
           live.state = 'live'; render();
-          toast('You are live. Anyone on the network can join from the Live tab.');
+          toast('You are live. Your broadcast is a post in everyone’s feed, and it is listed at the top of the feed while it runs.');
         } else if (m.t === 'need') {
           addRendition(m.mime);
         } else if (m.t === 'drop') {
@@ -4443,6 +4565,23 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     mediaBlock(st.mediaMeta[n.id]).forEach(function (el) { card.appendChild(el); });
     var keepRow = offlineRow(st, n.id);
     if (keepRow) card.appendChild(keepRow);
+    // A gathering, in the simple mode. It had NO door at all here: an event
+    // was a plain post with no time, no place, no price and no way in, so
+    // half the network could read about a gathering and not attend it. The
+    // panel is the same one the geek card draws — the same Join, the same
+    // fee, the same invite — and it is guarded the same way, because a
+    // deleted event keeps its entry in the map and would otherwise sell
+    // tickets to a gathering whose address had been redacted.
+    var lqEv = (st.events && st.events[n.id] && st.payloads[n.id] !== undefined) ? st.events[n.id] : null;
+    if (lqEv) card.appendChild(eventPanel(st, n.id, lqEv));
+    var lqLive = liveEntryFor(n.id);
+    if (lqLive && st.postMeta[n.id] && st.postMeta[n.id].stream) {
+      card.appendChild(h('div', { class: 'lq-actions' },
+        h('button', { class: 'lq-pill hot', onclick: function () {
+          liveOpen = true;
+          watchStart({ author: lqLive.author, cid: n.id });
+        } }, icon('bolt'), 'Watch · on air')));
+    }
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
       var q = refs.quotes[0];
@@ -4732,6 +4871,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return box;
   }
 
+  /**
+   * Your own page in the simple mode. It was an account-and-wallet screen: it
+   * knew your balances and nothing about what you had made or what you were
+   * going to. It carries the same three sections the geek Profile tab does,
+   * built from the same functions — the events lanes, the music, the guide —
+   * so there is one implementation of each and one set of bugs in it.
+   */
   function lqYou(st) {
     var me = st.ledgerById[who];
     var w = st.l0.bal(who);
@@ -4767,6 +4913,34 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('button', { class: 'lq-pill', text: st.pinHash[who] ? 'Change PIN' : 'Set a PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
         h('button', { class: 'lq-pill', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
       h('p', { class: 'lq-note', text: 'Energy is real destruction: you deposit reserve, receive receipt credits at the cycle mint, and burning a credit destroys it forever — that irreversible loss is what your influence is made of. Geek mode → Economy shows the full machinery.' })));
+    // The lane bar in a glass card, the cards themselves loose beneath it —
+    // an lq-card inside an lq-card is a box in a box.
+    var lqEvents = eventLanes(st, true);
+    var lqEvHead = lqEvents.firstChild;
+    lqEvents.removeChild(lqEvHead);
+    box.appendChild(h('div', { class: 'lq-glass lq-card' }, lqEvHead));
+    box.appendChild(lqEvents);
+
+    var lqMusic = musicSection(st, who, true);
+    if (lqMusic) box.appendChild(lqMusic);
+
+    var mine = Object.keys(st.payloads).filter(function (cid) {
+      var meta = st.postMeta[cid];
+      return st.creators[cid] === who && meta && !meta.comment && st.g.nodes.get(cid);
+    }).sort(function (a, b) { return st.postMeta[b].idx - st.postMeta[a].idx; });
+    if (mine.length) {
+      box.appendChild(h('div', { class: 'lq-glass lq-card' },
+        h('p', { class: 'eyebrow', text: 'what you published · ' + mine.length })));
+      mine.slice(0, 20).forEach(function (cid) {
+        box.appendChild(lqPost(st, st.g.nodes.get(cid), null));
+      });
+    }
+
+    // The guide, in the simple mode too — the same one, closed.
+    var lqGuide = h('details', {}, h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'the guide — how any of this works' }));
+    lqGuide.appendChild(guideTab(st));
+    box.appendChild(h('div', { class: 'lq-glass lq-card' }, lqGuide));
+
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
       h('h2', { text: 'Under the hood' }),
       h('p', { class: 'lq-note', text: 'This whole app runs a formally specified protocol — every number you see is replayable mathematics. The geek view exposes the machinery: tensors on every edge, the trust-transport solve, epoch gates, the live network graph.' }),
@@ -4845,24 +5019,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
           return b;
         })(),
+        tabBtn('econ', 'Economy'),
         (function () {
-          var b = tabBtn('live', 'Live');
+          // The dot lives here now: it is the one place on screen that always
+          // exists, and a broadcast nobody can find is a broadcast nobody
+          // watches. The feed carries the list itself.
+          var b = tabBtn('profile', 'Profile');
           if (liveList.filter(function (e) { return e.author !== who; }).length || live) {
             b.appendChild(h('span', { class: 'live-dot', style: 'margin-left:5px' }));
           }
           return b;
-        })(),
-        tabBtn('events', 'Events'),
-        tabBtn('econ', 'Economy'), tabBtn('guide', 'Guide')),
+        })()),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
-      : tab === 'events' ? eventsTab(st)
-      : tab === 'live' ? liveTab(st) : tab === 'econ' ? econTab(st)
-      : tab === 'guide' ? guideTab(st) : feedTab(st);
+      : tab === 'econ' ? econTab(st)
+      : tab === 'profile' ? profileTab(st) : feedTab(st);
     var shell = h('div', { class: 'shell' });
     var geekLock = lockBanner(st, false);
     if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
@@ -4972,15 +5147,151 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             toast('Burned 1.00 reserve. Burn raises your rate — it is the only way in.');
           });
         } }),
-        h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
-        h('button', { class: 'btn small', text: 'Profile', onclick: function () { profileFlow(st); } }),
-        h('button', { class: 'btn small', text: 'Recovery code', onclick: function () { recoveryFlow(st); } }),
-        REMOTE ? h('button', { class: 'btn small', text: 'Contact', onclick: contactFlow }) : null,
-        // A PIN is a shared secret whose hash is published; a passkey is not.
-        // Offered right beside it, so the stronger option is not buried.
-        passkeySupported ? h('button', { class: 'btn small primary', text: '+ Passkey', onclick: function () { addPasskey(st); } }) : null,
-        h('button', { class: 'btn small ghost', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
+        // Burn stays here — it is needed on every screen, mid-sentence, when a
+        // reserve runs out. Everything else about the account lives on the
+        // Profile tab now; two copies of Delete account is one too many.
+        h('button', { class: 'btn small ghost', text: 'Profile →', onclick: function () { tab = 'profile'; saveView(); render(); } })),
       h('p', { class: 'smallnote', text: 'Every act costs θ and raises N — acting dilutes your rate. Endorsements transport rates; nothing mints standing.' }));
+  }
+
+  /**
+   * Your events — the four questions the deleted tab was the only answer to.
+   *
+   * Read straight from st.events and never through the feed's ranking. That is
+   * not a shortcut: measured, the default L1 feed returns ZERO gatherings even
+   * for somebody who paid to enter one, because an rsvp appends no edge and
+   * the card's relevance stays at nothing. A page about what YOU are going to
+   * cannot be built on a ranking that does not know you went.
+   */
+  function eventLanes(st, liquid) {
+    var wrap = h('div', { class: 'your-events' });
+    var now = Date.now();
+    var head = h('div', { class: 'sect' }, h('p', { class: 'eyebrow', text: 'your events' }));
+    var views = [['soon', 'Coming up'], ['mine', 'Yours'], ['invited', 'Invited'], ['past', 'Past']];
+    var bar = h('div', { class: 'uline' });
+    views.forEach(function (v) {
+      bar.appendChild(h('button', { class: eventView === v[0] ? 'on' : '', text: v[1],
+        onclick: function () { eventView = v[0]; saveView(); render(); } }));
+    });
+    head.appendChild(bar);
+    wrap.appendChild(head);
+
+    var list = Object.keys(st.events || {}).filter(function (cid) {
+      // st.events is written even for a gathering that was deleted — the map
+      // is filled unconditionally so a departure cannot re-cut a closed epoch.
+      // Without this guard the list carries blank ghost cards still offering a
+      // door and a price.
+      if (st.payloads[cid] === undefined) return false;
+      var ev = st.events[cid];
+      var going = (st.eventGoing[cid] || {})[who];
+      var invited = (st.eventInvites[cid] || {})[who];
+      if (eventView === 'mine') return ev.host === who || !!going;
+      if (eventView === 'invited') return !!invited;
+      // at === 0 is 'no time stated', not 'happened in 1970'. The one real
+      // gathering on this network has no time on it, so reading this the other
+      // way round empties the screen it is supposed to fill.
+      if (eventView === 'past') return !!ev.at && ev.at < now;
+      return !ev.at || ev.at >= now;
+    });
+    list.sort(function (a, b) {
+      var A = st.events[a], B = st.events[b];
+      if (eventView === 'past') return (B.at || 0) - (A.at || 0);
+      if (A.at && B.at) return A.at - B.at;      // soonest first, ahead of us
+      return (B.idx || 0) - (A.idx || 0);
+    });
+
+    if (!list.length) {
+      wrap.appendChild(h('p', { class: 'smallnote', text:
+        eventView === 'invited' ? 'Nobody has invited you to anything yet.'
+          : eventView === 'mine' ? 'You are not hosting or going to anything yet.'
+            : eventView === 'past' ? 'Nothing of yours has happened yet.'
+              : 'Nothing coming up. Announce one from the composer — pick Gathering.' }));
+      return wrap;
+    }
+    list.slice(0, 10).forEach(function (cid) {
+      var node = st.g.nodes.get(cid);
+      if (!node) return;
+      // The same card the FEED of this mode builds, so the door, the fee and
+      // the invite are the same controls and there is one implementation of
+      // each. Never the geek card in the simple mode: .card is painted from
+      // the geek palette and would drop a grey panel into a glass page.
+      wrap.appendChild(liquid
+        ? lqPost(st, node, null)
+        : postCard(st, { node: node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1));
+    });
+    if (list.length > 10) {
+      wrap.appendChild(h('p', { class: 'smallnote', text: 'Showing 10 of ' + list.length + '.' }));
+    }
+    return wrap;
+  }
+
+  /**
+   * The profile: who you are, what you made, what you are going to, and the
+   * guide — in that order, because reference material belongs underneath the
+   * things somebody opened the page for.
+   */
+  function profileTab(st) {
+    var wrap = h('div', {});
+    var prof = (st.profiles && st.profiles[who]) || null;
+    var myX = st.xById[who] || 0;
+
+    var card = h('div', { class: 'card' },
+      h('div', { class: 'who' }, avatar(who),
+        h('div', {},
+          h('div', { class: 'handle', text: st.handles[who] + (st.pinHash[who] ? ' \ud83d\udd12' : '') }),
+          h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * myX, 4) }), ' ', deltaChip(who, st))));
+    if (prof && prof.bio) card.appendChild(h('p', { style: 'margin-top:8px' }, prof.bio));
+    if (prof && prof.link) {
+      card.appendChild(h('p', { class: 'smallnote', style: 'margin-top:4px' },
+        h('a', { href: prof.link, target: '_blank', rel: 'noopener noreferrer nofollow', text: prof.link })));
+    }
+    card.appendChild((function () {
+      var f = Object.keys((st.follows && st.follows[who]) || {}).length;
+      var n = Object.keys((st.followers && st.followers[who]) || {}).length;
+      return h('p', { class: 'smallnote', text: n + ' following you · ' + f + ' you follow — counted, never scored' });
+    })());
+    card.appendChild(h('div', { class: 'mini-form persistent', style: 'margin-top:8px' },
+      h('button', { class: 'btn small primary', text: 'Edit profile', onclick: function () { profileFlow(st); } })));
+
+    // Rarely used, and one of them is irreversible: folded away so that Delete
+    // account is not a thumb-width from Edit profile on a phone.
+    var acct = h('details', { style: 'margin-top:10px' },
+      h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'account and security' }));
+    acct.appendChild(h('div', { class: 'mini-form persistent', style: 'margin-top:6px' },
+      h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
+      passkeySupported ? h('button', { class: 'btn small primary', text: '+ Passkey', onclick: function () { addPasskey(st); } }) : null,
+      h('button', { class: 'btn small', text: 'Recovery code', onclick: function () { recoveryFlow(st); } }),
+      REMOTE ? h('button', { class: 'btn small', text: 'Contact', onclick: contactFlow }) : null,
+      h('button', { class: 'btn small ghost', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })));
+    acct.appendChild(h('p', { class: 'smallnote', text: 'A PIN is a shared secret whose hash is published; a passkey is not. The recovery code is the one way back into a handle whose PIN is gone that does not need the operator.' }));
+    card.appendChild(acct);
+    wrap.appendChild(card);
+
+    wrap.appendChild(h('div', { class: 'card' }, eventLanes(st)));
+
+    var music = musicSection(st, who, false);
+    if (music) wrap.appendChild(h('div', { class: 'card' }, music));
+
+    // Your own work, which was the one thing the app showed of everybody
+    // except you.
+    var mine = Object.keys(st.payloads).filter(function (cid) {
+      var meta = st.postMeta[cid];
+      return st.creators[cid] === who && meta && !meta.comment && st.g.nodes.get(cid);
+    }).sort(function (a, b) { return st.postMeta[b].idx - st.postMeta[a].idx; });
+    var posts = h('details', {}, h('summary', { class: 'eyebrow', style: 'cursor:pointer',
+      text: 'what you published · ' + mine.length }));
+    mine.slice(0, 20).forEach(function (cid) {
+      posts.appendChild(postCard(st, { node: st.g.nodes.get(cid), relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1));
+    });
+    if (!mine.length) posts.appendChild(h('p', { class: 'smallnote', text: 'Nothing on the record from this handle yet.' }));
+    wrap.appendChild(h('div', { class: 'card' }, posts));
+
+    // The guide, last, and by CALLING it rather than copying it — one guide,
+    // one set of edits.
+    var guide = h('details', { id: 'guide' }, h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'the guide — how any of this works' }));
+    guide.appendChild(guideTab(st));
+    wrap.appendChild(h('div', { class: 'card' }, guide));
+    return wrap;
   }
 
   function aboutCard() {
@@ -5164,6 +5475,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
 
       if (draft.kind === 'stream') {
+        // The refusal used to arrive AFTER the act: canRecord() was only ever
+        // consulted on the deleted Live tab, so a browser with no MediaRecorder
+        // offered a priced 'Go live' button and explained itself only once it
+        // had been pressed.
+        if (!canRecord().length) {
+          toast('This browser cannot encode video, so it cannot broadcast — it can still watch. Nothing was spent.');
+          return;
+        }
         // Only the TRIGGER lives here. The session — the camera, the recorder,
         // the socket — is held on `live` and drawn by the bar at the top, so
         // this element being destroyed on the next repaint costs nothing.
@@ -5198,27 +5517,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var wrap = h('div', {});
 
-    // Search first, above everything. It was buried under the composer and the
-    // ranking row, which is the one place somebody looking for something does
-    // not look.
-    var topQ = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
-    var runTopQ = function () { query = topQ.value; render(); };
-    topQ.addEventListener('keydown', function (e) { if (e.key === 'Enter') runTopQ(); });
-    var topRow = h('div', { class: 'card' },
-      // `persistent`, because safeToRepaint() treats any .mini-form as a form
-      // somebody is filling in and refuses to repaint while one exists. These
-      // two search rows are permanent furniture on the feed screen, so that
-      // check was ALWAYS false there — measured in a real browser, the
-      // five-second poll never fetched once in eighteen seconds of geek mode,
-      // and the feed simply did not pick up anybody else's acts. Typing is
-      // still protected: the activeElement test above covers it.
-      h('div', { class: 'mini-form persistent', style: 'margin:0' }, topQ,
-        h('button', { class: 'btn small primary', text: 'Search', onclick: runTopQ })));
-    if (query) {
-      topRow.querySelector('.mini-form').appendChild(
-        h('button', { class: 'btn small', text: 'Clear', onclick: function () { query = ''; render(); } }));
-    }
-    wrap.appendChild(topRow);
+    // There is ONE search row on this screen, in the ranking head below. A
+    // second one was added at the top and the original was never removed, so
+    // the feed carried two identical controls that did not share their input:
+    // typing in one and pressing Enter left the other showing the previous
+    // query. Deleted here rather than there, because the one that survives is
+    // the one sitting with the sort and filter rows it belongs to.
+    var onAir = onAirStrip(st);
+    if (onAir) wrap.appendChild(onAir);
     var focused = focusCard(st, false);
     if (focused) wrap.appendChild(focused);
     wrap.appendChild(composer);
@@ -5815,7 +6121,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         per.push({ cover: r.cover, title: r.title, no: j + 1 });
       });
     });
-    var box = h('div', { class: liquid ? 'lq-glass lq-card' : 'sect' });
+    var box = h('div', { class: (liquid ? 'lq-glass lq-card' : 'sect') + ' your-music' });
     box.appendChild(h('p', { class: 'eyebrow', text: 'music · ' + rows.length + ' release'
       + (rows.length === 1 ? '' : 's') + ' carrying audio, ' + tracks.length + ' track'
       + (tracks.length === 1 ? '' : 's') }));
@@ -5914,7 +6220,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (liveNow && st.postMeta[n.id] && st.postMeta[n.id].stream) {
       card.appendChild(h('div', { class: 'mini-form' },
         h('button', { class: 'btn small primary', text: 'Watch · on air', onclick: function () {
-          tab = 'live'; saveView(); render();
+          // The player opens above this card rather than on another screen.
+          liveOpen = true;
           watchStart({ author: liveNow.author, cid: n.id });
         } }),
         h('span', { class: 'smallnote', text: 'Relayed through the host — free to watch.' })));
@@ -6673,7 +6980,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return h('div', { class: 'card' },
       h('p', { class: 'eyebrow', text: 'how this works' }),
       h('p', { class: 'smallnote', text: 'Messages are priced acts in the public record, and vouching is the only thing here that moves a rate. The guide explains both, and what a standing actually is.' }),
-      h('button', { class: 'btn small', text: 'Open the guide →', onclick: function () { tab = 'guide'; saveView(); render(); } }));
+      h('button', { class: 'btn small', text: 'Open the guide →', onclick: function () {
+        tab = 'profile'; lqView = 'you'; saveView(); render();
+        setTimeout(function () {
+          var g = document.getElementById('guide');
+          if (g) { g.open = true; g.scrollIntoView({ block: 'start' }); }
+        }, 0);
+      } }));
   }
 
   /**
@@ -6685,87 +6998,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * feed ranks, and reacting or commenting on one is the ordinary priced act
    * that moves standing. Only the going and the paying are unscored.
    */
-  function eventsTab(st) {
-    var wrap = h('div', {});
-    var all = Object.keys(st.events || {});
-    var now = Date.now();
-
-    var head = h('div', { class: 'card' },
-      h('p', { class: 'eyebrow', text: 'events — content like any post, with a door' }));
-
-    var views = [['soon', 'Coming up'], ['mine', 'Yours'], ['invited', 'Invited'], ['past', 'Past']];
-    var bar = h('div', { class: 'lanes' });
-    views.forEach(function (v) {
-      var b = h('button', { class: 'lane' + (eventView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
-      b.onclick = function () { eventView = v[0]; saveView(); render(); };
-      bar.appendChild(b);
-    });
-    head.appendChild(bar);
-
-    // Announcing one. The same form the composer carried; it belongs here.
-    var evText = h('input', { type: 'text', placeholder: 'what is happening?', maxlength: '280', style: 'flex:1; min-width:0' });
-    var evWhen = h('input', { type: 'datetime-local' });
-    var evWhere = h('input', { type: 'text', placeholder: 'where', maxlength: '120', style: 'flex:1; min-width:0' });
-    var evFee = h('input', { type: 'number', min: '0', step: '0.000001', placeholder: 'entry (0 = free)', style: 'width:140px' });
-    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }), h('option', { value: 'tBTC', text: 'tBTC' }));
-    var evCap = h('input', { type: 'number', min: '0', step: '1', placeholder: 'places', style: 'width:90px' });
-    head.appendChild(h('details', { style: 'margin-top:8px' },
-      h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'announce an event' }),
-      h('div', { class: 'mini-form', style: 'margin-top:6px' }, evText),
-      h('div', { class: 'mini-form' }, evWhen, evWhere),
-      h('div', { class: 'mini-form' }, evFee, evCur, evCap,
-        h('button', { class: 'btn small primary', text: 'Announce', onclick: function () {
-          var t2 = evText.value.trim();
-          if (!t2) { toast('Say what the event is first.'); return; }
-          var fee = parseFloat(evFee.value) || 0;
-          if (fee < 0) { toast('An entry fee cannot be negative.'); return; }
-          tryAct(who, {
-            t: 'event', author: who, text: t2,
-            at: evWhen.value ? new Date(evWhen.value).getTime() : 0,
-            place: evWhere.value.trim(), fee: fee, cur: fee > 0 ? evCur.value : '',
-            cap: Math.max(0, parseInt(evCap.value, 10) || 0),
-          }, 'Event announced.');
-        } })),
-      h('p', { class: 'smallnote', text: 'Announcing costs \u03b8 and mints a node, like any post. An entry fee moves existing tokens from whoever joins to you: it mints nothing and raises nobody\u2019s standing, yours included. A place is a physical address \u2014 deleting the event redacts it.' })));
-    wrap.appendChild(head);
-
-    var list = all.filter(function (cid) {
-      var ev = st.events[cid];
-      var going = (st.eventGoing[cid] || {})[who];
-      var invited = (st.eventInvites[cid] || {})[who];
-      if (eventView === 'mine') return ev.host === who || going;
-      if (eventView === 'invited') return !!invited;
-      if (eventView === 'past') return ev.at && ev.at < now;
-      return !ev.at || ev.at >= now;                    // 'soon'
-    });
-    // Soonest first for what is ahead, most recent first for what is behind.
-    list.sort(function (a, b) {
-      var A = st.events[a], B = st.events[b];
-      if (eventView === 'past') return (B.at || 0) - (A.at || 0);
-      if (A.at && B.at) return A.at - B.at;
-      return (B.idx || 0) - (A.idx || 0);
-    });
-
-    if (!list.length) {
-      wrap.appendChild(h('div', { class: 'card' }, h('p', { class: 'smallnote', text:
-        eventView === 'invited' ? 'Nobody has invited you to anything yet.'
-          : eventView === 'mine' ? 'You are not hosting or going to anything yet.'
-            : eventView === 'past' ? 'Nothing has happened yet.'
-              : 'Nothing is coming up. Announce something above.' })));
-      return wrap;
-    }
-
-    list.forEach(function (cid) {
-      var node = st.g.nodes.get(cid);
-      if (!node) return;
-      // The same card the feed builds, so an event is never a second kind of
-      // object with its own half-working reactions.
-      var card = postCard(st, { node: node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1);
-      wrap.appendChild(card);
-    });
-    return wrap;
-  }
-
   // Geek chats — the same dm acts and threads as simple mode, lab styling.
   /**
    * Every conversation on the network, not only yours.
@@ -6921,140 +7153,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('button', { class: 'btn small primary', text: 'Send · −θ', onclick: send })));
     wrap.appendChild(card2);
     setTimeout(function () { tEl.scrollTop = tEl.scrollHeight; }, 30);
-    return wrap;
-  }
-
-  function liveTab(st) {
-    var wrap = h('div', {});
-
-    // ── broadcaster ────────────────────────────────────────────────────────
-    if (live) {
-      var secs = Math.round((Date.now() - live.t0) / 1000);
-      var mine = null;
-      for (var li = 0; li < liveList.length; li++) if (liveList[li].cid === live.cid) mine = liveList[li];
-      var nView = mine ? mine.viewers : 0;
-      var card = h('div', { class: 'card' },
-        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
-          live.state === 'live'
-            ? 'on air · ' + fmtDur(secs) + ' · ' + nView + (nView === 1 ? ' watching' : ' watching')
-            : 'connecting to the host…'),
-        h('h2', { text: live.title }));
-      // One element, reused across renders — a fresh one each pass restarts
-      // playback and re-asks the autoplay question. Muted: it is your own camera.
-      if (!live.el) {
-        live.el = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
-        live.el.muted = true;
-        if (live.stream) live.el.srcObject = live.stream;
-      }
-      card.appendChild(live.el);
-      setTimeout(function () {
-        if (live && live.el && live.el.paused) live.el.play().catch(function () {});
-      }, 0);
-      var sending = live.recs.filter(Boolean).map(function (r) { return fmtShort(r.mime); }).join(' + ');
-      card.appendChild(h('p', { class: 'smallnote', text:
-        'Your video goes to the host once' + (sending ? ' as ' + sending : '') + ', and the host sends it on to everyone watching. '
-        + 'Your upload stays the same whether one person watches or a hundred'
-        + (live.limits.maxViewers ? ' — this host will carry up to ' + live.limits.maxViewers + ' viewers per stream' : '') + '.' }));
-      if (live.note) card.appendChild(h('p', { class: 'smallnote', text: live.note }));
-      card.appendChild(h('div', { class: 'mini-form persistent' },
-        h('button', { class: 'btn small', text: 'End stream', onclick: function () {
-          broadcastStop('Stream ended. The act stays in the record; the video was never in it.');
-        } })));
-      wrap.appendChild(card);
-      if (live.cid) wrap.appendChild(streamRoom(st, live.cid));
-      return wrap;
-    }
-
-    // ── viewer ─────────────────────────────────────────────────────────────
-    if (watching) {
-      var w = h('div', { class: 'card' },
-        h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
-          'watching ' + (st.handles[watching.author] || watching.author)));
-      w.appendChild(watching.el);
-      // Deferred on purpose. render() builds this card detached and inserts it
-      // afterwards, and moving a media element between parents pauses it — so
-      // a play() called here would be undone a moment later by the insertion.
-      // The symptom was a viewer with a full buffer, sound button and all,
-      // looking at a still frame.
-      if (watching.state === 'playing') {
-        setTimeout(function () {
-          if (watching && watching.el && watching.el.paused) watching.el.play().catch(function () {});
-        }, 0);
-      }
-      // Every state says something. The failure this replaced was a black
-      // rectangle with no text anywhere on the screen to explain it.
-      if (watching.note) {
-        w.appendChild(h('p', { class: watching.state === 'refused' || watching.state === 'failed' || watching.state === 'error' ? 'warn' : 'smallnote', text: watching.note }));
-      }
-      if (watching.state === 'playing' && watching.mime) {
-        w.appendChild(h('p', { class: 'smallnote', text:
-          'Relayed by the host as ' + fmtShort(watching.mime) + ' · ' + Math.round(watching.bytes / 1024) + ' KB received' }));
-      }
-      var vrow = h('div', { class: 'mini-form persistent' },
-        h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }));
-      if (watching.state === 'playing' && watching.muted) {
-        // Sound cannot start by itself — the browser requires a tap, so the
-        // tap is a button rather than a mystery.
-        vrow.insertBefore(h('button', { class: 'btn small primary', text: '🔊 Sound on', onclick: function () {
-          if (!watching) return;
-          watching.muted = false;
-          watching.el.muted = false;
-          watching.el.play().catch(function () {});
-          render();
-        } }), vrow.firstChild);
-      }
-      if (watching.state === 'failed' || watching.state === 'ended') {
-        vrow.insertBefore(h('button', { class: 'btn small primary', text: 'Try again', onclick: function () {
-          var again = { author: watching.author, cid: watching.cid };
-          watchStop();
-          watchStart(again);
-        } }), vrow.firstChild);
-      }
-      w.appendChild(vrow);
-      wrap.appendChild(w);
-      if (watching.cid) wrap.appendChild(streamRoom(st, watching.cid));
-      return wrap;
-    }
-
-    // ── nobody streaming from here: the list, and the go-live form ─────────
-    var listCard = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'live now' }));
-    if (!liveList.length) {
-      listCard.appendChild(h('p', { class: 'smallnote', text: 'Nobody is broadcasting. Start one below and it appears here for everyone.' }));
-    }
-    liveList.forEach(function (e) {
-      if (e.author === who) return;
-      var row = h('div', { class: 'chat-row' },
-        avatar(e.author, 'avatar s'),
-        h('div', { class: 'grow' },
-          h('b', {}, st.handles[e.author] || e.author, ' ', h('span', { class: 'live-dot' })),
-          h('div', { class: 'smallnote', text: e.title || 'live' }),
-          h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000))
-            + (e.kbps ? ' · ' + e.kbps + ' kbps' : '') })),
-        h('button', { class: 'btn small primary', text: 'Join', onclick: function () { watchStart(e); } }));
-      listCard.appendChild(row);
-    });
-    wrap.appendChild(listCard);
-
-    var canRec = canRecord();
-    var title = h('input', { type: 'text', placeholder: 'what is this stream about?', maxlength: '200', style: 'flex:1' });
-    var vid = h('input', { type: 'checkbox' });
-    vid.checked = true;
-    var goCard = h('div', { class: 'card', style: 'margin-top:14px' },
-      h('p', { class: 'eyebrow', text: 'go live · −θ' }),
-      h('p', { class: 'smallnote', text: 'Going live is an act: it costs θ and mints a node, which is what lets people react and comment on the stream with the ordinary machinery — priced and recorded like any other gesture. The video itself goes through the host and never enters the record.' }));
-    if (!canRec.length) {
-      goCard.appendChild(h('p', { class: 'warn', text: 'This browser cannot encode video for streaming, so it cannot broadcast. It can still watch.' }));
-    } else {
-      goCard.appendChild(h('p', { class: 'smallnote', text: 'This browser can send ' + canRec.map(fmtShort).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' and ') + '. A second format is only started if somebody joins on a device that needs it.' }));
-      goCard.appendChild(h('div', { class: 'mini-form' }, title,
-        h('label', { class: 'smallnote' }, vid, ' camera'),
-        h('button', { class: 'btn small primary', text: 'Start streaming', onclick: function () {
-          var t = title.value.trim();
-          if (!t) { toast('Say what the stream is about first.'); return; }
-          broadcastStart(t, vid.checked);
-        } })));
-    }
-    wrap.appendChild(goCard);
     return wrap;
   }
 
@@ -7626,8 +7724,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   function guideTab(st) {
-    function jump(label, toTab) {
-      return h('button', { class: 'btn small ghost jump', text: label + ' →', onclick: function () { tab = toTab; render(); } });
+    /**
+     * `to` is a tab name, optionally 'tab/subview'.
+     *
+     * Two of these have been broken for months: 'ledger' and 'net' stopped
+     * being tabs when the Record and Network screens became views of Economy,
+     * and since a name that is not in GEEK_TABS falls through to the feed,
+     * both buttons silently opened the feed and looked like they had worked.
+     * That is exactly the failure this whole change risks repeating, so the
+     * helper now refuses a destination it cannot reach.
+     */
+    function jump(label, to) {
+      var parts = String(to).split('/');
+      var toTab = parts[0], sub = parts[1] || null;
+      return h('button', { class: 'btn small ghost jump', text: label + ' →', onclick: function () {
+        if (GEEK_TABS.indexOf(toTab) < 0) { toast('That screen has moved — nothing here goes to “' + toTab + '” any more.'); return; }
+        tab = toTab;
+        if (sub) econView = sub;
+        saveView(); render();
+      } });
     }
     function sect(title, open) {
       var d = h('details', {}, h('summary', {}, title));
@@ -7659,7 +7774,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P(B('Post'), ' mints a Content node. The ', K('attachment'), ' slider is your genesis stance toward it.'),
         P(B('React'), ' is an Opinion on an artifact: ', K('polarity'), ' (how aligned) × ', K('reaction'), ' (how strongly). Artifact-directed acts ', B('weigh home'), ' — their coefficient lands on your own diagonal, crowding your outward influence. But they wire you into the graph: reacting is how content becomes reachable for your feed.'),
         P(B('Review'), ' is one hyper act with two legs — toward the work, and minting your Comment (which threads under the post). ', B('Tag'), ' files content under a commons Type node nobody owns.'),
-        P('Sliders run −1…+1. Negative values are real records too — the geometry routes them differently (see the Network tab’s red edges).')),
+        P('Sliders run −1…+1. Negative values are real records too — the geometry routes them differently (see the red edges in Economy → Network).')),
 
       sect('The feed: why it shows what it shows', false,
         F('S(you, content) = W · (1 + standing(creator)/ν) · ‖T‖F'),
@@ -7683,8 +7798,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P('Transport is conserved (each person disposes exactly one unit over self + recipients), tilted toward higher-standing recipients, and wall-clamped below ' + fmt(SAFE_FLOOR, 3) + '. No mass is created, destroyed, or minted anywhere.')),
 
       sect('Epochs: stamping the record', false,
-        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (right rail) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in the Record tab.'),
-        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'ledger'))),
+        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (right rail) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in Economy → Record.'),
+        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'econ/ledger'))),
 
       sect('The economy: Layer 0 (Peer Attestation)', false,
         P('Reserve is no longer a faucet — it is a ', B('full-reserve receipt system'), ' beneath the network. You hold external reserve, deposit it into the pool, and receive receipt units at the next ', B('cycle boundary'), ': (1−f)·ζ live + (1−f)·(1−ζ) time-locked, with fee f to the operator (ζ = f = 0.5, spec placeholders).'),
@@ -7693,12 +7808,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P(B('Redemption'), ' pays x·φ reserve back and never lowers the floor. ', B('Time-locked units'), ' exist only during bootstrapping and convert to live in one relabel at maturity (cycle 10). Capacity before deposits is bounded: A_max = E₀·ln(1/(1−ζ)).'),
         P('Try it in the ', B('Economy tab'), ': deposit, close a cycle, burn, watch φ ratchet. ', jump('open economy', 'econ'))),
 
-      sect('Reading the Network tab', false,
+      sect('Reading the network graph', false,
         P('Nodes: ', B('circles'), ' are Actors, ', B('diamonds'), ' Profiles, ', B('rounded boxes'), ' artifacts (Content, Comments, Types, Items). Every edge is an act’s projection; ', B('stroke width'), ' is its damped weight.'),
         P('Colors: ', B('ember'), ' full-tier routing, ', B('gold'), ' half-tier (settlement/proposal families), ', B('grey'), ' marginal tier, ', B('red'), ' negative parity.'),
         P('Click an edge: the stored 3×3 sentiment slice Ψ (heatmap), the softened 2×2 path view, and the whole weight chain —'),
         F('w = √|det PV| × √(1+τ²) × e^(−β·H(τ))'),
-        P('det score = directional coherence; τ = maturity from how connected both endpoints already were; H(τ) = binary entropy, so brand-new (τ=0) passes clean, half-mature (τ=½) is damped hardest (×0.383), and old edges recover. ', jump('open network', 'net'))),
+        P('det score = directional coherence; τ = maturity from how connected both endpoints already were; H(τ) = binary entropy, so brand-new (τ=0) passes clean, half-mature (τ=½) is damped hardest (×0.383), and old edges recover. ', jump('open network', 'econ/net'))),
 
       sect('PINs, identities, and honesty', false,
         P('A handle can be secured at registration with a ', B('PIN'), ' (🔒 in lists). Only a salted hash enters the public log; the host demands the PIN for every act and strips it before storing. This stops squatting and casual impersonation — it is ', B('not'), ' cryptographic identity (short PINs can be brute-forced from the public hash; real keypairs are roadmap Phase 4).'),
@@ -7989,7 +8104,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('div', { class: 'mini-form sect' },
         followBtn(st, id, true),
         h('button', { class: 'btn small', text: 'Guide →', title: 'What a standing is, and what moves it.',
-          onclick: function () { close(); tab = 'guide'; saveView(); render(); } }),
+          onclick: function () { close(); tab = 'profile'; lqView = 'you'; saveView(); render(); } }),
         (function () {
           if (id !== who) return null;
           return h('button', { class: 'btn small', text: prof ? 'Edit profile' : 'Add a profile', onclick: function () { profileFlow(st); } });
