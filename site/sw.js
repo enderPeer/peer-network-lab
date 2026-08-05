@@ -9,7 +9,7 @@
 // source of truth, and this project has paid for those twice already.
 // v5: the tab row went from eight entries to six, so a cached shell shows a
 // navigation that no longer matches what the app dispatches. Bumping evicts it.
-const VERSION = 'peer-shell-v5';
+const VERSION = 'peer-shell-v6';
 const SHELL = [
   './',
   './index.html',

@@ -680,7 +680,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // shown". Two of them were screens that belong inside another: the graph is
   // a way of looking at the economy, and the record is the long form of the
   // alerts. Both are sub-views now, and the row fits.
-  var GEEK_TABS = ['feed', 'chat', 'alerts', 'live', 'econ', 'guide'];
+  var GEEK_TABS = ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide'];
   var econView = 'wallet';   // + 'net'  — the graph lives here now
   var alertView = 'inbound'; // | 'record'
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
@@ -692,6 +692,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // somebody's feed the next time they opened the app.
   var query = '';
   var chatQuery = '', chatScope = 'mine', chatOpen = null;
+  var eventView = 'soon';   // 'soon' | 'mine' | 'invited' | 'past'
   // (econView is declared with the tab list above.)
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
@@ -738,6 +739,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new', 'follow'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
+      if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
@@ -760,7 +762,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, econView: econView, alertView: alertView, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -3726,7 +3728,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     var ok = window.confirm('Delete the account “' + name + '”?\n\n' +
       '· your posts, comments and messages are redacted from the served record\n' +
-      '· your vouches and standing leave the solve\n' +
+      // This line used to say the vouches and standing leave the solve. They
+      // do not, and the replay says so deliberately: removing them would
+      // silently re-cut everyone else's share of epochs that closed long ago.
+      // A dialog that is wrong about one clause is how the next one ships
+      // unnoticed.
+      '· your vouches and your standing STAY in the solve — removing them would\n' +
+      '  move everyone else, retroactively, in epochs that are already closed\n' +
       '· burned reserve is NOT refunded — destruction is permanent by design\n' +
       '· the handle stays reserved forever and cannot be re-registered\n\n' +
       'This cannot be undone.');
@@ -3940,6 +3948,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           }
           return b;
         })(),
+        tabBtn('events', 'Events'),
         tabBtn('econ', 'Economy'), tabBtn('guide', 'Guide')),
       h('div', { class: 'switcher' },
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
@@ -3947,6 +3956,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
     var center = tab === 'feed' ? feedTab(st) : tab === 'chat' ? chatTab(st) : tab === 'alerts' ? alertsTab(st)
+      : tab === 'events' ? eventsTab(st)
       : tab === 'live' ? liveTab(st) : tab === 'econ' ? econTab(st)
       : tab === 'guide' ? guideTab(st) : feedTab(st);
     var shell = h('div', { class: 'shell' });
@@ -4194,33 +4204,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // Search lives here, in the feed's existing control strip, and not as a
     // ninth tab: eight already overflow a phone, and the last ones were once
     // unreachable rather than merely off-screen.
-    // Announce an event. Deliberately inside the composer card: an event is a
-    // thing you publish, not a separate world.
-    var evText = h('input', { type: 'text', placeholder: 'what is happening?', maxlength: '280', style: 'flex:1; min-width:0' });
-    var evWhen = h('input', { type: 'datetime-local' });
-    var evWhere = h('input', { type: 'text', placeholder: 'where', maxlength: '120', style: 'flex:1; min-width:0' });
-    var evFee = h('input', { type: 'number', min: '0', step: '0.000001', placeholder: 'entry (0 = free)', style: 'width:140px' });
-    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }), h('option', { value: 'tBTC', text: 'tBTC' }));
-    var evCap = h('input', { type: 'number', min: '0', step: '1', placeholder: 'places', style: 'width:90px' });
-    head.appendChild(h('details', { style: 'margin-top:8px' },
-      h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'announce an event · minus theta' }),
-      h('div', { class: 'mini-form', style: 'margin-top:6px' }, evText),
-      h('div', { class: 'mini-form' }, evWhen, evWhere),
-      h('div', { class: 'mini-form' }, evFee, evCur, evCap,
-        h('button', { class: 'btn small primary', text: 'Announce', onclick: function () {
-          var t2 = evText.value.trim();
-          if (!t2) { toast('Say what the event is first.'); return; }
-          var fee = parseFloat(evFee.value) || 0;
-          if (fee < 0) { toast('An entry fee cannot be negative.'); return; }
-          tryAct(who, {
-            t: 'event', author: who, text: t2,
-            at: evWhen.value ? new Date(evWhen.value).getTime() : 0,
-            place: evWhere.value.trim(), fee: fee, cur: fee > 0 ? evCur.value : '',
-            cap: Math.max(0, parseInt(evCap.value, 10) || 0),
-          }, 'Event announced. It is content like any post — people can react to it, and entry moves tokens without moving standing.');
-        } })),
-      h('p', { class: 'smallnote', text: 'An entry fee moves existing tokens from whoever joins to you. It mints nothing and raises nobody\u2019s standing, yours included. A place is a physical address: deleting the event redacts it.' })));
-
     var qIn = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
     var runQ = function () { query = qIn.value; render(); };
     qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') runQ(); });
@@ -5228,6 +5211,96 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'eyebrow', text: 'how this works' }),
       h('p', { class: 'smallnote', text: 'Messages are priced acts in the public record, and vouching is the only thing here that moves a rate. The guide explains both, and what a standing actually is.' }),
       h('button', { class: 'btn small', text: 'Open the guide →', onclick: function () { tab = 'guide'; saveView(); render(); } }));
+  }
+
+  /**
+   * Events.
+   *
+   * Its own screen because an event has a shape a feed cannot show: a time
+   * that has or has not passed, a place, a price, a guest list. What it is
+   * NOT is a separate world — every card here is the same content node the
+   * feed ranks, and reacting or commenting on one is the ordinary priced act
+   * that moves standing. Only the going and the paying are unscored.
+   */
+  function eventsTab(st) {
+    var wrap = h('div', {});
+    var all = Object.keys(st.events || {});
+    var now = Date.now();
+
+    var head = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow', text: 'events — content like any post, with a door' }));
+
+    var views = [['soon', 'Coming up'], ['mine', 'Yours'], ['invited', 'Invited'], ['past', 'Past']];
+    var bar = h('div', { class: 'lanes' });
+    views.forEach(function (v) {
+      var b = h('button', { class: 'lane' + (eventView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
+      b.onclick = function () { eventView = v[0]; saveView(); render(); };
+      bar.appendChild(b);
+    });
+    head.appendChild(bar);
+
+    // Announcing one. The same form the composer carried; it belongs here.
+    var evText = h('input', { type: 'text', placeholder: 'what is happening?', maxlength: '280', style: 'flex:1; min-width:0' });
+    var evWhen = h('input', { type: 'datetime-local' });
+    var evWhere = h('input', { type: 'text', placeholder: 'where', maxlength: '120', style: 'flex:1; min-width:0' });
+    var evFee = h('input', { type: 'number', min: '0', step: '0.000001', placeholder: 'entry (0 = free)', style: 'width:140px' });
+    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }), h('option', { value: 'tBTC', text: 'tBTC' }));
+    var evCap = h('input', { type: 'number', min: '0', step: '1', placeholder: 'places', style: 'width:90px' });
+    head.appendChild(h('details', { style: 'margin-top:8px' },
+      h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'announce an event' }),
+      h('div', { class: 'mini-form', style: 'margin-top:6px' }, evText),
+      h('div', { class: 'mini-form' }, evWhen, evWhere),
+      h('div', { class: 'mini-form' }, evFee, evCur, evCap,
+        h('button', { class: 'btn small primary', text: 'Announce', onclick: function () {
+          var t2 = evText.value.trim();
+          if (!t2) { toast('Say what the event is first.'); return; }
+          var fee = parseFloat(evFee.value) || 0;
+          if (fee < 0) { toast('An entry fee cannot be negative.'); return; }
+          tryAct(who, {
+            t: 'event', author: who, text: t2,
+            at: evWhen.value ? new Date(evWhen.value).getTime() : 0,
+            place: evWhere.value.trim(), fee: fee, cur: fee > 0 ? evCur.value : '',
+            cap: Math.max(0, parseInt(evCap.value, 10) || 0),
+          }, 'Event announced.');
+        } })),
+      h('p', { class: 'smallnote', text: 'Announcing costs \u03b8 and mints a node, like any post. An entry fee moves existing tokens from whoever joins to you: it mints nothing and raises nobody\u2019s standing, yours included. A place is a physical address \u2014 deleting the event redacts it.' })));
+    wrap.appendChild(head);
+
+    var list = all.filter(function (cid) {
+      var ev = st.events[cid];
+      var going = (st.eventGoing[cid] || {})[who];
+      var invited = (st.eventInvites[cid] || {})[who];
+      if (eventView === 'mine') return ev.host === who || going;
+      if (eventView === 'invited') return !!invited;
+      if (eventView === 'past') return ev.at && ev.at < now;
+      return !ev.at || ev.at >= now;                    // 'soon'
+    });
+    // Soonest first for what is ahead, most recent first for what is behind.
+    list.sort(function (a, b) {
+      var A = st.events[a], B = st.events[b];
+      if (eventView === 'past') return (B.at || 0) - (A.at || 0);
+      if (A.at && B.at) return A.at - B.at;
+      return (B.idx || 0) - (A.idx || 0);
+    });
+
+    if (!list.length) {
+      wrap.appendChild(h('div', { class: 'card' }, h('p', { class: 'smallnote', text:
+        eventView === 'invited' ? 'Nobody has invited you to anything yet.'
+          : eventView === 'mine' ? 'You are not hosting or going to anything yet.'
+            : eventView === 'past' ? 'Nothing has happened yet.'
+              : 'Nothing is coming up. Announce something above.' })));
+      return wrap;
+    }
+
+    list.forEach(function (cid) {
+      var node = st.g.nodes.get(cid);
+      if (!node) return;
+      // The same card the feed builds, so an event is never a second kind of
+      // object with its own half-working reactions.
+      var card = postCard(st, { node: node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1);
+      wrap.appendChild(card);
+    });
+    return wrap;
   }
 
   // Geek chats — the same dm acts and threads as simple mode, lab styling.

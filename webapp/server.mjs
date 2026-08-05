@@ -1060,8 +1060,25 @@ function validate(act) {
       if (act.pinHash !== undefined && !validPinHash(act.pinHash)) return 'bad pin hash';
       break;
     }
-    case 'burn':
+    case 'burn': {
       if (!str(act.id, 24) || act.amt !== 1) return 'bad burn';
+      // The faucet's per-epoch ceiling lives in the replay, so the door and
+      // the record cannot disagree about how many are left. This check FAILS
+      // OPEN when the engine is not loaded — the same rule unknownTarget
+      // follows, and for the same reason: a missing build must never silence
+      // the network. The replay still applies the ceiling either way; the
+      // host consults it only so a refusal arrives as a sentence instead of
+      // as an act that quietly does nothing.
+      if (engineMod && replayMod) {
+        if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+        if (stateCache.len !== acts.length || !stateCache.st) {
+          stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+        }
+        const berr = stateCache.st.tokenActError({ t: 'burn', author: act.id });
+        if (berr) return berr;
+      }
+      break;
+    }
       break;
     case 'post': {
       if (tooLong(act.text, 1000, 'post')) return tooLong(act.text, 1000, 'post');

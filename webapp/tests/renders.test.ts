@@ -188,7 +188,7 @@ describe('the built page is an application, not just valid JavaScript', () => {
 
   it('draws every geek tab without throwing', async () => {
     // One dead tab is the same outage in a smaller place.
-    for (const tab of ['feed', 'chat', 'alerts', 'live', 'econ', 'guide']) {
+    for (const tab of ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide']) {
       const { dom, errors, root } = await boot({
         'peer-sandbox-who-v2': JSON.stringify('alice'),
         'peer-sandbox-mode-v1': JSON.stringify('geek'),

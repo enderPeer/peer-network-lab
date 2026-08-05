@@ -175,6 +175,27 @@ describe('a paid event moves money and nothing that is ranked', () => {
   });
 });
 
+  it('bounds the faucet, and only from a future epoch', () => {
+    // Two hundred free burns took an account to fifty-two times its standing
+    // with an act count of one, and to maximum distribution eligibility. The
+    // ceiling starts at a FUTURE epoch on purpose: applying it to the whole
+    // log would recompute every standing on the network and invalidate epoch
+    // certificates that are already published.
+    const many = (n: number, epochsClosed: number) => {
+      const acts: Record<string, unknown>[] = seed('faucet');
+      for (let e = 0; e < epochsClosed; e++) acts.push({ t: 'closeEpoch', epoch: e });
+      for (let i = 0; i < n; i++) acts.push({ t: 'burn', id: 'u_faucet', amt: 1 });
+      return replay(acts);
+    };
+    // Below the threshold nothing is capped — history is untouched.
+    const old = many(50, 0);
+    expect(old.ledgerById.u_faucet.burnBal).toBeGreaterThan(50);
+    // At and beyond it, the faucet gives eight an epoch and no more.
+    const now = many(50, 62);
+    const seedGrant = replay(seed('faucet')).ledgerById.u_faucet.burnBal;
+    expect(now.ledgerById.u_faucet.burnBal).toBeCloseTo(seedGrant + 8, 6);
+  });
+
 // ── The host's half ──────────────────────────────────────────────────────
 
 describe('the host on events', () => {

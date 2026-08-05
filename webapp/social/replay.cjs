@@ -144,6 +144,11 @@ function replayUncached(acts) {
   var mutedContent = {};
   var actContent = {};   // act index -> content id (posts only; edit targets)
   var postMeta = {};
+  // The faucet's ceiling. FROM_EPOCH is deliberately ahead of where the live
+  // network stands, so no already-recorded standing moves; see the burn branch.
+  var FAUCET_PER_EPOCH = 8;
+  var FAUCET_CAP_FROM_EPOCH = 62;
+  var faucetCount = {};   // (id '@' epoch) -> how many this epoch
   var events = {};        // cid -> {host, at, place, fee, cur, cap, idx}
   var eventInvites = {};  // cid -> { invitee: true }
   var eventGoing = {};    // cid -> { attendee: true }
@@ -312,6 +317,16 @@ function replayUncached(acts) {
     // question is 'may this happen now' rather than 'did this happen'.
     if (!ledgerById[who]) return 'unknown actor';
     if (ledgerById[who].burnBal < THETA) return 'not enough energy';
+    if (a.t === 'burn') {
+      // Asked by the host before it accepts one, so a refusal arrives as a
+      // sentence rather than as an act that silently does nothing.
+      if (certsSoFar < FAUCET_CAP_FROM_EPOCH) return null;
+      var used = faucetCount[who + '@' + certsSoFar] || 0;
+      if (used >= FAUCET_PER_EPOCH) {
+        return 'the faucet gives ' + FAUCET_PER_EPOCH + ' per epoch and this handle has taken them all — burn live units through Layer 0 instead, or wait for the next epoch';
+      }
+      return null;
+    }
     if (a.t === 'rsvp') {
       var rev = events[a.cid];
       if (!rev) return 'no such event';
@@ -483,10 +498,30 @@ function replayUncached(acts) {
       else chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
     } else if (a.t === 'burn') {
       if (!known(a.id)) continue;
-      // legacy faucet-burn (pre-economy acts in the shared log)
+      // ── The faucet, and why it now has a ceiling ────────────────────────
+      //
+      // This act credits burnBal AND earnedBurn, is not priced, and had no
+      // limit of any kind. Measured: two hundred calls took an account to
+      // fifty-two times its standing with an act count of one, and drove α̂ to
+      // its maximum, which is the eligibility that decides who earns a share
+      // of an epoch. Free maximum weight. The app said in four places that
+      // nothing mints standing; this minted it.
+      //
+      // The bound is per account per epoch, and it starts at a FUTURE epoch
+      // on purpose. Applying it to the whole log would recompute every
+      // standing on the network and invalidate epoch certificates that are
+      // already published — a retroactive rewrite is exactly what an
+      // append-only record exists to prevent. Sixty epochs are closed as this
+      // ships and the heaviest account has averaged about one burn per epoch,
+      // so this constrains nobody who is using it as intended.
+      if (certsSoFar >= FAUCET_CAP_FROM_EPOCH) {
+        var fk = a.id + '@' + certsSoFar;
+        faucetCount[fk] = (faucetCount[fk] || 0) + 1;
+        if (faucetCount[fk] > FAUCET_PER_EPOCH) continue;   // the host refuses it too
+      }
       ledgerById[a.id].burnBal += a.amt;
       earnedBurn[a.id] = (earnedBurn[a.id] || 0) + a.amt;
-      if (!payloadGone) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (legacy faucet)' });
+      if (!payloadGone) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (faucet)' });
     } else if (a.t === 'deposit') {
       if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !payloadGone) {
         chron.push({ who: a.id, line: 'deposited ' + a.amt.toFixed(2) + ' reserve → escrow (mints at the next cycle boundary)' });
