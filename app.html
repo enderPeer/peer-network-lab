@@ -178,6 +178,11 @@ html, body { overflow-x: hidden; }
 .kindtag.k-event { color: var(--brass); border-color: var(--brass); }
 .kindtag.k-stream { color: var(--ember); border-color: var(--ember); }
 .kindtag.k-live { color: var(--ember); border-color: var(--ember); background: var(--ember-soft); }
+/* The broadcast bar. Drawn by render() above everything, so it follows you
+   between tabs and between modes — a broadcast you cannot stop is worse than
+   one you cannot start. */
+.livebar { border-color: var(--ember); margin-bottom: 12px; }
+.livebar video { max-height: 180px; }
 
 .btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
 .btn:hover { border-color: var(--ember); }
@@ -735,6 +740,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var eventView = 'soon';   // 'soon' | 'mine' | 'invited' | 'past'
   var feedFile = 'all';     // 'all' | 'image' | 'video' | 'audio' | 'file' | 'text'
   var feedKind = 'any';     // 'any' | 'post' | 'event' | 'stream' | 'onair'
+  // The composer is rebuilt on every render, and a poll can fire at any
+  // moment — measured, a single pollLive call wiped a fully filled six-field
+  // event form. The draft therefore lives out here, not in the DOM.
+  var draft = { kind: 'post', text: '', at: '', place: '', fee: '', cur: 'PEER', cap: '', camera: true };
   // (econView is declared with the tab list above.)
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
@@ -1091,7 +1100,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         var after = liveList.map(function (e) { return e.author; }).join(',');
         // Only re-render when the set actually changed, so a viewer count tick
         // does not tear down an open composer every eight seconds.
-        if (before !== after && !document.querySelector('.pin-dialog')) render();
+        // A repaint here wipes whatever is being typed. The composer draft
+        // survives it now (see `draft`), but an open dialog or a form the user
+        // is standing in should still not be torn down under them — the same
+        // guard pollRemote has carried for a while.
+        if (before !== after && safeToRepaint()) render();
       })
       .catch(function () {});
   }
@@ -1102,15 +1115,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // render would wipe the dialog out from under the user mid-PIN. Recovering
     // the connection can wait the five seconds until the next tick.
     if (document.querySelector('.pin-dialog')) return;
-    if (!offline) {
-      if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return;
-      // Skip only TRANSIENT forms — ones the user opened and could lose. The
-      // live room's composer is always present, and blocking on it froze the
-      // room permanently: comments and reactions arrived and were never shown.
-      if (document.querySelector('.drawer')
-        || document.querySelector('.mini-form:not(.persistent)')
-        || document.querySelector('.lq-sheet:not(.persistent)')) return;
-    }
+    if (!offline && !safeToRepaint()) return;
     fetch(API + '/api/acts?since=' + world.acts.length, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
       .then(function (d) {
@@ -2434,6 +2439,26 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   // ── render root ──
   var root = document.getElementById('root');
+  /**
+   * Is it safe to tear the page down and rebuild it right now?
+   *
+   * Skip only TRANSIENT forms — ones somebody opened and could lose. The live
+   * room's composer is always present, and blocking on it once froze the room
+   * permanently: comments and reactions arrived and were never shown. Extracted
+   * so that every timer asks the same question — pollLive rebuilt the whole app
+   * whenever anyone on the network went live, and measured, that wiped a
+   * six-field gathering somebody was halfway through typing.
+   */
+  function safeToRepaint() {
+    var ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA'
+      || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return false;
+    if (document.querySelector('.pin-dialog')) return false;
+    return !(document.querySelector('.drawer')
+      || document.querySelector('.mini-form:not(.persistent)')
+      || document.querySelector('.lq-sheet:not(.persistent)'));
+  }
+
   function render() {
     document.body.setAttribute('data-mode', mode);
     var st = replay();
@@ -2445,6 +2470,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     root.innerHTML = '';
     dismissPinDialog(); // settle it before wiping, never orphan the promise
     document.getElementById('overlay').innerHTML = '';
+    // ── The broadcast bar ───────────────────────────────────────────────
+    //
+    // Drawn here, above the mode branch, so a broadcast and a viewing session
+    // survive every tab change, every poll and both modes with one piece of
+    // code. This has to exist before going live can be offered from the
+    // composer: the composer is destroyed on every repaint, so a broadcast
+    // started there and stopped only there could not be stopped at all — and
+    // simple mode has no live surface whatsoever, which would have left
+    // somebody paying θ for a broadcast they could neither see nor end.
+    //
+    // The video elements are the SAME objects each time, re-appended rather
+    // than rebuilt: a fresh one restarts playback and re-asks the autoplay
+    // question, and an element left out of the document gets paused.
+    if (live || watching) root.appendChild(liveBar());
     if (mode === 'liquid') {
       if (!who || !st.ledgerById[who]) renderLiquidHero(st);
       else renderLiquid(st);
@@ -2453,7 +2492,45 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       else renderGeek(st);
     }
   }
-  function setMode(m) { mode = m; save(); render(); }
+  /** The persistent strip: whatever is on air, and the one button that ends it. */
+  function liveBar() {
+    var bar = h('div', { class: 'card livebar' });
+    if (live) {
+      if (!live.el) {
+        live.el = h('video', { class: 'stream-video', autoplay: '', muted: '', playsinline: '' });
+        live.el.muted = true;
+        if (live.stream) live.el.srcObject = live.stream;
+      }
+      bar.appendChild(h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
+        live.state === 'live' ? ' you are on air · ' + fmtDur(Math.round((Date.now() - live.t0) / 1000)) : ' connecting…'));
+      bar.appendChild(live.el);
+      bar.appendChild(h('div', { class: 'mini-form persistent' },
+        h('button', { class: 'btn small', text: 'End broadcast', onclick: function () {
+          broadcastStop('Broadcast ended. The act stays in the record; the video was never in it.');
+        } }),
+        h('button', { class: 'btn small ghost', text: 'Open', onclick: function () { tab = 'live'; saveView(); render(); } })));
+      setTimeout(function () { if (live && live.el && live.el.paused) live.el.play().catch(function () {}); }, 0);
+      return bar;
+    }
+    var st0 = replay();
+    bar.appendChild(h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
+      ' watching ' + (st0.handles[watching.author] || watching.author)));
+    bar.appendChild(watching.el);
+    if (watching.note) bar.appendChild(h('p', { class: 'smallnote', text: watching.note }));
+    bar.appendChild(h('div', { class: 'mini-form persistent' },
+      h('button', { class: 'btn small', text: 'Leave', onclick: watchStop }),
+      h('button', { class: 'btn small ghost', text: 'Open', onclick: function () { tab = 'live'; saveView(); render(); } })));
+    setTimeout(function () { if (watching && watching.el && watching.el.paused && watching.state === 'playing') watching.el.play().catch(function () {}); }, 0);
+    return bar;
+  }
+
+  function setMode(m) {
+    // Leaving geek mode while broadcasting used to strand the camera: simple
+    // mode had no live surface at all, so the stream ran on with no way to
+    // end it. The bar above follows into both modes now, but the identity
+    // exits still need saying out loud.
+    mode = m; save(); render();
+  }
 
   // ═══ LIQUID FRONTEND ═══
   function renderLiquidHero(st) {
@@ -4223,20 +4300,132 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     text.addEventListener('input', updateCount);
     updateCount();
+    // ── One composer, three kinds ────────────────────────────────────────
+    //
+    // A note, a gathering and a broadcast are the same thing in the record —
+    // each mints a Content node through the same path — so they are published
+    // from the same place. The fields a kind cannot carry are UNMOUNTED, not
+    // disabled: the host's field whitelist deletes them silently and answers
+    // 200, so a fee left behind on a note would vanish without a word, and an
+    // attachment left on an event would show a chip for a file that never
+    // travelled.
+    text.value = draft.text;
+    text.addEventListener('input', function () { draft.text = text.value; });
+    var KINDS = [['post', 'Note'], ['event', 'Gathering'], ['stream', 'Broadcast']];
+    var CEIL = { post: TEXT_MAX, event: 280, stream: 200 };
+    var kindBar = h('div', { class: 'uline' });
+    KINDS.forEach(function (k) {
+      kindBar.appendChild(h('button', { class: draft.kind === k[0] ? 'on' : '', text: k[1], onclick: function () {
+        draft.kind = k[0];
+        // Clear what the new kind cannot carry, rather than leaving it to be
+        // dropped at the door.
+        if (k[0] !== 'event') { draft.at = ''; draft.place = ''; draft.fee = ''; draft.cap = ''; }
+        if (k[0] !== 'post') { composeQuote = null; composeMedia = null; }
+        render();
+      } }));
+    });
+
+    var evAt = h('input', { type: 'datetime-local', value: draft.at });
+    var evPlace = h('input', { type: 'text', placeholder: 'where', maxlength: '120', value: draft.place, style: 'flex:1; min-width:0' });
+    var evFee = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'entry (blank = free)', value: draft.fee, style: 'width:150px' });
+    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }), h('option', { value: 'tBTC', text: 'tBTC' }));
+    evCur.value = draft.cur;
+    var evCap = h('input', { type: 'text', inputmode: 'numeric', placeholder: 'places', value: draft.cap, style: 'width:90px' });
+    [[evAt, 'at'], [evPlace, 'place'], [evFee, 'fee'], [evCur, 'cur'], [evCap, 'cap']].forEach(function (p) {
+      p[0].addEventListener('input', function () { draft[p[1]] = p[0].value; });
+      p[0].addEventListener('change', function () { draft[p[1]] = p[0].value; });
+    });
+    var camBox = h('input', { type: 'checkbox' });
+    camBox.checked = draft.camera;
+    camBox.addEventListener('change', function () { draft.camera = camBox.checked; });
+
+    /**
+     * A fee typed on a German keyboard.
+     *
+     * The old form read parseFloat on a number input, and a browser that
+     * considers "0,5" invalid reports an empty string — so a comma decimal
+     * silently became 0 and published a FREE gathering the author believed
+     * was priced. The field is text now and the comma is read as what it is.
+     */
+    function readFee() {
+      var raw = String(draft.fee || '').trim().replace(',', '.');
+      if (!raw) return 0;
+      var n = parseFloat(raw);
+      return isFinite(n) && n > 0 ? n : NaN;
+    }
+
+    var cost = (function () {
+      if (draft.kind !== 'post') return 1;
+      var probe = { t: 'post', author: who, text: text.value, ref: composeQuote };
+      try { return actCost(probe, st); } catch (e) { return 1; }
+    })();
+    var verb = draft.kind === 'event' ? 'Announce' : draft.kind === 'stream' ? 'Go live' : 'Publish';
+
     var composer = h('div', { class: 'card composer' },
-      h('p', { class: 'eyebrow', text: 'publish' }), text, counter, chips,
-      h('div', { class: 'row' }, att.row,
-        h('button', { class: 'btn small', text: '+ media', onclick: function () { fileIn.click(); } }), fileIn,
-        h('button', { class: 'btn primary', text: 'Post · −θ', onclick: function () {
-          var t = text.value.trim();
-          if (!t && !composeMedia) { toast('Write something — the payload is yours, the husk is the network’s.'); return; }
-          if (t.length > TEXT_MAX) { toast('Too long by ' + (t.length - TEXT_MAX) + ' characters — the limit is ' + TEXT_MAX + '. Trim it before spending θ.'); return; }
-          var act = { t: 'post', author: who, text: t || '·', a: att.value() };
-          if (composeQuote) act.ref = composeQuote;
-          if (composeMedia) act.media = [composeMedia];
-          tryAct(who, act, 'Posted. Publish mints the Content node; references append as their own acts.');
-          composeQuote = null; composeMedia = null;
-        } })));
+      h('p', { class: 'eyebrow', text: 'publish' }), kindBar, text, counter, chips);
+    if (draft.kind === 'event') {
+      composer.appendChild(h('div', { class: 'mini-form persistent' }, evAt, evPlace));
+      composer.appendChild(h('div', { class: 'mini-form persistent' }, evFee, evCur, evCap));
+      composer.appendChild(h('p', { class: 'smallnote', text: 'An entry fee moves existing tokens from whoever joins to you. It mints nothing and raises nobody\u2019s standing, yours included. The place is a physical address — deleting the gathering redacts it. A gathering cannot be revised afterwards, only deleted.' }));
+    }
+    if (draft.kind === 'stream') {
+      composer.appendChild(h('div', { class: 'mini-form persistent' },
+        h('label', { class: 'smallnote' }, camBox, ' camera'),
+        h('span', { class: 'smallnote', text: 'Your video goes to the host once and the host sends it on, so your upload is the same for one viewer or a hundred.' })));
+    }
+    var row = h('div', { class: 'row' });
+    if (draft.kind === 'post') {
+      row.appendChild(att.row);
+      row.appendChild(h('button', { class: 'btn small', text: '+ media', onclick: function () { fileIn.click(); } }));
+      row.appendChild(fileIn);
+    }
+    row.appendChild(h('button', { class: 'btn primary', text: verb + ' · −' + (cost > 1 ? cost : '') + 'θ', onclick: function () {
+      var t = text.value.trim();
+      var ceil = CEIL[draft.kind];
+      if (!t && !(draft.kind === 'post' && composeMedia)) { toast('Say what it is first — the payload is yours, the husk is the network’s.'); return; }
+      if (t.length > ceil) { toast('Too long by ' + (t.length - ceil) + ' characters — the limit for a ' + draft.kind + ' is ' + ceil + '. Trim it before spending θ.'); return; }
+
+      if (draft.kind === 'post') {
+        var act = { t: 'post', author: who, text: t || '·', a: att.value() };
+        if (composeQuote) act.ref = composeQuote;
+        if (composeMedia) act.media = [composeMedia];
+        tryAct(who, act, 'Published. Publish mints the Content node; references append as their own acts.');
+        composeQuote = null; composeMedia = null; draft.text = ''; text.value = '';
+        return;
+      }
+
+      if (draft.kind === 'stream') {
+        // Only the TRIGGER lives here. The session — the camera, the recorder,
+        // the socket — is held on `live` and drawn by the bar at the top, so
+        // this element being destroyed on the next repaint costs nothing.
+        broadcastStart(t, draft.camera);
+        draft.text = ''; text.value = '';
+        return;
+      }
+
+      var fee = readFee();
+      if (isNaN(fee)) { toast('That entry fee is not a number I can read. Use a plain figure like 0.5, or leave it blank for a free gathering.'); return; }
+      var when = draft.at ? new Date(draft.at).getTime() : 0;
+      var cap = Math.max(0, parseInt(String(draft.cap || '').replace(/[^0-9]/g, ''), 10) || 0);
+      // A gathering cannot be revised — the host refuses a revision whose
+      // original is an event — and its only remedy is a delete. So the numbers
+      // are read back before they become permanent.
+      var summary = 'Announce this gathering?\n\n'
+        + '· ' + t + '\n'
+        + '· when: ' + (when ? new Date(when).toLocaleString() : 'not stated') + '\n'
+        + '· where: ' + (draft.place || 'not stated') + '\n'
+        + '· entry: ' + (fee > 0 ? fee + ' ' + draft.cur + ', paid to you' : 'free') + '\n'
+        + '· places: ' + (cap || 'unlimited') + '\n\n'
+        + 'Once published the price and the place cannot be edited — only deleted.';
+      if (!window.confirm(summary)) return;
+      tryAct(who, {
+        t: 'event', author: who, text: t, at: when, place: draft.place.trim(),
+        fee: fee, cur: fee > 0 ? draft.cur : '', cap: cap,
+      }, 'Gathering announced. It is content like any post — people can react to it, and entry moves tokens without moving standing.');
+      draft.text = ''; draft.at = ''; draft.place = ''; draft.fee = ''; draft.cap = '';
+      text.value = '';
+    } }));
+    composer.appendChild(row);
 
     var wrap = h('div', {});
 
