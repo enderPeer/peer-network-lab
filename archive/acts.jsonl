@@ -750,3 +750,5 @@
 {"t":"review","author":"u_ender133","target":"c439","e":0.7,"f":0.8,"text":"was gheht c ooler stream","ts":1785922905420}
 {"t":"event","author":"u_ender133","text":"Test event party","at":0,"place":"office","fee":0.000002,"cur":"PEER","cap":20,"ts":1785923764381}
 {"t":"invite","from":"u_ender133","to":"u_cam","cid":"c442","ts":1785923776445}
+{"t":"stream","author":"u_a","text":"Dgh","a":0.8,"ts":1785927394618}
+{"t":"post","author":"u_ender133","text":"test","a":0.8,"media":[{"h":"ae0f27ddd4c7e05a9db6c76a731b1c13e3d8ac74f2518e0df2e95ff1440a31cd","m":"audio/mpeg","n":"hauntsync-operational-focus-fast-thrash-metal-instrumental-391329.mp3"}],"ts":1785930089699,"rmen":[]}

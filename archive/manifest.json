@@ -1,8 +1,8 @@
 {
-    "acts":  752,
-    "sha256":  "e2a4573d5f3c4aedb1c6c56682a2d305031b0a8167a1e4cd54c6ea0e0d93654c",
-    "at":  1785927295847,
-    "host":  "https://vertical-continue-cleaners-layers.trycloudflare.com",
+    "acts":  754,
+    "sha256":  "7691b2a32562a267e10a4ad14919c8f76b22009d436c0404b7e7aba610117b27",
+    "at":  1785930291209,
+    "host":  "https://estimate-copying-projector-champion.trycloudflare.com",
     "media":  true,
     "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust."
 }
