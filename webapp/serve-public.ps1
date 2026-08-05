@@ -6,8 +6,7 @@
 # NOTE: ASCII-only on purpose - Windows PowerShell 5.1 misparses BOM-less UTF-8 scripts.
 param(
   # URL of the primary host to mirror. Empty = this host IS the primary.
-  # The role is written to server-data
-ole.json, which server.mjs reads on
+  # The role is written to server-data/role.json, which server.mjs reads on
   # every boot - so watchdog restarts keep the role without carrying any
   # environment. A mirror syncs log+media from the primary and refuses writes.
   [string]$MirrorOf = ''

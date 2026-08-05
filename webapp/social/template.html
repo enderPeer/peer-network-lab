@@ -132,6 +132,13 @@ html, body { overflow-x: hidden; }
 .idcard .who { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
 .avatar { width: 42px; height: 42px; border-radius: 5px; border: 1.5px solid var(--ink); background: var(--card-2); color: var(--ink); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 700; font-size: 21px; flex: none; }
 .avatar.s { width: 27px; height: 27px; font-size: 13.5px; }
+.avatar, .lq-ava { position: relative; overflow: hidden; }
+/* The portrait sits ON the monogram rather than instead of it, so a picture
+   that never loads leaves the letter behind. `cover`, never `contain`: the
+   blob is already a square crop, and contain would letterbox anything that
+   was stored before this rule existed. */
+.ava-img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .12s ease; }
+.ava-img.ok { opacity: 1; }
 .handle { font-weight: 700; font-size: 15px; }
 .standing-chip { font-family: var(--mono); font-size: 11px; color: var(--brass); background: var(--brass-soft); border-radius: 10px; padding: 2px 8px; }
 .ledger { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12.5px; margin: 0; }
@@ -319,6 +326,19 @@ body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0
 .audio-wave { display: block; width: 100%; height: 44px; cursor: pointer; }
 .audio-wrap.wave-none .audio-wave { display: none; }
 body[data-mode='liquid'] .audio-wrap { background: var(--lq-sunk); border-color: var(--lq-rule); border-radius: 4px; }
+.track-now { font-size: 12.5px; color: var(--muted); padding: 2px 0 4px; }
+.audio-wrap.playlist { padding-bottom: 6px; }
+.track-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+.track-list { list-style: none; margin: 4px 0 0; padding: 0; max-height: 232px; overflow-y: auto; }
+.track-row { display: flex; align-items: center; gap: 9px; padding: 5px 7px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+.track-row:hover { background: var(--card); }
+.track-row.on { background: var(--card); color: var(--ember); font-weight: 600; }
+.track-no { min-width: 18px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.track-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-size { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.offline-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 6px 0 2px; }
+.offline-row .kept { font-size: 12.5px; color: var(--good, var(--ember)); }
+body[data-mode='liquid'] .track-row:hover, body[data-mode='liquid'] .track-row.on { background: var(--lq-glass-2); }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 11px; margin: 8px 0 4px; color: var(--ink); text-decoration: none; background: var(--card-2); }
 .file-chip:hover { border-color: var(--ember); }
 body[data-mode='liquid'] .file-chip { background: var(--lq-glass-2); border-color: var(--lq-edge); color: var(--lq-ink); border-radius: 12px; }
@@ -723,7 +743,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var API = ''; // '' = this origin; set by resolveHost() when served statically
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
   var feedLimit = 30;    // windowed rendering — raised by "show more"
-  var composeMedia = null, composeQuote = null; // pending composer attachments
+  // An ORDERED LIST of pending attachments, not one slot. `media` has been an
+  // array in the record since the day it existed — the composer was the only
+  // thing insisting on a single entry, so a post could never be an album. The
+  // order here is the order in the act, which is the order the playlist plays.
+  var composeMedia = [], composeQuote = null;
+  var COMPOSE_MAX = 12;          // the host refuses more; see MEDIA_MAX_ENTRIES
+  var composeBusy = false;       // one upload at a time: the host allows 10/min/IP
   var focusNode = null;  // jump target from the Record/Alerts — pinned atop the feed
   var netScope = 'social', netMinW = 0, netView = null; // network tab: filter + viewport
   // The solved layout, kept across repaints. See netTab for why: solving it is
@@ -1275,6 +1301,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         }
         world = { acts: [{ t: 'seedWorld' }].concat(acts) };
         archiveInfo = { at: got.man.at, acts: got.man.acts, host: got.man.host || null, sha256: got.man.sha256 };
+        // The snapshot ships the blobs beside the log whenever it was published
+        // with -ArchiveMedia, and the manifest has always said so. Nothing read
+        // it: every media element resolved to /api/media/<hash> on static
+        // hosting, which is a 404 by construction — 13.9 MB published and never
+        // once displayed. The flag is not taken on trust; a blob that is not
+        // there still fails the same visible way it always did.
+        ARCHIVE_MEDIA = got.man.media ? 'archive/media/' : '';
         REMOTE = false;                 // read-only: there is nobody to write to
         render();
         return true;
@@ -1442,8 +1475,49 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     input.addEventListener('input', function () { out.textContent = fmt(input.value, 2); });
     return { row: h('span', { class: cls || 'slider' }, label + ' ', input, out), value: function () { return Number(input.value); } };
   }
-  function avatar(handle, cls) {
-    return h('span', { class: cls || 'avatar', text: (handle || '?')[0].toUpperCase() });
+  /**
+   * A person, on screen.
+   *
+   * Takes the ID and looks the handle up itself. That is the change that made
+   * pictures possible at all: it used to take a handle STRING, so nothing
+   * inside could look anything up, and two people whose names begin with the
+   * same letter were the identical mark everywhere in the app. Every call site
+   * already held the id and was throwing it away.
+   *
+   * The letter is not replaced, it is covered. Fifty-three of the fifty-four
+   * accounts on this network have never set a picture, and one that fails to
+   * load — an old hash, a host that moved, a mirror that never pulled the blob
+   * — has to leave a person's mark on screen rather than a hole.
+   *
+   * The picture is read from st.profiles, which is the replay's own record of
+   * the latest profile act. Never from a cache keyed by handle: that would
+   * outlive a profile act that took the picture down.
+   */
+  function avatar(id, cls) {
+    var st0 = replay();
+    var handle = (st0.handles && st0.handles[id]) || id || '';
+    var box = h('span', { class: cls || 'avatar', text: (handle || '?')[0].toUpperCase() });
+    var pic = st0.profiles && st0.profiles[id] && st0.profiles[id].pic;
+    if (!pic) return box;
+    // Eager, unlike post media. A portrait is 3 KB and it is identity: it
+    // appears in lists, comment trees and mention chips, where deferring it
+    // only makes the page change under the reader. `loading="lazy"` also does
+    // nothing at all while a tab is in the background — measured here, the
+    // pictures simply never arrived — which is the wrong behaviour for the one
+    // image that says who somebody is.
+    var img = h('img', { class: 'ava-img', alt: '', decoding: 'async' });
+    // Transparent until it actually decodes, and never removed. attachMedia's
+    // own error path retries from the offline store and resolves a tick later,
+    // so an element taken out of the box on the first failure would never come
+    // back — the picture would be missing on exactly the device that has it.
+    //
+    // Transparent and NOT display:none, which is the version that shipped for
+    // ten minutes and loaded nothing at all: a lazily-loaded image with no box
+    // is never in the viewport, so the browser never fetches it.
+    img.addEventListener('load', function () { img.classList.add('ok'); });
+    attachMedia(img, { h: pic, m: 'image/jpeg' });
+    box.appendChild(img);
+    return box;
   }
   function deltaChip(id, st) {
     if (!(id in prevX)) return null;
@@ -1667,7 +1741,39 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * what you said rather than what the record computed.
    */
   function profileFlow(st) {
-    var cur = (st.profiles && st.profiles[who]) || { bio: '', link: '' };
+    var cur = (st.profiles && st.profiles[who]) || { bio: '', link: '', pic: '' };
+    var picHash = cur.pic || '';
+    var picBusy = false;
+    var preview = h('span', { class: 'avatar', style: 'width:72px; height:72px; font-size:34px' });
+    function drawPreview(url) {
+      preview.textContent = (st.handles[who] || '?')[0].toUpperCase();
+      if (!url) return;
+      var img = h('img', { class: 'ava-img', alt: '' });
+      img.src = url;
+      preview.appendChild(img);
+    }
+    drawPreview(picHash ? mediaURL({ h: picHash, m: 'image/jpeg' }) : '');
+    var picIn = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+    picIn.addEventListener('change', function () {
+      var f = picIn.files && picIn.files[0];
+      picIn.value = '';
+      if (!f) return;
+      if (!REMOTE) { toast('A picture needs the shared network host — nothing is storing bytes here.'); return; }
+      picBusy = true;
+      toast('Cropping…');
+      squareThumb(f, AVATAR_PX).then(function (blob) {
+        // Shown BEFORE it is uploaded, and it is the very blob that goes: what
+        // is approved on screen is what becomes permanent.
+        drawPreview(URL.createObjectURL(blob));
+        return uploadMedia(blob, 'image/jpeg').then(function (d) {
+          picHash = d.h; picBusy = false;
+          toast('Picture ready — ' + AVATAR_PX + '×' + AVATAR_PX + ', ' + Math.round((d.size || blob.size) / 1024) + ' KB. Save to publish it.');
+        });
+      }).catch(function (e) {
+        picBusy = false;
+        toast('That picture could not be prepared here (' + String(e.message || e) + '). Try a JPEG or PNG — on iPhone, set the camera to “Most Compatible”.');
+      });
+    });
     var bio = h('textarea', { rows: '3', maxlength: '280', placeholder: 'a line about you — 280 characters' });
     bio.value = cur.bio || '';
     var link = h('input', { type: 'url', maxlength: '200', placeholder: 'https://… (optional)' });
@@ -1680,14 +1786,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('div', { class: 'pin-card' },
         h('h3', { text: 'Your profile' }),
         h('p', { class: 'smallnote', text: 'Shown on your profile and readable by anyone — it goes into the public record like every other act. It changes no score.' }),
+        h('div', { class: 'mini-form persistent', style: 'align-items:center' }, preview,
+          h('button', { class: 'btn small', text: picHash ? 'Change picture' : 'Add a picture', onclick: function () { picIn.click(); } }),
+          picHash ? h('button', { class: 'btn small', text: 'Remove', onclick: function () {
+            picHash = ''; drawPreview(''); toast('Picture cleared. Save to publish that.');
+          } }) : null, picIn),
+        h('p', { class: 'smallnote', text: 'A picture is cropped square and re-encoded at ' + AVATAR_PX + '×' + AVATAR_PX + ' on this device before it goes anywhere — about 21 KB. It is stored in the public media store like every other attachment, and it is shown beside your handle everywhere.' }),
         bio, link,
         h('div', { class: 'mini-form' },
           h('button', { class: 'btn small', text: 'Cancel', onclick: close }),
           h('button', { class: 'btn small primary', text: 'Save', onclick: function () {
             var l2 = link.value.trim();
             if (l2 && !/^https?:\/\//i.test(l2)) { toast('A link has to start with http:// or https://.'); return; }
+            if (picBusy) { toast('The picture is still being prepared — give it a moment.'); return; }
             close();
-            tryAct(who, { t: 'profile', id: who, bio: bio.value.trim(), link: l2 }, 'Profile saved.');
+            tryAct(who, { t: 'profile', id: who, bio: bio.value.trim(), link: l2, pic: picHash }, 'Profile saved.');
           } })))));
   }
 
@@ -1889,7 +2002,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
               ' ', hopChip(st, c.id, false)),
         h.apply(null, [liquid ? 'div' : 'div', { class: liquid ? 'txt' : 'c-body' }].concat(richText(st, c.text))));
       var row = h('div', { class: (liquid ? 'lq-comment' : 'comment') + (depth > 0 ? ' nested' : '') },
-        avatar(st.handles[c.author], liquid ? 'lq-ava xs' : 'avatar s'), body);
+        avatar(c.author, liquid ? 'lq-ava xs' : 'avatar s'), body);
       var openForm = null;
       // React on the comment itself — cam's ask, confirmed on the data side by
       // feedback2000. An Opinion act targeting the Comment node.
@@ -2123,34 +2236,241 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   // ── Media: content-addressed payload, rendered + cached on the viewer's device ──
   /**
+   * Where a blob's bytes are — in ONE place.
+   *
+   * There were three copies of this expression and every one of them said
+   * `API + '/api/media/' + h`. With no host answering, API is the empty string
+   * and that resolves to the page's own root, which on static hosting is a
+   * guaranteed 404: the published archive has been shipping a byte-identical
+   * copy of every blob under archive/media/ and nothing in the app has ever
+   * known it was there. Four sources, in order of what is closest.
+   */
+  var ARCHIVE_MEDIA = '';   // set by loadArchive when the snapshot carries media
+  function mediaURL(entry) {
+    if (entry.d) return entry.d;                        // local sandbox: inline bytes
+    if (API) return API + '/api/media/' + entry.h;      // a host answered
+    if (ARCHIVE_MEDIA) return ARCHIVE_MEDIA + entry.h;  // the published snapshot
+    return '/api/media/' + entry.h;                     // nothing has it: fails visibly
+  }
+
+  /**
    * Media is content-addressed and served `immutable`, so the browser's own
-   * HTTP cache is the right (and persistent) cache. We deliberately do NOT
-   * hand out object URLs from IndexedDB blobs: a blob read back from IDB dies
-   * with its database connection, which silently produced blank images.
+   * HTTP cache is the right (and persistent) cache for ordinary reading. We
+   * deliberately do NOT hand out object URLs as the normal path: a blob read
+   * back from IndexedDB dies with its database connection, which silently
+   * produced blank images. The offline store below is the Cache API instead,
+   * which holds whole Responses and is read by the service worker, so a saved
+   * post plays through this same <audio src> with nothing swapped at all.
+   *
+   * The object-URL branch here is the LAST resort, for the case where no
+   * service worker can exist — registration is guarded on a secure context —
+   * and the bytes are nonetheless on this device.
    */
   function attachMedia(el, entry) {
     if (entry.d) { el.src = entry.d; return; } // local-mode inline data URL
-    el.addEventListener('error', function () { el.classList.add('media-failed'); }, { once: true });
-    el.src = API + '/api/media/' + entry.h;
+    el.addEventListener('error', function () {
+      offlineBlobURL(entry.h).then(function (u) {
+        if (u) { el.src = u; return; }
+        el.classList.add('media-failed');
+      });
+    }, { once: true });
+    el.src = mediaURL(entry);
   }
-  // ── Audio waveform: real peaks, decoded on the listener's own hardware ──
+
+  // ── Kept offline: a post's media, on this device, because somebody asked ──
+  /**
+   * The store is the Cache API and the key is the CONTENT HASH, never the URL
+   * the bytes came from. This host's public address is a tunnel that changes
+   * on every restart, so a blob keyed by the live origin would become
+   * unreachable the moment the host moved — with the bytes intact and the
+   * hash unchanged. The hash is the identity; the origin is an accident.
+   *
+   * What is saved is asked of the cache itself, never of a flag we wrote. A
+   * 'Saved' badge backed by localStorage while the browser has evicted the
+   * entry is a claim on screen that is not in the record, which is the one
+   * kind of bug this whole project is built to refuse.
+   */
+  var MEDIA_CACHE = 'peer-media-v1';
+  var offlineSizes = null;    // hash -> bytes, read back from the cache
+  var offlineURLs = {};       // hash -> object URL, for the no-service-worker path
+  function offlineKey(hash) { return location.origin + '/_peer_media/' + hash; }
+  function offlineAvailable() { return !!(window.caches && window.isSecureContext); }
+  function offlineHas(hash) { return !!(offlineSizes && offlineSizes[hash] !== undefined); }
+
+  /** What is actually stored, and how big it actually is. */
+  function offlineScan() {
+    if (!offlineAvailable()) { offlineSizes = {}; return Promise.resolve(offlineSizes); }
+    return caches.open(MEDIA_CACHE).then(function (c) {
+      return c.keys().then(function (keys) {
+        return Promise.all(keys.map(function (k) {
+          var hash = String(k.url).split('/_peer_media/')[1] || '';
+          return c.match(k).then(function (r) {
+            var n = r ? Number(r.headers.get('content-length')) : 0;
+            return { h: hash, s: n > 0 ? n : 0 };
+          }).catch(function () { return { h: hash, s: 0 }; });
+        }));
+      });
+    }).then(function (rows) {
+      var out = {};
+      rows.forEach(function (r) { if (r.h) out[r.h] = r.s; });
+      offlineSizes = out;
+      return out;
+    }).catch(function () { offlineSizes = {}; return offlineSizes; });
+  }
+
+  function offlineSave(entries) {
+    if (!offlineAvailable()) {
+      return Promise.reject(new Error('Keeping files needs a secure connection \u2014 this page is not on one.'));
+    }
+    // Ask for the storage to be durable the first time somebody saves. Without
+    // it every byte here is best-effort and evictable under disk pressure, and
+    // on iOS it is cleared outright after a week without a visit.
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* not fatal */ }
+    return caches.open(MEDIA_CACHE).then(function (c) {
+      return entries.reduce(function (p, e) {
+        return p.then(function () {
+          if (e.d || !e.h) return null;         // inline bytes are already here
+          // An explicit CORS fetch, NOT the element's own request. A media
+          // element fetches no-cors and yields an opaque response: it cannot be
+          // read back, cannot be sliced to answer a seek, and the browser
+          // counts it against the quota at a heavily padded size.
+          return fetch(mediaURL(e), { mode: 'cors', credentials: 'omit' }).then(function (r) {
+            if (!r.ok) throw new Error('that file did not come back (HTTP ' + r.status + ')');
+            return c.put(offlineKey(e.h), r);
+          });
+        });
+      }, Promise.resolve());
+    }).then(offlineScan);
+  }
+
+  function offlineDrop(entries) {
+    if (!offlineAvailable()) return Promise.resolve(offlineSizes || {});
+    return caches.open(MEDIA_CACHE).then(function (c) {
+      return Promise.all(entries.map(function (e) {
+        if (offlineURLs[e.h]) { try { URL.revokeObjectURL(offlineURLs[e.h]); } catch (x) {} delete offlineURLs[e.h]; }
+        return e.h ? c.delete(offlineKey(e.h)) : null;
+      }));
+    }).then(offlineScan);
+  }
+
+  function offlineBlobURL(hash) {
+    if (!hash || !offlineAvailable()) return Promise.resolve(null);
+    if (offlineURLs[hash]) return Promise.resolve(offlineURLs[hash]);
+    return caches.open(MEDIA_CACHE).then(function (c) { return c.match(offlineKey(hash)); })
+      .then(function (r) {
+        if (!r) return null;
+        return r.blob().then(function (b) {
+          offlineURLs[hash] = URL.createObjectURL(b);
+          return offlineURLs[hash];
+        });
+      }).catch(function () { return null; });
+  }
+
+  function humanBytes(n) {
+    if (!(n > 0)) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+    return (Math.round(n / (1024 * 1024) * 10) / 10) + ' MB';
+  }
+
+  /**
+   * The control on a post that carries files.
+   *
+   * The size shown BEFORE saving comes from `s` in the record — a number the
+   * host checked against the bytes on its own disk, so it cannot be a figure
+   * the composer invented. Posts published before that field existed carry no
+   * size, and this says nothing rather than guessing one.
+   */
+  function offlineRow(st, cid) {
+    var entries = (st.mediaMeta[cid] || []).filter(function (e) { return e && e.h && !e.d; });
+    if (!entries.length || !offlineAvailable()) return null;
+    var saved = entries.filter(function (e) { return offlineHas(e.h); });
+    var row = h('div', { class: 'offline-row' });
+    if (offlineSizes === null) {
+      row.appendChild(h('span', { class: 'smallnote', text: 'checking what is kept on this device\u2026' }));
+      return row;
+    }
+    if (saved.length === entries.length) {
+      var got = saved.reduce(function (a, e) { return a + (offlineSizes[e.h] || 0); }, 0);
+      var kept = h('span', { class: 'kept', text: '\u2713 kept on this device' + (got ? ' \u00b7 ' + humanBytes(got) : '') });
+      // Exactly what was kept, because the difference matters and nothing else
+      // on screen would say it: the FILES are on this device and play with no
+      // network. The act log is never cached \u2014 that rule predates this feature
+      // and is the reason a stale feed can never be served as a live one \u2014 so
+      // finding this post again with no host means reading the published
+      // archive, which the installed app keeps beside the shell.
+      kept.title = 'The files are on this device and play with no network. The post itself is read from the published archive when no host answers \u2014 the act log is never cached, because a stale feed served as a live one is the one failure this project refuses.';
+      row.appendChild(kept);
+      row.appendChild(h('button', { class: 'btn small', text: 'Remove', onclick: function () {
+        offlineDrop(entries).then(function () { toast('Removed from this device. The post itself is untouched.'); render(); });
+      } }));
+      return row;
+    }
+    var known = entries.reduce(function (a, e) { return a + (Number(e.s) > 0 ? Number(e.s) : 0); }, 0);
+    var allKnown = entries.every(function (e) { return Number(e.s) > 0; });
+    row.appendChild(h('button', { class: 'btn small', text: 'Keep offline' + (allKnown ? ' \u00b7 ' + humanBytes(known) : ''), onclick: function () {
+      toast('Downloading\u2026');
+      offlineSave(entries).then(function () {
+        toast('Kept on this device. It plays with no host and no network.');
+        render();
+      }).catch(function (e2) { toast(String(e2.message || e2)); });
+    } }));
+    if (saved.length) row.appendChild(h('span', { class: 'smallnote', text: saved.length + ' of ' + entries.length + ' already here' }));
+    return row;
+  }
+  // ── Audio: real peaks, decoded on the listener's own hardware ──
+  // The key was the literal string 'inline' for every data-URL entry, so all
+  // locally-held audio in a session shared one waveform — silently, drawing the
+  // wrong shape with no error. Unreachable while audio needed a host; reachable
+  // the moment anything holds bytes on the device.
   var wavePeaks = {}; // media key -> Float32Array of bucket peaks (per session)
-  function audioViz(entry) {
-    var key = entry.h || 'inline';
-    var wrap = h('div', { class: 'audio-wrap' });
+  // The largest avatar anywhere in this app is 42 CSS px. 256 square covers
+  // that at a device pixel ratio of 3 with headroom to spare, and measures
+  // about 21 KB as JPEG — against ~250 KB for the 1280px downscale the post
+  // pipeline produces, for a mark drawn beside every handle on every screen.
+  var AVATAR_PX = 256;
+  function waveKey(entry) { return entry.h || ('d:' + String(entry.d || '').slice(0, 96)); }
+
+  /**
+   * One or more audio files on a post, played as ONE thing.
+   *
+   * `media` has always been an ordered array in the record — the composer
+   * simply never filled a second slot. So a playlist needs no new field and no
+   * new act: track N is media[N], in log order, and its title is the `n` the
+   * record already carried and nothing ever showed.
+   *
+   * ONE <audio> element for the whole post, its src swapped on change. N
+   * separate players was what the old code produced for N entries, with no
+   * shared state whatsoever: every one of them could play at once, and every
+   * one downloaded its entire file on RENDER to draw a waveform. On a
+   * twelve-track post that is the whole album pulled before anybody presses
+   * play. Peaks are decoded for the current track only.
+   */
+  function audioPlaylist(entries) {
+    // A copy. st.mediaMeta[cid] IS the act object's own array — on the host
+    // that array is what gets serialised back to disk, so nothing on a screen
+    // may sort, splice or annotate it.
+    var list = entries.slice();
+    var many = list.length > 1;
+    var idx = 0;
+    var wrap = h('div', { class: 'audio-wrap' + (many ? ' playlist' : '') });
     var cv = h('canvas', { class: 'audio-wave' });
     var au = h('audio', { class: 'post-audio', controls: '', preload: 'metadata' });
-    attachMedia(au, entry);
-    wrap.appendChild(cv);
-    wrap.appendChild(au);
+    var caption = h('div', { class: 'track-now' });
+    var rows = many ? h('ol', { class: 'track-list' }) : null;
 
-    var peaks = wavePeaks[key] || null;
+    function trackName(e, i) { return e.n || ('Track ' + (i + 1)); }
+    var peaks = null;
     function draw() {
       var w = cv.clientWidth || 320, hgt = 44;
       var dpr = window.devicePixelRatio || 1;
       cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr);
       cv.style.height = hgt + 'px';
       var ctx = cv.getContext('2d');
+      // No 2D context: a browser with canvas switched off, or a headless DOM.
+      // The waveform is decoration; the player is not. Draw nothing and let
+      // everything else carry on rather than throwing out of the whole card.
+      if (!ctx) { wrap.classList.add('wave-none'); return; }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, hgt);
       var css = getComputedStyle(document.body);
@@ -2172,8 +2492,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       }
     }
     function load() {
+      var entry = list[idx];
+      var key = waveKey(entry);
       if (peaks) { draw(); return; }
-      var url = entry.d || (API + '/api/media/' + entry.h);
+      var url = mediaURL(entry);
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) { draw(); return; }
       fetch(url).then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
@@ -2188,22 +2510,84 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             out[b] = mx; if (mx > peak) peak = mx;
           }
           if (peak > 0) for (var k = 0; k < N; k++) out[k] /= peak; // normalise
-          wavePeaks[key] = out; peaks = out;
+          wavePeaks[key] = out;
+          if (waveKey(list[idx]) === key) { peaks = out; draw(); }
           try { ac.close(); } catch (e) {}
-          draw();
         });
       }).catch(function () { wrap.classList.add('wave-none'); });
     }
+
+    /** Move to a track. `go` is true when a person chose it, not the tape. */
+    function select(i, go) {
+      if (i < 0 || i >= list.length) return;
+      idx = i;
+      var entry = list[idx];
+      peaks = wavePeaks[waveKey(entry)] || null;
+      wrap.classList.remove('wave-none');
+      attachMedia(au, entry);
+      caption.textContent = many
+        ? (idx + 1) + ' of ' + list.length + ' \u00b7 ' + trackName(entry, idx)
+        : trackName(entry, idx);
+      if (rows) {
+        Array.prototype.forEach.call(rows.children, function (li, j) {
+          li.className = j === idx ? 'track-row on' : 'track-row';
+        });
+      }
+      draw();
+      load();
+      if (go) { var p = au.play(); if (p && p.catch) p.catch(function () { /* a tab that will not autoplay */ }); }
+    }
+
     au.addEventListener('timeupdate', draw);
     au.addEventListener('play', draw);
+    // The tape runs on. A playlist that stops dead at the end of track one is
+    // a stack of files with a heading.
+    au.addEventListener('ended', function () { if (idx + 1 < list.length) select(idx + 1, true); });
     cv.addEventListener('click', function (ev) {
       if (!au.duration) return;
       var rect = cv.getBoundingClientRect();
       au.currentTime = ((ev.clientX - rect.left) / rect.width) * au.duration;
       draw();
     });
-    setTimeout(function () { draw(); load(); }, 0);
+
+    wrap.appendChild(caption);
+    wrap.appendChild(cv);
+    wrap.appendChild(au);
+    if (many) {
+      wrap.appendChild(h('div', { class: 'track-nav' },
+        h('button', { class: 'btn small', text: '\u25c0 Prev', onclick: function () { select(idx - 1, true); } }),
+        h('button', { class: 'btn small', text: 'Next \u25b6', onclick: function () { select(idx + 1, true); } }),
+        h('span', { class: 'smallnote', text: list.length + ' tracks, in the order the post recorded them' })));
+      list.forEach(function (e, i) {
+        var li = h('li', { class: 'track-row' },
+          h('span', { class: 'track-no', text: String(i + 1) }),
+          h('span', { class: 'track-name', text: trackName(e, i) }),
+          Number(e.s) > 0 ? h('span', { class: 'track-size', text: humanBytes(Number(e.s)) }) : null);
+        li.addEventListener('click', function () { select(i, true); });
+        rows.appendChild(li);
+      });
+      wrap.appendChild(rows);
+    }
+    setTimeout(function () { select(0, false); }, 0);
     return wrap;
+  }
+  function audioViz(entry) { return audioPlaylist([entry]); }
+
+  /**
+   * Everything a post carries, laid out as one block.
+   *
+   * Audio is gathered into a single player because several tracks on one post
+   * are a playlist; everything else keeps its own element. The record's order
+   * is preserved within each group and never rewritten.
+   */
+  function mediaBlock(entries) {
+    var list = (entries || []).filter(Boolean);
+    var audio = list.filter(function (e) { return String(e.m || '').indexOf('audio/') === 0; });
+    var rest = list.filter(function (e) { return String(e.m || '').indexOf('audio/') !== 0; });
+    var out = [];
+    if (audio.length) out.push(audioPlaylist(audio));
+    rest.forEach(function (e) { out.push(mediaEl(e)); });
+    return out;
   }
 
   function mediaEl(entry) {
@@ -2213,14 +2597,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       el = h('video', { class: 'post-media', controls: '', preload: 'metadata', playsinline: '' });
       attachMedia(el, entry);
     } else if (m.indexOf('audio/') === 0) {
-      return audioViz(entry);
+      return audioPlaylist([entry]);
     } else if (m.indexOf('image/') === 0) {
       el = h('img', { class: 'post-media', loading: 'lazy', decoding: 'async', alt: 'post media' });
       attachMedia(el, entry);
     } else {
       // generic attachment: a download chip (content-addressed, immutable)
       var name = entry.n || 'attachment';
-      el = h('a', { class: 'file-chip', href: entry.d || (API + '/api/media/' + entry.h), download: name }, '📎 ' + name);
+      el = h('a', { class: 'file-chip', href: mediaURL(entry), download: name }, '📎 ' + name);
     }
     return el;
   }
@@ -2255,6 +2639,43 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       src.draw(cv.getContext('2d'), cv.width, cv.height);
       return new Promise(function (res2, rej) {
         cv.toBlob(function (b) { b ? res2(b) : rej(new Error('encode failed')); }, 'image/jpeg', 0.82);
+      });
+    });
+  }
+  /**
+   * A square portrait, cropped and re-encoded here.
+   *
+   * downscaleImage preserves the aspect ratio, which is right for a post and
+   * wrong for a round-cornered box: a 4:3 photo dropped into a square either
+   * letterboxes or stretches a face. The crop has to happen at encode time.
+   *
+   * It also refuses to fall back to the original bytes. The post pipeline
+   * uploads an undecodable file as-is up to 6 MB, which is a reasonable trade
+   * for a payload somebody chose to attach and a terrible one for a 42px mark
+   * fetched on every screen — so an avatar this browser cannot re-encode is
+   * refused with a sentence saying what to do instead.
+   */
+  function squareThumb(file, px) {
+    return decodeToCanvas(file).then(function (src) {
+      var side = Math.min(src.w, src.h);
+      var cv = document.createElement('canvas');
+      cv.width = px; cv.height = px;
+      var ctx = cv.getContext('2d');
+      // Draw the full image scaled so the SHORT edge fills the square, offset
+      // so the crop is taken from the middle.
+      var scale = px / side;
+      var w2 = Math.round(src.w * scale), h2 = Math.round(src.h * scale);
+      ctx.translate(Math.round((px - w2) / 2), Math.round((px - h2) / 2));
+      src.draw(ctx, w2, h2);
+      return new Promise(function (res2, rej) {
+        cv.toBlob(function (b) {
+          // Never trust the requested type. A browser that cannot encode the
+          // asked-for format silently hands back PNG, which at 256px measures
+          // 179 KB against 21 KB for the same pixels as JPEG.
+          if (!b) { rej(new Error('encode failed')); return; }
+          if (b.type !== 'image/jpeg') { rej(new Error('this browser would not write a JPEG')); return; }
+          res2(b);
+        }, 'image/jpeg', 0.82);
       });
     });
   }
@@ -2515,7 +2936,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var known = recentUsers(st, 6).concat(['alice', 'bob', 'carol', 'dave']);
     known.forEach(function (id) {
       residents.appendChild(h('button', { class: 'lq-pill', onclick: function () { switchTo(id, st); } },
-        avatar(st.handles[id], 'lq-ava xs'), st.handles[id] + (st.pinHash[id] ? ' 🔒' : '')));
+        avatar(id, 'lq-ava xs'), st.handles[id] + (st.pinHash[id] ? ' 🔒' : '')));
     });
     var wrap = h('div', { class: 'lq-shell' },
       h('div', { class: 'lq-glass lq-hero' },
@@ -2551,7 +2972,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     wrap.appendChild(h('div', { class: 'lq-glass lq-head' },
       h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
       lqEnergyBar(me),
-      h('button', { class: 'lq-ava', text: (st.handles[who] || '?')[0].toUpperCase(), title: 'You', onclick: function () { lqView = 'you'; render(); } })));
+      (function () {
+        var b = avatar(who, 'lq-ava');
+        b.title = 'You';
+        b.addEventListener('click', function () { lqView = 'you'; render(); });
+        b.style.cursor = 'pointer';
+        return b;
+      })()));
 
     var lqLock = lockBanner(st, true);
     if (lqLock) wrap.appendChild(h('div', { class: 'lq-glass lq-card' }, lqLock));
@@ -3426,7 +3853,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       peers.forEach(function (p) {
         var last = threads[p][threads[p].length - 1];
         var row = h('div', { class: 'lq-peer', style: 'cursor:pointer' },
-          avatar(st.handles[p], 'lq-ava s'),
+          avatar(p, 'lq-ava s'),
           h('div', { class: 'grow' },
             h('div', { class: 'lq-name', text: st.handles[p] || p }),
             h('div', { class: 'lq-sub', text: last.call ? callLabel(last.call) : (last.from === who ? 'you: ' : '') + last.text.slice(0, 44) })));
@@ -3447,7 +3874,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var card2 = h('div', { class: 'lq-glass lq-card' },
       h('div', { style: 'display:flex; align-items:center; gap:10px' },
         h('button', { class: 'lq-pill', text: '← Chats', onclick: function () { chatPeer = null; render(); } }),
-        avatar(st.handles[chatPeer], 'lq-ava s'),
+        avatar(chatPeer, 'lq-ava s'),
         h('span', { class: 'lq-name', text: st.handles[chatPeer] || chatPeer }),
         h('button', { class: 'lq-pill hot', text: '☎ Call', style: 'margin-left:auto',
           onclick: function () { startCall(chatPeer); } })));
@@ -3484,7 +3911,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (!notifs.length) box.appendChild(h('p', { class: 'lq-note', text: 'Quiet so far. Post something — reactions, backings, mentions, quotes, and messages land here.' }));
     notifs.forEach(function (n) {
       var row = h('div', { class: 'lq-alert' + (n.idx > seenMark ? ' fresh' : '') },
-        avatar(st.handles[n.who], 'lq-ava xs'),
+        avatar(n.who, 'lq-ava xs'),
         h('div', {},
           h('b', { text: st.handles[n.who] || n.who }), ' ',
           h('span', { class: 'a-verb', text: NOTIF_VERB[n.kind] || n.kind }),
@@ -3508,7 +3935,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var focusedLq = focusCard(st, true);
     if (focusedLq) box.appendChild(focusedLq);
     var text = h('textarea', { class: 'lq-input', placeholder: 'Share something… (@name mentions, each reference costs a spark)' });
-    var fileIn = h('input', { type: 'file', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
+    var fileIn = h('input', { type: 'file', multiple: '', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'lq-actions', style: 'margin-top:8px' });
     function renderChips() {
       chips.innerHTML = '';
@@ -3516,10 +3943,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         chips.appendChild(h('span', { class: 'compose-chip' }, '↪ quoting ' + (st.handles[st.creators[composeQuote]] || 'post'),
           h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
       }
-      if (composeMedia) {
-        chips.appendChild(h('span', { class: 'compose-chip' }, (composeMedia.m.indexOf('video/') === 0 ? '🎬 video' : composeMedia.m.indexOf('audio/') === 0 ? '🎵 audio' : composeMedia.m.indexOf('image/') === 0 ? '🖼 image' : '📎 ' + (composeMedia.n || 'file')) + ' attached',
-          h('button', { text: '×', onclick: function () { composeMedia = null; renderChips(); } })));
-      }
+      composeMedia.forEach(function (m, i) { chips.appendChild(mediaChip(m, i, renderChips)); });
     }
     renderChips();
     var TEXT_MAX = 1000;
@@ -3532,9 +3956,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     text.addEventListener('input', updateCount);
     updateCount();
     fileIn.addEventListener('change', function () {
-      var f = fileIn.files && fileIn.files[0];
-      if (!f) return;
-      handleMediaPick(f, function (entry) { composeMedia = entry; renderChips(); });
+      handleMediaPicks(fileIn.files, renderChips);
       fileIn.value = '';
     });
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
@@ -3542,13 +3964,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('div', { class: 'lq-actions' },
         h('button', { class: 'lq-pill hot', onclick: function () {
           var t = text.value.trim();
-          if (!t && !composeMedia) { toast('Write something first.'); return; }
+          if (composeBusy) { toast('Still uploading — give it a moment.'); return; }
+          if (!t && !composeMedia.length) { toast('Write something first.'); return; }
           if (t.length > TEXT_MAX) { toast('Too long by ' + (t.length - TEXT_MAX) + ' — the limit is ' + TEXT_MAX + ' characters.'); return; }
           var act = { t: 'post', author: who, text: t || '·', a: 0.8 };
           if (composeQuote) act.ref = composeQuote;
-          if (composeMedia) act.media = [composeMedia];
+          // A copy: once this array is in an act it belongs to the record, and
+          // the composer keeps mutating its own.
+          if (composeMedia.length) act.media = composeMedia.slice();
           tryAct(who, act, 'Shared. Every post costs a spark of energy.');
-          composeQuote = null; composeMedia = null;
+          composeQuote = null; composeMedia = [];
         } }, icon('bolt'), 'Share'),
         h('button', { class: 'lq-pill', onclick: function () { fileIn.click(); } }, icon('tag'), 'Media'),
         fileIn),
@@ -3638,8 +4063,65 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var ext = (f.name || '').split('.').pop().toLowerCase();
     return EXT_MIME[ext] || 'application/octet-stream';
   }
+  /**
+   * One attached file, with the two controls a playlist needs: take it out,
+   * and move it earlier. Order is not decoration here — it is the order the
+   * tracks play in, and it is the order the act records.
+   */
+  function mediaChip(m, i, redraw) {
+    var what = String(m.m || '').indexOf('video/') === 0 ? '🎬 '
+      : String(m.m || '').indexOf('audio/') === 0 ? '🎵 '
+        : String(m.m || '').indexOf('image/') === 0 ? '🖼 ' : '📎 ';
+    var label = m.n || (String(m.m || '').split('/')[1] || 'file');
+    var chip = h('span', { class: 'compose-chip' }, what + (composeMedia.length > 1 ? (i + 1) + '. ' : '') + label);
+    if (i > 0) {
+      chip.appendChild(h('button', { title: 'earlier', text: '↑', onclick: function () {
+        var t = composeMedia[i - 1]; composeMedia[i - 1] = composeMedia[i]; composeMedia[i] = t; redraw();
+      } }));
+    }
+    chip.appendChild(h('button', { title: 'remove', text: '×', onclick: function () {
+      composeMedia.splice(i, 1); redraw();
+    } }));
+    return chip;
+  }
   var MB = 1024 * 1024;
-  function handleMediaPick(f, done) {
+  /**
+   * Several files, uploaded one after another.
+   *
+   * Sequential on purpose: the host allows ten uploads a minute from one
+   * address, so twelve tracks fired at once would 429 the last two — and the
+   * two that failed would be the ones nobody noticed were missing. Each file
+   * is added to the list as it lands, so the chips fill in as it goes and a
+   * refusal names the file it refused.
+   */
+  function handleMediaPicks(files, done) {
+    var list = Array.prototype.slice.call(files || []);
+    if (!list.length) return;
+    var room = COMPOSE_MAX - composeMedia.length;
+    if (room <= 0) { toast('A post carries at most ' + COMPOSE_MAX + ' files.'); return; }
+    if (list.length > room) {
+      toast('A post carries at most ' + COMPOSE_MAX + ' files — taking the first ' + room + ' of these ' + list.length + '.');
+      list = list.slice(0, room);
+    }
+    composeBusy = true;
+    var i = 0;
+    function step() {
+      if (i >= list.length) { composeBusy = false; done(); return; }
+      var f = list[i]; i += 1;
+      if (list.length > 1) toast('File ' + i + ' of ' + list.length + ': ' + (f.name || 'attachment'));
+      handleMediaPick(f, function (entry) {
+        if (entry) composeMedia.push(entry);
+        done();
+        step();
+      }, function () { done(); step(); });
+    }
+    step();
+  }
+  function handleMediaPick(f, done, fail) {
+    // `fail` lets a batch carry on past one file the browser could not read.
+    // Every early return below is a refusal that used to be the end of the
+    // story; in a batch it has to hand the queue back.
+    var giveUp = fail || function () {};
     var mime = sniffMime(f);
     var kind = mime.indexOf('image/') === 0 ? 'image'
       : mime.indexOf('video/') === 0 ? 'video'
@@ -3650,16 +4132,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       downscaleImage(f).then(function (blob) {
         if (REMOTE) {
           return uploadMedia(blob, 'image/jpeg').then(function (d) {
-            done({ h: d.h, m: d.m });
+            done({ h: d.h, m: d.m, s: d.size });
             toast('Image ready — downscaled and re-encoded on your device.');
           });
         }
         var fr = new FileReader();
         fr.onload = function () {
-          if (fr.result.length > 300 * 1024) { toast('Image too large for the local sandbox.'); return; }
+          if (fr.result.length > 300 * 1024) { toast('Image too large for the local sandbox.'); giveUp(); return; }
           done({ d: fr.result, m: 'image/jpeg' });
           toast('Image attached (local).');
         };
+        fr.onerror = function () { toast('That image could not be read.'); giveUp(); };
         fr.readAsDataURL(blob);
       }).catch(function () {
         // Codec this browser cannot decode (often iPhone HEIC): store the
@@ -3667,23 +4150,28 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         if (REMOTE && f.size <= 6 * MB) {
           toast('This browser can’t re-encode ' + (mime.split('/')[1] || 'that format') + ' — uploading the original.');
           uploadMedia(f, mime).then(function (d) {
-            done({ h: d.h, m: d.m, n: f.name });
+            done({ h: d.h, m: d.m, n: f.name, s: d.size });
             toast('Uploaded as-is. Note: some browsers can’t display ' + (mime.split('/')[1] || 'this format') + '.');
-          }).catch(function (e) { toast(String(e.message || e)); });
+          }).catch(function (e) { toast(String(e.message || e)); giveUp(); });
         } else {
           toast('Could not decode that image here (' + (mime || 'unknown type') + '). Try a JPEG/PNG, or on iPhone set the camera to “Most Compatible”.');
+          giveUp();
         }
       });
       return;
     }
-    if (!REMOTE) { toast(kind === 'video' ? 'Videos need the shared network host.' : kind === 'audio' ? 'Audio needs the shared network host.' : 'File attachments need the shared network host.'); return; }
+    if (!REMOTE) { toast(kind === 'video' ? 'Videos need the shared network host.' : kind === 'audio' ? 'Audio needs the shared network host.' : 'File attachments need the shared network host.'); giveUp(); return; }
     var cap = kind === 'video' ? 25 * MB : 12 * MB;
-    if (f.size > cap) { toast((kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'File') + ' too large — ' + Math.round(cap / MB) + ' MB max.'); return; }
+    if (f.size > cap) { toast((kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'File') + ' too large — ' + Math.round(cap / MB) + ' MB max.'); giveUp(); return; }
     toast('Uploading ' + kind + '…');
     uploadMedia(f, mime).then(function (d) {
-      done({ h: d.h, m: d.m, n: f.name });
+      // `s` is the size the host measured of the bytes it stored. It is carried
+      // in the record so a reader can be told what a download costs before
+      // paying for it — and the host checks it against its own disk, so it can
+      // never be a number this page invented.
+      done({ h: d.h, m: d.m, n: f.name, s: d.size });
       toast(kind.charAt(0).toUpperCase() + kind.slice(1) + ' ready.');
-    }).catch(function (e) { toast(String(e.message || e)); });
+    }).catch(function (e) { toast(String(e.message || e)); giveUp(); });
   }
 
   function lqPost(st, n, score) {
@@ -3697,7 +4185,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     var card = h('div', { class: 'lq-glass lq-card', 'data-cid': n.id },
       h('div', { style: 'display:flex; align-items:center; gap:10px' },
-        avatar(st.handles[author], 'lq-ava s'),
+        avatar(author, 'lq-ava s'),
         h('div', {},
           h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2),
@@ -3705,7 +4193,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           viewChip(n.id)),
         sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
       h.apply(null, ['div', { class: 'lq-body' }].concat(richText(st, st.payloads[n.id] || ''))));
-    (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
+    mediaBlock(st.mediaMeta[n.id]).forEach(function (el) { card.appendChild(el); });
+    var keepRow = offlineRow(st, n.id);
+    if (keepRow) card.appendChild(keepRow);
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
       var q = refs.quotes[0];
@@ -3912,7 +4402,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     st.ledgers.slice().sort(function (a, b) { return credibility(st, b.id) - credibility(st, a.id); }).forEach(function (l) {
       if (l.deleted) return;
       var row = h('div', { class: 'lq-peer' },
-        avatar(st.handles[l.id], 'lq-ava s'),
+        avatar(l.id, 'lq-ava s'),
         h('div', { class: 'grow' },
           h('div', { class: 'lq-name' }, st.handles[l.id] + (l.id === who ? ' (you)' : ''), ' ', deltaChip(l.id, st)),
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, l.id), 3),
@@ -3940,7 +4430,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (warn) box.appendChild(h('div', { class: 'lq-glass lq-card' }, warn));
     box.appendChild(h('div', { class: 'lq-glass lq-card' },
       h('div', { style: 'display:flex; align-items:center; gap:12px' },
-        avatar(st.handles[who], 'lq-ava'),
+        avatar(who, 'lq-ava'),
         h('div', {},
           h('div', { class: 'lq-name', style: 'font-size:17px', text: st.handles[who] }),
           h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, who), 4),
@@ -3987,7 +4477,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     recentUsers(st, 6).concat(['alice', 'bob', 'carol', 'dave']).forEach(function (id) {
       var l = st.ledgerById[id];
       residents.appendChild(h('button', { class: 'resident', onclick: function () { switchTo(id, st); } },
-        avatar(st.handles[id], 'avatar s'),
+        avatar(id, 'avatar s'),
         h('span', {}, h('div', { class: 'r-h', text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') }),
           h('div', { class: 'r-r', text: 'rate ' + fmt(l.burnBal / Math.max(l.actCount, 1), 3) }))));
     });
@@ -4068,7 +4558,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
-      avatar(st.handles[who], 'avatar s'),
+      avatar(who, 'avatar s'),
       h('span', { class: 'g-handle', text: st.handles[who] + (st.pinHash[who] ? ' 🔒' : '') }),
       h('span', { class: 'standing-chip', text: fmt(NU * myX, 3) }),
       deltaChip(who, st),
@@ -4153,7 +4643,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var wallPass = myX >= SAFE_FLOOR;
     return h('div', { class: 'card idcard' },
       wallBanner(st, who),
-      h('div', { class: 'who' }, avatar(st.handles[who]),
+      h('div', { class: 'who' }, avatar(who),
         h('div', {}, h('div', { class: 'handle', text: st.handles[who] + (st.pinHash[who] ? ' 🔒' : '') }),
           h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * myX, 4) }), ' ', deltaChip(who, st))),
       h('div', { class: 'gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
@@ -4244,19 +4734,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function feedTab(st) {
     var text = h('textarea', { placeholder: 'Say something… (payload — carried, never scored; @name mentions and quotes are priced Reference acts)' });
     var att = slider('attachment', 0.8);
-    var fileIn = h('input', { type: 'file', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
+    var fileIn = h('input', { type: 'file', multiple: '', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
     var chips = h('div', { class: 'row' });
     function renderChips() {
       chips.innerHTML = '';
       if (composeQuote) chips.appendChild(h('span', { class: 'compose-chip' }, '↪ quoting ' + (st.handles[st.creators[composeQuote]] || 'post'),
         h('button', { text: '×', onclick: function () { composeQuote = null; renderChips(); } })));
-      if (composeMedia) chips.appendChild(h('span', { class: 'compose-chip' }, (composeMedia.m.indexOf('video/') === 0 ? 'video' : 'image') + ' attached',
-        h('button', { text: '×', onclick: function () { composeMedia = null; renderChips(); } })));
+      composeMedia.forEach(function (m, i) { chips.appendChild(mediaChip(m, i, renderChips)); });
     }
     renderChips();
     fileIn.addEventListener('change', function () {
-      var f2 = fileIn.files && fileIn.files[0];
-      if (f2) handleMediaPick(f2, function (entry) { composeMedia = entry; renderChips(); });
+      handleMediaPicks(fileIn.files, renderChips);
       fileIn.value = '';
     });
     // Show the ceiling before it is hit — finding it by trial cost a tester
@@ -4290,7 +4778,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // Clear what the new kind cannot carry, rather than leaving it to be
         // dropped at the door.
         if (k[0] !== 'event') { draft.at = ''; draft.place = ''; draft.fee = ''; draft.cap = ''; }
-        if (k[0] !== 'post') { composeQuote = null; composeMedia = null; }
+        if (k[0] !== 'post') { composeQuote = null; composeMedia = []; }
         render();
       } }));
     });
@@ -4352,15 +4840,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     row.appendChild(h('button', { class: 'btn primary', text: verb + ' · −' + (cost > 1 ? cost : '') + 'θ', onclick: function () {
       var t = text.value.trim();
       var ceil = CEIL[draft.kind];
-      if (!t && !(draft.kind === 'post' && composeMedia)) { toast('Say what it is first — the payload is yours, the husk is the network’s.'); return; }
+      if (composeBusy) { toast('Still uploading — give it a moment.'); return; }
+      if (!t && !(draft.kind === 'post' && composeMedia.length)) { toast('Say what it is first — the payload is yours, the husk is the network’s.'); return; }
       if (t.length > ceil) { toast('Too long by ' + (t.length - ceil) + ' characters — the limit for a ' + draft.kind + ' is ' + ceil + '. Trim it before spending θ.'); return; }
 
       if (draft.kind === 'post') {
         var act = { t: 'post', author: who, text: t || '·', a: att.value() };
         if (composeQuote) act.ref = composeQuote;
-        if (composeMedia) act.media = [composeMedia];
+        if (composeMedia.length) act.media = composeMedia.slice();
         tryAct(who, act, 'Published. Publish mints the Content node; references append as their own acts.');
-        composeQuote = null; composeMedia = null; draft.text = ''; text.value = '';
+        composeQuote = null; composeMedia = []; draft.text = ''; text.value = '';
         return;
       }
 
@@ -4594,7 +5083,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         var pc = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'people' }));
         res.people.slice(0, 12).forEach(function (id) {
           var row = h('div', { class: 'chat-row' },
-            avatar(st.handles[id], 'avatar s'),
+            avatar(id, 'avatar s'),
             h('div', { class: 'grow' }, h('b', { text: st.handles[id] }),
               h('div', { class: 'smallnote', text: 'standing ' + fmt(credibility(st, id), 4) })),
             followBtn(st, id, true),
@@ -4974,7 +5463,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var card = h('div', { class: 'post', 'data-cid': n.id },
       h('div', { class: 'head' },
         rank ? h('span', { class: 'rank-chip', text: '#' + rank }) : null,
-        avatar(st.handles[author], 'avatar s'),
+        avatar(author, 'avatar s'),
         h('b', { text: st.handles[author] || '—' }),
         h('span', { class: 'standing-chip', text: fmt(credibility(st, author), 3) }),
         deltaChip(author, st),
@@ -5022,7 +5511,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         } }),
         h('span', { class: 'smallnote', text: 'Relayed through the host — free to watch.' })));
     }
-    (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
+    mediaBlock(st.mediaMeta[n.id]).forEach(function (el) { card.appendChild(el); });
+    var keepRow = offlineRow(st, n.id);
+    if (keepRow) card.appendChild(keepRow);
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
       var q = refs.quotes[0];
@@ -5719,7 +6210,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     notifs.forEach(function (n) {
       var row = h('div', { class: 'alert-row' + (n.idx > seenMark ? ' fresh' : '') },
-        avatar(st.handles[n.who], 'avatar s'),
+        avatar(n.who, 'avatar s'),
         h('div', { class: 'grow' },
           h('div', {}, h('b', { text: st.handles[n.who] || n.who }), ' ',
             h('span', { class: 'smallnote', text: NOTIF_VERB[n.kind] || n.kind }),
@@ -5933,7 +6424,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           var parts = k.split('|');
           var last = every[k][every[k].length - 1];
           var row = h('div', { class: 'chat-row' },
-            avatar(st.handles[parts[0]], 'avatar s'),
+            avatar(parts[0], 'avatar s'),
             h('div', { class: 'grow' },
               h('b', { text: (st.handles[parts[0]] || parts[0]) + ' ↔ ' + (st.handles[parts[1]] || parts[1]) }),
               h('div', { class: 'smallnote', text: every[k].length + ' message' + (every[k].length === 1 ? '' : 's')
@@ -5961,7 +6452,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       peers.forEach(function (p) {
         var last = threads[p][threads[p].length - 1];
         var row = h('div', { class: 'chat-row' },
-          avatar(st.handles[p], 'avatar s'),
+          avatar(p, 'avatar s'),
           h('div', { class: 'grow' },
             h('b', { text: st.handles[p] || p }),
             h('div', { class: 'smallnote', text: last.call ? callLabel(last.call) : (last.from === who ? 'you: ' : '') + last.text.slice(0, 60) })));
@@ -5983,7 +6474,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var card2 = h('div', { class: 'card' },
       h('div', { style: 'display:flex; align-items:center; gap:10px; margin-bottom:8px' },
         h('button', { class: 'btn small ghost', text: '← all chats', onclick: function () { chatPeer = null; render(); } }),
-        avatar(st.handles[chatPeer], 'avatar s'),
+        avatar(chatPeer, 'avatar s'),
         h('b', { text: st.handles[chatPeer] || chatPeer }),
         h('span', { class: 'standing-chip', text: fmt(credibility(st, chatPeer), 3) }),
         h('button', { class: 'btn small ghost', text: '☎ call', style: 'margin-left:auto',
@@ -6125,7 +6616,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     liveList.forEach(function (e) {
       if (e.author === who) return;
       var row = h('div', { class: 'chat-row' },
-        avatar(st.handles[e.author], 'avatar s'),
+        avatar(e.author, 'avatar s'),
         h('div', { class: 'grow' },
           h('b', {}, st.handles[e.author] || e.author, ' ', h('span', { class: 'live-dot' })),
           h('div', { class: 'smallnote', text: e.title || 'live' }),
@@ -7079,7 +7570,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var bond = credibility(st, id) / (NU + credibility(st, id));
     var drawer = h('div', { class: 'drawer' },
       h('button', { class: 'btn small ghost', text: '← close', onclick: close }),
-      avatar(st.handles[id]),
+      avatar(id),
       h('h3', { text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') }),
       h('span', { class: 'standing-chip', text: 'standing ' + fmt(credibility(st, id), 4) }),
       // Self-declared, and labelled as such: everything else on this card is
@@ -7145,6 +7636,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   markStandalone();
   guardExternalLinks();
   offerInstall();
+  // What this device is holding, read from the cache itself before the first
+  // paint has anything to claim. offlineSizes stays null until it answers, and
+  // the control says 'checking' rather than 'not saved' in the meantime.
+  if (offlineAvailable()) {
+    offlineScan().then(function () { if (safeToRepaint()) render(); });
+  } else {
+    offlineSizes = {};
+  }
+
   boot();
 })();
 </script>

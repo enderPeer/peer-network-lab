@@ -207,7 +207,10 @@ const ACT_FIELDS = {
   // reprice between the moment somebody reads the card and the moment their
   // answer lands.
   rsvp: ['t', 'from', 'cid', 'on', 'amt', 'cur', 'to'],
-  profile: ['t', 'id', 'bio', 'link'],
+  // `pic` MUST be listed for the same reason fee/cur/cap are: sanitize is a
+  // hard whitelist, so an omitted field is deleted and the act is accepted 200
+  // — the author is told 'Profile saved' and no picture was ever stored.
+  profile: ['t', 'id', 'bio', 'link', 'pic'],
   setRecovery: ['t', 'id', 'codeHash'],
   closeEpoch: ['t', 'epoch'],
   deposit: ['t', 'id', 'amt'],
@@ -336,11 +339,26 @@ function rewriteLog() {
 // composer hits Share. A blob with no act yet may therefore be a perfectly
 // live draft — someone else's — so young files are never collected.
 const MEDIA_GC_GRACE_MS = 60 * 60 * 1000;
+/**
+ * Every blob an act points at — the ONE place that knows.
+ *
+ * It used to be `a.media` inlined in three files, and the moment a second kind
+ * of reference existed (a profile picture) each of those three would have had
+ * to be found and changed by hand. Two of them delete things: the collector
+ * unlinks anything unreferenced, and the mirror pulls only what it sees here.
+ * A reference this function forgets is a picture that vanishes an hour after
+ * it is uploaded, and is missing from the fallback host for good.
+ */
+function mediaRefsOf(a) {
+  const out = [];
+  if (!a) return out;
+  if (Array.isArray(a.media)) for (const m of a.media) if (m && m.h) out.push(m);
+  if (a.t === 'profile' && typeof a.pic === 'string' && a.pic) out.push({ h: a.pic, m: 'image/jpeg' });
+  return out;
+}
 function gcMedia() {
   const referenced = new Set();
-  for (const a of acts) {
-    if (Array.isArray(a.media)) for (const m of a.media) if (m && m.h) referenced.add(m.h);
-  }
+  for (const a of acts) for (const m of mediaRefsOf(a)) referenced.add(m.h);
   const now = Date.now();
   try {
     for (const f of readdirSync(MEDIA_DIR)) {
@@ -435,11 +453,11 @@ async function mirrorSync() {
       const full = await (await mirrorGet('/api/acts')).json();
       mirrorAdopt(full.acts);
       mirrorState.lastFull = Date.now();
-      mediaRefs = full.acts.flatMap((a) => a.media || []);
+      mediaRefs = full.acts.flatMap(mediaRefsOf);
     } else if (d.acts.length) {
       for (const a of d.acts) { acts.push(a); persist(a); }
       stateCache = { len: -1, st: null, R: stateCache.R };
-      mediaRefs = d.acts.flatMap((a) => a.media || []);
+      mediaRefs = d.acts.flatMap(mediaRefsOf);
     }
     await mirrorMedia(mediaRefs);
     // Rolling snapshots: seven files, one per weekday, overwritten in place.
@@ -505,7 +523,29 @@ const MEDIA_MAX_IMAGE = 6 * 1024 * 1024;  // HEIC originals upload as-is
 const MEDIA_MAX_VIDEO = 25 * 1024 * 1024;
 const MEDIA_MAX_OTHER = 12 * 1024 * 1024; // audio + generic attachments
 const MEDIA_STORE_CAP = 300 * 1024 * 1024;
-const mediaLimiter = makeLimiter(10, 60_000); // 10 uploads/min/IP
+// A post used to carry at most two files. Two is not an album, so the ceiling
+// is the number of tracks a record can honestly hold: the act itself is capped
+// at MAX_ACT_BYTES and a named entry serialises to ~176 bytes, which leaves
+// room for sixteen alongside a full-length text. Twelve is under that with
+// headroom for the caption.
+const MEDIA_MAX_ENTRIES = 12;
+// ...and a second ceiling in bytes, because the entry count was doing capacity
+// work as a side effect. Twelve audio files at the per-file cap would be 144 MB
+// — half this instance's whole store in one act. The sizes are read from the
+// blobs already on disk, never from a number the client sends.
+const MEDIA_MAX_ACT_BYTES = 60 * 1024 * 1024;
+// An avatar is drawn at 42 CSS px at the largest. 256px square at JPEG q0.82
+// measures ~21 KB; this leaves an order of magnitude of slack and still
+// refuses an unresized photo outright.
+const PROFILE_PIC_MAX = 256 * 1024;
+// Ten a minute was set when a post carried one file. A post now carries up to
+// MEDIA_MAX_ENTRIES of them, and somebody who picks twelve tracks has to be
+// able to upload twelve tracks — a limiter that refuses the eleventh is not a
+// defence, it is a half-published album. Capacity is guarded where it actually
+// lives and is checked on every single request: the per-kind size caps and the
+// 300 MB store ceiling.
+const MEDIA_RATE = Math.max(MEDIA_MAX_ENTRIES + 4, Number(process.env.PEER_MEDIA_RATE) || 40);
+const mediaLimiter = makeLimiter(MEDIA_RATE, 60_000);
 
 // ── Call signaling: ephemeral mailboxes, deliberately NOT acts ──────────────
 // A call is negotiated (SDP/ICE) through the host but carried peer-to-peer;
@@ -1096,11 +1136,33 @@ function validate(act) {
       }
       if (act.ref !== undefined && !str(act.ref, 40)) return 'bad reference';
       if (act.media !== undefined) {
-        if (!Array.isArray(act.media) || act.media.length > 2) return 'bad media';
+        if (!Array.isArray(act.media)) return 'bad media';
+        // Name the number. A refusal that says 'bad media' sends an author
+        // deleting text to fix an attachment problem — the byte limit above
+        // blames 'an attachment or reference list' for exactly that reason.
+        if (act.media.length > MEDIA_MAX_ENTRIES) {
+          return 'a post carries at most ' + MEDIA_MAX_ENTRIES + ' files; this one has ' + act.media.length;
+        }
+        let total = 0;
         for (const m of act.media) {
           if (!m || typeof m !== 'object' || !/^[a-f0-9]{64}$/.test(m.h ?? '') || !MEDIA_TYPES.has(m.m)) return 'bad media entry';
           if (m.n !== undefined && (typeof m.n !== 'string' || m.n.length > 80)) return 'bad media name';
           if (!existsSync(join(MEDIA_DIR, m.h))) return 'unknown media hash — upload first';
+          // The real size, from the blob on disk. `s` is carried in the record
+          // so a reader can say what a download will cost BEFORE fetching it —
+          // but it is checked against the bytes, so it can never be a number
+          // the client made up.
+          let real = 0;
+          try { real = statSync(join(MEDIA_DIR, m.h)).size; } catch { /* refused below */ }
+          if (!real) return 'unknown media hash — upload first';
+          if (m.s !== undefined && (!Number.isInteger(m.s) || m.s !== real)) {
+            return 'that attachment claims ' + m.s + ' bytes and the stored blob is ' + real;
+          }
+          total += real;
+        }
+        if (total > MEDIA_MAX_ACT_BYTES) {
+          return 'the files on one post come to at most ' + Math.round(MEDIA_MAX_ACT_BYTES / (1024 * 1024))
+            + ' MB; these come to ' + Math.round(total / (1024 * 1024)) + ' MB';
         }
       }
       break;
@@ -1138,6 +1200,28 @@ function validate(act) {
           // Same rule the adverts use: a link is the one thing everybody
           // clicks, so javascript: and data: are refused rather than escaped.
           if (!/^https?:\/\//i.test(act.link)) return 'a profile link must be a plain http(s) URL';
+        }
+        // A picture is a hash of bytes already uploaded, and nothing else. It
+        // is checked for existence like post media, and for being an image at
+        // all — the mime comes from the stored sidecar, not from the act, so
+        // an act cannot describe a video as a portrait.
+        if (act.pic !== undefined && act.pic !== '') {
+          if (typeof act.pic !== 'string' || !/^[a-f0-9]{64}$/.test(act.pic)) return 'bad profile picture';
+          const pf = join(MEDIA_DIR, act.pic);
+          if (!existsSync(pf)) return 'unknown picture hash — upload first';
+          let pm = '';
+          try { pm = String(JSON.parse(readFileSync(pf + '.meta', 'utf8')).mime || ''); } catch { /* below */ }
+          if (!pm.startsWith('image/')) return 'a profile picture has to be an image';
+          // Sized here as well as on the device. The picture appears beside
+          // every handle on every screen, so it is fetched far more often than
+          // any post attachment — a phone photo in that slot is bytes paid for
+          // hundreds of times over. The client crops to 256px, ~21 KB.
+          let ps = 0;
+          try { ps = statSync(pf).size; } catch { /* below */ }
+          if (ps > PROFILE_PIC_MAX) {
+            return 'a profile picture is at most ' + Math.round(PROFILE_PIC_MAX / 1024) + ' KB; this one is '
+              + Math.round(ps / 1024) + ' KB — it should be cropped and re-encoded before it is uploaded';
+          }
         }
         break;
       }
@@ -1564,17 +1648,18 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
-    { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
+    { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', attachments: 'optional ordered array of those, up to ' + MEDIA_MAX_ENTRIES + ' and ' + Math.round(MEDIA_MAX_ACT_BYTES / (1024 * 1024)) + ' MB in total — several audio files on one post are played as a playlist, in this order', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
     { method: 'POST', path: '/api/v1/comment', purpose: 'comment on a post OR on another comment', body: { as: 'id', pin: 'string', target: 'content id', text: 'string ≤1000', enthusiasm: 'optional -1..1', effort: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/react', purpose: 'react to content, or vouch for a person by targeting prof_<id>', body: { as: 'id', pin: 'string', target: 'content id or prof_id', polarity: 'optional -1..1', reaction: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/tag', purpose: 'tag content into the commons', body: { as: 'id', pin: 'string', target: 'content id', name: 'string ≤20' } },
     { method: 'POST', path: '/api/v1/message', purpose: 'direct message (public in the log, like everything)', body: { as: 'id', pin: 'string', to: 'id', text: 'string ≤500' } },
     { method: 'POST', path: '/api/v1/follow', purpose: 'follow or unfollow an account. Recorded in the log and deliberately absent from every score: following is attention, and this network measures transported commitment. It is free — it debits no reserve and raises no act count, because θ is itself a standing input and a follow must not move one.', body: { as: 'id', pin: 'string', to: 'id', on: 'optional boolean, false to unfollow' } },
-    { method: 'POST', path: '/api/v1/profile', purpose: 'write your own description. Public like everything in the log, and in no score.', body: { as: 'id', pin: 'string', bio: 'string ≤280', link: 'optional http(s) URL ≤200' } },
+    { method: 'POST', path: '/api/v1/profile', purpose: 'write your own description. Public like everything in the log, and in no score.', body: { as: 'id', pin: 'string', bio: 'string ≤280', link: 'optional http(s) URL ≤200', picture: 'optional media hash from POST /api/media — an image, at most ' + Math.round(PROFILE_PIC_MAX / 1024) + ' KB, shown beside your handle everywhere' } },
     { method: 'POST', path: '/api/v1/burn', purpose: 'convert reserve into energy so you can keep acting', body: { as: 'id', pin: 'string' } },
   ],
   limits: {
     acts: ACT_RATE + ' per minute per IP', reads: '600 per minute per IP',
+    mediaUploads: MEDIA_RATE + ' per minute per IP', mediaPerPost: MEDIA_MAX_ENTRIES,
     registrations: REGISTER_RATE + ' per hour per IP', postText: 1000, messageText: 500,
   },
   errors: 'Every refusal returns {error} with a sentence saying what is wrong and, where a number is involved, what the limit is and what you sent.',
@@ -2034,7 +2119,10 @@ async function handleBotApi(req, res, url, ip) {
     if (!text.trim() && !body.attachment) { json(res, 400, { error: 'text or attachment is required' }); return; }
     const raw = { t: 'post', author: me, text: text.trim() || '·', a: num(body.attachment_strength, 0.8) };
     if (body.quote) raw.ref = String(body.quote);
-    if (body.attachment) raw.media = [body.attachment];
+    // One attachment, or an ordered list of them — several audio files on one
+    // post are played as a playlist, and the order is the array's order.
+    if (Array.isArray(body.attachments)) raw.media = body.attachments;
+    else if (body.attachment) raw.media = [body.attachment];
     // Revising: name the post to supersede, by content id or act index. This
     // was silently DROPPED before — a caller asking to revise got a brand new
     // post and a 200, which is worse than any refusal, because they had no way
@@ -2083,7 +2171,9 @@ async function handleBotApi(req, res, url, ip) {
     return;
   }
   if (p === 'profile') {
-    submit({ t: 'profile', id: me, bio: typeof body.bio === 'string' ? body.bio : '', link: typeof body.link === 'string' ? body.link : '' });
+    submit({ t: 'profile', id: me, bio: typeof body.bio === 'string' ? body.bio : '',
+      link: typeof body.link === 'string' ? body.link : '',
+      pic: typeof body.picture === 'string' ? body.picture : '' });
     return;
   }
   if (p === 'message') {
@@ -2261,7 +2351,7 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/media') {
-    if (!mediaLimiter(ip)) { json(res, 429, { error: 'upload limit — try again in a minute' }); return; }
+    if (!mediaLimiter(ip)) { json(res, 429, { error: 'upload limit — ' + MEDIA_RATE + ' files a minute from one address; try again in a minute' }); return; }
     if (mirrorRefuse(res)) return;
     const mime = canonicalMime((req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase());
     if (!MEDIA_TYPES.has(mime)) { json(res, 415, { error: 'unsupported media type: ' + mime }); return; }
@@ -2288,16 +2378,48 @@ const server = createServer((req, res) => {
     });
     return;
   }
-  if (req.method === 'GET' && /^\/api\/media\/[a-f0-9]{64}$/.test(url.pathname)) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && /^\/api\/media\/[a-f0-9]{64}$/.test(url.pathname)) {
     const hash = url.pathname.slice('/api/media/'.length);
     const file = join(MEDIA_DIR, hash);
     try {
       const meta = JSON.parse(readFileSync(file + '.meta', 'utf8'));
       const buf = readFileSync(file);
+      // Range, because a playlist is long audio and a seek used to re-download
+      // the whole track: the route answered 200 with the full body to every
+      // request, Range header or not. Safari goes further and refuses to play
+      // media at all from a source that will not answer 206.
+      const rng = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? '').trim());
+      if (rng && req.method === 'GET') {
+        let start = rng[1] === '' ? null : Number(rng[1]);
+        let end = rng[2] === '' ? null : Number(rng[2]);
+        if (start === null && end === null) { start = 0; end = buf.length - 1; }
+        else if (start === null) { start = Math.max(0, buf.length - end); end = buf.length - 1; }
+        else if (end === null) { end = buf.length - 1; }
+        end = Math.min(end, buf.length - 1);
+        if (start > end || start >= buf.length) {
+          res.writeHead(416, { 'Content-Range': 'bytes */' + buf.length, ...SECURITY_HEADERS });
+          res.end();
+          return;
+        }
+        const slice = buf.subarray(start, end + 1);
+        res.writeHead(206, {
+          'Content-Type': meta.mime,
+          'Content-Length': slice.length,
+          'Content-Range': 'bytes ' + start + '-' + end + '/' + buf.length,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          ETag: '"' + hash.slice(0, 16) + '"',
+          ...SECURITY_HEADERS,
+          'Content-Security-Policy': 'sandbox',
+        });
+        res.end(slice);
+        return;
+      }
       // content-addressed ⇒ immutable: clients and proxies may cache forever
       res.writeHead(200, {
         'Content-Type': meta.mime,
         'Content-Length': buf.length,
+        'Accept-Ranges': 'bytes',
         'Cache-Control': 'public, max-age=31536000, immutable',
         ETag: '"' + hash.slice(0, 16) + '"',
         ...SECURITY_HEADERS,
@@ -2305,7 +2427,9 @@ const server = createServer((req, res) => {
         'Content-Security-Policy': 'sandbox',
         'Content-Disposition': meta.mime.startsWith('image/') || meta.mime.startsWith('video/') || meta.mime.startsWith('audio/') ? 'inline' : 'attachment',
       });
-      res.end(buf);
+      // HEAD answers the headers and nothing else — it is how a reader learns
+      // what a download will cost without paying for it.
+      res.end(req.method === 'HEAD' ? undefined : buf);
     } catch {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('not found');

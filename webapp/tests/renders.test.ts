@@ -186,6 +186,68 @@ describe('the built page is an application, not just valid JavaScript', () => {
     dom.window.close();
   }, 30000);
 
+  it('plays several tracks on one post as one playlist, and shows a picture from the archive', async () => {
+    // Three things at once, because they share one path and one bug would hide
+    // the others:
+    //   - N audio entries render ONE player, not N. The old code mapped over
+    //     the entries and appended a separate <audio> for each, so every track
+    //     on a post could play at the same time as every other.
+    //   - a profile picture appears beside the handle, through avatar(), which
+    //     had to start taking the id before it could look anything up.
+    //   - both resolve to archive/media/<hash> when no host answers. They used
+    //     to resolve to /api/media/<hash> on the page's own origin, which on
+    //     static hosting is a 404 by construction.
+    const now = Date.now();
+    const A = 'a'.repeat(64), B = 'b'.repeat(64), C = 'c'.repeat(64), P = 'd'.repeat(64);
+    const acts = [
+      { t: 'register', id: 'u_m', handle: 'Mel', seed: 1, epoch: 0, ts: now - 90000000 },
+      { t: 'burn', id: 'u_m', amt: 1, ts: now - 80000000 },
+      { t: 'profile', id: 'u_m', bio: 'makes records', link: '', pic: P, ts: now - 70000 },
+      { t: 'post', author: 'u_m', text: 'an album', a: 0.8, rmen: [], ts: now - 60000, media: [
+        { h: A, m: 'audio/mpeg', n: 'First light', s: 3_000_000 },
+        { h: B, m: 'audio/mpeg', n: 'Second wind', s: 4_100_000 },
+        { h: C, m: 'audio/mpeg', n: 'Third rail', s: 2_200_000 },
+      ] },
+    ];
+    const NL = String.fromCharCode(10);
+    const body = acts.map((a) => JSON.stringify(a)).join(NL) + NL;
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: now, media: true }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_m'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'feed' }),
+    }, serve);
+    expect(errors, 'a multi-track post threw: ' + errors.join(' | ')).toEqual([]);
+
+    const players = root!.querySelectorAll('audio');
+    expect(players.length, 'three tracks must be one player, not three').toBe(1);
+    const rows = root!.querySelectorAll('.track-row');
+    expect(rows.length, 'no track list').toBe(3);
+    expect(root!.textContent).toContain('First light');
+    expect(root!.textContent).toContain('Third rail');
+    // The sizes come from `s` in the record — a number the host measured
+    // against its own disk, not one the composer sent. Mebibytes, matching
+    // every other size this codebase prints.
+    expect(root!.textContent).toContain('3.9 MB');
+    // Track one is selected and pointed at the published copy.
+    expect(players[0].getAttribute('src')).toBe('archive/media/' + A);
+    expect(rows[0].className).toContain('on');
+
+    const pic = root!.querySelector('.ava-img') as HTMLImageElement | null;
+    expect(pic, 'no profile picture beside the handle').not.toBeNull();
+    expect(pic!.getAttribute('src')).toBe('archive/media/' + P);
+
+    dom.window.close();
+  }, 30000);
+
   it('draws every geek tab without throwing', async () => {
     // One dead tab is the same outage in a smaller place.
     for (const tab of ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide']) {

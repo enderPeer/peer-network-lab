@@ -104,20 +104,11 @@ if ($Archive) {
   Copy-Item $srcLog (Join-Path $archDir 'acts.jsonl') -Force
   $lineCount = (Get-Content $srcLog | Where-Object { $_.Trim() } | Measure-Object).Count
   $sha = (Get-FileHash (Join-Path $archDir 'acts.jsonl') -Algorithm SHA256).Hash.ToLower()
-  $man = [ordered]@{
-    acts    = $lineCount
-    sha256  = $sha
-    at      = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
-    host    = $HostUrl
-    media   = [bool]$ArchiveMedia
-    note    = 'A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.'
-  }
-  [System.IO.File]::WriteAllText(
-    (Join-Path $archDir 'manifest.json'),
-    ($man | ConvertTo-Json),
-    (New-Object System.Text.UTF8Encoding $false))
-  Write-Output ("archive -> $lineCount acts, sha256 " + $sha.Substring(0, 16) + '...')
 
+  # Copy the blobs BEFORE the manifest is written, so the manifest can describe
+  # what is actually published instead of which switch was passed. The app now
+  # reads this flag to resolve archive/media/<hash>, so a `true` beside an empty
+  # folder is a promise of pictures that 404.
   if ($ArchiveMedia) {
     $srcMedia = Join-Path $here 'server-data\media'
     if (Test-Path $srcMedia) {
@@ -128,6 +119,25 @@ if ($Archive) {
       Write-Output "archive -> media included ($mb MB)"
     }
   }
+  $blobDir = Join-Path $archDir 'media'
+  $hasMedia = (Test-Path $blobDir) -and ((Get-ChildItem $blobDir -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
+  if (-not $ArchiveMedia -and $hasMedia) {
+    Write-Output 'archive -> media already published from an earlier run; the manifest says so'
+  }
+
+  $man = [ordered]@{
+    acts    = $lineCount
+    sha256  = $sha
+    at      = [long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())
+    host    = $HostUrl
+    media   = [bool]$hasMedia
+    note    = 'A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.'
+  }
+  [System.IO.File]::WriteAllText(
+    (Join-Path $archDir 'manifest.json'),
+    ($man | ConvertTo-Json),
+    (New-Object System.Text.UTF8Encoding $false))
+  Write-Output ("archive -> $lineCount acts, sha256 " + $sha.Substring(0, 16) + '...')
 }
 # WriteAllText with an explicit no-BOM encoder: PowerShell 5.1's -Encoding utf8
 # emits a byte-order mark, and a BOM in front of JSON breaks strict parsers.

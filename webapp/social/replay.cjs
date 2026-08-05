@@ -160,7 +160,7 @@ function replayUncached(acts) {
   // Attention, recorded but never scored. See the 'follow' branch below.
   var follows = {};     // follower -> { followee: true }
   var followers = {};   // followee -> { follower: true }
-  var profiles = {};    // id -> { bio, link, idx }     // cid -> {idx, ts, edited} for the edit/delete UI
+  var profiles = {};    // id -> { bio, link, pic, idx }     // cid -> {idx, ts, edited} for the edit/delete UI
   // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
   // every attestation increment feeds the actor's residual burn balance.
   var l0 = new E.AttestationLedger({ E0: 100, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
@@ -870,6 +870,11 @@ function replayUncached(acts) {
         profiles[a.id] = {
           bio: typeof a.bio === 'string' ? a.bio : '',
           link: typeof a.link === 'string' ? a.link : '',
+          // The picture is the hash of bytes in the media store, and the
+          // latest profile act wins outright — including one that clears it.
+          // Nothing on screen may read a picture from anywhere but here, or a
+          // portrait somebody removed would survive in a cache keyed by handle.
+          pic: typeof a.pic === 'string' ? a.pic : '',
           idx: i,
         };
         chron.push({ who: a.id, line: 'updated their profile' });
