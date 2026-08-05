@@ -36,7 +36,8 @@ const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
   'editPost', 'deletePost', 'deleteAccount', 'call', 'stream',
   'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap',
-  'setKey', 'advert', 'adStop']);
+  'setKey', 'advert', 'adStop',
+  'follow', 'profile', 'setRecovery']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -195,13 +196,16 @@ const ACT_FIELDS = {
   // termini v0.24.2 allows to be existing rather than fresh.
   review: ['t', 'author', 'target', 'e', 'f', 'text', 'upd'],
   tag: ['t', 'author', 'target', 'name', 'r', 'c'],
+  follow: ['t', 'from', 'to', 'on'],
+  profile: ['t', 'id', 'bio', 'link'],
+  setRecovery: ['t', 'id', 'codeHash'],
   closeEpoch: ['t', 'epoch'],
   deposit: ['t', 'id', 'amt'],
   burnL0: ['t', 'id', 'x'],
   redeem: ['t', 'id', 'x'],
   transferL0: ['t', 'from', 'to', 'x', 'cls'],
   closeCycle: ['t'],
-  setPin: ['t', 'id', 'pinHash', 'byOperator'],
+  setPin: ['t', 'id', 'pinHash', 'byOperator', 'byRecovery'],
   setKey: ['t', 'id', 'credId', 'cose', 'label'],
   advert: ['t', 'author', 'text', 'url', 'days', 'placement', 'tags', 'people', 'posts', 'regions'],
   adStop: ['t', 'author', 'ad', 'operator'],
@@ -701,12 +705,21 @@ const RP_ID = (process.env.PEER_RP_ID ?? '').trim();
 const RP_ORIGIN = (process.env.PEER_RP_ORIGIN ?? '').trim();
 
 const pinIndex = new Map();
+// id -> stored hash of a recovery CODE. A code is 128 random bits, so unlike
+// an email address it cannot be guessed from a dictionary and a hash of one
+// is genuinely a secret. That is the whole reason recovery here is a code and
+// not an address.
+const recoveryIndex = new Map();
+// Actors who have just proven a recovery code. Single use, in memory, and
+// spent by the very next setPin — it is a grant, not a session.
+const recoveryGrant = new Set();
 // Accounts whose stored hash was proven correct this request but is still in a
 // crackable legacy format. Filled by authError, flushed once the act is
 // accepted — never on a failed attempt, or a wrong guess would rewrite the log.
 const pinUpgrades = new Map();
 for (const a of acts) {
   if ((a.t === 'register' || a.t === 'setPin') && a.pinHash) pinIndex.set(a.id, a.pinHash);
+  if (a.t === 'setRecovery' && a.codeHash) recoveryIndex.set(a.id, a.codeHash);
   if (a.t === 'setKey') {
     const list = keyIndex.get(a.id) ?? [];
     if (a.credId === null) keyIndex.set(a.id, []);            // explicit removal
@@ -823,6 +836,11 @@ if (BTC_ADDRESS_RAW) {
     console.error('[ads] Copy a receive address from your wallet; do not type it by hand.');
   }
 }
+// Contact addresses live beside the log, never in it. server-data/ is
+// gitignored wholesale, the mirror copies only acts and media, and the static
+// archive publishes only acts.jsonl — so nothing here can escape by accident.
+const CONTACTS = resolve(DATA_DIR, 'contacts.json');
+
 const adStore = createAdStore(resolve(DATA_DIR, 'ads.json'), {
   priceSatsPerDay: Number(process.env.PEER_AD_SATS_PER_DAY) || 20000,
 });
@@ -834,7 +852,12 @@ function authError(act) {
     // be authorised by whoever can act as it today. It was missing, which made
     // key registration skip the PIN check entirely — a test caught it before
     // the endpoint ever shipped.
-    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'setKey', 'deleteAccount'].includes(act.t) ? act.id : null));
+    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'setKey', 'deleteAccount',
+      // profile and setRecovery carry their actor in `id`, like setPin. Left
+      // out of this list they derive a null actor and skip the PIN check
+      // entirely: anyone could rewrite anyone's biography, or attach a
+      // recovery code to a handle that is not theirs and then take it.
+      'profile', 'setRecovery'].includes(act.t) ? act.id : null));
   if (!actor) return null; // closeEpoch/closeCycle are communal; register is checked for uniqueness only
   const stored = pinIndex.get(actor);
   if (!stored) {
@@ -857,6 +880,17 @@ function authError(act) {
     }
     return null;
   }
+  // ── Recovery ────────────────────────────────────────────────────────────
+  //
+  // The one way back into a handle whose PIN is gone that does not involve
+  // the operator. The grant is only ever placed by /api/auth/recover after a
+  // code has been verified, it is spent immediately, and it authorises
+  // exactly one thing: replacing the PIN.
+  if (act.t === 'setPin' && recoveryGrant.has(actor)) {
+    recoveryGrant.delete(actor);
+    return null;
+  }
+
   // ── Operator reset of an EXISTING PIN ───────────────────────────────────
   //
   // The operator could set a FIRST PIN on an unclaimed handle but could not
@@ -1054,7 +1088,32 @@ function validate(act) {
       if (!str(act.author, 24) || !str(act.target, 40) || !inR(act.e) || !inR(act.f) || !str(act.text, 1000)) return 'bad review';
       if (unknownTarget(act.target)) return unknownTarget(act.target);
       break;
-    case 'tag':
+    case 'follow': {
+        if (!str(act.from, 24) || !str(act.to, 40)) return 'bad follow';
+        if (act.from === act.to) return 'a handle cannot follow itself';
+        if (!isRegistered(act.to)) return 'no such handle: ' + act.to;
+        if (act.on !== undefined && typeof act.on !== 'boolean') return 'bad follow';
+        break;
+      }
+    case 'profile': {
+        if (!str(act.id, 24)) return 'bad profile';
+        if (act.bio !== undefined && (typeof act.bio !== 'string' || act.bio.length > 280)) {
+          return 'a profile note is at most 280 characters; yours is ' + String(act.bio || '').length;
+        }
+        if (act.link !== undefined && act.link !== '') {
+          if (typeof act.link !== 'string' || act.link.length > 200) return 'that link is too long';
+          // Same rule the adverts use: a link is the one thing everybody
+          // clicks, so javascript: and data: are refused rather than escaped.
+          if (!/^https?:\/\//i.test(act.link)) return 'a profile link must be a plain http(s) URL';
+        }
+        break;
+      }
+    case 'setRecovery': {
+        if (!str(act.id, 24)) return 'bad recovery';
+        if (!validPinHash(act.codeHash)) return 'bad recovery code hash';
+        break;
+      }
+      case 'tag':
       if (!str(act.author, 24) || !str(act.target, 40) || !str(act.name, 20) || !inR(act.r) || !inR(act.c)) return 'bad tag';
       if (unknownTarget(act.target)) return unknownTarget(act.target);
       break;
@@ -1393,6 +1452,8 @@ const API_DOC = {
     { method: 'POST', path: '/api/v1/react', purpose: 'react to content, or vouch for a person by targeting prof_<id>', body: { as: 'id', pin: 'string', target: 'content id or prof_id', polarity: 'optional -1..1', reaction: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/tag', purpose: 'tag content into the commons', body: { as: 'id', pin: 'string', target: 'content id', name: 'string ≤20' } },
     { method: 'POST', path: '/api/v1/message', purpose: 'direct message (public in the log, like everything)', body: { as: 'id', pin: 'string', to: 'id', text: 'string ≤500' } },
+    { method: 'POST', path: '/api/v1/follow', purpose: 'follow or unfollow an account. Recorded in the log and deliberately absent from every score: following is attention, and this network measures transported commitment. Costs θ like any act.', body: { as: 'id', pin: 'string', to: 'id', on: 'optional boolean, false to unfollow' } },
+    { method: 'POST', path: '/api/v1/profile', purpose: 'write your own description. Public like everything in the log, and in no score.', body: { as: 'id', pin: 'string', bio: 'string ≤280', link: 'optional http(s) URL ≤200' } },
     { method: 'POST', path: '/api/v1/burn', purpose: 'convert reserve into energy so you can keep acting', body: { as: 'id', pin: 'string' } },
   ],
   limits: {
@@ -1415,7 +1476,11 @@ const API_DOC = {
 // any script could talk forever. These kinds are gated. Recovery acts (burn,
 // deposit, redeem) and free corrections must stay open, or a drained handle
 // could never climb out.
-const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call']);
+// 'follow' is in: a free follow is a free lever, and this is the one network
+// where pulling a lever is meant to cost the puller something. 'profile' is
+// NOT — editing your own description is a correction, and corrections are
+// never gated on reserve here.
+const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'follow']);
 
 /**
  * The single write door, wrapped so telemetry cannot drift from reality:
@@ -1487,6 +1552,7 @@ function applyActInner(act, auth, ip) {
   acts.push(act);
   persist(act);
   if ((act.t === 'register' || act.t === 'setPin') && act.pinHash) pinIndex.set(act.id, act.pinHash);
+  if (act.t === 'setRecovery' && act.codeHash) recoveryIndex.set(act.id, act.codeHash);
   if (act.t === 'setKey') {
     const list = keyIndex.get(act.id) ?? [];
     if (act.credId === null) keyIndex.set(act.id, []);
@@ -1886,6 +1952,15 @@ async function handleBotApi(req, res, url, ip) {
     const name = typeof body.name === 'string' ? body.name.trim().replace(/^#/, '') : '';
     if (!body.target || !name) { json(res, 400, { error: 'target and name are required' }); return; }
     submit({ t: 'tag', author: me, target: String(body.target), name, r: num(body.relevance, 0.8), c: num(body.confidence, 0.8) });
+    return;
+  }
+  if (p === 'follow') {
+    if (!body.to) { json(res, 400, { error: 'to is required: the handle id to follow' }); return; }
+    submit({ t: 'follow', from: me, to: String(body.to), on: body.on === false ? false : true });
+    return;
+  }
+  if (p === 'profile') {
+    submit({ t: 'profile', id: me, bio: typeof body.bio === 'string' ? body.bio : '', link: typeof body.link === 'string' ? body.link : '' });
     return;
   }
   if (p === 'message') {
@@ -2442,6 +2517,82 @@ const server = createServer((req, res) => {
     }).catch(() => json(res, 400, { error: 'invalid body' }));
     return;
   }
+  // Prove a recovery code and set a new PIN. Nothing else about the account
+  // is touched, and the act that results says plainly how it happened.
+  if (req.method === 'POST' && url.pathname === '/api/auth/recover') {
+    if (mirrorRefuse(res)) return;
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let m;
+      try { m = JSON.parse(body); } catch { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON' }); return; }
+      const as = typeof m.as === 'string' ? m.as : '';
+      const code = typeof m.code === 'string' ? m.code : '';
+      // The same limiter a wrong PIN spends. A recovery code is long, but the
+      // door it opens is the whole account, so it gets the same doorman.
+      if (!pinFailLimiter(ip)) {
+        json(res, 429, { code: 'PIN_ATTEMPTS', error: 'too many attempts from this address — wait a few minutes' });
+        return;
+      }
+      const stored = recoveryIndex.get(as);
+      if (!as || !code || !stored || !pinMatches(as, code, stored)) {
+        // One message for every failure: whether the handle exists, whether it
+        // has a code, and whether the code is right are all the same answer.
+        json(res, 401, { code: 'PIN_WRONG', error: 'that handle and recovery code do not match' });
+        return;
+      }
+      if (!validPinHash(m.pinHash)) { json(res, 400, { code: 'BAD_REQUEST', error: 'bad PIN hash' }); return; }
+      recoveryGrant.add(as);
+      const out = applyAct({ t: 'setPin', id: as, pinHash: m.pinHash, byRecovery: true }, '', ip);
+      recoveryGrant.delete(as);
+      if (out.error) { json(res, out.code || 400, { code: out.errorCode, error: out.error }); return; }
+      // Said accurately: the code stays valid until its owner replaces it.
+      // The index is rebuilt from the log at every restart, so 'used once'
+      // would be a claim this design cannot keep.
+      json(res, 200, { ok: true, note: 'PIN replaced. This recovery code still works — make a new one if it may have been seen.' });
+    });
+    return;
+  }
+
+  // A contact address, kept OUT of the act log on purpose.
+  //
+  // The log is public: served at /api/acts, copied to every mirror, and
+  // published as a static archive. An address written there would be public
+  // for good, and hashing would not save it — addresses are guessable in a
+  // way a random code is not. So it lives here, in a file that is gitignored,
+  // never mirrored and never archived, and it is only ever a way for the
+  // operator to reach somebody. This host cannot send mail at all.
+  if (req.method === 'POST' && url.pathname === '/api/contact') {
+    if (mirrorRefuse(res)) return;
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let m;
+      try { m = JSON.parse(body); } catch { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON' }); return; }
+      const as = typeof m.as === 'string' ? m.as : '';
+      const email = typeof m.email === 'string' ? m.email.trim() : '';
+      if (!as || !pinIndex.has(as)) {
+        json(res, 403, { code: 'PIN_REQUIRED', error: 'set a PIN on this account before adding a contact address' });
+        return;
+      }
+      const aerr = authError({ t: 'dm', from: as, auth: typeof m.auth === 'string' ? m.auth : '' });
+      if (aerr) {
+        if (!pinFailLimiter(ip)) { json(res, 429, { code: 'PIN_ATTEMPTS', error: 'too many PIN attempts' }); return; }
+        json(res, 401, { code: 'PIN_WRONG', error: aerr }); return;
+      }
+      if (email && (email.length > 160 || !/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email))) {
+        json(res, 400, { code: 'BAD_REQUEST', error: 'that does not look like an address' }); return;
+      }
+      let book = {};
+      try { book = JSON.parse(readFileSync(CONTACTS, 'utf8')); } catch { /* first one */ }
+      if (email) book[as] = { email, at: Date.now() };
+      else delete book[as];
+      writeFileSync(CONTACTS, JSON.stringify(book, null, 2), 'utf8');
+      json(res, 200, { ok: true, set: !!email });
+    });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/auth/status') {
     const as = url.searchParams.get('as') ?? '';
     const stored = pinIndex.get(as);

@@ -143,7 +143,11 @@ function replayUncached(acts) {
   // it no longer propagates, because muting is never inherited from a target.
   var mutedContent = {};
   var actContent = {};   // act index -> content id (posts only; edit targets)
-  var postMeta = {};     // cid -> {idx, ts, edited} for the edit/delete UI
+  var postMeta = {};
+  // Attention, recorded but never scored. See the 'follow' branch below.
+  var follows = {};     // follower -> { followee: true }
+  var followers = {};   // followee -> { follower: true }
+  var profiles = {};    // id -> { bio, link, idx }     // cid -> {idx, ts, edited} for the edit/delete UI
   // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
   // every attestation increment feeds the actor's residual burn balance.
   var l0 = new E.AttestationLedger({ E0: 100, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
@@ -675,6 +679,42 @@ function replayUncached(acts) {
       }
       debit(a.author);
       }
+    } else if (a.t === 'follow') {
+      // ── Following, and why it is not an edge ───────────────────────────
+      //
+      // This network's premise is that influence is transported commitment,
+      // not attention, and it holds that line in code rather than in prose:
+      // view counts are kept out of the log, the graph and every score.
+      //
+      // A follow is attention. So it is recorded — it has to be, or it would
+      // not survive a reload or agree between two clients — and it is written
+      // into a plain map that NOTHING downstream reads. It mints no node, adds
+      // no edge, touches no ledger and appears in no certificate. Standing is
+      // computed from ledger triples and fold cells only; neither can see this.
+      //
+      // The act still costs θ like every other act. That is deliberate: a free
+      // follow is a free lever, and this is the one network where pulling a
+      // lever is supposed to cost the puller something.
+      if (known(a.from) && known(a.to) && a.from !== a.to) {
+        var fset = follows[a.from] || (follows[a.from] = {});
+        var bset = followers[a.to] || (followers[a.to] = {});
+        if (a.on === false) { delete fset[a.to]; delete bset[a.from]; }
+        else { fset[a.to] = true; bset[a.from] = true; }
+        chron.push({ who: a.from, line: (a.on === false ? 'stopped following ' : 'started following ')
+          + (handles[a.to] || a.to) + ' — recorded, and in no score' });
+      }
+    } else if (a.t === 'profile') {
+      // Self-declared, public by nature, and owned: the host checks that the
+      // signer is the subject. Kept out of every score for the same reason a
+      // follow is — what you say about yourself is not commitment transported.
+      if (known(a.id)) {
+        profiles[a.id] = {
+          bio: typeof a.bio === 'string' ? a.bio : '',
+          link: typeof a.link === 'string' ? a.link : '',
+          idx: i,
+        };
+        chron.push({ who: a.id, line: 'updated their profile' });
+      }
     } else if (a.t === 'tag') {
       if (!known(a.author)) continue;
       counter++;
@@ -947,6 +987,7 @@ function replayUncached(acts) {
   var dispHandles = {};
   for (var hk in handles) dispHandles[hk] = deletedActors[hk] ? '[deleted]' : handles[hk];
   return {
+    follows: follows, followers: followers, profiles: profiles,
     g: g, ledgers: ledgers, ledgerById: ledgerById, handles: dispHandles, creators: creators,
     payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
     deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),

@@ -679,7 +679,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you'];
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
-  var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new'
+  var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new' | 'follow'
+  // A query is where you are LOOKING, not where you are standing, so it is
+  // deliberately not persisted: a restored query would silently filter
+  // somebody's feed the next time they opened the app.
+  var query = '';
   var econView = 'wallet'; // 'wallet' | 'pools' | 'layer0' | 'ledger'
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
@@ -724,7 +728,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (v0 && typeof v0 === 'object') {
       if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
-      if (['l1', 'cogra', 'new'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
+      if (['l1', 'cogra', 'new', 'follow'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
@@ -1623,6 +1627,104 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
   }
 
+  /**
+   * Write your own description. Two short fields, both public by nature —
+   * this is the one place on the network where what is shown about you is
+   * what you said rather than what the record computed.
+   */
+  function profileFlow(st) {
+    var cur = (st.profiles && st.profiles[who]) || { bio: '', link: '' };
+    var bio = h('textarea', { rows: '3', maxlength: '280', placeholder: 'a line about you — 280 characters' });
+    bio.value = cur.bio || '';
+    var link = h('input', { type: 'url', maxlength: '200', placeholder: 'https://… (optional)' });
+    link.value = cur.link || '';
+    var overlay = document.getElementById('overlay');
+    overlay.innerHTML = '';
+    var close = function () { overlay.innerHTML = ''; };
+    overlay.appendChild(h('div', { class: 'pin-dialog' },
+      h('div', { class: 'scrim', onclick: close }),
+      h('div', { class: 'pin-card' },
+        h('h3', { text: 'Your profile' }),
+        h('p', { class: 'smallnote', text: 'Shown on your profile and readable by anyone — it goes into the public record like every other act. It changes no score.' }),
+        bio, link,
+        h('div', { class: 'mini-form' },
+          h('button', { class: 'btn small', text: 'Cancel', onclick: close }),
+          h('button', { class: 'btn small primary', text: 'Save', onclick: function () {
+            var l2 = link.value.trim();
+            if (l2 && !/^https?:\/\//i.test(l2)) { toast('A link has to start with http:// or https://.'); return; }
+            close();
+            tryAct(who, { t: 'profile', id: who, bio: bio.value.trim(), link: l2 }, 'Profile saved.');
+          } })))));
+  }
+
+  /**
+   * A recovery code: the one way back into a handle whose PIN is gone that
+   * does not need the operator.
+   *
+   * It is a code and not an email address for a reason worth stating. The act
+   * log is public — served, mirrored, and published as a static archive — so
+   * an address written into it would be public for good, and hashing would not
+   * save it, because addresses are guessable in a way 128 random bits are not.
+   * The code is generated here, shown once, and only its hash ever leaves.
+   */
+  function recoveryFlow(st) {
+    var bytes = new Uint8Array(16);
+    (window.crypto || {}).getRandomValues ? crypto.getRandomValues(bytes) : null;
+    if (!bytes[0] && !bytes[15]) { toast('This browser has no secure random source, so no code can be made here.'); return; }
+    var code = Array.prototype.map.call(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('')
+      .replace(/(.{8})/g, '$1-').replace(/-$/, '');
+    derivePinHash(who, code).then(function (hx) {
+      var overlay = document.getElementById('overlay');
+      overlay.innerHTML = '';
+      var close = function () { overlay.innerHTML = ''; };
+      overlay.appendChild(h('div', { class: 'pin-dialog' },
+        h('div', { class: 'scrim', onclick: close }),
+        h('div', { class: 'pin-card' },
+          h('h3', { text: 'Your recovery code' }),
+          h('p', { class: 'smallnote', text: 'Write this down now. It is shown once and stored nowhere you can read back — only a hash of it goes into the record. It replaces a forgotten PIN, it stays valid until you make another one, and anyone who has it can take this handle.' }),
+          h('p', { class: 'num', style: 'font-size:15px; word-break:break-all; margin:10px 0', text: code }),
+          h('div', { class: 'mini-form' },
+            h('button', { class: 'btn small', text: 'Cancel', onclick: close }),
+            h('button', { class: 'btn small primary', text: 'I have written it down', onclick: function () {
+              close();
+              tryAct(who, { t: 'setRecovery', id: who, codeHash: hx },
+                'Recovery code active. Keep it: it stays valid until you make another one.');
+            } })))));
+    });
+  }
+
+  /**
+   * An address the operator can reach you at. Deliberately NOT an act: it is
+   * sent to the host and kept beside the log, never in it, because the log is
+   * public and permanent. It cannot send you anything by itself — this host
+   * has no mail of any kind — and the dialog says so rather than implying a
+   * reset link that will never arrive.
+   */
+  function contactFlow() {
+    var em = h('input', { type: 'email', maxlength: '160', placeholder: 'you@example.com' });
+    var overlay = document.getElementById('overlay');
+    overlay.innerHTML = '';
+    var close = function () { overlay.innerHTML = ''; };
+    overlay.appendChild(h('div', { class: 'pin-dialog' },
+      h('div', { class: 'scrim', onclick: close }),
+      h('div', { class: 'pin-card' },
+        h('h3', { text: 'Contact address' }),
+        h('p', { class: 'smallnote', text: 'Kept on the host, outside the public record: not in the act log, not copied to mirrors, not in the published archive. It is a way for the operator to reach you — this host cannot send email, so nothing is ever sent to it automatically. For getting back into a locked account, the recovery code is the thing that works.' }),
+        em,
+        h('div', { class: 'mini-form' },
+          h('button', { class: 'btn small', text: 'Cancel', onclick: close }),
+          h('button', { class: 'btn small primary', text: 'Save', onclick: function () {
+            var val = em.value.trim();
+            close();
+            fetch(API + '/api/contact', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ as: who, auth: pins[who] || '', email: val }),
+            }).then(function (r) { return r.json(); }).then(function (d) {
+              toast(d.ok ? (d.set ? 'Address saved on the host.' : 'Address removed.') : (d.error || 'The host refused it.'));
+            }).catch(function () { toast('Could not reach the host.'); });
+          } })))));
+  }
+
   function setPinFlow(st, isChange) {
     var title = isChange ? 'Change your PIN' : 'Secure this handle';
     var sub = isChange
@@ -1909,6 +2011,48 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return { quotes: quotes, mentions: mentions };
   }
   /** θ-cost of an act (posts may carry a quote + mentions, each its own act). */
+  /**
+   * Search the network.
+   *
+   * Scope, decided once and written down: post and comment text, handles, and
+   * tag labels. DIRECT MESSAGES ARE OUT. They are technically public — every
+   * dm act's text is in /api/acts and in the published archive — but no screen
+   * in this app has ever shown a conversation to somebody who was not in it,
+   * and a search box is exactly what would turn an obscure JSONL file into a
+   * browsable index of everyone's messages. The exclusion is this comment plus
+   * the absence of st.dms below, and a test that asserts it stays absent.
+   *
+   * Ordered by append position, newest first — the same authority the Newest
+   * ranking uses. It is a filter over the corpus, not a fourth ranking: the
+   * three ranking buttons stay live while a query is running.
+   */
+  function searchState(st, q) {
+    var out = { posts: [], comments: [], people: [], tags: [] };
+    var needle = String(q || '').trim().toLowerCase();
+    if (needle.length < 2) return out;
+    Object.keys(st.payloads).forEach(function (cid) {
+      var text = st.payloads[cid];
+      if (typeof text !== 'string' || text.toLowerCase().indexOf(needle) < 0) return;
+      // Sandbox seed content has payloads and no postMeta at all, so this
+      // lookup is guarded rather than assumed — that is the offline mode every
+      // visitor falls back to when no host answers.
+      var meta = st.postMeta[cid];
+      (meta && meta.comment ? out.comments : out.posts).push({ cid: cid, idx: meta ? meta.idx : 0 });
+    });
+    out.posts.sort(function (a, b) { return b.idx - a.idx; });
+    out.comments.sort(function (a, b) { return b.idx - a.idx; });
+    Object.keys(st.handles).forEach(function (id) {
+      if (st.deleted && st.deleted[id]) return;
+      // st.handles is the DISPLAY map, which already marks handle-skeleton
+      // twins — matching on the raw name would undo that.
+      if (String(st.handles[id]).toLowerCase().indexOf(needle) >= 0) out.people.push(id);
+    });
+    st.g.nodes.forEach(function (n) {
+      if (n.kind === 'Type' && String(n.label).toLowerCase().indexOf(needle) >= 0) out.tags.push(n);
+    });
+    return out;
+  }
+
   function actCost(act, st) {
     // Removals stay free — a drained author must still be able to take their
     // own content down. A revision is NOT free: it is a real Publish act that
@@ -3885,6 +4029,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           });
         } }),
         h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
+        h('button', { class: 'btn small', text: 'Profile', onclick: function () { profileFlow(st); } }),
+        h('button', { class: 'btn small', text: 'Recovery code', onclick: function () { recoveryFlow(st); } }),
+        REMOTE ? h('button', { class: 'btn small', text: 'Contact', onclick: contactFlow }) : null,
         // A PIN is a shared secret whose hash is published; a passkey is not.
         // Offered right beside it, so the stronger option is not buried.
         passkeySupported ? h('button', { class: 'btn small primary', text: '+ Passkey', onclick: function () { addPasskey(st); } }) : null,
@@ -4001,7 +4148,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var cogra = feedMode === 'cogra';
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
       h('div', { class: 'panel-head', style: 'margin-bottom:6px' },
-        h('p', { class: 'eyebrow', style: 'margin:0', text: feedMode === 'new'
+        h('p', { class: 'eyebrow', style: 'margin:0', text: feedMode === 'follow'
+          ? 'FOLLOWING — the accounts you chose, newest first, unranked'
+          : feedMode === 'new'
           ? 'chronological — authoritative append order, no ranking'
           : cogra
             ? 'CoGra Σ σ(π)·m(π)·f(Δt) — k-disjoint paths, no standing, balance × taint'
@@ -4009,7 +4158,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('div', { class: 'tabs' },
           h('button', { class: feedMode === 'l1' ? 'on' : '', text: 'L1', onclick: function () { feedMode = 'l1'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'cogra' ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }))));
+          h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }),
+          h('button', { class: feedMode === 'follow' ? 'on' : '', text: 'Following', onclick: function () { feedMode = 'follow'; feedLimit = 30; render(); } }))));
+
+    // Search lives here, in the feed's existing control strip, and not as a
+    // ninth tab: eight already overflow a phone, and the last ones were once
+    // unreachable rather than merely off-screen.
+    var qIn = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
+    var runQ = function () { query = qIn.value; render(); };
+    qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') runQ(); });
+    var qRow = h('div', { class: 'mini-form', style: 'margin-top:8px' }, qIn,
+      h('button', { class: 'btn small primary', text: 'Search', onclick: runQ }));
+    if (query) {
+      qRow.appendChild(h('button', { class: 'btn small', text: 'Clear', onclick: function () { query = ''; render(); } }));
+    }
+    head.appendChild(qRow);
     // View-as (community request): rank the feed from any identity's position — read-only.
     var vu = viewAs && st.ledgerById[viewAs] ? viewAs : who;
     var vaSel = h('select', {});
@@ -4040,6 +4203,27 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       newest.sort(function (a2, b2) { return b2.idx - a2.idx; });
       ranked = newest.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
       maxRel = 1;
+    } else if (feedMode === 'follow') {
+      // Everything by the people you follow, newest first. No ranking is
+      // applied on top: you already chose these accounts, and re-sorting your
+      // own choices by a score would be the app arguing with you.
+      var mine = (st.follows && st.follows[who]) || {};
+      var fl = [];
+      Object.keys(st.payloads).forEach(function (cid) {
+        var meta = st.postMeta[cid];
+        if (!meta || meta.comment) return;
+        if (!mine[st.creators[cid]]) return;
+        var node = st.g.nodes.get(cid);
+        if (node) fl.push({ node: node, idx: meta.idx });
+      });
+      fl.sort(function (a2, b2) { return b2.idx - a2.idx; });
+      ranked = fl.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
+      maxRel = 1;
+      if (!ranked.length) {
+        head.appendChild(h('p', { class: 'smallnote', text: Object.keys(mine).length
+          ? 'The people you follow have not posted yet.'
+          : 'You are not following anyone yet. Open a profile and press Follow — it costs θ like every act here, and it enters no score: following is attention, and attention is not standing on this network.' }));
+      }
     } else if (cogra) {
       var scores = cograFeed(st, vu);
       maxRel = scores.length ? Math.max.apply(null, scores.map(function (s) { return Math.abs(s.S); })) : 1;
@@ -4051,6 +4235,56 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
       maxRel = ranked.length ? ranked[0].relevance : 1;
     }
+    // A query filters the corpus; it does not rank it. The three ranking
+    // buttons stay live underneath, and the order here is append order —
+    // the same authority Newest uses — so nothing on screen claims to be a
+    // fourth opinion about what matters.
+    if (query) {
+      var res = searchState(st, query);
+      var total = res.posts.length + res.comments.length + res.people.length + res.tags.length;
+      head.appendChild(h('p', { class: 'smallnote', text: total
+        ? total + ' match' + (total === 1 ? '' : 'es') + ' for “' + query + '” · newest first · direct messages are never searched'
+        : 'Nothing matches “' + query + '”. Posts, comments, handles and tags are searched; direct messages are not.' }));
+      wrap.appendChild(head);
+      if (res.people.length) {
+        var pc = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'people' }));
+        res.people.slice(0, 12).forEach(function (id) {
+          var row = h('div', { class: 'chat-row' },
+            avatar(st.handles[id], 'avatar s'),
+            h('div', { class: 'grow' }, h('b', { text: st.handles[id] }),
+              h('div', { class: 'smallnote', text: 'standing ' + fmt(credibility(st, id), 4) })),
+            followBtn(st, id, true),
+            h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(id); } }));
+          pc.appendChild(row);
+        });
+        wrap.appendChild(pc);
+      }
+      if (res.tags.length) {
+        var tc = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'tags' }));
+        var tr2 = h('div', { class: 'tagrow' });
+        res.tags.slice(0, 20).forEach(function (n) { tr2.appendChild(h('span', { class: 'tagchip', text: n.label })); });
+        tc.appendChild(tr2);
+        wrap.appendChild(tc);
+      }
+      res.posts.slice(0, 30).forEach(function (r) {
+        var node = st.g.nodes.get(r.cid);
+        if (!node) return;
+        var card = postCard(st, { node: node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1);
+        // Results carry no data-cid: reportViews() sweeps every one of those in
+        // the viewport and posts it to the host, which would turn scrolling a
+        // result list into a record of what people searched for.
+        card.removeAttribute('data-cid');
+        wrap.appendChild(card);
+      });
+      res.comments.slice(0, 20).forEach(function (r) {
+        wrap.appendChild(h('div', { class: 'card' },
+          h('p', { class: 'eyebrow', text: 'comment by ' + (st.handles[st.creators[r.cid]] || '—') }),
+          h('p', { style: 'margin:0' }, (st.payloads[r.cid] || '').slice(0, 220)),
+          h('button', { class: 'btn small', style: 'margin-top:8px', text: 'Open in thread', onclick: function () { jumpTo(st, r.cid); } })));
+      });
+      return wrap;
+    }
+
     if (!ranked.length) {
       head.appendChild(h('p', { class: 'smallnote', text: 'Empty: ranking runs from your own position, so nothing is reachable until you react, review, or vouch. Everything below the fold is waiting.' }));
     }
@@ -4075,7 +4309,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     st.g.nodes.forEach(function (n) {
       if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
     });
-    if (horizon.length && feedMode !== 'new') {
+    // Not under Following either. That list is the accounts you chose; padding
+    // it with everything you did not choose is the opposite of what was asked
+    // for — it showed a viewer their own unfollowed posts under a heading
+    // saying these were the people they follow.
+    if (horizon.length && feedMode !== 'new' && feedMode !== 'follow') {
       wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
         h('p', { class: 'eyebrow', text: 'beyond your horizon — exists, not yet reachable in ≤4 hops (' + horizon.length + ')' })));
       horizon.slice(0, 15).forEach(function (n) {
@@ -5811,6 +6049,26 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Closing stamps writers with final reduced standing, checks wall ' + fmt(SAFE_FLOOR, 3) + ' and door ' + PART_FLOOR + ', advances self-edge tenure.' }));
   }
 
+  function iFollow(st, id) {
+    return !!(st.follows && st.follows[who] && st.follows[who][id]);
+  }
+
+  /** Follow / unfollow, priced like every other act and scored like none. */
+  function followBtn(st, id, small) {
+    if (!who || id === who || !st.ledgerById[id]) return null;
+    var on = iFollow(st, id);
+    return h('button', {
+      class: 'btn' + (small ? ' small' : '') + (on ? '' : ' primary'),
+      text: on ? 'Following' : 'Follow · −θ',
+      title: on ? 'Stop following. Recorded as an act; it is in no score.'
+        : 'Follow. Costs θ like every act here, and enters no score — following is attention, and attention is not standing.',
+      onclick: function () {
+        tryAct(who, { t: 'follow', from: who, to: id, on: !on },
+          on ? 'No longer following.' : 'Following. Their posts now have a feed of their own.');
+      },
+    });
+  }
+
   function openProfile(id) {
     var st = replay();
     var l = st.ledgerById[id];
@@ -5826,12 +6084,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var line = { other: b.src === id ? b.rcp : b.src, coeff: live ? Math.sqrt(pd * pi) : 0, live: live };
       if (b.src === id) given.push(line); else if (b.rcp === id) received.push(line);
     }
+    var prof = (st.profiles && st.profiles[id]) || null;
     var bond = credibility(st, id) / (NU + credibility(st, id));
     var drawer = h('div', { class: 'drawer' },
       h('button', { class: 'btn small ghost', text: '← close', onclick: close }),
       avatar(st.handles[id]),
       h('h3', { text: st.handles[id] + (st.pinHash[id] ? ' 🔒' : '') }),
       h('span', { class: 'standing-chip', text: 'standing ' + fmt(credibility(st, id), 4) }),
+      // Self-declared, and labelled as such: everything else on this card is
+      // derived from the record, this part is simply what they typed.
+      prof && prof.bio ? h('p', { class: 'sect', style: 'margin:10px 0 0', text: prof.bio }) : null,
+      prof && prof.link ? h('p', { class: 'sect', style: 'margin:4px 0 0' },
+        h('a', { href: prof.link, target: '_blank', rel: 'noopener noreferrer nofollow', text: prof.link })) : null,
+      h('div', { class: 'mini-form sect' },
+        followBtn(st, id, true),
+        (function () {
+          if (id !== who) return null;
+          return h('button', { class: 'btn small', text: prof ? 'Edit profile' : 'Add a profile', onclick: function () { profileFlow(st); } });
+        })(),
+        (function () {
+          var n = st.followers && st.followers[id] ? Object.keys(st.followers[id]).length : 0;
+          var f = st.follows && st.follows[id] ? Object.keys(st.follows[id]).length : 0;
+          return h('span', { class: 'smallnote', text: n + ' following them · ' + f + ' followed — counted, never scored' });
+        })()),
       h('dl', { class: 'ledger sect' },
         h('dt', { text: 'reserve' }), h('dd', { class: 'num', text: fmt(l.burnBal, 3) }),
         h('dt', { text: 'acts N' }), h('dd', { class: 'num', text: String(l.actCount) }),
