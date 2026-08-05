@@ -4194,6 +4194,33 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // Search lives here, in the feed's existing control strip, and not as a
     // ninth tab: eight already overflow a phone, and the last ones were once
     // unreachable rather than merely off-screen.
+    // Announce an event. Deliberately inside the composer card: an event is a
+    // thing you publish, not a separate world.
+    var evText = h('input', { type: 'text', placeholder: 'what is happening?', maxlength: '280', style: 'flex:1; min-width:0' });
+    var evWhen = h('input', { type: 'datetime-local' });
+    var evWhere = h('input', { type: 'text', placeholder: 'where', maxlength: '120', style: 'flex:1; min-width:0' });
+    var evFee = h('input', { type: 'number', min: '0', step: '0.000001', placeholder: 'entry (0 = free)', style: 'width:140px' });
+    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }), h('option', { value: 'tBTC', text: 'tBTC' }));
+    var evCap = h('input', { type: 'number', min: '0', step: '1', placeholder: 'places', style: 'width:90px' });
+    head.appendChild(h('details', { style: 'margin-top:8px' },
+      h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'announce an event · minus theta' }),
+      h('div', { class: 'mini-form', style: 'margin-top:6px' }, evText),
+      h('div', { class: 'mini-form' }, evWhen, evWhere),
+      h('div', { class: 'mini-form' }, evFee, evCur, evCap,
+        h('button', { class: 'btn small primary', text: 'Announce', onclick: function () {
+          var t2 = evText.value.trim();
+          if (!t2) { toast('Say what the event is first.'); return; }
+          var fee = parseFloat(evFee.value) || 0;
+          if (fee < 0) { toast('An entry fee cannot be negative.'); return; }
+          tryAct(who, {
+            t: 'event', author: who, text: t2,
+            at: evWhen.value ? new Date(evWhen.value).getTime() : 0,
+            place: evWhere.value.trim(), fee: fee, cur: fee > 0 ? evCur.value : '',
+            cap: Math.max(0, parseInt(evCap.value, 10) || 0),
+          }, 'Event announced. It is content like any post — people can react to it, and entry moves tokens without moving standing.');
+        } })),
+      h('p', { class: 'smallnote', text: 'An entry fee moves existing tokens from whoever joins to you. It mints nothing and raises nobody\u2019s standing, yours included. A place is a physical address: deleting the event redacts it.' })));
+
     var qIn = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
     var runQ = function () { query = qIn.value; render(); };
     qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') runQ(); });
@@ -4531,6 +4558,72 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .catch(function () {});
   }
 
+  /**
+   * The event half of a content card: when, where, what entry costs, and the
+   * two answers. Everything else on the card — reacting, commenting, quoting,
+   * vouching — is the ordinary machinery, because an event mints a content
+   * node exactly as a post does. That is the whole integration.
+   */
+  function eventPanel(st, cid, ev) {
+    var going = (st.eventGoing && st.eventGoing[cid]) || {};
+    var invited = (st.eventInvites && st.eventInvites[cid]) || {};
+    var n = Object.keys(going).length;
+    var mine = !!going[who];
+    var box = h('div', { class: 'card', style: 'margin:8px 0; background:var(--card-2)' },
+      h('p', { class: 'eyebrow', text: 'event' }));
+    if (ev.at) {
+      box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'when' }),
+        h('span', { class: 'num', text: new Date(ev.at).toLocaleString() })));
+    }
+    if (ev.place) box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'where' }), h('span', { text: ev.place })));
+    box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'entry' }),
+      h('span', { class: 'num', text: ev.fee > 0 ? fmt(ev.fee, 6) + ' ' + ev.cur : 'free' })));
+    box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'going' }),
+      h('span', { class: 'num', text: n + (ev.cap ? ' / ' + ev.cap : '') })));
+
+    var row = h('div', { class: 'mini-form' });
+    if (who && who !== ev.host) {
+      if (mine) {
+        row.appendChild(h('button', {
+          class: 'btn small', text: 'Withdraw',
+          title: 'Leaving does not refund: the payment already moved, and this record does not reverse value.',
+          onclick: function () {
+            tryAct(who, { t: 'rsvp', from: who, cid: cid, on: false }, 'Withdrawn — the entry fee is not returned.');
+          },
+        }));
+      } else {
+        row.appendChild(h('button', {
+          class: 'btn small primary',
+          text: ev.fee > 0 ? 'Join · pay ' + fmt(ev.fee, 6) + ' ' + ev.cur : 'Join',
+          title: ev.fee > 0
+            ? 'The fee moves from you to the host. It mints nothing and changes no standing — here or theirs.'
+            : 'Recorded, and in no score.',
+          onclick: function () {
+            tryAct(who, { t: 'rsvp', from: who, cid: cid, on: true, amt: ev.fee || 0, cur: ev.cur || '', to: ev.host },
+              ev.fee > 0 ? 'Paid and joined.' : 'Joined.');
+          },
+        }));
+      }
+    }
+    if (who === ev.host) {
+      var inv = h('select', {});
+      st.ledgers.forEach(function (l) {
+        if (l.id !== who && !l.deleted && !invited[l.id]) inv.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+      });
+      row.appendChild(inv);
+      row.appendChild(h('button', { class: 'btn small', text: 'Invite', onclick: function () {
+        if (!inv.value) return;
+        tryAct(who, { t: 'invite', from: who, to: inv.value, cid: cid }, 'Invited.');
+      } }));
+    }
+    if (invited[who] && !mine) row.appendChild(h('span', { class: 'smallnote', text: 'you were invited' }));
+    box.appendChild(row);
+    box.appendChild(h('p', { class: 'smallnote', text: ev.fee > 0
+      ? 'The fee is a transfer of tokens that already exist. It mints nothing, and neither paying nor being paid moves a standing or an epoch share — while money is moving between two accounts, engagement between them earns nothing either.'
+      : 'Going is recorded and enters no score. Reactions and comments on this event are ordinary priced acts and do count, exactly as on any post.' }));
+    return box;
+  }
+
   function postCard(st, f, rank, maxRel) {
     var n = f.node;
     var author = st.creators[n.id];
@@ -4548,6 +4641,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         viewChip(n.id),
         hopChip(st, n.id, false)),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
+    var evm = st.events && st.events[n.id];
+    if (evm) card.appendChild(eventPanel(st, n.id, evm));
     (st.mediaMeta[n.id] || []).forEach(function (m) { card.appendChild(mediaEl(m)); });
     var refs = refsOf(st, n.id);
     if (refs.quotes.length) {
@@ -6320,10 +6415,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       class: 'btn' + (small ? ' small' : '') + (on ? '' : ' primary'),
       text: on ? 'Following' : 'Follow · −θ',
       title: on ? 'Stop following. Recorded as an act; it is in no score.'
-        : 'Follow. Costs θ like every act here, and enters no score — following is attention, and attention is not standing.',
+        : 'Follow. Free, and in no score — θ is itself a standing input, so a follow must not spend one. Following is attention, and attention is not standing here.',
       onclick: function () {
         tryAct(who, { t: 'follow', from: who, to: id, on: !on },
-          on ? 'No longer following.' : 'Following. Their posts now have a feed of their own.');
+          on ? 'No longer following.' : 'Following — free, and in no score. Their posts now have a feed of their own.');
       },
     });
   }

@@ -144,6 +144,14 @@ function replayUncached(acts) {
   var mutedContent = {};
   var actContent = {};   // act index -> content id (posts only; edit targets)
   var postMeta = {};
+  var events = {};        // cid -> {host, at, place, fee, cur, cap, idx}
+  var eventInvites = {};  // cid -> { invitee: true }
+  var eventGoing = {};    // cid -> { attendee: true }
+  // (actor '>' creator) pairs where money moved this epoch. Cleared with the
+  // engagement records at close.
+  var paidTo = {};
+  function countGoing(cid) { return Object.keys(eventGoing[cid] || {}).length; }
+  function fmtAmt(x) { return (Math.round(x * 1e6) / 1e6).toString(); }
   // Attention, recorded but never scored. See the 'follow' branch below.
   var follows = {};     // follower -> { followee: true }
   var followers = {};   // followee -> { follower: true }
@@ -274,7 +282,18 @@ function replayUncached(acts) {
     var m = tokenBal[sym] || (tokenBal[sym] = {});
     m[id] = (m[id] || 0) + amt;
   }
-  function tokDebit(sym, id, amt) { tokenBal[sym][id] -= amt; }
+  function tokDebit(sym, id, amt) {
+    // Was a bare `tokenBal[sym][id] -= amt`, which throws a TypeError for a
+    // symbol nobody has ever held — and a replay that throws takes the host
+    // down with it, because every request replays the log. It also happily
+    // subtracted a negative amount, which is a credit wearing a debit's name:
+    // with a negative fee, debit-then-credit mints currency out of nothing.
+    // Both are refused here as well as at the door, because this file is the
+    // last thing a foreign or hand-edited log passes through.
+    if (!(amt > 0)) return;
+    var m = tokenBal[sym] || (tokenBal[sym] = {});
+    m[id] = (m[id] || 0) - amt;
+  }
   function poolId(x, y) { return x < y ? x + '/' + y : y + '/' + x; }
 
   /**
@@ -293,6 +312,31 @@ function replayUncached(acts) {
     // question is 'may this happen now' rather than 'did this happen'.
     if (!ledgerById[who]) return 'unknown actor';
     if (ledgerById[who].burnBal < THETA) return 'not enough energy';
+    if (a.t === 'rsvp') {
+      var rev = events[a.cid];
+      if (!rev) return 'no such event';
+      if (rev.host === who) return 'the host is already at their own event';
+      // Capacity first: it applies whether or not there is money involved. It
+      // was behind the fee check, so a free event had no capacity at all.
+      if (rev.cap > 0 && countGoing(a.cid) >= rev.cap && !(eventGoing[a.cid] || {})[who]) {
+        return 'this event is full — ' + rev.cap + ' places, all taken';
+      }
+      if (!(rev.fee > 0)) return null;              // free entry, nothing to move
+      // The act must NAME what it is paying and to whom. Reading the price out
+      // of state at apply time would let the organiser reprice between the
+      // moment somebody reads the card and the moment their answer lands —
+      // the same reason poolSwap carries minOut.
+      if (a.cur !== rev.cur || round6(a.amt) !== round6(rev.fee) || a.to !== rev.host) {
+        return 'this event now asks ' + fmtAmt(rev.fee) + ' ' + rev.cur + ' — the price moved';
+      }
+      if (balOf(rev.cur, who) < rev.fee) {
+        return 'you hold ' + fmtAmt(balOf(rev.cur, who)) + ' ' + rev.cur + ' and entry is ' + fmtAmt(rev.fee);
+      }
+      if (rev.cap > 0 && countGoing(a.cid) >= rev.cap && !(eventGoing[a.cid] || {})[who]) {
+        return 'this event is full — ' + rev.cap + ' places, all taken';
+      }
+      return null;
+    }
     if (a.t === 'advert') {
       var days = Math.floor(a.days);
       if (!(days >= 1 && days <= 90)) return 'an advert runs between 1 and 90 days';
@@ -518,6 +562,77 @@ function replayUncached(acts) {
         postMeta[scid] = { idx: i, ts: a.ts, edited: false, stream: true };
         chron.push({ who: a.author, line: 'went live · ' + a.text.slice(0, 60), to: scid });
       }
+    } else if (a.t === 'event') {
+      if (!known(a.author)) continue;
+      // ── An event is CONTENT, and that is the whole integration ──────────
+      //
+      // It mints a Content node through the same path a post or a stream
+      // takes, so reactions, comments, quotes, tags and vouches land on it
+      // unchanged — and those already feed CoGra, the standing solve and the
+      // epoch distribution. Nothing in the distribution code has to know that
+      // events exist; one line, contentAuthor, buys all of it.
+      //
+      // What does NOT happen here is equally deliberate: attending does not
+      // mint standing, and a fee is a transfer of tokens that already exist.
+      // Money never reaches burnBal or earnedBurn, which are the only two
+      // things standing and the α̂ gate read.
+      counter++;
+      var ecid = 'c' + counter;
+      actContent[i] = ecid;
+      contentAuthor[ecid] = a.author;   // unconditional: a departure must not re-cut a closed epoch
+      if (payloadGone) mutedContent[ecid] = true;
+      g.addNode({ id: ecid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Event ' + counter });
+      g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: ecid, pd: 0.8, pi: 1, epoch: certsSoFar });
+      debit(a.author); weighHome(a.author, 0.8, 1);
+      events[ecid] = {
+        host: a.author,
+        at: typeof a.at === 'number' ? a.at : 0,
+        // The place is redacted with the payload. It is a physical address:
+        // where a named person will be, at a named time.
+        place: payloadGone ? '' : String(a.place || '').slice(0, 120),
+        fee: a.fee > 0 ? round6(a.fee) : 0,
+        cur: a.fee > 0 ? String(a.cur || '') : '',
+        cap: a.cap > 0 ? Math.floor(a.cap) : 0,
+        idx: i,
+      };
+      if (!payloadGone) {
+        creators[ecid] = a.author; payloads[ecid] = a.text;
+        postMeta[ecid] = { idx: i, ts: a.ts, edited: false, event: true };
+        chron.push({ who: a.author, line: 'announced an event · ' + String(a.text).slice(0, 60)
+          + (events[ecid].fee ? ' · entry ' + fmtAmt(events[ecid].fee) + ' ' + events[ecid].cur : ' · free'), to: ecid });
+      }
+    } else if (a.t === 'invite') {
+      // Recorded, unscored, free — the same shape as a follow.
+      if (!known(a.from) || !known(a.to)) continue;
+      var iev = events[a.cid];
+      if (!iev || iev.host !== a.from || a.to === a.from) continue;
+      (eventInvites[a.cid] || (eventInvites[a.cid] = {}))[a.to] = true;
+      chron.push({ who: a.from, line: 'invited ' + (handles[a.to] || a.to) + ' to an event', to: a.cid });
+    } else if (a.t === 'rsvp') {
+      if (!known(a.from)) continue;
+      var rev2 = events[a.cid];
+      if (!rev2) continue;
+      var rerr = tokenActError({ t: 'rsvp', author: a.from, cid: a.cid, amt: a.amt, cur: a.cur, to: a.to });
+      if (a.on === false) {
+        // Leaving is always allowed and never refunds: the fee already moved,
+        // and this record does not reverse value. Said on screen too.
+        if ((eventGoing[a.cid] || {})[a.from]) delete eventGoing[a.cid][a.from];
+        chron.push({ who: a.from, line: 'withdrew from an event', to: a.cid });
+        continue;
+      }
+      if (rerr !== null) continue;                 // the host refused it too
+      if (rev2.fee > 0) {
+        tokDebit(rev2.cur, a.from, rev2.fee);
+        tokCredit(rev2.cur, rev2.host, rev2.fee);
+        // Money moved from this actor to this creator in this epoch. Their
+        // engagement toward that creator is worth nothing for the rest of it:
+        // otherwise a fee buys reactions, and reactions mint PEER.
+        paidTo[a.from + '>' + rev2.host] = true;
+      }
+      (eventGoing[a.cid] || (eventGoing[a.cid] = {}))[a.from] = true;
+      chron.push({ who: a.from, line: rev2.fee > 0
+        ? 'paid ' + fmtAmt(rev2.fee) + ' ' + rev2.cur + ' to ' + (handles[rev2.host] || rev2.host) + ' and joined an event'
+        : 'joined an event', to: a.cid });
     } else if (a.t === 'post') {
       if (!known(a.author)) continue;   // a ghost author writes nothing
       // Minting is a role this record plays, not a property of its family: an
@@ -616,7 +731,8 @@ function replayUncached(acts) {
       // someone else's content weighs toward that creator at the next epoch
       // close. Records only — all gates and damping apply at close, where the
       // actor's commitment rate is read once, for everyone alike.
-      if (!owner && contentAuthor[a.target] && contentAuthor[a.target] !== a.author) {
+      if (!owner && contentAuthor[a.target] && contentAuthor[a.target] !== a.author
+          && !paidTo[a.author + '>' + contentAuthor[a.target]]) {
         epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: a.p >= 0 ? 1.0 : 0.3, cid: a.target, kind: a.p >= 0 ? 'reaction' : 'dislike' });
       }
       if (!payloadGone) {
@@ -663,7 +779,8 @@ function replayUncached(acts) {
         { id: 'rvT' + counter, family: 'ReviewT', src: a.target, tgt: cmid, pd: a.f, pi: a.e, epoch: certsSoFar }
       );
       weighHome(a.author, a.e, a.f);
-      if (contentAuthor[a.target] && contentAuthor[a.target] !== a.author) {
+      if (contentAuthor[a.target] && contentAuthor[a.target] !== a.author
+          && !paidTo[a.author + '>' + contentAuthor[a.target]]) {
         epochEngage.push({ actor: a.author, creator: contentAuthor[a.target], base: 1.2, cid: a.target, kind: 'comment' });
       }
       if (!payloadGone) {
@@ -692,9 +809,16 @@ function replayUncached(acts) {
       // no edge, touches no ledger and appears in no certificate. Standing is
       // computed from ledger triples and fold cells only; neither can see this.
       //
-      // The act still costs θ like every other act. That is deliberate: a free
-      // follow is a free lever, and this is the one network where pulling a
-      // lever is supposed to cost the puller something.
+      // WHAT IT COSTS, said accurately after getting it wrong once. This
+      // branch does NOT debit θ, and the test pins that. The comment that used
+      // to sit here claimed it did, the host W1-gates it as though it did, and
+      // the bot API advertises that it does — three statements against one
+      // silent implementation. The implementation is the truthful one and the
+      // words were wrong, so the words are fixed here and at the other two
+      // sites rather than the behaviour: a follow that debited θ would let a
+      // crowded event or a busy day quietly dilute somebody's own rate, and
+      // θ is a standing input. Following is free, and rate-limited like any
+      // other write.
       if (known(a.from) && known(a.to) && a.from !== a.to) {
         var fset = follows[a.from] || (follows[a.from] = {});
         var bset = followers[a.to] || (followers[a.to] = {});
@@ -956,6 +1080,7 @@ function replayUncached(acts) {
         });
       }
       epochEngage = [];
+    paidTo = {};
     }
   }
 
@@ -988,6 +1113,7 @@ function replayUncached(acts) {
   for (var hk in handles) dispHandles[hk] = deletedActors[hk] ? '[deleted]' : handles[hk];
   return {
     follows: follows, followers: followers, profiles: profiles,
+    events: events, eventInvites: eventInvites, eventGoing: eventGoing,
     g: g, ledgers: ledgers, ledgerById: ledgerById, handles: dispHandles, creators: creators,
     payloads: payloads, bundles: bundles, cells: cells, solved: solved, xById: xById,
     deltaActs: deltaActs, dmap: new Map(Object.keys(deltaActs).map(function (k) { return [k, deltaActs[k]]; })),

@@ -37,7 +37,8 @@ const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag
   'editPost', 'deletePost', 'deleteAccount', 'call', 'stream',
   'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap',
   'setKey', 'advert', 'adStop',
-  'follow', 'profile', 'setRecovery']);
+  'follow', 'profile', 'setRecovery',
+  'event', 'invite', 'rsvp']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -197,6 +198,15 @@ const ACT_FIELDS = {
   review: ['t', 'author', 'target', 'e', 'f', 'text', 'upd'],
   tag: ['t', 'author', 'target', 'name', 'r', 'c'],
   follow: ['t', 'from', 'to', 'on'],
+  // fee, cur and cap MUST be listed. sanitize is a hard whitelist: an omitted
+  // field is deleted and the act is accepted 200 with a free, uncapped event
+  // the author believes is priced.
+  event: ['t', 'author', 'text', 'at', 'place', 'fee', 'cur', 'cap'],
+  invite: ['t', 'from', 'to', 'cid'],
+  // The answer names what it pays and to whom, so the organiser cannot
+  // reprice between the moment somebody reads the card and the moment their
+  // answer lands.
+  rsvp: ['t', 'from', 'cid', 'on', 'amt', 'cur', 'to'],
   profile: ['t', 'id', 'bio', 'link'],
   setRecovery: ['t', 'id', 'codeHash'],
   closeEpoch: ['t', 'epoch'],
@@ -284,6 +294,10 @@ function redactPostAct(orig, idx) {
   if (orig.rmen === undefined) orig.rmen = parseMentionsSrv(orig.text || '', handlesAt(idx));
   orig.text = '';
   delete orig.media;
+  // An event carries a place: where a named person will physically be, at a
+  // named time. Blanking only the text would leave that behind after a delete
+  // that promised to remove it.
+  if (orig.place !== undefined) orig.place = '';
   orig.redacted = true;
 }
 
@@ -807,7 +821,9 @@ const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount']);
 /** Has this handle done anything beyond existing? Used to decide whether a
  *  first PIN is someone securing their own new handle, or a stranger claiming
  *  an established one. */
-const SUBSTANTIVE = new Set(['post', 'review', 'opinion', 'tag', 'dm', 'stream', 'call']);
+// 'event' belongs here: a handle whose only acts are events has spoken, and
+// without this a stranger could still claim it as though it never had.
+const SUBSTANTIVE = new Set(['post', 'review', 'opinion', 'tag', 'dm', 'stream', 'call', 'event']);
 function hasHistory(id) {
   for (const a of acts) {
     if (SUBSTANTIVE.has(a.t) && (a.author === id || a.from === id)) return true;
@@ -953,7 +969,7 @@ const REFUSAL_CODES = [
   [/already registered|reads as .* which is already registered/i, 'HANDLE_TAKEN'],
   [/no such handle|no such recipient|unknown handle|unknown actor|unknown recipient/i, 'NO_SUCH_HANDLE'],
   [/PIN-secured/i, 'PIN_WRONG'],
-  [/no PIN — set one|has no PIN/i, 'PIN_REQUIRED'],
+  [/no PIN — set one|has no PIN|needs a PIN on this handle/i, 'PIN_REQUIRED'],
   [/cannot be claimed from outside|already posted and has no PIN|already acted and has no PIN/i, 'HANDLE_UNCLAIMABLE'],
   [/too many PIN attempts/i, 'PIN_ATTEMPTS'],
   [/passkey refused|not registered to this handle|sign-in has expired/i, 'PASSKEY_REFUSED'],
@@ -1113,7 +1129,64 @@ function validate(act) {
         if (!validPinHash(act.codeHash)) return 'bad recovery code hash';
         break;
       }
-      case 'tag':
+      case 'event': {
+      if (!str(act.author, 24) || !str(act.text, 280)) return 'bad event';
+      if (act.at !== undefined && !num(act.at)) return 'bad event time';
+      if (act.place !== undefined && (typeof act.place !== 'string' || act.place.length > 120)) return 'that place is too long';
+      if (act.fee !== undefined && act.fee !== 0) {
+        // Finite and positive, checked here as well as in the replay: a
+        // negative fee run through debit-then-credit mints currency, and
+        // Infinity passes a naive comparison.
+        if (!num(act.fee) || !(act.fee > 0)) return 'an entry fee must be a positive number';
+        if (act.fee > 1e9) return 'that entry fee is not a real number';
+        if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
+      }
+      if (act.cap !== undefined && act.cap !== 0 && (!num(act.cap) || act.cap < 1 || act.cap > 100000)) return 'bad capacity';
+      break;
+    }
+    case 'invite': {
+      if (!str(act.from, 24) || !str(act.to, 24) || !str(act.cid, 40)) return 'bad invite';
+      if (act.from === act.to) return 'you are already at your own event';
+      if (!isRegistered(act.to)) return 'no such handle: ' + act.to;
+      if (unknownTarget(act.cid)) return unknownTarget(act.cid);
+      break;
+    }
+    case 'rsvp': {
+      if (!str(act.from, 24) || !str(act.cid, 40)) return 'bad rsvp';
+      if (act.on !== undefined && typeof act.on !== 'boolean') return 'bad rsvp';
+      if (unknownTarget(act.cid)) return unknownTarget(act.cid);
+      if (act.amt !== undefined && act.amt !== 0) {
+        if (!num(act.amt) || !(act.amt > 0)) return 'an entry payment must be a positive number';
+        if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
+        if (!str(act.to, 24)) return 'an entry payment must name who receives it';
+      }
+      // Authorisation before arithmetic. authError waves an unsecured handle
+      // through for ordinary acts, and a paid answer would drain it while the
+      // record read as that person choosing to attend — the amount lives in
+      // the event, not in the act, so nothing in the log would look unusual.
+      // Asked here, ahead of the balance check, so a stranger probing a handle
+      // is told it needs a PIN rather than told what it holds.
+      if (act.amt > 0 && act.on !== false && !pinIndex.has(act.from)) {
+        return 'paying to enter an event needs a PIN on this handle — without one, anyone could spend its balance in your name';
+      }
+      // Balances, capacity and whether the price moved come from the SAME
+      // function the replay applies with. Wiring one without the other fails
+      // in both directions: the host would accept a payment the replay skips,
+      // or refuse every answer the replay would have allowed.
+      if (act.on !== false) {
+        if (!engineMod || !replayMod) return 'engine still loading — try again in a moment';
+        if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+        if (stateCache.len !== acts.length || !stateCache.st) {
+          stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+        }
+        const rerr = stateCache.st.tokenActError({
+          t: 'rsvp', author: act.from, cid: act.cid, amt: act.amt, cur: act.cur, to: act.to,
+        });
+        if (rerr) return rerr;
+      }
+      break;
+    }
+    case 'tag':
       if (!str(act.author, 24) || !str(act.target, 40) || !str(act.name, 20) || !inR(act.r) || !inR(act.c)) return 'bad tag';
       if (unknownTarget(act.target)) return unknownTarget(act.target);
       break;
@@ -1168,7 +1241,10 @@ function validate(act) {
       // record the tombstone against that, so the log says which node died.
       act.target = mintIndexOf(act.target);
       const orig = acts[act.target];
-      if (!orig || orig.t !== 'post') return 'delete target is not a post';
+      // 'event' is here because an event act carries a place: where a named
+      // person will physically be, at a named time. A delete that could not
+      // reach it would leave that standing after the account was gone.
+      if (!orig || (orig.t !== 'post' && orig.t !== 'event')) return 'delete target is not a post or an event';
       if (orig.author !== act.author) return 'only the author can delete a post';
       if (orig.redacted) return 'already deleted';
       break;
@@ -1452,7 +1528,7 @@ const API_DOC = {
     { method: 'POST', path: '/api/v1/react', purpose: 'react to content, or vouch for a person by targeting prof_<id>', body: { as: 'id', pin: 'string', target: 'content id or prof_id', polarity: 'optional -1..1', reaction: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/tag', purpose: 'tag content into the commons', body: { as: 'id', pin: 'string', target: 'content id', name: 'string ≤20' } },
     { method: 'POST', path: '/api/v1/message', purpose: 'direct message (public in the log, like everything)', body: { as: 'id', pin: 'string', to: 'id', text: 'string ≤500' } },
-    { method: 'POST', path: '/api/v1/follow', purpose: 'follow or unfollow an account. Recorded in the log and deliberately absent from every score: following is attention, and this network measures transported commitment. Costs θ like any act.', body: { as: 'id', pin: 'string', to: 'id', on: 'optional boolean, false to unfollow' } },
+    { method: 'POST', path: '/api/v1/follow', purpose: 'follow or unfollow an account. Recorded in the log and deliberately absent from every score: following is attention, and this network measures transported commitment. It is free — it debits no reserve and raises no act count, because θ is itself a standing input and a follow must not move one.', body: { as: 'id', pin: 'string', to: 'id', on: 'optional boolean, false to unfollow' } },
     { method: 'POST', path: '/api/v1/profile', purpose: 'write your own description. Public like everything in the log, and in no score.', body: { as: 'id', pin: 'string', bio: 'string ≤280', link: 'optional http(s) URL ≤200' } },
     { method: 'POST', path: '/api/v1/burn', purpose: 'convert reserve into energy so you can keep acting', body: { as: 'id', pin: 'string' } },
   ],
@@ -1480,7 +1556,7 @@ const API_DOC = {
 // where pulling a lever is meant to cost the puller something. 'profile' is
 // NOT — editing your own description is a correction, and corrections are
 // never gated on reserve here.
-const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'follow']);
+const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'event']);
 
 /**
  * The single write door, wrapped so telemetry cannot drift from reality:
@@ -1571,7 +1647,7 @@ function applyActInner(act, auth, ip) {
     deletedIds.add(act.id);
     for (let ai = 1; ai < acts.length; ai++) {
       const a = acts[ai];
-      if (a.t === 'post' && a.author === act.id && !a.redacted) redactPostAct(a, ai);
+      if ((a.t === 'post' || a.t === 'event') && a.author === act.id && !a.redacted) redactPostAct(a, ai);
       // ONLY what this account authored. Blanking a message because it was
       // addressed to the leaver destroyed the counterparty's own record — their
       // words, erased by someone else's decision. The payload controller is the
@@ -1952,6 +2028,12 @@ async function handleBotApi(req, res, url, ip) {
     const name = typeof body.name === 'string' ? body.name.trim().replace(/^#/, '') : '';
     if (!body.target || !name) { json(res, 400, { error: 'target and name are required' }); return; }
     submit({ t: 'tag', author: me, target: String(body.target), name, r: num(body.relevance, 0.8), c: num(body.confidence, 0.8) });
+    return;
+  }
+  if (p === 'rsvpEvent') {
+    if (!body.cid) { json(res, 400, { error: 'cid is required: the event id' }); return; }
+    submit({ t: 'rsvp', from: me, cid: String(body.cid), on: body.on === false ? false : true,
+      amt: num(body.amount, 0), cur: typeof body.currency === 'string' ? body.currency : '', to: typeof body.to === 'string' ? body.to : '' });
     return;
   }
   if (p === 'follow') {
