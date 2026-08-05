@@ -7,7 +7,9 @@
 //
 // The act log is never cached. A stale feed served from disk would be a second
 // source of truth, and this project has paid for those twice already.
-const VERSION = 'peer-shell-v4';
+// v5: the tab row went from eight entries to six, so a cached shell shows a
+// navigation that no longer matches what the app dispatches. Bumping evicts it.
+const VERSION = 'peer-shell-v5';
 const SHELL = [
   './',
   './index.html',
