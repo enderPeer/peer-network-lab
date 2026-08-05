@@ -1137,6 +1137,26 @@ function validate(act) {
       if (act.ref !== undefined && !str(act.ref, 40)) return 'bad reference';
       if (act.media !== undefined) {
         if (!Array.isArray(act.media)) return 'bad media';
+        // A whitelist INSIDE the entry, which until now did not exist.
+        //
+        // sanitize() copies whitelisted TOP-LEVEL keys, and `media` is one of
+        // them — so the array goes through by reference and every nested key
+        // survives verbatim. hasControlChars() has the same shape: it walks
+        // Object.values(act) and never descends. Both were checked by running
+        // them, not by reading them: an entry carrying a 300-character junk
+        // field and a filename with a U+0001 in it was accepted 200 and
+        // written into the public, mirrored, permanently-published log.
+        //
+        // The log is append-only and its bytes are hashed into the archive
+        // manifest, so anything that lands here lands forever.
+        const ENTRY_KEYS = new Set(['h', 'm', 'n', 's', 'cv']);
+        for (const m of act.media) {
+          if (!m || typeof m !== 'object' || Array.isArray(m)) return 'bad media entry';
+          for (const k of Object.keys(m)) {
+            if (!ENTRY_KEYS.has(k)) return 'an attachment carries an unknown field: ' + k;
+            if (typeof m[k] === 'string' && CONTROL_CHARS.test(m[k])) return 'unprintable characters are not allowed';
+          }
+        }
         // Name the number. A refusal that says 'bad media' sends an author
         // deleting text to fix an attachment problem — the byte limit above
         // blames 'an attachment or reference list' for exactly that reason.
@@ -1144,10 +1164,37 @@ function validate(act) {
           return 'a post carries at most ' + MEDIA_MAX_ENTRIES + ' files; this one has ' + act.media.length;
         }
         let total = 0;
+        let covers = 0;
         for (const m of act.media) {
           if (!m || typeof m !== 'object' || !/^[a-f0-9]{64}$/.test(m.h ?? '') || !MEDIA_TYPES.has(m.m)) return 'bad media entry';
           if (m.n !== undefined && (typeof m.n !== 'string' || m.n.length > 80)) return 'bad media name';
           if (!existsSync(join(MEDIA_DIR, m.h))) return 'unknown media hash — upload first';
+          // The cover. Exactly the number 1 and nothing else — a string, an
+          // object or a truthy value would reopen the nested channel the
+          // whitelist above just closed.
+          if (m.cv !== undefined) {
+            if (m.cv !== 1) return 'a cover is marked with cv:1 and nothing else';
+            if (!String(m.m).startsWith('image/')) return 'a cover has to be an image';
+            covers += 1;
+          }
+          // The kind, from the sidecar the upload wrote — not from the act.
+          //
+          // This checked an allow-list and nothing else, so `m` was the
+          // author's claim about their own bytes rather than a fact about
+          // them. Demonstrated on a throwaway host: a 16-byte PNG published as
+          // {m:'audio/mpeg', n:'Definitely A Song.mp3'} was accepted 200, and
+          // every reader would have seen a player that silently refuses to
+          // decode. The profile-picture branch has read the sidecar since the
+          // day it shipped, for exactly this reason; the post branch had not.
+          //
+          // Compared by top-level type, not exact string: MIME_ALIASES folds
+          // audio/mp3 to audio/mpeg on the way in, and a client that names a
+          // sibling type of the same family is describing the same bytes.
+          let stored = '';
+          try { stored = String(JSON.parse(readFileSync(join(MEDIA_DIR, m.h) + '.meta', 'utf8')).mime || ''); } catch { /* below */ }
+          if (stored && stored.split('/')[0] !== String(m.m).split('/')[0]) {
+            return 'that attachment is ' + stored + ' and the post calls it ' + m.m;
+          }
           // The real size, from the blob on disk. `s` is carried in the record
           // so a reader can say what a download will cost BEFORE fetching it —
           // but it is checked against the bytes, so it can never be a number
@@ -1160,6 +1207,7 @@ function validate(act) {
           }
           total += real;
         }
+        if (covers > 1) return 'a post has one cover; this one names ' + covers;
         if (total > MEDIA_MAX_ACT_BYTES) {
           return 'the files on one post come to at most ' + Math.round(MEDIA_MAX_ACT_BYTES / (1024 * 1024))
             + ' MB; these come to ' + Math.round(total / (1024 * 1024)) + ' MB';
@@ -1541,6 +1589,9 @@ function contentView(st, cid) {
     text: st.payloads[cid] || '',
     media: (st.mediaMeta[cid] || []).map((m) => ({
       url: m.h ? '/api/media/' + m.h : null, type: m.m, name: m.n ?? null,
+      // A bot that can set a cover has to be able to read one back, or it can
+      // only ever guess which of its own attachments is the sleeve.
+      cover: m.cv === 1 || undefined, bytes: m.s ?? null,
     })),
     reactions, commentIds: comments,
     edited: !!(meta && meta.edited),
@@ -1648,7 +1699,7 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
-    { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', attachments: 'optional ordered array of those, up to ' + MEDIA_MAX_ENTRIES + ' and ' + Math.round(MEDIA_MAX_ACT_BYTES / (1024 * 1024)) + ' MB in total — several audio files on one post are played as a playlist, in this order', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
+    { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', attachments: 'optional ordered array of those, up to ' + MEDIA_MAX_ENTRIES + ' and ' + Math.round(MEDIA_MAX_ACT_BYTES / (1024 * 1024)) + ' MB in total — several audio files on one post are played as a playlist, in this order. One image entry may carry cv:1 to mark it as the album cover.', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
     { method: 'POST', path: '/api/v1/comment', purpose: 'comment on a post OR on another comment', body: { as: 'id', pin: 'string', target: 'content id', text: 'string ≤1000', enthusiasm: 'optional -1..1', effort: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/react', purpose: 'react to content, or vouch for a person by targeting prof_<id>', body: { as: 'id', pin: 'string', target: 'content id or prof_id', polarity: 'optional -1..1', reaction: 'optional -1..1' } },
     { method: 'POST', path: '/api/v1/tag', purpose: 'tag content into the commons', body: { as: 'id', pin: 'string', target: 'content id', name: 'string ≤20' } },

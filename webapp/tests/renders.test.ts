@@ -248,6 +248,174 @@ describe('the built page is an application, not just valid JavaScript', () => {
     dom.window.close();
   }, 30000);
 
+  it('shows an album with its cover, and a person’s music on their page', async () => {
+    // Three claims at once, because they share one path:
+    //   - a marked image renders as ALBUM ART inside the player, and does NOT
+    //     also render as an ordinary picture below it. Nothing that counts
+    //     players or track rows would catch that duplicate.
+    //   - a person’s page lists what they released and plays all of it from
+    //     ONE player — a player per release downloads the whole catalogue on
+    //     open, which is the failure audioPlaylist was written to kill.
+    //   - the simple mode has a page for somebody who is not you at all, which
+    //     it did not before: every route led to a list or to your own wallet.
+    const now = Date.now();
+    const A = 'a'.repeat(64), B = 'b'.repeat(64), C = 'c'.repeat(64);
+    const SLEEVE = 'd'.repeat(64), PHOTO = 'e'.repeat(64);
+    const acts = [
+      { t: 'register', id: 'u_m', handle: 'Mel', seed: 1, epoch: 0, ts: now - 90000000 },
+      { t: 'register', id: 'u_v', handle: 'Vic', seed: 1, epoch: 0, ts: now - 89000000 },
+      { t: 'burn', id: 'u_m', amt: 1, ts: now - 80000000 },
+      { t: 'burn', id: 'u_v', amt: 1, ts: now - 80000000 },
+      { t: 'post', author: 'u_m', text: 'Second Wind — an EP', a: 0.8, rmen: [], ts: now - 60000, media: [
+        { h: SLEEVE, m: 'image/jpeg', n: 'sleeve.jpg', s: 21000, cv: 1 },
+        { h: A, m: 'audio/mpeg', n: 'First light', s: 3000000 },
+        { h: B, m: 'audio/mpeg', n: 'Second wind', s: 4100000 },
+        { h: PHOTO, m: 'image/jpeg', n: 'in the studio.jpg', s: 90000 },
+      ] },
+      { t: 'post', author: 'u_m', text: 'a single', a: 0.8, rmen: [], ts: now - 30000, media: [
+        { h: C, m: 'audio/mpeg', n: 'Third rail', s: 2200000 },
+      ] },
+    ];
+    const NL = String.fromCharCode(10);
+    const body = acts.map((a) => JSON.stringify(a)).join(NL) + NL;
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: now, media: true }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    // ── the feed card ────────────────────────────────────────────────────
+    const geek = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_v'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'feed', feedMode: 'new' }),
+    }, serve);
+    expect(geek.errors, 'the feed threw over an album: ' + geek.errors.join(' | ')).toEqual([]);
+    const art = geek.root!.querySelectorAll('.album-art');
+    expect(art.length, 'no cover art on the card').toBe(1);
+    expect((art[0] as HTMLImageElement).getAttribute('src')).toBe('archive/media/' + SLEEVE);
+    // The sleeve is inside the player, and the OTHER image is not.
+    expect(art[0].closest('.audio-wrap'), 'the cover is not inside the player').not.toBeNull();
+    const plain = [...geek.root!.querySelectorAll('img.post-media')].map((i) => i.getAttribute('src'));
+    expect(plain, 'the sleeve was drawn a second time as a plain picture')
+      .toEqual(['archive/media/' + PHOTO]);
+    expect(geek.root!.textContent).toContain('Second Wind');
+
+    // ── the person page, geek mode ───────────────────────────────────────
+    // The Profile button ON THE CARD, not the one in the account rail — that
+    // one opens the editor for your own description and cost one false failure.
+    const card = [...geek.root!.querySelectorAll('.post')]
+      .find((c) => /Second Wind/.test(c.textContent || ''));
+    expect(card, 'no album card in the feed').toBeTruthy();
+    const profBtn = [...card!.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Profile');
+    expect(profBtn, 'no way into a profile from a post card').toBeTruthy();
+    (profBtn as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 400));
+    const drawer = geek.dom.window.document.querySelector('.drawer');
+    expect(drawer, 'no profile drawer').not.toBeNull();
+    expect(drawer!.textContent, 'the drawer does not say what they released')
+      .toMatch(/2 releases carrying audio, 3 tracks/);
+    expect(drawer!.querySelectorAll('audio').length, 'a catalogue must be ONE player').toBe(1);
+    expect(drawer!.querySelectorAll('.release-row').length).toBe(2);
+    expect(drawer!.querySelectorAll('.track-row').length, 'all three tracks in one list').toBe(3);
+    geek.dom.window.close();
+
+    // ── the person page, simple mode ─────────────────────────────────────
+    const lq = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_v'),
+      'peer-sandbox-mode-v1': JSON.stringify('liquid'),
+      // The one-time migration forces geek mode on a browser that has never
+      // been here before, so a test asking for simple mode has to look like a
+      // browser that has already been migrated. Without this the assertions
+      // below run against the geek view and fail for the wrong reason.
+      'peer-sandbox-geek-default-v1': '1',
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'peers' }),
+    }, serve);
+    expect(lq.errors, 'the peers list threw: ' + lq.errors.join(' | ')).toEqual([]);
+    const melRow = [...lq.root!.querySelectorAll('.lq-name')].find((n) => /Mel/.test(n.textContent || ''));
+    expect(melRow, 'Mel is not in the peers list').toBeTruthy();
+    (melRow as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(lq.errors, 'opening a person threw: ' + lq.errors.join(' | ')).toEqual([]);
+    expect(lq.root!.textContent, 'the simple mode still has no page for another person')
+      .toMatch(/2 releases carrying audio/);
+    expect(lq.root!.querySelectorAll('.album-art').length, 'no cover on the person page')
+      .toBeGreaterThan(0);
+    expect(lq.root!.textContent).toContain('what they published');
+    lq.dom.window.close();
+  }, 40000);
+
+  it('hangs each release’s own sleeve over its own tracks', async () => {
+    // A catalogue is not an album. One player over several releases used to
+    // show the newest sleeve that existed over every other release's music,
+    // and it never changed as the tape advanced — art belonging to one record
+    // presented as the art of another, for most of the tracks on the page.
+    const now = Date.now();
+    const OLD_ART = '1'.repeat(64), NEW_ART = '2'.repeat(64);
+    const T1 = '3'.repeat(64), T2 = '4'.repeat(64), T3 = '5'.repeat(64);
+    const acts = [
+      { t: 'register', id: 'u_m', handle: 'Mel', seed: 1, epoch: 0 },
+      { t: 'register', id: 'u_v', handle: 'Vic', seed: 1, epoch: 0 },
+      { t: 'burn', id: 'u_m', amt: 1 }, { t: 'burn', id: 'u_v', amt: 1 },
+      { t: 'post', author: 'u_m', text: 'Debut EP', a: 0.8, rmen: [], ts: now - 900000, media: [
+        { h: OLD_ART, m: 'image/jpeg', n: 'debut.jpg', s: 21000, cv: 1 },
+        { h: T1, m: 'audio/mpeg', n: 'Opener', s: 1000 },
+        { h: T2, m: 'audio/mpeg', n: 'Closer', s: 1000 },
+      ] },
+      { t: 'post', author: 'u_m', text: 'Later Single', a: 0.8, rmen: [], ts: now - 60000, media: [
+        { h: NEW_ART, m: 'image/jpeg', n: 'later.jpg', s: 21000, cv: 1 },
+        { h: T3, m: 'audio/mpeg', n: 'Latest', s: 1000 },
+      ] },
+    ];
+    const NL = String.fromCharCode(10);
+    const body = acts.map((a) => JSON.stringify(a)).join(NL) + NL;
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: now, media: true }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_v'),
+      'peer-sandbox-mode-v1': JSON.stringify('liquid'),
+      'peer-sandbox-geek-default-v1': '1',
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'peers' }),
+    }, serve);
+    expect(errors, errors.join(' | ')).toEqual([]);
+    const mel = [...root!.querySelectorAll('.lq-name')].find((n) => /Mel/.test(n.textContent || ''));
+    (mel as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 500));
+
+    const player = root!.querySelector('.audio-wrap.playlist')!;
+    const art = () => (player.querySelector('.album-art') as HTMLImageElement).getAttribute('src');
+    const title = () => (player.querySelector('.album-title') as HTMLElement).textContent;
+    const rows = player.querySelectorAll('.track-row');
+    expect(rows.length).toBe(3);
+
+    // Newest first: the single, then the EP's two tracks.
+    expect(art()).toBe('archive/media/' + NEW_ART);
+    expect(title()).toBe('Later Single');
+    // ...and the numbering is per release, not per catalogue.
+    expect([...rows].map((r) => r.querySelector('.track-no')!.textContent)).toEqual(['1', '1', '2']);
+
+    (rows[1] as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(art(), 'the sleeve did not follow the track').toBe('archive/media/' + OLD_ART);
+    expect(title()).toBe('Debut EP');
+
+    // And it must never claim one post recorded this order.
+    expect(player.textContent).toContain('3 tracks from 2 releases, newest first');
+    expect(player.textContent).not.toContain('the order the post recorded them');
+    dom.window.close();
+  }, 30000);
+
   it('draws every geek tab without throwing', async () => {
     // One dead tab is the same outage in a smaller place.
     for (const tab of ['feed', 'chat', 'alerts', 'events', 'live', 'econ', 'guide']) {

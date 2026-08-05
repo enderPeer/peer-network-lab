@@ -52,7 +52,12 @@ const act = async (a: Record<string, unknown>) => post('/api/act', { ...a, since
 /** Put bytes in the store the way the app does, and get back what it gets. */
 async function upload(bytes: Buffer, mime: string) {
   const r = await fetch(BASE + '/api/media', { method: 'POST', headers: { 'Content-Type': mime }, body: bytes });
-  return { status: r.status, body: (await r.json()) as { h: string; m: string; size: number; error?: string } };
+  const body = (await r.json()) as { h: string; m: string; size: number; error?: string };
+  // Fail loudly here rather than three assertions later. An upload that was
+  // refused yields an entry with no hash, and every test downstream then reads
+  // 'bad media entry' and blames the rule it was actually trying to check.
+  if (!r.ok) throw new Error('upload refused (' + r.status + '): ' + body.error);
+  return { status: r.status, body };
 }
 /** Distinct bytes per call: the store is content-addressed, so identical
  *  payloads would collapse to one blob and a 'twelve files' test would be a
@@ -73,7 +78,10 @@ beforeAll(async () => {
 
   child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {
     cwd: ROOT,
-    env: { ...process.env, PEER_ACT_RATE: '400', PEER_DATA_DIR: join(dir, 'server-data') },
+    // Both limiters raised: this file uploads well over forty blobs in under a
+    // minute, and a 429 masquerading as a validation result is exactly the kind
+    // of green-looking failure these tests exist to prevent.
+    env: { ...process.env, PEER_ACT_RATE: '400', PEER_MEDIA_RATE: '400', PEER_DATA_DIR: join(dir, 'server-data') },
     stdio: 'ignore',
   });
   for (let i = 0; i < 60; i++) {
@@ -310,5 +318,120 @@ describe('the bot API can write what the app can write', () => {
     const d = await get('/api/acts');
     const acts = d.acts as Array<Record<string, unknown>>;
     expect(acts.filter((x) => x.t === 'profile').pop()!.pic).toBe(up.body.h);
+  });
+});
+
+describe('an album carries a cover', () => {
+  it('accepts one image marked cv:1 beside the tracks', async () => {
+    const img = await upload(blob(220), 'image/jpeg');
+    const a = await upload(blob(64), 'audio/mpeg');
+    const b = await upload(blob(64), 'audio/mpeg');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'an EP with a sleeve', a: 0.8, auth: '1234',
+      media: [
+        { h: img.body.h, m: 'image/jpeg', n: 'sleeve.jpg', s: img.body.size, cv: 1 },
+        { h: a.body.h, m: 'audio/mpeg', n: 'A side.mp3', s: a.body.size },
+        { h: b.body.h, m: 'audio/mpeg', n: 'B side.mp3', s: b.body.size },
+      ],
+    });
+    expect(r.status).toBe(200);
+    const d = await get('/api/acts');
+    const acts = d.acts as Array<Record<string, unknown>>;
+    const post = acts.filter((x) => x.text === 'an EP with a sleeve').pop();
+    expect((post!.media as Array<{ cv?: number }>)[0].cv).toBe(1);
+  });
+
+  it('refuses a second cover, and counts them', async () => {
+    const one = await upload(blob(90), 'image/jpeg');
+    const two = await upload(blob(91), 'image/jpeg');
+    const a = await upload(blob(64), 'audio/mpeg');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'two sleeves', a: 0.8, auth: '1234',
+      media: [
+        { h: one.body.h, m: 'image/jpeg', cv: 1 },
+        { h: two.body.h, m: 'image/jpeg', cv: 1 },
+        { h: a.body.h, m: 'audio/mpeg' },
+      ],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('one cover');
+    expect(r.body.error).toContain('2');
+  });
+
+  it('refuses a cover that is not an image', async () => {
+    const a = await upload(blob(64), 'audio/mpeg');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'a song as its own sleeve', a: 0.8, auth: '1234',
+      media: [{ h: a.body.h, m: 'audio/mpeg', cv: 1 }],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/cover has to be an image/i);
+  });
+
+  it('refuses cv set to anything but the number 1', async () => {
+    // Truthiness would reopen the nested channel the whitelist closes: a
+    // string, an object or a number carries an author-controlled payload into
+    // an append-only log that is published and hashed.
+    const img = await upload(blob(95), 'image/jpeg');
+    const a = await upload(blob(64), 'audio/mpeg');
+    for (const bad of ['yes', true, 2, { deep: true }]) {
+      const r = await act({
+        t: 'post', author: 'u_a', text: 'cv abuse ' + JSON.stringify(bad), a: 0.8, auth: '1234',
+        media: [{ h: img.body.h, m: 'image/jpeg', cv: bad }, { h: a.body.h, m: 'audio/mpeg' }],
+      });
+      expect(r.status, 'cv=' + JSON.stringify(bad) + ' was accepted').toBe(400);
+    }
+  });
+});
+
+describe('what a media entry may say at all', () => {
+  it('refuses an unknown field rather than writing it to the log forever', async () => {
+    // sanitize() whitelists TOP-LEVEL keys only, so before this rule an entry
+    // could carry anything and the host answered 200. The log is append-only,
+    // public, mirrored, and hashed into the archive manifest.
+    const a = await upload(blob(64), 'audio/mpeg');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'smuggling', a: 0.8, auth: '1234',
+      media: [{ h: a.body.h, m: 'audio/mpeg', payload: 'x'.repeat(200) }],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('payload');
+  });
+
+  it('refuses a control character inside an attachment name', async () => {
+    // hasControlChars() walks Object.values(act) and never descends, so the
+    // identical character was refused in act.text and accepted in media[0].n.
+    const a = await upload(blob(64), 'audio/mpeg');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'unprintable name', a: 0.8, auth: '1234',
+      media: [{ h: a.body.h, m: 'audio/mpeg', n: 'bad\u0001name.mp3' }],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/unprintable/i);
+  });
+
+  it('refuses a post that calls a picture a song', async () => {
+    // The declared type used to be checked against an allow-list and nothing
+    // else, so `m` was the author's claim about their own bytes. A reader got
+    // a player that silently refuses to decode.
+    const img = await upload(blob(120), 'image/png');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'definitely a song', a: 0.8, auth: '1234',
+      media: [{ h: img.body.h, m: 'audio/mpeg', n: 'Definitely A Song.mp3' }],
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('image/png');
+    expect(r.body.error).toContain('audio/mpeg');
+  });
+
+  it('still accepts a sibling type of the same family', async () => {
+    // MIME_ALIASES folds audio/mp3 to audio/mpeg on upload; a client naming a
+    // sibling of the same top-level type is describing the same bytes.
+    const a = await upload(blob(77), 'audio/wav');
+    const r = await act({
+      t: 'post', author: 'u_a', text: 'a wav called audio', a: 0.8, auth: '1234',
+      media: [{ h: a.body.h, m: 'audio/mpeg' }],
+    });
+    expect(r.status).toBe(200);
   });
 });
