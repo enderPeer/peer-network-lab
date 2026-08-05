@@ -1177,6 +1177,30 @@ function validate(act) {
         if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
         if (!str(act.to, 24)) return 'an entry payment must name who receives it';
       }
+      // A deleted event, and an event that is over, both stop taking money.
+      //
+      // Deliberately here and NOT in the replay's tokenActError: deletion is
+      // retroactive in that file and a wall-clock comparison is retroactive by
+      // construction, so either check there would rewrite balances in a log
+      // that has already been replayed — including payments that were entirely
+      // valid when they were made. The door closes at the door.
+      if (act.on !== false) {
+        if (engineMod && replayMod) {
+          if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+          if (stateCache.len !== acts.length || !stateCache.st) {
+            stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+          }
+          const ev = stateCache.st.events && stateCache.st.events[act.cid];
+          if (ev) {
+            if (stateCache.st.payloads[act.cid] === undefined) {
+              return 'that event was deleted — its door is closed';
+            }
+            if (ev.at && ev.at < Date.now()) {
+              return 'that event has already happened — its door is closed';
+            }
+          }
+        }
+      }
       // Authorisation before arithmetic. authError waves an unsecured handle
       // through for ordinary acts, and a paid answer would drain it while the
       // record read as that person choosing to attend — the amount lives in

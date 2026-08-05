@@ -203,7 +203,11 @@ describe('the host on events', () => {
     dir = mkdtempSync(join(tmpdir(), 'peer-events-test-'));
     mkdirSync(join(dir, 'server-data'), { recursive: true });
     child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {
-      stdio: 'ignore', env: { ...process.env, PEER_DATA_DIR: join(dir, 'server-data') },
+      stdio: 'ignore',
+      // This file spends more than twenty acts a minute setting its worlds up,
+      // and the default limiter is twenty per IP. Raised for the test host
+      // only; the limit itself is exercised by the host tests.
+      env: { ...process.env, PEER_DATA_DIR: join(dir, 'server-data'), PEER_ACT_RATE: '400' },
     });
     for (let i = 0; i < 100; i++) {
       try { await fetch(BASE + '/api/live'); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
@@ -246,6 +250,39 @@ describe('the host on events', () => {
     expect(String(r.body.error)).toMatch(/needs a PIN/);
     expect(r.body.code, 'the refusal needs a stable code').toBe('PIN_REQUIRED');
   }, 20000);
+
+  it('shuts the door on a deleted event and on one that is over', async () => {
+    // Both of these took real money before they were closed. Measured on the
+    // running replay: 0.005 tBTC moved to the host of an event whose text and
+    // address had been redacted, and 0.004 tBTC to an event two hundred days
+    // past. The checks live at the host, never in the shared replay, because
+    // deletion and the wall clock are both retroactive there and would rewrite
+    // balances in a log that has already been replayed.
+    const ev = await act({ t: 'event', author: 'u_org', text: 'doomed', fee: 0.001, cur: 'tBTC', auth: '2468' });
+    expect(ev.status).toBe(200);
+    const evs = await (await fetch(BASE + '/api/v1/events?since=0&limit=300')).json() as
+      { events: Array<{ node?: string }> };
+    const withNode = evs.events.filter((e) => e.node);
+    const cid = String(withNode[withNode.length - 1].node);
+
+    const { total: n } = await (await fetch(BASE + '/api/acts')).json() as { total: number };
+    expect((await act({ t: 'deletePost', author: 'u_org', target: n - 1, auth: '2468' })).status).toBe(200);
+
+    const paid = await act({ t: 'rsvp', from: 'u_org', cid, on: true, amt: 0.001, cur: 'tBTC', to: 'u_org', auth: '2468' });
+    expect(paid.status, 'a deleted event still took money').not.toBe(200);
+    expect(String(paid.body.error)).toMatch(/deleted/);
+
+    // And one whose time has passed.
+    const past = await act({ t: 'event', author: 'u_org', text: 'last year', at: Date.now() - 200 * 86400000, fee: 0.001, cur: 'tBTC', auth: '2468' });
+    expect(past.status).toBe(200);
+    const evs2 = await (await fetch(BASE + '/api/v1/events?since=0&limit=300')).json() as
+      { events: Array<{ node?: string }> };
+    const nodes2 = evs2.events.filter((e) => e.node);
+    const cid2 = String(nodes2[nodes2.length - 1].node);
+    const late = await act({ t: 'rsvp', from: 'u_org', cid: cid2, on: true, amt: 0.001, cur: 'tBTC', to: 'u_org', auth: '2468' });
+    expect(late.status, 'an event that is over still took money').not.toBe(200);
+    expect(String(late.body.error)).toMatch(/already happened/);
+  }, 30000);
 
   it('keeps a place out of the record once its author deletes it', async () => {
     const ev = await act({ t: 'event', author: 'u_org', text: 'private address', place: '12 Elm Street', auth: '2468' });
