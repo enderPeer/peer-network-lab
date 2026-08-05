@@ -168,6 +168,10 @@ html, body { overflow-x: hidden; }
 .gauge { height: 7px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 10px 0 6px; }
 .gauge i { display: block; height: 100%; background: var(--ember); border-radius: 4px; transition: width 0.4s ease; }
 .smallnote { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+/* The stamp on a post, pushed to the far end of its head row. Only posts
+   written after the log started stamping have one; the rest show nothing
+   rather than a guess. */
+.post .when { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
 
 .btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
 .btn:hover { border-color: var(--ember); }
@@ -723,6 +727,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var query = '';
   var chatQuery = '', chatScope = 'mine', chatOpen = null;
   var eventView = 'soon';   // 'soon' | 'mine' | 'invited' | 'past'
+  var feedFile = 'all';     // 'all' | 'image' | 'video' | 'audio' | 'file' | 'text'
   // (econView is declared with the tab list above.)
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
@@ -767,7 +772,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (v0 && typeof v0 === 'object') {
       if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
       if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
-      if (['l1', 'cogra', 'new', 'follow'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
+      if (['l1', 'cogra', 'new', 'follow', 'old', 'talked', 'backed'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
+      if (['all', 'image', 'video', 'audio', 'file', 'text'].indexOf(v0.feedFile) >= 0) feedFile = v0.feedFile;
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
@@ -792,7 +798,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, feedFile: feedFile, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -4212,14 +4218,35 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         } })));
 
     var wrap = h('div', {});
+
+    // Search first, above everything. It was buried under the composer and the
+    // ranking row, which is the one place somebody looking for something does
+    // not look.
+    var topQ = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
+    var runTopQ = function () { query = topQ.value; render(); };
+    topQ.addEventListener('keydown', function (e) { if (e.key === 'Enter') runTopQ(); });
+    var topRow = h('div', { class: 'card' },
+      h('div', { class: 'mini-form', style: 'margin:0' }, topQ,
+        h('button', { class: 'btn small primary', text: 'Search', onclick: runTopQ })));
+    if (query) {
+      topRow.querySelector('.mini-form').appendChild(
+        h('button', { class: 'btn small', text: 'Clear', onclick: function () { query = ''; render(); } }));
+    }
+    wrap.appendChild(topRow);
     var focused = focusCard(st, false);
     if (focused) wrap.appendChild(focused);
     wrap.appendChild(composer);
     var cogra = feedMode === 'cogra';
     var head = h('div', { class: 'card', style: 'margin-top:14px' },
       h('div', { class: 'panel-head', style: 'margin-bottom:6px' },
-        h('p', { class: 'eyebrow', style: 'margin:0', text: feedMode === 'follow'
-          ? 'FOLLOWING — the accounts you chose, newest first, unranked'
+        h('p', { class: 'eyebrow', style: 'margin:0', text: feedMode === 'old'
+          ? 'OLDEST FIRST — append order, from the beginning'
+          : feedMode === 'talked'
+            ? 'MOST DISCUSSED — by number of comments, each one a priced act'
+            : feedMode === 'backed'
+              ? 'MOST BACKED — by number of reactions. Every one cost its author θ, so this orders by commitment spent, not by attention given'
+              : feedMode === 'follow'
+                ? 'FOLLOWING — the accounts you chose, newest first, unranked'
           : feedMode === 'new'
           ? 'chronological — authoritative append order, no ranking'
           : cogra
@@ -4229,7 +4256,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('button', { class: feedMode === 'l1' ? 'on' : '', text: 'L1', onclick: function () { feedMode = 'l1'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'cogra' ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; feedLimit = 30; render(); } }),
           h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'follow' ? 'on' : '', text: 'Following', onclick: function () { feedMode = 'follow'; feedLimit = 30; render(); } }))));
+          h('button', { class: feedMode === 'follow' ? 'on' : '', text: 'Following', onclick: function () { feedMode = 'follow'; feedLimit = 30; render(); } }),
+          h('button', { class: feedMode === 'old' ? 'on' : '', text: 'Oldest', onclick: function () { feedMode = 'old'; feedLimit = 30; render(); } }),
+          h('button', { class: feedMode === 'talked' ? 'on' : '', text: 'Discussed', onclick: function () { feedMode = 'talked'; feedLimit = 30; render(); } }),
+          h('button', { class: feedMode === 'backed' ? 'on' : '', text: 'Backed', onclick: function () { feedMode = 'backed'; feedLimit = 30; render(); } }))));
+
+    // What a post carries. A filter, not a ranking: it removes cards, it never
+    // reorders them, so whichever sort is running stays the one in charge.
+    var kinds = [['all', 'Everything'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['file', 'Files'], ['text', 'Text only']];
+    var fbar = h('div', { class: 'uline' });
+    kinds.forEach(function (k) {
+      fbar.appendChild(h('button', { class: feedFile === k[0] ? 'on' : '', text: k[1],
+        onclick: function () { feedFile = k[0]; feedLimit = 30; saveView(); render(); } }));
+    });
+    head.appendChild(fbar);
 
     // Search lives here, in the feed's existing control strip, and not as a
     // ninth tab: eight already overflow a phone, and the last ones were once
@@ -4273,6 +4313,31 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       newest.sort(function (a2, b2) { return b2.idx - a2.idx; });
       ranked = newest.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
       maxRel = 1;
+    } else if (feedMode === 'old' || feedMode === 'talked' || feedMode === 'backed') {
+      // Three plain orderings over the same corpus.
+      //
+      // 'Backed' deserves a note, because in most places sorting by reactions
+      // is sorting by clicks. Here every reaction is a priced act: it cost its
+      // author θ and raised their act count, which dilutes their own rate. So
+      // this orders by commitment other people spent, not by attention they
+      // gave away for free — which is the distinction the whole network is
+      // built on. It still ranks nothing: standing is untouched by any of it.
+      var pool = [];
+      Object.keys(st.payloads).forEach(function (cid) {
+        var meta = st.postMeta[cid];
+        if (!meta || meta.comment) return;
+        var node = st.g.nodes.get(cid);
+        if (!node) return;
+        var eng = feedMode === 'old' ? { reacts: 0, comments: 0 } : engagementOf(st, cid);
+        pool.push({ node: node, idx: meta.idx, reacts: eng.reacts, comments: eng.comments });
+      });
+      pool.sort(function (a2, b2) {
+        if (feedMode === 'old') return a2.idx - b2.idx;
+        if (feedMode === 'talked') return (b2.comments - a2.comments) || (b2.idx - a2.idx);
+        return (b2.reacts - a2.reacts) || (b2.idx - a2.idx);
+      });
+      ranked = pool.map(function (r) { return { node: r.node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }; });
+      maxRel = 1;
     } else if (feedMode === 'follow') {
       // Everything by the people you follow, newest first. No ranking is
       // applied on top: you already chose these accounts, and re-sorting your
@@ -4305,6 +4370,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       ranked = feed.filter(function (f) { return f.relevance > 0 && st.payloads[f.node.id] && f.node.kind !== 'Comment'; });
       maxRel = ranked.length ? ranked[0].relevance : 1;
     }
+    // The attachment filter, applied after the ordering so it can never
+    // change it — it only takes cards out.
+    if (feedFile !== 'all') {
+      ranked = ranked.filter(function (f2) {
+        var k = mediaKinds(st, f2.node.id);
+        if (feedFile === 'text') return !k.image && !k.video && !k.audio && !k.file;
+        return !!k[feedFile];
+      });
+    }
+
     // A query filters the corpus; it does not rank it. The three ranking
     // buttons stay live underneath, and the order here is append order —
     // the same authority Newest uses — so nothing on screen claims to be a
@@ -4383,7 +4458,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // it with everything you did not choose is the opposite of what was asked
     // for — it showed a viewer their own unfollowed posts under a heading
     // saying these were the people they follow.
-    if (horizon.length && feedMode !== 'new' && feedMode !== 'follow') {
+    if (horizon.length && ['new', 'follow', 'old', 'talked', 'backed'].indexOf(feedMode) < 0 && feedFile === 'all') {
       wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
         h('p', { class: 'eyebrow', text: 'beyond your horizon — exists, not yet reachable in ≤4 hops (' + horizon.length + ')' })));
       horizon.slice(0, 15).forEach(function (n) {
@@ -4637,6 +4712,28 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return box;
   }
 
+  /** What a post carries, for the attachment filter. */
+  function mediaKinds(st, cid) {
+    var out = {};
+    (st.mediaMeta[cid] || []).forEach(function (m) {
+      var mime = String(m.m || '');
+      if (mime.indexOf('image/') === 0) out.image = true;
+      else if (mime.indexOf('video/') === 0) out.video = true;
+      else if (mime.indexOf('audio/') === 0) out.audio = true;
+      else out.file = true;
+    });
+    return out;
+  }
+
+  /** How many priced acts landed on this post. Not clicks — acts. */
+  function engagementOf(st, cid) {
+    var reacts = 0;
+    st.g.edges.forEach(function (e) {
+      if (e.tgt === cid && (e.family === 'Opinion' || e.family === 'OpinionA')) reacts++;
+    });
+    return { reacts: reacts, comments: commentsOf(st, cid).length };
+  }
+
   function postCard(st, f, rank, maxRel) {
     var n = f.node;
     var author = st.creators[n.id];
@@ -4652,7 +4749,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
         (st.postMeta[n.id] && st.postMeta[n.id].stream) ? h('span', { class: 'kindtag', text: 'stream' }) : null,
         viewChip(n.id),
-        hopChip(st, n.id, false)),
+        hopChip(st, n.id, false),
+        // When it was written. Older acts carry no stamp at all — the log only
+        // started recording one partway through — so this is empty for them
+        // rather than showing a guess.
+        (function () {
+          var ts = st.postMeta[n.id] && st.postMeta[n.id].ts;
+          if (!ts) return null;
+          var el = h('span', { class: 'when', text: relAgo(ts) });
+          el.title = new Date(ts).toLocaleString();
+          return el;
+        })()),
       h.apply(null, ['div', { class: 'body' }].concat(richText(st, st.payloads[n.id] || ''))));
     var evm = st.events && st.events[n.id];
     if (evm) card.appendChild(eventPanel(st, n.id, evm));

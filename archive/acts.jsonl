@@ -748,3 +748,5 @@
 {"t":"stream","author":"u_a","text":"Bbb","a":0.8,"ts":1785922889496}
 {"t":"opinion","author":"u_ender133","target":"c439","p":0.8,"r":0.8,"ts":1785922898894}
 {"t":"review","author":"u_ender133","target":"c439","e":0.7,"f":0.8,"text":"was gheht c ooler stream","ts":1785922905420}
+{"t":"event","author":"u_ender133","text":"Test event party","at":0,"place":"office","fee":0.000002,"cur":"PEER","cap":20,"ts":1785923764381}
+{"t":"invite","from":"u_ender133","to":"u_cam","cid":"c442","ts":1785923776445}
