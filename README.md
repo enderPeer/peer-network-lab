@@ -16,7 +16,10 @@ replay.
 | Roadmap | [ROADMAP.md](ROADMAP.md) | Six phases from reference engine to decentralized deployment |
 | Reference engine | [webapp/src/engine/](webapp/src/engine) | Pure TypeScript, dependency-free Layer-1 mathematics |
 | Shared replay | [webapp/social/replay.cjs](webapp/social/replay.cjs) | World state as a pure function of the act log — the one copy, inlined into the page and imported by the host |
-| Test suite | [webapp/tests/](webapp/tests) | 229 tests: Appendix F verification vectors, plus the replay and host suites that guard deletion, revision, id stability and every refusal |
+| Epoch chain | [webapp/chain/](webapp/chain) | One signed, hash-linked block per closed epoch: act commitments, standing, certificate, PEER distribution, pools, constants and formula editions — verified by replay, published at `/api/chain` and in the archive. See [webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md) |
+| IPFS pack | [webapp/publish-ipfs.ps1](webapp/publish-ipfs.ps1) | The whole site (app + log + media + chain) as one deterministic CAR with a reproducible CID — pin it anywhere and the network outlives every machine here |
+| Mirrors | [MIRRORS.md](MIRRORS.md) | Every place a copy of this project lives — Radicle, IPFS, nsite, Software Heritage, snapshot release — none needing an account, and how to become a mirror yourself |
+| Test suite | [webapp/tests/](webapp/tests) | 320 tests: Appendix F verification vectors, the replay and host suites that guard deletion, revision, id stability and every refusal, and the chain suite (determinism, tamper evidence, redaction neutrality) |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
@@ -35,6 +38,9 @@ npm test               # the whole suite: spec vectors, replay, host
 npm run dev            # protocol lab → http://localhost:5199
 npm run build:social   # assemble the app and its PWA assets
 node server.mjs        # shared-network host → http://localhost:5210
+node chain/build.mjs   # seal every closed epoch into the signed chain
+node chain/verify.mjs  # replay the chain: every root, every signature
+./publish-ipfs.ps1     # pack the whole site into a CAR for IPFS pinning
 ```
 
 **Public address:** <https://enderpeer.github.io/peer-network-lab/> — permanent,
