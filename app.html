@@ -1230,6 +1230,23 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .then(function (x) {
         setOnline(true);
         if (!x.ok) {
+          // The pen can move: the writer is elected now, and a host that was
+          // the primary this morning may answer as a mirror this afternoon.
+          // A demoted host names the current writer in its refusal — follow
+          // it, once, and the act lands without anyone reloading anything.
+          if (x.status === 503 && x.d && x.d.code === 'MIRROR_READONLY' && x.d.mirrorOf && !retried) {
+            API = String(x.d.mirrorOf).replace(/\/+$/, '');
+            toast('This host handed the pen to another — retrying there.');
+            pushAct(act, onOk, true);
+            return;
+          }
+          // A freshly-restarted federated host checks for a longer record
+          // before its first act. That takes seconds, not minutes.
+          if (x.status === 503 && x.d && x.d.code === 'ELECTION_PENDING' && !retried) {
+            toast('The host is checking the federation before recording — retrying in a moment.');
+            setTimeout(function () { pushAct(act, onOk, true); }, 4000);
+            return;
+          }
           // 401 means the PIN we hold is stale or wrong. Drop it and ask again,
           // ONCE — resending the same bad PIN would walk the handle into the
           // host's PIN-attempt lockout, and retrying forever would be worse
