@@ -11,7 +11,13 @@
 // navigation that no longer matches what the app dispatches. Bumping evicts it.
 // v7: the shell learned to save media, so it must be the version that knows
 // how to play it back.
-const VERSION = 'peer-shell-v7';
+// v8: the shell cache is scoped by where this copy is DEPLOYED. On an IPFS
+// path gateway (gateway/ipfs/<cid>/) every site on that gateway shares one
+// origin, so an unscoped name meant any other copy of this app activating
+// there would sweep this one's shell as "stale". The scope path makes the
+// name this copy's own, and the sweep below never reaches past it.
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
+const VERSION = 'peer-shell-v8:' + SCOPE_PATH;
 const SHELL = [
   './',
   './index.html',
@@ -51,11 +57,14 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      // Only stale SHELLS. This used to delete every cache that was not the
-      // current version, which would have wiped everyone's saved posts on the
-      // next redeploy — silently, with no way to tell it had happened.
+      // Only stale SHELLS, and only THIS deployment's. Deleting every
+      // non-current cache would wipe saved posts; deleting another scope's
+      // shell would wipe a sibling deployment on a shared gateway origin.
+      // The legacy unscoped v7 name is still collected wherever it appears.
       .then((keys) => Promise.all(
-        keys.filter((k) => k.startsWith('peer-shell-') && k !== VERSION).map((k) => caches.delete(k)),
+        keys.filter((k) => k !== VERSION
+          && (k === 'peer-shell-v7' || (k.startsWith('peer-shell-') && k.endsWith(':' + SCOPE_PATH))))
+          .map((k) => caches.delete(k)),
       ))
       .then(() => self.clients.claim()),
   );

@@ -2386,7 +2386,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (entry.d) return entry.d;                        // local sandbox: inline bytes
     if (API) return API + '/api/media/' + entry.h;      // a host answered
     if (ARCHIVE_MEDIA) return ARCHIVE_MEDIA + entry.h;  // the published snapshot
-    return '/api/media/' + entry.h;                     // nothing has it: fails visibly
+    // Nothing has it: fail visibly, but fail RELATIVE — under a subpath
+    // (Pages, an IPFS gateway) a root-absolute miss would ask the gateway
+    // itself, which is a different wrong answer on every host.
+    return 'api/media/' + entry.h;
   }
 
   /**

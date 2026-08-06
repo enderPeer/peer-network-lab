@@ -167,6 +167,17 @@ is a test firing negative amounts, infinities, overdrafts, self-paired pools
 and reserved-symbol shadowing straight at it, asserting no balance moves and no
 number becomes NaN.
 
+## Every close is sealed
+
+Since the epoch chain (`webapp/chain/`, see
+[DECENTRALIZATION.md](DECENTRALIZATION.md)), each epoch close is sealed into
+a signed block carrying the mint, the per-creator distribution, every
+balance and every pool as computed at that close — hash-linked to the
+previous block, with the emission constants and the replay edition sealed
+in. The distribution was always replayable; now it is also *attributable*: a
+host that later showed you different numbers for a closed epoch would be
+contradicting its own signature, and `node chain/verify.mjs` says so.
+
 ## What this is not
 
 A test network's play money. There is no exchange, no bridge, no custody, no

@@ -136,3 +136,11 @@ depth-4 computation):
 
 **Current status**: Phase 0 complete; Phases 1–2 being built now in
 `webapp/` (engine in `src/engine/`, UI in `src/ui/`, tests in `tests/`).
+Two pieces of the later phases shipped early, scoped honestly
+(`webapp/DECENTRALIZATION.md`): the **epoch chain** (`webapp/chain/`) —
+Phase 5's constant-transparency rule as signed, hash-linked epoch
+certificates over the act log, verified by replay — and the **IPFS pack**
+(`webapp/publish-ipfs.ps1`) — the read side of Phase 6's substrate: app,
+record and chain under one reproducible content address. Writes remain
+single-host until the authored-act substrate (Phase 3/4) lands; the chain
+makes that single writer accountable rather than pretending it away.

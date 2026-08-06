@@ -348,6 +348,35 @@ replay it with `social/replay.cjs`, and get the same standings, feeds and
 balances the live host computes. That is what makes it a *verifiable* copy
 rather than a backup you have to trust.
 
+### The epoch chain — the record, signed
+
+Every `closeEpoch` now seals a block: the epoch's act range (committed so
+that lawful redaction cannot break it), the full economic state (ledgers,
+standing, certificate, PEER distribution, pools), the constant set and the
+exact engine/replay editions, hash-linked to the previous block and signed
+with the producer key in `server-data/chain/`. Published at `GET /api/chain`
+and copied into `site/archive/chain/` beside the log. Anyone who holds log
+plus chain can run
+
+```bash
+node chain/verify.mjs --acts site/archive/acts.jsonl --chain site/archive/chain/blocks.jsonl
+```
+
+and needs no further word from any host. What this buys, precisely: the one
+writer can still choose what enters the log, but can no longer rewrite what
+it already published without every holder of one block being able to prove
+it. See [DECENTRALIZATION.md](DECENTRALIZATION.md).
+
+### IPFS — the site under a content address
+
+`.\publish-ipfs.ps1` packs the whole site — app, archive, media, chain —
+into a deterministic CAR file and prints its CID. Pin that anywhere (your
+own node, any pinning service) and the network is readable and verifiable at
+`https://<gateway>/ipfs/<cid>/` with every machine here switched off. The
+script publishes nothing by itself; read the "what a snapshot carries" note
+in [DECENTRALIZATION.md](DECENTRALIZATION.md) before the first pin — a pin
+is a ratchet, and today's log carries PIN hashes and plaintext DMs.
+
 ### Free infrastructure that actually works here
 
 | what | where | cost |

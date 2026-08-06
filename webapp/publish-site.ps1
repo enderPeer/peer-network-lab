@@ -125,6 +125,24 @@ if ($Archive) {
     Write-Output 'archive -> media already published from an earlier run; the manifest says so'
   }
 
+  # The epoch chain, published beside the log it attests. Seals any closed
+  # epochs the chain has not covered yet, then exports blocks.jsonl and
+  # HEAD.json only - the producer key never leaves server-data. A verifier
+  # holding this folder needs no further word from any host:
+  #   node chain/verify.mjs --acts site/archive/acts.jsonl --chain site/archive/chain/blocks.jsonl
+  $chainInfo = $null
+  node (Join-Path $here 'chain\build.mjs') --export (Join-Path $archDir 'chain') | Out-Host
+  if ($LASTEXITCODE -ne 0) {
+    Write-Output 'archive -> chain export failed; publishing without it'
+  } else {
+    $headFile = Join-Path $archDir 'chain\HEAD.json'
+    if (Test-Path $headFile) {
+      $head = Get-Content $headFile -Raw | ConvertFrom-Json
+      $chainInfo = [ordered]@{ height = $head.height; hash = $head.hash; producer = $head.producer }
+      Write-Output ("archive -> chain at height " + $head.height + ", head " + $head.hash.Substring(0, 16) + '...')
+    }
+  }
+
   $man = [ordered]@{
     acts    = $lineCount
     sha256  = $sha
@@ -133,6 +151,7 @@ if ($Archive) {
     media   = [bool]$hasMedia
     note    = 'A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.'
   }
+  if ($chainInfo) { $man.chain = $chainInfo }
   [System.IO.File]::WriteAllText(
     (Join-Path $archDir 'manifest.json'),
     ($man | ConvertTo-Json),

@@ -1524,6 +1524,43 @@ async function worldState() {
   return st;
 }
 
+// ── The epoch chain ─────────────────────────────────────────────────────────
+// Every closeEpoch seals a signed block over that epoch's act range and state
+// package (chain/). Sealing runs off the request path and is best-effort: a
+// chain that lags is visible at /api/chain and heals on the next close or the
+// next `node chain/build.mjs`; a write path that waited on a standing solve
+// would hold every author hostage to a certificate nobody had asked for yet.
+// Mirrors never seal — a mirror signing blocks would be a second writer
+// wearing a different hat. The producer key lives in server-data/chain/ and
+// is not, and must never be, served by any route.
+let chainBusy = false, chainAgain = false;
+function scheduleChainSeal() {
+  if (MIRROR_OF) return;
+  if (chainBusy) { chainAgain = true; return; }
+  chainBusy = true;
+  setImmediate(async () => {
+    try {
+      const [{ loadProtocol, buildBlocks }, { loadOrCreateProducerKey }, { readBlocksFile, writeChain }] =
+        await Promise.all([import('./chain/chain.mjs'), import('./chain/keys.mjs'), import('./chain/build.mjs')]);
+      const { R, editions, constants } = await loadProtocol(here);
+      const chainDir = resolve(DATA_DIR, 'chain');
+      const key = loadOrCreateProducerKey(resolve(chainDir, 'producer.pem'));
+      const existing = readBlocksFile(resolve(chainDir, 'blocks.jsonl'));
+      const fileActs = acts.slice(1); // the in-memory seedWorld is not a line
+      const { blocks, sealed } = buildBlocks({ fileActs, R, editions, constants, key, existing });
+      if (sealed > 0) {
+        writeChain(chainDir, blocks);
+        console.log(`[chain] sealed ${sealed} block(s) — height ${blocks.length}`);
+      }
+    } catch (e) {
+      console.error('[chain] seal failed: ' + e.message);
+    } finally {
+      chainBusy = false;
+      if (chainAgain) { chainAgain = false; scheduleChainSeal(); }
+    }
+  });
+}
+
 // Synchronous balance lookup for the W1 gate. Replay itself is synchronous —
 // only loading the engine is async — so once it is up we can settle solvency
 // inside the request. Returns null when the engine is unavailable, and the
@@ -1812,6 +1849,7 @@ function applyActInner(act, auth, ip) {
     else keyIndex.set(act.id, list.filter((k) => k.credId !== act.credId).concat([{ credId: act.credId, cose: act.cose, signCount: act.signCount ?? 0, label: act.label ?? 'passkey' }]));
   }
   if (act.t === 'setPin') pinIndex.set(act.id, act.pinHash); // newest wins; enforced from now on
+  if (act.t === 'closeEpoch') scheduleChainSeal();
   // Deletion/edit reach back into the stored log: content bytes leave the
   // file, structure (line count, ids, θ-parity fields) stays.
   // editPost no longer reaches here — validate() retires it. Only removal
@@ -2397,6 +2435,30 @@ const server = createServer((req, res) => {
       res.end(gzipSync(Buffer.from(body)));
     } else {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+      res.end(body);
+    }
+    return;
+  }
+  // The epoch chain, published. blocks.jsonl is every sealed block in height
+  // order; HEAD.json names the tip and the producer key. Anyone holding
+  // /api/acts and these files can run `node chain/verify.mjs` and needs no
+  // further word from this host — that is the point of publishing them.
+  if (req.method === 'GET' && (url.pathname === '/api/chain' || url.pathname === '/api/chain/head')) {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
+    const isHead = url.pathname === '/api/chain/head';
+    const file = resolve(DATA_DIR, 'chain', isHead ? 'HEAD.json' : 'blocks.jsonl');
+    if (!existsSync(file)) {
+      json(res, 404, { code: 'NO_CHAIN', error: 'no epoch has been sealed on this host yet — the chain appears at the first closeEpoch after this feature shipped, or after `node chain/build.mjs`' });
+      return;
+    }
+    const body = readFileSync(file);
+    const type = isHead ? 'application/json' : 'application/x-ndjson';
+    const wantsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '') && body.length > 1024;
+    if (wantsGzip) {
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'Content-Encoding': 'gzip', ...SECURITY_HEADERS });
+      res.end(gzipSync(body));
+    } else {
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
       res.end(body);
     }
     return;
@@ -3163,4 +3225,7 @@ server.listen(PORT, () => {
   console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`
     + (MIRROR_OF ? ` — read-only mirror of ${MIRROR_OF}` : ''));
   if (MIRROR_OF) { mirrorSync(); setInterval(mirrorSync, MIRROR_INTERVAL); }
+  // A primary that closed epochs while this feature was absent, or while the
+  // process was down, seals the backlog now rather than at the next close.
+  else scheduleChainSeal();
 });

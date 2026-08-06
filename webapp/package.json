@@ -12,8 +12,12 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@ipld/car": "^5.4.7",
+    "blockstore-core": "^7.0.1",
     "esbuild": "^0.24.0",
+    "ipfs-unixfs-importer": "^17.0.1",
     "jsdom": "^29.1.1",
+    "multiformats": "^14.0.5",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
     "vitest": "^2.1.0"
