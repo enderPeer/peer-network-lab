@@ -30,7 +30,7 @@ balance, then check the epoch chain's signed roots
 | Web (canonical) | https://enderpeer.github.io/peer-network-lab/ | app + landing + published archive + chain |
 | GitHub | https://github.com/enderPeer/peer-network-lab | source of everything |
 | Radicle | `rad:z2suiiv5cu2DWLQ1zmHG5d12Wy4pL` | the repo on a peer-to-peer network — replicated by public seed nodes and by everyone who clones it |
-| IPFS | `bafybeie7sdtkmwcagra53kkkurbnxb7m5gjvruaoif7hpcz2yjw5bjyvhm` | the whole site (app, log, media, chain) under one content address |
+| IPFS | `bafybeid6p5djjo3xo256p3dw3vppx7mwpyiowc5apb6cpmzj7ygr3z3w6y` | the whole site (app, log, media, chain) under one content address |
 | nsite (Nostr) | https://npub1jdtd0md8gy5zjd7gghqn9kr9jekmczp6hc3spy5n5nftvdd47urq8px80w.nsite.lol/ | the site published as signed Nostr events + hash-addressed blobs |
 | Software Heritage | https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/enderPeer/peer-network-lab | permanent academic archive of the git history |
 | Snapshot release | https://github.com/enderPeer/peer-network-lab/releases | one-file `git bundle` + IPFS `.car` + torrent (magnet link in the release notes) |
@@ -50,7 +50,7 @@ https://radicle.network/nodes/iris.radicle.network/rad:z2suiiv5cu2DWLQ1zmHG5d12W
 **IPFS** — from any gateway once at least one node pins it:
 
 ```
-https://bafybeie7sdtkmwcagra53kkkurbnxb7m5gjvruaoif7hpcz2yjw5bjyvhm.ipfs.dweb.link/
+https://bafybeid6p5djjo3xo256p3dw3vppx7mwpyiowc5apb6cpmzj7ygr3z3w6y.ipfs.dweb.link/
 ```
 
 Prefer the subdomain form above: it gives the app its own origin, so your
@@ -80,7 +80,7 @@ offline.
 Any one of these makes the project harder to lose. Pick by effort:
 
 - **One command, one-off** — pin the site on IPFS:
-  `ipfs dag import peer-site.car && ipfs pin add bafybeie7sdtkmwcagra53kkkurbnxb7m5gjvruaoif7hpcz2yjw5bjyvhm`
+  `ipfs dag import peer-site.car && ipfs pin add bafybeid6p5djjo3xo256p3dw3vppx7mwpyiowc5apb6cpmzj7ygr3z3w6y`
   (the `.car` is in the release, or rebuild it from the site). While your
   node runs, you are a host.
 - **One command, ongoing** — seed the repo on Radicle: `rad seed
