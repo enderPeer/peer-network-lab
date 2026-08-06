@@ -188,6 +188,7 @@
 
   <h2>Built in the open — send things in</h2>
   <p>The whole thing lives at <a href="https://github.com/enderPeer/peer-network-lab">github.com/enderPeer/peer-network-lab</a>: the engine, the app, the host, the tests. Nothing is a binary you have to trust.</p>
+  <p>It also lives in places no company controls: the repo is replicated on <a href="https://radicle.network/nodes/iris.radicle.network/rad:z2suiiv5cu2DWLQ1zmHG5d12Wy4pL">Radicle</a> by everyone who clones it, the whole site travels as one content-addressed IPFS archive anyone can pin, and the git history is preserved by <a href="https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/enderPeer/peer-network-lab">Software Heritage</a>. <a href="https://github.com/enderPeer/peer-network-lab/blob/main/MIRRORS.md">MIRRORS.md</a> lists every copy and how to become one.</p>
   <p><strong>Changes are welcome and get reviewed before merging.</strong> Fork it, branch from <code class="inline">main</code>, keep the 67 spec tests green, open a pull request saying what problem it solves. Expect questions about the change — that is the review, not a gate.</p>
   <p>You do not need to write code to be useful here, and most improvements so far did not come with a patch. The mobile layout collapsing to 7300 pixels, the mystery <code class="inline">400</code> that was really a length limit, a design objection about what deleting an account actually means — all of them arrived as somebody plainly saying what was wrong, and all of them shipped.</p>
   <div class="cta">
@@ -200,7 +201,7 @@
   <h2>Questions</h2>
   <details>
     <summary>Is this decentralized?</summary>
-    <p>Not yet, and it would be dishonest to imply otherwise. One host currently holds the log. What is already true is the part that matters for trust: the log is public and every published number is recomputable from it, so the host cannot quietly lie about standings or rankings without anyone being able to check. Decentralization is a later phase, deliberately after the constants are locked.</p>
+    <p>Writes are not, and it would be dishonest to imply otherwise: one host accepts new acts. What is decentralized already is everything else — the log is public, every published number is recomputable from it, each closed epoch is sealed into a signed hash-linked block, and complete verifiable copies live on <a href="https://github.com/enderPeer/peer-network-lab/blob/main/MIRRORS.md">mirrors no company controls</a>. The host cannot quietly lie about the past; it can only stop, and any copy can carry on. Decentralizing writes is a later phase, deliberately after the constants are locked.</p>
   </details>
   <details>
     <summary>Is there a token or a cryptocurrency?</summary>
@@ -224,7 +225,8 @@
   <p><a href="https://github.com/enderPeer/peer-network-lab">Source</a> ·
      <a href="https://github.com/enderPeer/peer-network-lab/blob/main/CONTRIBUTING.md">Contributing</a> ·
      <a href="https://github.com/enderPeer/peer-network-lab/issues">Issues</a> ·
-     <a href="https://github.com/enderPeer/peer-network-lab/blob/main/ROADMAP.md">Roadmap</a></p>
+     <a href="https://github.com/enderPeer/peer-network-lab/blob/main/ROADMAP.md">Roadmap</a> ·
+     <a href="https://github.com/enderPeer/peer-network-lab/blob/main/MIRRORS.md">Mirrors</a></p>
   <p>Built in the open. No tracking, no cookies, no analytics on this page.</p>
 </footer>
 
