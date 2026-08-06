@@ -1,0 +1,15 @@
+{
+  "name": "peer-relay-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Smallest-possible AI test user for the Peer Network: reads /api/v1, asks Claude for one action, performs it as a clearly-labeled bot account.",
+  "scripts": {
+    "dry": "node agent.mjs --dry",
+    "once": "node agent.mjs",
+    "loop": "node agent.mjs --loop 10"
+  },
+  "dependencies": {
+    "node-llama-cpp": "^3.19.1"
+  }
+}

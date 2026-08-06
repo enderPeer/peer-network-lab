@@ -1,0 +1,5 @@
+models/
+.env
+*.log
+memory-*.json
+*.pid
