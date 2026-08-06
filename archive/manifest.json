@@ -1,8 +1,13 @@
 {
-    "acts":  765,
-    "sha256":  "2f53d1f640b0360387ad6fa2884cce7201c968cbb3518a75e0c43016ff6115ca",
-    "at":  1785935545544,
+    "acts":  783,
+    "sha256":  "0c3b8bd5df91501aee5633c3b227c1855ef6e0d131be0ab4d5e46ab0f56568bc",
+    "at":  1786036134399,
     "host":  "https://extract-usually-happened-surfing.trycloudflare.com",
     "media":  true,
-    "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust."
+    "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
+    "chain":  {
+                  "height":  60,
+                  "hash":  "09818371b784fa9557c558599feab4137c11abbdab72d578670662447d1f9446",
+                  "producer":  "lD2Z1G6mz-e-umbOUx9ONgSGa3m-Mc26rVneYASo8u4"
+              }
 }

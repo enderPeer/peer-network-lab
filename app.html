@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#131110">
+<meta name="theme-color" content="#12100B">
 <meta name="description" content="A social network whose feed is mathematics you can check. Influence is commitment, not attention.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
@@ -26,28 +26,29 @@
 <link rel="apple-touch-startup-image" href="icons/splash-1668x2388.png" media="(device-width:834px) and (device-height:1194px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)">
 <link rel="apple-touch-startup-image" href="icons/splash-2048x2732.png" media="(device-width:1024px) and (device-height:1366px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)">
 </head>
-<body><title>Peer — social sandbox</title>
+<body><title>Peer Network — social sandbox</title>
 <style>
 :root {
-  --paper: #FBF6F0;
-  --card: #FFFFFF;
-  --card-2: #F6EFE6;
-  --ink: #251F19;
-  --muted: #8A7C6C;
-  --line: #E7DCCC;
-  --line-2: #D9CBB6;
-  --ember: #C24D2C;
-  --ember-hot: #E0663C;
-  --ember-soft: rgba(194, 77, 44, 0.10);
-  --brass: #9C7A3C;
-  --brass-soft: rgba(156, 122, 60, 0.12);
-  --moss: #4E7A56;
-  --moss-soft: rgba(78, 122, 86, 0.13);
+  --paper: #EDE4CC;
+  --card: #F5EDD8;
+  --card-2: #E4D8B9;
+  --ink: #2A2312;
+  --muted: #665732;
+  --line: #D2C29B;
+  --line-2: #B9A778;
+  --ember: #A94708;
+  --ember-hot: #B54B0A;
+  --ember-soft: rgba(169, 71, 8, 0.10);
+  --on-ember: #FFF3E2;
+  --brass: #8A6F3C;
+  --brass-soft: rgba(138, 111, 60, 0.14);
+  --moss: #55703F;
+  --moss-soft: rgba(85, 112, 63, 0.13);
   --bad: #A93B2A;
   --bad-soft: rgba(169, 59, 42, 0.11);
-  --shadow: 0 1px 2px rgba(60, 42, 24, 0.06), 0 8px 28px rgba(60, 42, 24, 0.07);
-  /* type: condensed grotesk for display/labels, book serif for reading, mono for figures */
-  --display: 'Bahnschrift', 'Avenir Next Condensed', 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  --shadow: 0 1px 2px rgba(52, 40, 18, 0.08), 0 8px 28px rgba(52, 40, 18, 0.08);
+  /* type: geometric sans for display/labels (the Futura lineage, 1927), book serif for reading, mono for figures */
+  --display: 'Century Gothic', 'Futura', 'Twentieth Century', 'Bahnschrift', 'Avenir Next', sans-serif;
   --body: 'Charter', 'Bitstream Charter', Cambria, 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
   /* ledger tokens (mainstream view) — paper, ink, one signal colour */
@@ -65,32 +66,32 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #131110; --card: #1C1917; --card-2: #211D1A; --ink: #EEE7DC; --muted: #9F9283;
-    --line: #2E2822; --line-2: #3A322A; --ember: #E0663C; --ember-hot: #F07A4C;
-    --ember-soft: rgba(224, 102, 60, 0.14); --brass: #C9A45E; --brass-soft: rgba(201, 164, 94, 0.14);
-    --moss: #7FAF88; --moss-soft: rgba(127, 175, 136, 0.14); --bad: #E06A55; --bad-soft: rgba(224, 106, 85, 0.14);
-    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.35);
+    --paper: #12100B; --card: #1B1710; --card-2: #241E13; --ink: #E9DDC0; --muted: #A08F6C;
+    --line: #37301E; --line-2: #4B4128; --ember: #E8641B; --ember-hot: #F5822F;
+    --ember-soft: rgba(232, 100, 27, 0.16); --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201, 181, 147, 0.13);
+    --moss: #8CAF7F; --moss-soft: rgba(140, 175, 127, 0.14); --bad: #E05A3C; --bad-soft: rgba(224, 90, 60, 0.15);
+    --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.4);
     --lq-paper: #131315; --lq-sheet: #1A1B1E; --lq-sunk: #202126;
     --lq-ink: #ECECE7; --lq-muted: #92949A; --lq-rule: #2C2D32; --lq-rule-2: #3D3E45;
     --lq-accent: #FF5630; --lq-accent-2: #7FA3E8; --lq-gold: #C9A25E; --lq-good: #58B98A;
   }
 }
 :root[data-theme="light"] {
-  --paper: #FBF6F0; --card: #FFFFFF; --card-2: #F6EFE6; --ink: #251F19; --muted: #8A7C6C;
-  --line: #E7DCCC; --line-2: #D9CBB6; --ember: #C24D2C; --ember-hot: #E0663C;
-  --ember-soft: rgba(194,77,44,0.10); --brass: #9C7A3C; --brass-soft: rgba(156,122,60,0.12);
-  --moss: #4E7A56; --moss-soft: rgba(78,122,86,0.13); --bad: #A93B2A; --bad-soft: rgba(169,59,42,0.11);
-  --shadow: 0 1px 2px rgba(60,42,24,0.06), 0 8px 28px rgba(60,42,24,0.07);
+  --paper: #EDE4CC; --card: #F5EDD8; --card-2: #E4D8B9; --ink: #2A2312; --muted: #665732;
+  --line: #D2C29B; --line-2: #B9A778; --ember: #A94708; --ember-hot: #B54B0A; --on-ember: #FFF3E2;
+  --ember-soft: rgba(169,71,8,0.10); --brass: #8A6F3C; --brass-soft: rgba(138,111,60,0.14);
+  --moss: #55703F; --moss-soft: rgba(85,112,63,0.13); --bad: #A93B2A; --bad-soft: rgba(169,59,42,0.11);
+  --shadow: 0 1px 2px rgba(52,40,18,0.08), 0 8px 28px rgba(52,40,18,0.08);
   --lq-paper: #EFEFEA; --lq-sheet: #FFFFFF; --lq-sunk: #E7E7E1;
   --lq-ink: #17181B; --lq-muted: #6E7075; --lq-rule: #D6D6CF; --lq-rule-2: #BFBFB6;
   --lq-accent: #D8330F; --lq-accent-2: #1F3A6B; --lq-gold: #8A6A2B; --lq-good: #1F6B4A;
 }
 :root[data-theme="dark"] {
-  --paper: #131110; --card: #1C1917; --card-2: #211D1A; --ink: #EEE7DC; --muted: #9F9283;
-  --line: #2E2822; --line-2: #3A322A; --ember: #E0663C; --ember-hot: #F07A4C;
-  --ember-soft: rgba(224,102,60,0.14); --brass: #C9A45E; --brass-soft: rgba(201,164,94,0.14);
-  --moss: #7FAF88; --moss-soft: rgba(127,175,136,0.14); --bad: #E06A55; --bad-soft: rgba(224,106,85,0.14);
-  --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.35);
+  --paper: #12100B; --card: #1B1710; --card-2: #241E13; --ink: #E9DDC0; --muted: #A08F6C;
+  --line: #37301E; --line-2: #4B4128; --ember: #E8641B; --ember-hot: #F5822F;
+  --ember-soft: rgba(232,100,27,0.16); --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201,181,147,0.13);
+  --moss: #8CAF7F; --moss-soft: rgba(140,175,127,0.14); --bad: #E05A3C; --bad-soft: rgba(224,90,60,0.15);
+  --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.4);
   --lq-paper: #131315; --lq-sheet: #1A1B1E; --lq-sunk: #202126;
   --lq-ink: #ECECE7; --lq-muted: #92949A; --lq-rule: #2C2D32; --lq-rule-2: #3D3E45;
   --lq-accent: #FF5630; --lq-accent-2: #7FA3E8; --lq-gold: #C9A25E; --lq-good: #58B98A;
@@ -114,16 +115,23 @@ button { font-family: var(--body); cursor: pointer; }
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
+/* The base wordmark stays block-level: the simple mode still renders the
+   old three-piece 'Peer' markup, and a flex container splits it apart. The
+   insignia lockup applies only where the insignia markup exists (geek). */
 .wordmark { font-family: var(--display); font-weight: 700; text-transform: uppercase; font-size: 24px; margin: 0; letter-spacing: 0.04em; }
 .wordmark em { font-style: normal; color: var(--ember); }
+body[data-mode='geek'] .wordmark { font-size: 17px; letter-spacing: 0.22em; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+/* The insignia. Drawn as a vector so it stays sharp from favicon to hero;
+   swap the data URI for a raster only if the original art must be exact. */
+.brandmark { width: 34px; height: 34px; flex: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'%3E%3Ccircle cx='120' cy='120' r='76' fill='none' stroke='%23c9b593' stroke-width='9'/%3E%3Cpath d='M120 56 L192 120 L120 184 L48 120 Z' fill='none' stroke='%2312100b' stroke-width='19'/%3E%3Cpath d='M120 56 L192 120 L120 184 L48 120 Z' fill='none' stroke='%23c9b593' stroke-width='8'/%3E%3Cg fill='%23c9b593' stroke='%2312100b' stroke-width='5' paint-order='stroke'%3E%3Cpath d='M158 96 L236 88 L222 104 L166 106 Z'/%3E%3Cpath d='M166 114 L228 110 L216 126 L172 124 Z'/%3E%3Cpath d='M172 132 L210 132 L200 146 L176 141 Z'/%3E%3Cpath d='M82 96 L4 88 L18 104 L74 106 Z'/%3E%3Cpath d='M74 114 L12 110 L24 126 L68 124 Z'/%3E%3Cpath d='M68 132 L30 132 L40 146 L64 141 Z'/%3E%3C/g%3E%3Cg stroke='%2312100b' stroke-width='6' paint-order='stroke'%3E%3Cpath d='M120 14 L136 52 L104 52 Z' fill='%23e8641b'/%3E%3Cpath d='M106 56 L134 56 L140 70 L140 172 L134 186 L106 186 L100 172 L100 70 Z' fill='%23e8641b'/%3E%3Cpath d='M120 226 L104 190 L136 190 Z' fill='%23e8641b'/%3E%3C/g%3E%3Cg fill='none' stroke='%2312100b' stroke-width='6' stroke-linecap='square'%3E%3Cpath d='M112 68 L112 120'/%3E%3Cpath d='M112 68 L126 68 L132 76 L132 90 L126 98 L112 98'/%3E%3Cpath d='M112 128 L112 178'/%3E%3Cpath d='M112 128 L130 178'/%3E%3Cpath d='M130 128 L130 178'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat; }
 /* Eight tabs do not fit a phone, and the page clips horizontal overflow, so
    the last ones were unreachable rather than merely off-screen — reported as
    "the Live tab is not shown". The row scrolls on its own instead. */
-.tabs { display: flex; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.tabs { display: flex; gap: 12px; background: transparent; border: 0; border-radius: 0; padding: 0 2px; max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { flex: 0 0 auto; white-space: nowrap; }
-.tabs button { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 14px; border-radius: 7px; font-weight: 600; }
-.tabs button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+.tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-family: var(--display); font-size: 12.5px; padding: 7px 3px 6px; border-radius: 0; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+.tabs button.on { background: transparent; color: var(--ink); border-bottom-color: var(--ember); box-shadow: none; }
 .switcher { display: flex; gap: 8px; align-items: center; }
 .switcher select { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 
@@ -151,11 +159,32 @@ html, body { overflow-x: hidden; }
    below their content. Without this the wrap above cannot take effect. */
 .post *, .card *, .lq-card *, .comment *, .lq-comment *, .grow { min-width: 0; }
 .rail { position: sticky; top: 62px; }
+/* right-rail instrument switch — one bar, one instrument at a time */
+.rail-toggle { display: flex; gap: 2px; border: 1px solid var(--line-2); border-radius: 2px; padding: 2px; margin: 14px 0; background: var(--card-2); }
+.rail-toggle button { flex: 1; border: 0; background: transparent; color: var(--muted); font-family: var(--display); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; padding: 6px 4px; border-radius: 2px; cursor: pointer; white-space: nowrap; }
+.rail-toggle button.on { background: var(--card); color: var(--ink); box-shadow: inset 0 -2px 0 var(--ember); }
+.rail-toggle .nbadge { margin-left: 5px; }
+/* left-rail sort options — a list, not a row: each order gets its own line */
+.rail-opt { display: block; width: 100%; text-align: left; border: 1px solid transparent; border-left: 2px solid transparent; background: transparent; color: var(--muted); padding: 5px 8px; border-radius: 2px; cursor: pointer; font: inherit; }
+.rail-opt b { display: block; font-family: var(--display); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: inherit; }
+.rail-opt .smallnote { font-size: 10px; }
+.rail-opt:hover { color: var(--ink); }
+.rail-opt.on { color: var(--ink); border-left-color: var(--ember); background: var(--card-2); }
+.rail-opt + .rail-opt { margin-top: 2px; }
+/* the feed-head copy of the reading controls: phones only */
+.ctl-m { display: none; }
+@media (max-width: 1010px) {
+  .ctl-m { display: block; margin-bottom: 12px; }
+  .ctl-m > summary { cursor: pointer; padding: 9px 12px; background: var(--card); border: 1px solid var(--line); border-top: 2px solid var(--line-2); border-radius: 3px; margin: 0; }
+  .ctl-m .card + .card { margin-top: 10px; }
+  .ctl-m[open] > summary { margin-bottom: 10px; }
+  .rail-left .card:nth-child(-n+3) { display: none; }
+}
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+.card { background: var(--card); border: 1px solid var(--line); border-top: 2px solid var(--line-2); border-radius: 3px; padding: 16px 18px; box-shadow: var(--shadow); }
 .card + .card { margin-top: 14px; }
-.card h2 { font-family: var(--display); font-size: 17px; margin: 0 0 10px; letter-spacing: 0.01em; }
-.eyebrow { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.card h2 { font-family: var(--display); font-size: 14px; margin: 0 0 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.eyebrow { font-family: var(--display); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 700; }
 
 .idcard .who { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
 .avatar { width: 42px; height: 42px; border-radius: 5px; border: 1.5px solid var(--ink); background: var(--card-2); color: var(--ink); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 700; font-size: 21px; flex: none; }
@@ -168,7 +197,8 @@ html, body { overflow-x: hidden; }
 .ava-img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .12s ease; }
 .ava-img.ok { opacity: 1; }
 .handle { font-weight: 700; font-size: 15px; }
-.standing-chip { font-family: var(--mono); font-size: 11px; color: var(--brass); background: var(--brass-soft); border-radius: 10px; padding: 2px 8px; }
+.standing-chip { font-family: var(--mono); font-size: 11px; color: var(--brass); background: var(--brass-soft); border: 1px solid var(--brass); border-radius: 2px; padding: 1px 8px; white-space: nowrap; }
+body[data-mode='liquid'] .standing-chip { border: 0; border-radius: 10px; }
 .ledger { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12.5px; margin: 0; }
 .ledger dt { color: var(--muted); }
 .ledger dd { margin: 0; text-align: right; }
@@ -196,15 +226,22 @@ html, body { overflow-x: hidden; }
 .livebar.shut { padding-top: 10px; padding-bottom: 10px; }
 .livebar .track-list, .livebar .comment { max-height: 40vh; overflow-y: auto; }
 
-.btn { border: 1px solid var(--line-2); background: var(--card); color: var(--ink); border-radius: 9px; padding: 6px 13px; font-size: 13px; transition: border-color 0.12s, transform 0.05s; }
-.btn:hover { border-color: var(--ember); }
+/* ── the button system — one family, four ranks ──────────────────────────
+   Every geek-mode control derives from these four: standard (outlined),
+   primary (the one filled signal per card), ghost (quiet), danger
+   (destructive — earns its colour). Uppercase display type, squared
+   corners, no decorative variance anywhere else. */
+.btn { border: 1.5px solid var(--line-2); background: transparent; color: var(--ink); border-radius: 2px; padding: 7px 14px; font-family: var(--display); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; transition: border-color 0.12s, background 0.12s, color 0.12s, transform 0.05s; }
+.btn:hover { border-color: var(--brass); }
 .btn:active { transform: translateY(1px); }
-.btn.primary { background: var(--ember); border-color: var(--ink); color: #FFF4EC; font-weight: 600; }
-.btn.primary:hover { filter: brightness(1.07); }
-.btn.small { padding: 3px 10px; font-size: 12px; border-radius: 7px; }
+.btn.primary { background: var(--ember); border-color: var(--ember); color: var(--on-ember, #16110A); }
+.btn.primary:hover { background: var(--ember-hot); border-color: var(--ember-hot); }
+.btn.small { padding: 4px 10px; font-size: 11px; }
 .btn.ghost { border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--ember); border-color: transparent; }
-.btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ember); outline-offset: 1px; }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.btn.danger:hover { background: var(--bad); border-color: var(--bad); color: var(--paper); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--ember); outline-offset: 1px; }
 
 .composer textarea, .mini-form textarea { width: 100%; min-height: 66px; resize: vertical; background: var(--card-2); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font-family: var(--body); font-size: 13.5px; }
 .composer .row { display: flex; gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
@@ -212,14 +249,14 @@ html, body { overflow-x: hidden; }
 .slider input { accent-color: var(--ember); width: 88px; }
 .slider output { font-family: var(--mono); width: 40px; text-align: right; color: var(--ink); }
 
-.post { border: 1px solid var(--line); border-radius: 12px; padding: 13px 15px; margin-top: 12px; background: var(--card); transition: border-color 0.15s, box-shadow 0.15s; }
+.post { border: 1px solid var(--line); border-radius: 3px; padding: 13px 15px; margin-top: 12px; background: var(--card); transition: border-color 0.15s, box-shadow 0.15s; }
 .post:hover { border-color: var(--line-2); box-shadow: var(--shadow); }
 .post .head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.rank-chip { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 1px 7px; }
+.rank-chip { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 2px; padding: 1px 7px; }
 .post .head .kindtag { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-left: auto; }
 .post .body { font-size: 14.5px; line-height: 1.55; margin: 8px 0; }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
-.tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 9px; padding: 2px 9px; }
+.tagchip { font-size: 11.5px; color: var(--moss); background: var(--moss-soft); border-radius: 2px; padding: 2px 9px; }
 .post .mech { font-family: var(--mono); font-size: 10.8px; color: var(--muted); overflow-wrap: anywhere; }
 /* ── installed on a phone ────────────────────────────────────────────────
    In standalone mode there is no Safari chrome, so the app owns the whole
@@ -290,11 +327,11 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
   -webkit-overflow-scrolling: touch; padding: 2px 0 8px; }
 .lanes::-webkit-scrollbar { display: none; }
 .lane { flex: 0 0 auto; min-width: 104px; min-height: 46px; text-align: left;
-  background: var(--card-2); border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 2px;
   padding: 7px 12px; color: var(--ink); cursor: pointer; font: inherit; }
-.lane b { display: block; font-size: 13px; }
+.lane b { display: block; font-family: var(--display); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
 .lane .smallnote { font-size: 10px; }
-.lane.on { border-color: var(--accent, #d8b26a); background: var(--card); }
+.lane.on { border-color: var(--ember); background: var(--card); box-shadow: inset 0 2px 0 var(--ember); }
 
 @media (max-width: 560px) {
   .lane { min-width: 92px; }
@@ -312,7 +349,7 @@ body[data-mode='liquid'] .view-chip { color: var(--lq-muted, #888); }
 .lock-warn { border-color: var(--ember); }
 .lock-warn b { color: var(--ember); }
 .g-handle.locked, .lq-ava.locked { outline: 2px solid var(--ember); outline-offset: 1px; }
-.hop-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
+.hop-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 2px; padding: 1px 6px; white-space: nowrap; }
 .hop-chip.far { opacity: 0.55; border-style: dashed; }
 .react-count { color: var(--ember); font-size: 11.5px; }
 body[data-mode='liquid'] .react-count { color: var(--lq-accent); }
@@ -334,8 +371,18 @@ body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0
 .rankbar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 7px; overflow: hidden; }
 .rankbar i { display: block; height: 100%; background: var(--ember); transition: width 0.5s ease; }
 .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-.mini-form { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-.mini-form input[type='text'], .mini-form input[type='password'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 13px; }
+/* Segmented option bars (composer kind, event lanes, feed filters). These
+   were browser-default buttons — the one part of the page with no uniform. */
+.uline { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 2px 0 6px; margin-top: 8px; }
+.uline > button { border: 1px solid transparent; background: transparent; color: var(--muted); font-family: var(--display); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 2px; cursor: pointer; }
+.uline > button:hover { color: var(--ink); }
+.uline > button.on { color: var(--ink); border-color: var(--line-2); background: var(--card-2); }
+/* the simple mode shares eventLanes' .uline — keep its own voice there */
+body[data-mode='liquid'] .uline > button { font-family: inherit; text-transform: none; letter-spacing: 0; color: var(--lq-muted); }
+body[data-mode='liquid'] .uline > button.on { color: var(--lq-ink); border-color: var(--lq-rule-2); background: var(--lq-sunk); }
+.mini-form { background: var(--card-2); border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.mini-form input[type='text'], .mini-form input[type='password'], .mini-form input[type='search'],
+body[data-mode='geek'] input[type='search'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 2px; padding: 6px 9px; font-size: 13px; font-family: var(--body); }
 
 .post-media { display: block; max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; margin: 8px 0 4px; background: rgba(127,127,127,0.08); }
 .post-audio { display: block; width: 100%; margin: 4px 0; }
@@ -486,7 +533,8 @@ body[data-mode='liquid'] .reply-btn { padding: 3px 11px; font-size: 12px; }
 .chron b { color: var(--ink); font-weight: 600; }
 
 .onboard { max-width: 620px; margin: 7vh auto 0; text-align: center; }
-.onboard .wordmark { font-size: 64px; margin-bottom: 2px; }
+body[data-mode='geek'] .onboard .wordmark { font-size: 30px; margin-bottom: 2px; flex-direction: column; gap: 14px; justify-content: center; letter-spacing: 0.18em; white-space: normal; }
+.onboard .brandmark { width: 84px; height: 84px; }
 .onboard p.lede { font-family: var(--display); font-size: 18.5px; line-height: 1.6; margin: 12px auto 8px; max-width: 34em; text-wrap: balance; }
 .pulse { display: flex; gap: 18px; justify-content: center; margin: 18px 0 26px; flex-wrap: wrap; }
 .pulse .stat { font-size: 12px; color: var(--muted); }
@@ -532,6 +580,7 @@ body[data-mode='liquid'] .reply-btn { padding: 3px 11px; font-size: 12px; }
   .drawer { animation: slidein 0.22s ease-out; }
   @keyframes slidein { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
 }
+.drawer .sect + .sect { margin-top: 14px; }
 .drawer h3 { font-family: var(--display); font-size: 20px; margin: 10px 0 2px; }
 .drawer .sect { margin-top: 16px; }
 .vouchline { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; border-top: 1px dashed var(--line); }
@@ -692,10 +741,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 .geek-strip { display: none; }
 .net-hint { display: none; }
 @media (max-width: 1010px) {
-  /* content first on single-column geek: feed, then standings, then identity */
+  /* content first on single-column geek: feed, then the reading controls,
+     then identity and the instrument rail */
   .cols .geek-center { order: 1; }
-  .cols .rail-right { order: 2; }
-  .cols .rail-left { order: 3; }
+  .cols .rail-left { order: 2; }
+  .cols .rail-right { order: 3; }
   .geek-strip {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     background: var(--card); border: 1px solid var(--line); border-radius: 12px;
@@ -738,7 +788,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   .btn { padding: 9px 15px; min-height: 40px; }
   .btn.small { padding: 7px 12px; min-height: 36px; font-size: 13px; }
   .topbar { gap: 8px; padding: 8px 2px; }
-  .wordmark { font-size: 22px; }
+  .wordmark { font-size: 20px; }
+  body[data-mode='geek'] .wordmark { font-size: 14px; letter-spacing: 0.16em; }
+  body[data-mode='geek'] .brandmark { width: 26px; height: 26px; }
   .tabs { order: 3; width: 100%; justify-content: space-between; }
   .tabs button { flex: 1; padding: 8px 4px; }
   .switcher select { padding: 9px 10px; }
@@ -748,7 +800,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   .mat .cell { width: 40px; height: 25px; font-size: 10px; }
   .pulse { gap: 12px; }
   .onboard { margin-top: 4vh; }
-  .onboard .wordmark { font-size: 46px; }
+  .onboard .wordmark { font-size: 26px; }
   .onboard .join { flex-direction: column; align-items: center; }
   .onboard input { width: min(280px, 86vw); }
 }
@@ -795,6 +847,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var GEEK_TABS = ['feed', 'chat', 'alerts', 'econ', 'profile'];
   var econView = 'wallet';   // + 'net'  — the graph lives here now
   var alertView = 'inbound'; // | 'record'
+  var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags'
   var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you', 'person'];
   var lqPersonId = null;   // whose page, when lqView is 'person'
 
@@ -895,6 +948,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (['all', 'image', 'video', 'audio', 'file', 'text'].indexOf(v0.feedFile) >= 0) feedFile = v0.feedFile;
       if (['any', 'post', 'event', 'stream', 'onair'].indexOf(v0.feedKind) >= 0) feedKind = v0.feedKind;
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
+      if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
@@ -927,7 +981,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, feedFile: feedFile, feedKind: feedKind, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope,
+        tab: tab, lqView: lqView, feedMode: feedMode, feedFile: feedFile, feedKind: feedKind, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope, railView: railView,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -2362,7 +2416,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (entry.d) return entry.d;                        // local sandbox: inline bytes
     if (API) return API + '/api/media/' + entry.h;      // a host answered
     if (ARCHIVE_MEDIA) return ARCHIVE_MEDIA + entry.h;  // the published snapshot
-    return '/api/media/' + entry.h;                     // nothing has it: fails visibly
+    // Nothing has it: fail visibly, but fail RELATIVE — under a subpath
+    // (Pages, an IPFS gateway) a root-absolute miss would ask the gateway
+    // itself, which is a different wrong answer on every host.
+    return 'api/media/' + entry.h;
   }
 
   /**
@@ -3044,7 +3101,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function safeToRepaint() {
     var ae = document.activeElement;
     if (ae && (ae.tagName === 'TEXTAREA'
-      || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password')))) return false;
+      || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password' || ae.type === 'search')))) return false;
     if (document.querySelector('.pin-dialog')) return false;
     return !(document.querySelector('.drawer')
       || document.querySelector('.mini-form:not(.persistent)')
@@ -5002,7 +5059,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var archOnboard = archiveBanner();
     if (archOnboard) root.appendChild(archOnboard);
     root.appendChild(h('div', { class: 'onboard' },
-      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+      h('h1', { class: 'wordmark' }, h('span', { class: 'brandmark' }), h('span', {}, 'Peer', h('em', {}, '\u00A0Network'))),
       h('p', { class: 'lede', text: 'A social network where influence is commitment, not attention. Every act burns reserve; every endorsement transports your own rate; the feed is mathematics you can replay.' }),
       h('div', { class: 'pulse' },
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.ledgers.length) }), 'peers'),
@@ -5041,7 +5098,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var arch = archiveBanner();
     if (arch) root.appendChild(arch);
     root.appendChild(h('div', { class: 'topbar' },
-      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
+      h('h1', { class: 'wordmark' }, h('span', { class: 'brandmark' }), h('span', {}, 'Peer', h('em', {}, '\u00A0Network'))),
       h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
         (function () {
           var b = tabBtn('alerts', 'Alerts');
@@ -5082,10 +5139,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('button', { class: 'btn small', text: 'Burn +1', onclick: function () {
         pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Burned 1.00 reserve.'); });
       } })));
+    // Left rail: how the feed is read (search, order, filters) plus the
+    // build's paperwork. Right rail: who you are, then one instrument at a
+    // time behind the Alerts/Network/Tags toggle.
     shell.appendChild(h('div', { class: 'cols' },
-      h('div', { class: 'rail rail-left' }, idCard(st, me, myX, rate), aboutCard()),
+      h('div', { class: 'rail rail-left' }, railSearchCard(), railSortCard(), railFilterCard(), aboutCard(), ageWidget(st), epochCard(st)),
+      // (the same three reading controls render again inside feedTab for
+      //  phones — CSS shows exactly one of the two copies per breakpoint)
       h('div', { class: 'geek-center' }, center),
-      h('div', { class: 'rail rail-right' }, alertsCard(st), shapeWidget(st), tagsWidget(st), ageWidget(st), epochCard(st))));
+      h('div', { class: 'rail rail-right' }, idCard(st, me, myX, rate), railPane(st))));
     shell.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
     root.appendChild(shell);
   }
@@ -5180,6 +5242,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // Burn stays here — it is needed on every screen, mid-sentence, when a
         // reserve runs out. Everything else about the account lives on the
         // Profile tab now; two copies of Delete account is one too many.
+        h('button', { class: 'btn small', text: '\u2699 Settings', onclick: function () { settingsDrawer(); } }),
         h('button', { class: 'btn small ghost', text: 'Profile →', onclick: function () { tab = 'profile'; saveView(); render(); } })),
       h('p', { class: 'smallnote', text: 'Every act costs θ and raises N — acting dilutes your rate. Endorsements transport rates; nothing mints standing.' }));
   }
@@ -5280,21 +5343,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var n = Object.keys((st.followers && st.followers[who]) || {}).length;
       return h('p', { class: 'smallnote', text: n + ' following you · ' + f + ' you follow — counted, never scored' });
     })());
+    // One door instead of a folded list: everything about the account — how it
+    // looks, who can act as it, and leaving — is behind Settings. That keeps
+    // Delete account off the same row as Edit profile, which is what the fold
+    // was for.
     card.appendChild(h('div', { class: 'mini-form persistent', style: 'margin-top:8px' },
-      h('button', { class: 'btn small primary', text: 'Edit profile', onclick: function () { profileFlow(st); } })));
-
-    // Rarely used, and one of them is irreversible: folded away so that Delete
-    // account is not a thumb-width from Edit profile on a phone.
-    var acct = h('details', { style: 'margin-top:10px' },
-      h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'account and security' }));
-    acct.appendChild(h('div', { class: 'mini-form persistent', style: 'margin-top:6px' },
-      h('button', { class: 'btn small', text: st.pinHash[who] ? 'Change PIN' : 'Set PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
-      passkeySupported ? h('button', { class: 'btn small primary', text: '+ Passkey', onclick: function () { addPasskey(st); } }) : null,
-      h('button', { class: 'btn small', text: 'Recovery code', onclick: function () { recoveryFlow(st); } }),
-      REMOTE ? h('button', { class: 'btn small', text: 'Contact', onclick: contactFlow }) : null,
-      h('button', { class: 'btn small ghost', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })));
-    acct.appendChild(h('p', { class: 'smallnote', text: 'A PIN is a shared secret whose hash is published; a passkey is not. The recovery code is the one way back into a handle whose PIN is gone that does not need the operator.' }));
-    card.appendChild(acct);
+      h('button', { class: 'btn small primary settings-btn', text: '\u2699 Settings', onclick: function () { settingsDrawer(); } }),
+      h('span', { class: 'smallnote', text: 'profile \u00b7 PIN \u00b7 passkey \u00b7 recovery \u00b7 contact \u00b7 delete' })));
     wrap.appendChild(card);
 
     wrap.appendChild(h('div', { class: 'card' }, eventLanes(st)));
@@ -5329,6 +5384,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('details', { class: 'about' },
         h('summary', {}, 'How this build works'),
         h('p', {}, h('b', {}, 'Real mathematics. '), 'Feed = the spec’s relevance score over a signed double-cover BFS (depth 4). Standing = the conserved mediant solve at full tilt, wall-clamped activation, chartered constants.'),
+        h('p', {}, h('b', {}, 'How it is laid out. '), 'Left column reads the feed \u2014 search, order, filters. Right column is you \u2014 identity, then Alerts, Network or Tags. Account controls sit behind \u2699 Settings. The order named ', h('b', {}, 'Append order'), ' is the authoritative one; every other order is a view on it.'),
         h('p', {}, h('b', {}, 'Sandbox liberties. '), REMOTE
           ? 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; a PIN (hashed into the public log, checked by the host) is what protects a handle. One shared network — every act is visible to every visitor.'
           : 'Standing re-solves per act (not per epoch); the self-edge bond reads live standing; identities are browser-local; every visitor has an independent network.'),
@@ -5553,6 +5609,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // typing in one and pressing Enter left the other showing the previous
     // query. Deleted here rather than there, because the one that survives is
     // the one sitting with the sort and filter rows it belongs to.
+    // On a phone the rails stack BELOW the feed, which would put search, sort
+    // and filters after thirty cards — the controls that govern a list must
+    // not require traversing the list. So the feed carries a folded copy at
+    // its head on narrow screens; CSS shows one copy or the other, never both.
+    var ctlM = h('details', { class: 'ctl-m' },
+      h('summary', { class: 'eyebrow', text: 'Search \u00b7 sorting \u00b7 filters' }),
+      railSearchCard(), railSortCard(), railFilterCard());
+    wrap.appendChild(ctlM);
     var onAir = onAirStrip(st);
     if (onAir) wrap.appendChild(onAir);
     var focused = focusCard(st, false);
@@ -5574,46 +5638,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           : cogra
             ? 'CoGra Σ σ(π)·m(π)·f(Δt) — k-disjoint paths, no standing, balance × taint'
             : 'L1 default — S = W · (1 + standing/ν) · ‖T‖F' }),
-        h('div', { class: 'tabs' },
-          h('button', { class: feedMode === 'l1' ? 'on' : '', text: 'L1', onclick: function () { feedMode = 'l1'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'cogra' ? 'on' : '', text: 'CoGra', onclick: function () { feedMode = 'cogra'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'new' ? 'on' : '', text: 'Newest', onclick: function () { feedMode = 'new'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'follow' ? 'on' : '', text: 'Following', onclick: function () { feedMode = 'follow'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'old' ? 'on' : '', text: 'Oldest', onclick: function () { feedMode = 'old'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'talked' ? 'on' : '', text: 'Discussed', onclick: function () { feedMode = 'talked'; feedLimit = 30; render(); } }),
-          h('button', { class: feedMode === 'backed' ? 'on' : '', text: 'Backed', onclick: function () { feedMode = 'backed'; feedLimit = 30; render(); } }))));
+        null));
+    // Sorting, filters and search moved to the left rail — the feed column
+    // keeps only the label saying which order is in charge, and view-as.
 
-    // What a post carries. A filter, not a ranking: it removes cards, it never
-    // reorders them, so whichever sort is running stays the one in charge.
-    // What a thing IS, beside the filter for what it carries.
-    var whats = [['any', 'All kinds'], ['post', 'Notes'], ['event', 'Events'], ['stream', 'Broadcasts'], ['onair', 'On air now']];
-    var wbar = h('div', { class: 'uline' });
-    whats.forEach(function (k) {
-      wbar.appendChild(h('button', { class: feedKind === k[0] ? 'on' : '', text: k[1],
-        onclick: function () { feedKind = k[0]; feedLimit = 30; saveView(); render(); } }));
-    });
-    head.appendChild(wbar);
-
-    var kinds = [['all', 'Everything'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['file', 'Files'], ['text', 'Text only']];
-    var fbar = h('div', { class: 'uline' });
-    kinds.forEach(function (k) {
-      fbar.appendChild(h('button', { class: feedFile === k[0] ? 'on' : '', text: k[1],
-        onclick: function () { feedFile = k[0]; feedLimit = 30; saveView(); render(); } }));
-    });
-    head.appendChild(fbar);
-
-    // Search lives here, in the feed's existing control strip, and not as a
-    // ninth tab: eight already overflow a phone, and the last ones were once
-    // unreachable rather than merely off-screen.
-    var qIn = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
-    var runQ = function () { query = qIn.value; render(); };
-    qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') runQ(); });
-    var qRow = h('div', { class: 'mini-form persistent', style: 'margin-top:8px' }, qIn,
-      h('button', { class: 'btn small primary', text: 'Search', onclick: runQ }));
-    if (query) {
-      qRow.appendChild(h('button', { class: 'btn small', text: 'Clear', onclick: function () { query = ''; render(); } }));
-    }
-    head.appendChild(qRow);
     // View-as (community request): rank the feed from any identity's position — read-only.
     var vu = viewAs && st.ledgerById[viewAs] ? viewAs : who;
     var vaSel = h('select', {});
@@ -7793,7 +7821,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P('The core idea in one line: ', B('influence is transported commitment, not attention.'), ' You buy the right to act by burning reserve; every act spends θ = ' + fmt(THETA, 4) + ' of it; and when you vouch for someone, you don’t give them points — you route your own commitment rate to them. Nothing in the system can mint standing.'),
         P('This Geek view exposes the machinery. The ✨ simple mode (top bar) is the same network with the math tucked away.')),
 
-      sect('Your identity card (left)', false,
+      sect('The layout: three columns, and what each one is for', false,
+        P('The screen is a workbench, not a stack of panels. ', B('Left'), ' is how you READ: search, the order the feed is in, and the filters for what a card carries. ', B('Middle'), ' is the network itself \u2014 the composer and the cards. ', B('Right'), ' is YOU: your identity card with reserve and standing, then one instrument at a time behind the ', B('Alerts \u00b7 Network \u00b7 Tags'), ' switch.'),
+        P(B('Sorting is a claim about order, so it is stated in words. '), K('Append order'), ' is the authoritative one: the log exactly as written, no ranking, the same sequence anyone replaying the log would compute. Everything under it \u2014 ', K('L1'), ', ', K('CoGra'), ', ', K('Following'), ', ', K('Oldest'), ', ', K('Most discussed'), ', ', K('Most backed'), ' \u2014 is a view ON that order, and each one names the mathematics it uses right under its title.'),
+        P(B('Filters remove, they never reorder. '), 'Choosing ', K('Images'), ' or ', K('Events'), ' drops cards from whatever order is running; the order stays in charge. That separation is why the feed can never quietly re-rank itself while you think you are filtering.'),
+        P(B('Everything about your account is behind one door. '), 'The ', K('\u2699 Settings'), ' button \u2014 on the Profile tab and on your identity card \u2014 opens editing your profile, setting or changing a PIN, adding a passkey, minting a recovery code, leaving a contact address, burning reserve, and deleting the account. One place, because they are all the same question: who can act as this handle.'),
+        P(B('The buttons say what they do. '), 'Outlined is an ordinary action, filled is the one main action of a card, quiet grey is a way out, and red \u2014 only ever red \u2014 is destructive and cannot be undone.'),
+        P('Where a control sits is remembered: the column you last opened, the order you chose, the filters you set, all survive a reload, because where you are standing is part of the reading.')),
+
+      sect('Your identity card (right rail)', false,
         P(B('reserve'), ' — your burned value still unspent. Every act debits θ from it (gate ', K('W1'), ': no reserve, no act). ', B('Burn +1.00'), ' adds more — burning is the only way in.'),
         P(B('acts N'), ' — how many acts you have ever made. ', B('rate = burn/N'), ' — your commitment rate; it falls every time you act and rises only by burning. This is deliberate: talk is priced.'),
         P(B('reduced x*'), ' — your standing divided by the numéraire ν = ' + NU + '. Two gates read it: the ', K('W2a wall'), ' at ' + fmt(SAFE_FLOOR, 3) + ' (below it you cannot write) and the ', K('W2b door'), ' at ' + PART_FLOOR + ' (the epoch-average requirement).'),
@@ -7805,6 +7841,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P(B('React'), ' is an Opinion on an artifact: ', K('polarity'), ' (how aligned) × ', K('reaction'), ' (how strongly). Artifact-directed acts ', B('weigh home'), ' — their coefficient lands on your own diagonal, crowding your outward influence. But they wire you into the graph: reacting is how content becomes reachable for your feed.'),
         P(B('Review'), ' is one hyper act with two legs — toward the work, and minting your Comment (which threads under the post). ', B('Tag'), ' files content under a commons Type node nobody owns.'),
         P('Sliders run −1…+1. Negative values are real records too — the geometry routes them differently (see the red edges in Economy → Network).')),
+
+      sect('The left rail: search, order, filters', false,
+        P(B('Search'), ' reads the log you already hold \u2014 posts, comments, people and tags \u2014 and never leaves the machine. Searching from any tab lands you on the feed, where the results are. Results carry no view telemetry: what you look for is not recorded anywhere.'),
+        P(B('Sorting'), ' picks the order. ', B('Filters'), ' pick the form: what a thing IS (note, gathering, broadcast, live now) and what it CARRIES (images, video, audio, files, or text only). The two are separate lists on purpose \u2014 an event with a photograph is both.')),
 
       sect('The feed: why it shows what it shows', false,
         F('S(you, content) = W · (1 + standing(creator)/ν) · ‖T‖F'),
@@ -7828,7 +7868,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P('Transport is conserved (each person disposes exactly one unit over self + recipients), tilted toward higher-standing recipients, and wall-clamped below ' + fmt(SAFE_FLOOR, 3) + '. No mass is created, destroyed, or minted anywhere.')),
 
       sect('Epochs: stamping the record', false,
-        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (right rail) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in Economy → Record.'),
+        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (left rail, Epoch card) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in Economy → Record.'),
         P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'econ/ledger'))),
 
       sect('The economy: Layer 0 (Peer Attestation)', false,
@@ -7951,6 +7991,111 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       wrap.appendChild(hist);
     }
     return wrap;
+  }
+
+  /**
+   * The right rail, consolidated: one segmented bar chooses which instrument
+   * shows — Alerts, Network, or Tags — instead of stacking all of them. The
+   * choice survives reloads like every other piece of view state.
+   */
+  function railPane(st) {
+    var wrap = h('div', {});
+    var bar = h('div', { class: 'rail-toggle' });
+    [['alerts', 'Alerts'], ['network', 'Network'], ['tags', 'Tags']].forEach(function (v) {
+      var b = h('button', { class: railView === v[0] ? 'on' : '', text: v[1], 'aria-pressed': railView === v[0] ? 'true' : 'false',
+        onclick: function () { railView = v[0]; saveView(); render(); } });
+      if (v[0] === 'alerts' && railView !== 'alerts') {
+        var fresh = unseenCount(notificationsFor(st, who));
+        if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
+      }
+      bar.appendChild(b);
+    });
+    wrap.appendChild(bar);
+    if (railView === 'network') {
+      var net = shapeWidget(st);
+      if (net) wrap.appendChild(net);
+      wrap.appendChild(h('div', { class: 'card' },
+        h('p', { class: 'smallnote', text: 'The full graph — pan, zoom, and path-by-path reach explanations — lives in Economy.' }),
+        h('button', { class: 'btn small', style: 'margin-top:6px', text: 'Open full network view',
+          onclick: function () { tab = 'econ'; econView = 'net'; saveView(); render(); } })));
+    } else if (railView === 'tags') {
+      wrap.appendChild(tagsWidget(st) || h('div', { class: 'card' },
+        h('p', { class: 'smallnote', text: 'No tags in use yet. Tag any post to start the commons.' })));
+    } else {
+      wrap.appendChild(alertsCard(st) || h('div', { class: 'card' },
+        h('p', { class: 'smallnote', text: 'Nothing yet — alerts appear here when someone engages with what you publish.' })));
+    }
+    return wrap;
+  }
+
+  /**
+   * Search, at the top of the left rail. The query is where you are LOOKING,
+   * not where you are standing — it is deliberately never persisted. Running
+   * a search from another tab lands you on the feed, where the results are.
+   */
+  function railSearchCard() {
+    var qIn = h('input', { type: 'search', placeholder: 'search posts, people, tags…', value: query, style: 'flex:1; min-width:0' });
+    var runQ = function () {
+      var v = qIn.value.trim();
+      if (!v && !query) return; // an empty search of nothing is not a navigation
+      query = v;
+      if (query) tab = 'feed'; // results render on the feed
+      render();
+    };
+    qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') runQ(); });
+    var row = h('div', { class: 'mini-form persistent', style: 'margin-top:0' }, qIn,
+      h('button', { class: 'btn small primary', text: 'Search', onclick: runQ }));
+    if (query) row.appendChild(h('button', { class: 'btn small', text: 'Clear', onclick: function () { query = ''; render(); } }));
+    return h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'Search' }), row);
+  }
+
+  /**
+   * Feed order, moved off the feed itself: the authoritative append order
+   * first, then the rankings. One list, one active mode — the feed column
+   * stays a feed.
+   */
+  function railSortCard() {
+    var MODES = [
+      ['new', 'Append order', 'authoritative — the log as written, newest first'],
+      ['l1', 'L1 ranking', 'S = W · (1 + standing/ν) · ‖T‖F'],
+      ['cogra', 'CoGra ranking', 'k-disjoint paths — no standing enters'],
+      ['follow', 'Following', 'your chosen accounts, newest first, unranked'],
+      ['old', 'Oldest first', 'append order, from the beginning'],
+      ['talked', 'Most discussed', 'by comments — each one a priced act'],
+      ['backed', 'Most backed', 'by reactions — commitment spent, not attention'],
+    ];
+    var card = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'Sorting' }));
+    MODES.forEach(function (m) {
+      card.appendChild(h('button', { class: 'rail-opt' + (feedMode === m[0] ? ' on' : ''), 'aria-pressed': feedMode === m[0] ? 'true' : 'false',
+        onclick: function () { feedMode = m[0]; feedLimit = 30; saveView(); render(); } },
+        h('b', { text: m[1] }), h('span', { class: 'smallnote', text: m[2] })));
+    });
+    return card;
+  }
+
+  /**
+   * Content-form filters: what a thing IS, then what it CARRIES. Filters only
+   * remove cards — whichever sort is running stays the one in charge.
+   */
+  function railFilterCard() {
+    var card = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'Filters' }));
+    card.appendChild(h('p', { class: 'smallnote', style: 'margin:0', text: 'Content form' }));
+    var whats = [['any', 'All kinds'], ['post', 'Notes'], ['event', 'Events'], ['stream', 'Broadcasts'], ['onair', 'Live now']];
+    var wbar = h('div', { class: 'uline' });
+    whats.forEach(function (k) {
+      wbar.appendChild(h('button', { class: feedKind === k[0] ? 'on' : '', text: k[1],
+        onclick: function () { feedKind = k[0]; feedLimit = 30; saveView(); render(); } }));
+    });
+    card.appendChild(wbar);
+    card.appendChild(h('p', { class: 'smallnote', style: 'margin:8px 0 0', text: 'Carrying' }));
+    var kinds = [['all', 'Everything'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['file', 'Files'], ['text', 'Text only']];
+    var fbar = h('div', { class: 'uline' });
+    kinds.forEach(function (k) {
+      fbar.appendChild(h('button', { class: feedFile === k[0] ? 'on' : '', text: k[1],
+        onclick: function () { feedFile = k[0]; feedLimit = 30; saveView(); render(); } }));
+    });
+    card.appendChild(fbar);
+    return card;
   }
 
   function alertsCard(st) {
@@ -8102,6 +8247,68 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           on ? 'No longer following.' : 'Following — free, and in no score. Their posts now have a feed of their own.');
       },
     });
+  }
+
+  /**
+   * Settings — one door for everything about the account.
+   *
+   * These controls were spread over a folded 'account and security' block on
+   * the Profile tab, the lock banner, and two places in the simple mode. They
+   * are all the same question — who can act as this handle — so they live in
+   * one drawer now, reachable from the Profile tab and from the identity card.
+   * Delete account is the only red button in the app, and it is last.
+   */
+  function settingsDrawer() {
+    var st = replay();
+    if (!who || !st.ledgerById[who]) return;
+    var overlay = document.getElementById('overlay');
+    overlay.innerHTML = '';
+    function close() { overlay.innerHTML = ''; }
+    var secured = !!st.pinHash[who];
+
+    function group(title, note, buttons) {
+      var g = h('div', { class: 'sect' }, h('p', { class: 'eyebrow', text: title }));
+      var row = h('div', { class: 'mini-form persistent', style: 'margin-top:6px' });
+      buttons.filter(Boolean).forEach(function (b) { row.appendChild(b); });
+      g.appendChild(row);
+      if (note) g.appendChild(h('p', { class: 'smallnote', text: note }));
+      return g;
+    }
+
+    var drawer = h('div', { class: 'drawer' },
+      h('button', { class: 'btn small ghost', text: '\u2190 close', onclick: close }),
+      h('h3', { text: 'Settings' }),
+      h('p', { class: 'smallnote', text: st.handles[who] + (secured ? ' \u00b7 PIN set' : ' \u00b7 no PIN \u2014 anyone knowing this name can act as you') }));
+
+    drawer.appendChild(group('How you appear', 'Bio, link and picture are self-declared payload — carried by the record, read by no formula.', [
+      h('button', { class: 'btn small primary', text: 'Edit profile', onclick: function () { close(); profileFlow(st); } }),
+    ]));
+
+    drawer.appendChild(group('Who can act as you',
+      'A PIN is a shared secret whose hash is published; a passkey is not. The recovery code is the one way back into a handle whose PIN is gone that does not need the operator.', [
+      h('button', { class: 'btn small' + (secured ? '' : ' primary'), text: secured ? 'Change PIN' : 'Set PIN',
+        onclick: function () { close(); setPinFlow(st, secured); } }),
+      passkeySupported ? h('button', { class: 'btn small', text: '+ Passkey', onclick: function () { close(); addPasskey(st); } }) : null,
+      h('button', { class: 'btn small', text: 'Recovery code', onclick: function () { close(); recoveryFlow(st); } }),
+      REMOTE ? h('button', { class: 'btn small', text: 'Contact address', onclick: function () { close(); contactFlow(); } }) : null,
+    ]));
+
+    drawer.appendChild(group('Reserve', 'Burning is the only way in: every act debits θ from the reserve and raises your act count.', [
+      h('button', { class: 'btn small', text: 'Burn +1.00 reserve', onclick: function () {
+        close();
+        pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Burned 1.00 reserve.'); });
+      } }),
+    ]));
+
+    drawer.appendChild(group('Leaving',
+      'Deletion is a tombstone act plus a byte redaction: your payloads go, the counters and other people\u2019s commentary stay. It cannot be undone.', [
+      h('button', { class: 'btn small danger', text: 'Delete account', onclick: function () { close(); deleteAccountFlow(st); } }),
+    ]));
+
+    overlay.appendChild(h('div', { class: 'scrim', onclick: close }));
+    overlay.appendChild(drawer);
+    var first = drawer.querySelector('button');
+    if (first) first.focus();
   }
 
   function openProfile(id) {
