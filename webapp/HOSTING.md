@@ -58,6 +58,40 @@ Tuning: `PEER_ELECTION_INTERVAL` (default 15s) and `PEER_PROMOTE_AFTER`
 (default 8 consecutive failed probes ≈ 2 minutes). A host with no
 federation configured behaves exactly as this file always described.
 
+## When the machine goes off
+
+Three things keep the network reachable without anybody present:
+
+- **The watchdog** (`watchdog.ps1`) restarts a crashed host or tunnel. It
+  runs *on* the host, so it dies with the machine.
+- **Boot persistence** (`register-boot-task.ps1` → `start-on-boot.ps1`)
+  brings host, tunnel, watchdog, address and the resident bot back at logon,
+  and republishes the address because a quick tunnel mints a new one every
+  start. Every step is idempotent — running it on a healthy machine changes
+  nothing, and in particular never starts a second host.
+- **The liveness job** (`.github/workflows/liveness.yml` +
+  `tools/liveness-check.mjs`) runs on GitHub's machines every fifteen
+  minutes and is the only piece that assumes *no* machine of ours is on. It
+  probes the published hosts and repoints `host.json` at one that answers —
+  writer first, then live mirrors, ranked the way the hosts rank each other.
+  When none answer it publishes an empty address, sending readers to the
+  archive instead of a spinner, and keeps the old addresses in `candidates`
+  so a returning host is found again. It never picks a writer: that is the
+  hosts' own business (`chain/election.mjs`).
+
+**Before a machine is retired, take the keys with you:**
+
+```powershell
+.\backup-keys.ps1              # dated zip on the Desktop
+.\backup-keys.ps1 -To E:\      # ...or straight to a USB stick
+```
+
+It gathers everything that cannot be regenerated — the nsite and Radicle
+mirror identities, the chain producer key, the operator token, the bot's
+credentials, the act log — verifies each one and refuses to write a
+half-empty archive. `server-data/decentral-keys/README.md` explains how to
+bring each mirror back from it.
+
 ## Moving to a dedicated machine
 
 Do it in this order. The new machine proves itself as a mirror first; nothing

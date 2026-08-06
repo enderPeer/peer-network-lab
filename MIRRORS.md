@@ -23,6 +23,14 @@ record it holds: replay the log and you recompute every standing, feed and
 balance, then check the epoch chain's signed roots
 ([webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md)).
 
+**Is anybody home right now?**
+[status.json](https://enderpeer.github.io/peer-network-lab/status.json) is
+written every fifteen minutes by a scheduled job on GitHub's machines — not
+on any machine of ours, so it keeps answering when all of ours are off. It
+names which hosts answered, which one holds the pen, and how long its record
+is. When nothing answers it points the app at the published archive on
+purpose: a working read-only network beats waiting on a dead address.
+
 ## The copies
 
 | channel | address | what it is |
