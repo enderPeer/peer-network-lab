@@ -24,6 +24,40 @@ order**: primary first, mirror second. The mirror therefore only ever answers
 people the primary has already failed. When neither answers, the app runs its
 own private copy of the network in the browser — the address is never dead.
 
+## The writer is elected now
+
+Everything below still works by hand, but a FEDERATED host does it by
+itself. Give each host the others' addresses — `PEER_FEDERATION` (comma
+URLs), or `server-data/federation.json` (`{"urls":[...]}`), or
+`PEER_SITE_URL` pointing at the published site so the roster comes from its
+`host.json` — and:
+
+- a **mirror** whose primary stops answering (checked two independent ways:
+  the election probe on `/api/election` and its own act-sync loop) promotes
+  itself once it ranks first — longest sealed chain, longest log, most
+  distinct authors in the last hour of the public record, stable tiebreak;
+- a **primary** that starts up checks the federation BEFORE accepting its
+  first act (boot quarantine), and stays read-only until at least one peer
+  answers — silence is not permission, because a restart inside a partition
+  is exactly when writing would fork the network. `role.json` outranks
+  `PEER_MIRROR_OF`, so a stale environment variable cannot undo an election;
+- if a host is genuinely the **last one left** and the federation is gone
+  for good, promotion is deliberate: stop it, delete `server-data/role.json`,
+  unset `PEER_FEDERATION`, restart. The host prints this instruction itself
+  while it waits;
+- a live primary that MEETS a strictly longer record demotes itself to a
+  mirror of the winner. If it wrote past the split, its unsynced tail is
+  saved to `server-data/fork-<ts>.jsonl` first, and the log prints the one
+  command that heals it: `node chain/merge.mjs --base <winner's acts.jsonl>
+  --fork <fork file> --apply` — a deterministic rebase of the losing tail,
+  same merged bytes on any machine, with a report of anything dropped;
+- the app follows the pen on its own: a demoted host's refusal names the
+  current writer, and the client retries there.
+
+Tuning: `PEER_ELECTION_INTERVAL` (default 15s) and `PEER_PROMOTE_AFTER`
+(default 8 consecutive failed probes ≈ 2 minutes). A host with no
+federation configured behaves exactly as this file always described.
+
 ## Moving to a dedicated machine
 
 Do it in this order. The new machine proves itself as a mirror first; nothing

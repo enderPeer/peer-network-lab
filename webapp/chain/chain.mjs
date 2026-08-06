@@ -7,14 +7,17 @@
 // standings with its own math would be the drift this project has already
 // paid for twice.
 //
-// Consensus, stated honestly: there is none, and the chain does not pretend
-// otherwise. The network runs one writer (HOSTING.md's one rule); that
-// writer is the block producer. What the chain adds is not agreement but
-// EVIDENCE — a signed, hash-linked, content-addressable trail that makes a
-// rewritten history distinguishable from the history everyone replayed. The
-// step that would decentralise writes is the same one HOSTING.md already
+// Consensus, stated honestly: there is no BFT here and the chain does not
+// pretend otherwise. The network runs one writer at a time — but the writer
+// is an elected, rotating office now (election.mjs: longest sealed chain,
+// then longest log, then liveness), and a fork heals by deterministic
+// rebase (reconcile.mjs) instead of being forever. What the chain adds is
+// not agreement but EVIDENCE — a signed, hash-linked, content-addressable
+// trail that makes a rewritten history distinguishable from the history
+// everyone replayed, and every producer handoff attributable. The step that
+// would open the door past one-writer-at-a-time is still the one HOSTING.md
 // names (content-addressed act ids); until then, mirrors and strangers hold
-// the producer to its signatures.
+// each producer to its signatures.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

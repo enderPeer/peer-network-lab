@@ -19,6 +19,9 @@ import { createHub, acceptUpgrade, isWebSocketUpgrade } from './stream.mjs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { activeAuthors, pickWriter, strictlyLonger } from './chain/election.mjs';
+import { commonPrefixLen, forkChainMergeable } from './chain/reconcile.mjs';
+import { loadOrCreateProducerKey } from './chain/keys.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, 'public/peer-social-preview.html');
@@ -390,24 +393,60 @@ function gcMedia() {
 // tests. Promotion is deliberate: delete role.json (or empty its mirrorOf)
 // and restart — see webapp/HOSTING.md for the full runbook.
 const roleFile = resolve(DATA_DIR, 'role.json');
-let roleMirror = '';
-try { roleMirror = String(JSON.parse(readFileSync(roleFile, 'utf8')).mirrorOf ?? ''); } catch { /* no role file = primary */ }
-const MIRROR_OF = (process.env.PEER_MIRROR_OF ?? roleMirror).trim().replace(/\/+$/, '');
+let roleFromFile = null;
+try { roleFromFile = String(JSON.parse(readFileSync(roleFile, 'utf8')).mirrorOf ?? ''); } catch { /* no role file yet */ }
+// The role is MUTABLE at runtime now: the writer is an office, not a machine.
+// The election below promotes and demotes by rewriting role.json AND this
+// object together, so every door that asks "am I a mirror?" reads the
+// current answer, and a crash between the two leaves the FILE authoritative
+// — which is the safe direction, because the file is what a watchdog
+// restart reads.
+//
+// Precedence: the FILE, when it exists, outranks the environment. The env
+// is frozen at launch; the election rewrites the file. A watchdog restart
+// that let a stale PEER_MIRROR_OF resurrect a pre-promotion role would
+// hand a promoted writer back to a mirror seat — with two hosts, that is
+// the mutual-mirror deadlock (each mirroring the other, nobody writing).
+// PEER_MIRROR_OF keeps working where it always did: fresh data dirs with
+// no role file, which is what the tests spawn.
+const role = {
+  mirrorOf: (roleFromFile !== null ? roleFromFile : (process.env.PEER_MIRROR_OF ?? '')).trim().replace(/\/+$/, ''),
+  // True while a freshly-started primary checks the federation for a longer
+  // record before accepting its first act. This closes the oldest trap in
+  // HOSTING.md: a watchdog restarting a stale primary used to recreate the
+  // two-writer split; now the restart asks first.
+  quarantine: false,
+};
+const isMirror = () => !!role.mirrorOf;
+function writeRole(mirrorOf) {
+  role.mirrorOf = (mirrorOf || '').trim().replace(/\/+$/, '');
+  try { writeFileSync(roleFile, JSON.stringify({ mirrorOf: role.mirrorOf }) + '\n'); }
+  catch (e) { console.error('[election] could not persist role.json: ' + e.message); }
+}
 const MIRROR_INTERVAL = Math.max(300, Number(process.env.PEER_MIRROR_INTERVAL) || 5000);
 const mirrorState = { ok: null, busy: false, lastFull: 0, snapDay: -1 };
 
 function mirrorRefuse(res) {
-  if (!MIRROR_OF) return false;
-  json(res, 503, {
-    code: 'MIRROR_READONLY',
-    error: 'this host is a read-only mirror of ' + MIRROR_OF + ' — the app writes to the primary on its own while it answers. If the primary is gone for good, the operator promotes this mirror (delete role.json, restart); until then nothing here accepts acts, because two writers would fork the network.',
-    mirrorOf: MIRROR_OF,
-  });
-  return true;
+  if (role.mirrorOf) {
+    json(res, 503, {
+      code: 'MIRROR_READONLY',
+      error: 'this host is a read-only mirror of ' + role.mirrorOf + ' — the app writes to the primary on its own while it answers. If the primary stays gone, the election promotes the best-placed mirror automatically (longest sealed chain, longest log, most active people); nothing here accepts acts meanwhile, because two writers would fork the network.',
+      mirrorOf: role.mirrorOf,
+    });
+    return true;
+  }
+  if (role.quarantine) {
+    json(res, 503, {
+      code: 'ELECTION_PENDING',
+      error: 'this host just started and is checking the federation for a longer record before accepting acts — retry in a few seconds.',
+    });
+    return true;
+  }
+  return false;
 }
 
 async function mirrorGet(path) {
-  const r = await fetch(MIRROR_OF + path, { signal: AbortSignal.timeout(15_000) });
+  const r = await fetch(role.mirrorOf + path, { signal: AbortSignal.timeout(15_000) });
   if (!r.ok) throw new Error('primary answered HTTP ' + r.status + ' for ' + path);
   return r;
 }
@@ -430,6 +469,27 @@ async function mirrorMedia(refs) {
   }
 }
 
+/**
+ * Adopt the primary's log, but never DESTROY acts this host holds and the
+ * primary does not. Wholesale adoption is right for a redaction (the point
+ * of the full-sync path) and catastrophic for a diverged tail: a host that
+ * was briefly a writer, or whose role file and memory disagreed after a
+ * failed persist, would silently erase every act it accepted. Same rule as
+ * demotion: the tail is written out first, and the log line says how to
+ * merge it back.
+ */
+function mirrorAdoptSafely(remoteActs) {
+  try {
+    if (stateCache.R) {
+      const ourFile = acts.filter((a) => a && a.t !== 'seedWorld');
+      const theirFile = (remoteActs || []).filter((a) => a && a.t !== 'seedWorld');
+      const P = commonPrefixLen(ourFile, theirFile, stateCache.R.parseMentions);
+      if (P < ourFile.length) saveForkTail(ourFile, P, 'adopting ' + (role.mirrorOf || 'the primary') + '’s record');
+    }
+  } catch (e) { console.error('[mirror] divergence check failed before adopting: ' + e.message); }
+  mirrorAdopt(remoteActs);
+}
+
 /** Replace the whole local log with the primary's — the redaction path. */
 function mirrorAdopt(remoteActs) {
   acts.length = 0;
@@ -442,8 +502,16 @@ function mirrorAdopt(remoteActs) {
 async function mirrorSync() {
   if (mirrorState.busy) return;
   mirrorState.busy = true;
+  // The role can change mid-flight now that it is elected: a promotion can
+  // land between this fetch and its response. Applying the old primary's
+  // tail AFTER this host started accepting its own acts interleaves two
+  // writers inside one file — corruption, not even a clean fork. So the
+  // role is captured here and re-checked after every await.
+  const syncingFor = role.mirrorOf;
+  const stillMine = () => role.mirrorOf === syncingFor && syncingFor !== '';
   try {
     const d = await (await mirrorGet('/api/acts?since=' + acts.length)).json();
+    if (!stillMine()) return;
     let mediaRefs = [];
     const wantFull =
       d.total < acts.length ||                        // primary shrank: a rewrite happened
@@ -451,7 +519,8 @@ async function mirrorSync() {
       Date.now() - mirrorState.lastFull > 30 * 60_000; // belt and braces
     if (wantFull) {
       const full = await (await mirrorGet('/api/acts')).json();
-      mirrorAdopt(full.acts);
+      if (!stillMine()) return;
+      mirrorAdoptSafely(full.acts);
       mirrorState.lastFull = Date.now();
       mediaRefs = full.acts.flatMap(mediaRefsOf);
     } else if (d.acts.length) {
@@ -466,7 +535,7 @@ async function mirrorSync() {
     if (day !== mirrorState.snapDay) {
       try { copyFileSync(LOG, LOG + '.daily-' + day); mirrorState.snapDay = day; } catch { /* best effort */ }
     }
-    if (mirrorState.ok !== true) console.log('[mirror] in sync with ' + MIRROR_OF + ' — ' + acts.length + ' acts');
+    if (mirrorState.ok !== true) console.log('[mirror] in sync with ' + role.mirrorOf + ' — ' + acts.length + ' acts');
     mirrorState.ok = true;
   } catch (e) {
     // A dead primary is not an error for a fallback — it is the case this
@@ -476,6 +545,406 @@ async function mirrorSync() {
   } finally {
     mirrorState.busy = false;
   }
+}
+
+// ── Writer election: the pen is an office, not a machine ───────────────────
+//
+// One writer at a time is still the law — two writers fork the log. What
+// changed is WHO holds the pen: the federation elects it, deterministically,
+// from numbers anyone can verify — the longest sealed chain, then the
+// longest log, then the most people active in the last hour of the public
+// record, then a meaningless stable tiebreak (chain/election.mjs).
+//
+// Four rules hold the whole thing up, and each one exists because dropping
+// it produced a real failure in review or in a drill:
+//
+//   1. SILENCE IS NOT A MANDATE. A federated host that has heard from nobody
+//      does not write. Quarantine lifts on a successful probe round, never
+//      on a failed one — otherwise a watchdog restart inside a partition
+//      hands the isolated side a second pen, which is the exact split this
+//      feature exists to prevent.
+//   2. AN INCUMBENT KEEPS THE PEN. A live writer yields only to a STRICTLY
+//      longer record. Tiebreaks choose a successor for a dead writer; if
+//      they could unseat a live one, two equal hosts demote into each
+//      other's mirrors and nobody can write.
+//   3. NEVER FOLLOW SOMEONE WHO FOLLOWS YOU. A peer that reports it mirrors
+//      this host is not a writer, and a peer that is quarantined or mirrors
+//      anyone is not a candidate. Without this, a restored-from-backup
+//      primary and its mirror seat each other forever.
+//   4. CLAIMS ARE CHECKED, NOT BELIEVED. A peer's numbers only start a
+//      handover; before yielding, this host fetches the record and verifies
+//      the claim — length, shared prefix, and the sealed chain — and refuses
+//      when two signed histories exist. Anyone can say "I have a million
+//      acts"; nobody can produce them on demand.
+//
+// The failure mode that remains, stated plainly: a partition can still
+// elect one writer per side (CAP is not negotiable). Healing is a
+// deterministic rebase plus an attributable report — chain/merge.mjs — not
+// "there is no merge".
+//
+// Standalone hosts opt out by doing nothing: with no federation configured,
+// no probe is sent, no quarantine is imposed, and behavior is exactly the
+// old behavior. Federation is any of: PEER_FEDERATION (comma URLs),
+// server-data/federation.json ({urls: []}), PEER_SITE_URL (the published
+// site whose host.json names the current hosts), or simply being a mirror.
+const ELECTION_INTERVAL = Math.max(2000, Number(process.env.PEER_ELECTION_INTERVAL) || 15_000);
+const PROMOTE_AFTER = Math.max(2, Number(process.env.PEER_PROMOTE_AFTER) || 8);
+const SITE_URL = (process.env.PEER_SITE_URL || '').trim().replace(/\/+$/, '');
+const PEERS_FILE = resolve(DATA_DIR, 'peers.json');
+// A body cap on every federation fetch. The 30s timeout bounds TIME; without
+// this, a peer that answers slowly forever — or claims a gigabyte of acts —
+// takes the host down through the one code path that must never fail.
+const FED_MAX_BYTES = Math.max(1_000_000, Number(process.env.PEER_FED_MAX_BYTES) || 64 * 1024 * 1024);
+const ROSTER_MAX = 16;
+const electionState = {
+  fails: 0, roster: [], rosterAt: 0, nodeId: null, lastWriter: null,
+  heard: false,          // has ANY probe round ever succeeded?
+  quietOnce: false,      // the "nobody answered" notice is said once, not every tick
+  known: new Set(),      // peers learned across role changes; see rememberPeer
+  frozen: null,          // set when two signed histories meet: needs a human
+};
+try {
+  electionState.nodeId = loadOrCreateProducerKey(resolve(DATA_DIR, 'chain', 'producer.pem')).pub;
+} catch (e) { console.error('[election] no node identity: ' + e.message); }
+try {
+  for (const u of JSON.parse(readFileSync(PEERS_FILE, 'utf8')).urls || []) electionState.known.add(u);
+} catch { /* first run */ }
+
+/** Peers survive role changes. A promoted mirror used to forget the primary
+ *  it had just replaced — its roster emptied, it stopped probing, and the
+ *  returning host wrote in parallel forever. */
+function rememberPeer(url) {
+  if (!url || electionState.known.has(url)) return;
+  electionState.known.add(url);
+  try { writeFileSync(PEERS_FILE, JSON.stringify({ urls: [...electionState.known] }) + '\n'); }
+  catch { /* the in-memory set still works for this process */ }
+}
+
+/** Fetch from a peer with a hard byte ceiling. The timeout bounds TIME; a
+ *  peer that answers slowly forever, or claims a gigabyte of acts, must not
+ *  be able to take this host down through the one path that decides who
+ *  writes. */
+async function fedText(url, ms = 15_000) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(ms) });
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' from ' + url);
+  const text = await r.text();
+  if (text.length > FED_MAX_BYTES) throw new Error('response from ' + url + ' exceeds ' + FED_MAX_BYTES + ' bytes');
+  return text;
+}
+const fedJson = async (url, ms = 15_000) => JSON.parse(await fedText(url, ms));
+/** /api/chain serves the block file itself: one canonical block per line. */
+const fedBlocks = async (url, ms = 15_000) =>
+  (await fedText(url, ms)).split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+
+function chainHeadInfo() {
+  try {
+    const h = JSON.parse(readFileSync(resolve(DATA_DIR, 'chain', 'HEAD.json'), 'utf8'));
+    return { height: Number(h.height) || 0, hash: typeof h.hash === 'string' ? h.hash : null };
+  } catch { return { height: 0, hash: null }; }
+}
+
+function selfCandidate() {
+  const h = chainHeadInfo();
+  return {
+    nodeId: electionState.nodeId, chainHeight: h.height, chainHead: h.hash,
+    acts: acts.length, active: activeAuthors(acts, Date.now()), url: null, self: true,
+  };
+}
+
+function rosterConfigured() {
+  return !!(process.env.PEER_FEDERATION || SITE_URL || electionState.known.size
+    || existsSync(resolve(DATA_DIR, 'federation.json')));
+}
+
+/**
+ * Normalise a peer address to a bare origin, and decide whether it may be
+ * fetched at all. Roster entries arrive from a file this host controls but
+ * ALSO from a host.json fetched over the network, so a remote entry is
+ * untrusted input aimed at a fetch() — the classic SSRF seam. Paths and
+ * queries are stripped (a query could otherwise swallow the /api/election
+ * suffix and point the probe anywhere), and private addresses are accepted
+ * only from local configuration, never from a remote list.
+ */
+function normalizePeer(raw, { local }) {
+  let u;
+  try { u = new URL(String(raw || '').trim()); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.toLowerCase();
+  const isPrivate = host === 'localhost' || host === '::1' || /\.local$/.test(host)
+    || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)
+    || /^169\.254\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    || /^\[?(fc|fd|fe80)/.test(host);
+  if (isPrivate && !local) return null;      // a remote list may not aim this host inward
+  if (u.protocol === 'http:' && !isPrivate && !local) return null;
+  return u.origin;
+}
+
+async function resolveRoster() {
+  if (Date.now() - electionState.rosterAt < 300_000 && electionState.roster.length) return electionState.roster;
+  const urls = new Set();
+  const put = (u, local) => { const o = normalizePeer(u, { local }); if (o) urls.add(o); };
+  for (const u of (process.env.PEER_FEDERATION || '').split(',')) put(u, true);
+  try { for (const u of JSON.parse(readFileSync(resolve(DATA_DIR, 'federation.json'), 'utf8')).urls || []) put(u, true); } catch { /* optional */ }
+  for (const u of electionState.known) put(u, true);
+  if (role.mirrorOf) put(role.mirrorOf, true);
+  // The published site's host.json names the current hosts, and every static
+  // mirror of the site carries the same file — discovery with no single home.
+  // Untrusted: it is a file on the open internet, so its entries go through
+  // the remote path of normalizePeer and share the same cap.
+  if (SITE_URL) {
+    try {
+      const d = await fedJson(SITE_URL + '/host.json', 10_000);
+      for (const u of (Array.isArray(d.urls) && d.urls.length ? d.urls : [d.url])) put(u, false);
+    } catch { /* the static site being down changes nothing for a running federation */ }
+  }
+  electionState.roster = [...urls].slice(0, ROSTER_MAX);
+  electionState.rosterAt = Date.now();
+  return electionState.roster;
+}
+
+async function probeCandidate(url) {
+  try {
+    const e = await fedJson(url + '/api/election', 10_000);
+    if (!e || typeof e.nodeId !== 'string') return null;
+    return {
+      nodeId: e.nodeId, chainHeight: Number(e.chainHeight) || 0, chainHead: e.chainHead || null,
+      acts: Number(e.acts) || 0, active: Number(e.active) || 0,
+      // Role, as the peer reports it. A peer that mirrors someone (in
+      // particular, one that mirrors THIS host) is not a writer and must
+      // never be treated as one — that is the mutual-mirror deadlock.
+      primary: typeof e.primary === 'string' ? e.primary : null,
+      quarantine: !!e.quarantine,
+      url,
+    };
+  } catch { return null; }
+}
+
+/** Write this host's unsynced tail where the merge tool can find it. */
+function saveForkTail(ourFile, prefixLen, why) {
+  const forkFile = resolve(DATA_DIR, 'fork-' + Date.now() + '.jsonl');
+  writeFileSync(forkFile, ourFile.map((a) => JSON.stringify(a)).join('\n') + '\n');
+  console.log('[election] ' + (ourFile.length - prefixLen) + ' act(s) of this host are not in the record it is '
+    + why + '. They are saved, not lost: ' + forkFile);
+  console.log('[election] heal with: node chain/merge.mjs --base <winner acts.jsonl> --fork "' + forkFile + '" --apply  (run it where the winner’s log lives)');
+  return forkFile;
+}
+
+function promoteSelf() {
+  console.log('[election] PROMOTED — the writer has been unreachable for ' + electionState.fails
+    + ' probe(s) and this host ranks first in the federation. Accepting acts now.'
+    + ' A returning host will demote itself against this record; if it wrote past the'
+    + ' split, its tail lands in a fork file and chain/merge.mjs heals it.');
+  writeRole('');
+  role.quarantine = false;
+  electionState.fails = 0;
+  mirrorState.ok = null;
+  scheduleChainSeal();
+}
+
+/**
+ * Hand the pen over — but only after verifying the claim that won it.
+ *
+ * A candidate's numbers arrive over HTTP from a machine this host does not
+ * control, and they decide who may write. So they are treated as a claim to
+ * be checked: fetch the record, confirm it really is longer, and confirm the
+ * sealed chains are compatible. A peer that cannot produce the history it
+ * advertised keeps nothing.
+ */
+async function demoteTo(writer, opts) {
+  // Two callers, two thresholds. A SEATED writer yields only to a strictly
+  // longer record (rule 2). A host still in boot quarantine has not taken
+  // the pen at all, so it yields to any live writer whose record is at
+  // least as long — that is the equal-record case, where both hosts hold
+  // the same acts and exactly one of them is already serving.
+  const atLeast = !!(opts && opts.atLeast);
+  if (!stateCache.R) {
+    await ensureEngine(); // lazy elsewhere; the divergence check needs it NOW
+    if (engineMod && replayMod) stateCache.R = replayMod.create(engineMod);
+  }
+  if (!stateCache.R) throw new Error(engineErr || 'engine bundle not loaded');
+
+  const theirs = await fedJson(writer.url + '/api/acts', 30_000);
+  const theirFile = (theirs.acts || []).filter((a) => a && a.t !== 'seedWorld');
+  const ourFile = acts.filter((a) => a && a.t !== 'seedWorld');
+  const mine = selfCandidate();
+  // The claim, checked against what was actually DELIVERED — and both sides
+  // counted the same way. The host's in-memory log carries a seedWorld act
+  // that never reaches the file, so comparing `acts.length` against a served
+  // file length is off by one and made a legitimate handover look like a lie.
+  const ours = { chainHeight: mine.chainHeight, acts: ourFile.length };
+  const served = { chainHeight: writer.chainHeight, acts: theirFile.length };
+  const goodEnough = atLeast ? !strictlyLonger(ours, served) : strictlyLonger(served, ours);
+  if (!goodEnough) {
+    console.log('[election] ' + writer.url + ' advertised ' + writer.acts + ' act(s) but served '
+      + theirFile.length + ' against this host’s ' + ourFile.length + ' — ignoring the claim and keeping the pen.');
+    return;
+  }
+  // Two signed histories are two attributable records, and code must not
+  // pick between them. reconcile.mjs refuses the same case for the same
+  // reason; here the host freezes read-only and names a person's decision.
+  if (mine.chainHeight > 0) {
+    try {
+      const theirBlocks = await fedBlocks(writer.url + '/api/chain', 30_000);
+      const ourBlocks = readBlocksLocal();
+      if (!forkChainMergeable(theirBlocks, ourBlocks)) {
+        electionState.frozen = writer.url;
+        role.quarantine = true;
+        console.error('[election] FROZEN: this host and ' + writer.url + ' hold DIVERGED SEALED chains —'
+          + ' two signed histories, each attributable to its producer. Nothing here will write or adopt'
+          + ' until a person decides. Verify both (node chain/verify.mjs), choose the record that stands,'
+          + ' and merge the other side with chain/merge.mjs.');
+        return;
+      }
+    } catch (e) {
+      console.error('[election] could not check ' + writer.url + '’s chain (' + e.message + ') — keeping the pen rather than yielding blind');
+      return;
+    }
+  }
+
+  const P = commonPrefixLen(ourFile, theirFile, stateCache.R.parseMentions);
+  if (P < ourFile.length) {
+    saveForkTail(ourFile, P, 'yielding to (' + writer.url + ')');
+  } else {
+    console.log('[election] DEMOTED — ' + writer.url + ' holds the longer record (chain height '
+      + writer.chainHeight + ', ' + theirFile.length + ' acts). Becoming its mirror; every act here is in its log.');
+  }
+  rememberPeer(writer.url);
+  writeRole(writer.url);
+  role.quarantine = false;
+  // Adopt what was already fetched and verified, rather than leaving the
+  // diverged tail in the live log for the next incremental sync to append
+  // the winner's acts on top of — that produced a silently corrupt log with
+  // every position reference off by the length of the tail.
+  mirrorAdopt(theirs.acts || []);
+  mirrorState.lastFull = Date.now();
+  mirrorState.ok = null;
+}
+
+function readBlocksLocal() {
+  try {
+    return readFileSync(resolve(DATA_DIR, 'chain', 'blocks.jsonl'), 'utf8')
+      .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+  } catch { return []; }
+}
+
+async function electionTick() {
+  if (electionState.frozen) return;   // a person decides; nothing moves meanwhile
+  const roster = await resolveRoster();
+  if (!roster.length) {
+    // Nobody to ask. A host that never had peers is standalone and writes;
+    // a host whose peers all vanished from the roster keeps whatever role it
+    // holds rather than inventing a promotion.
+    if (!rosterConfigured()) role.quarantine = false;
+    return;
+  }
+  const self = selfCandidate();
+  const probes = await Promise.all(roster.map(probeCandidate));
+  const answered = probes.filter(Boolean);
+  const peers = answered.filter((p) => p.nodeId && p.nodeId !== self.nodeId);
+  for (const p of peers) rememberPeer(p.url);
+
+  if (answered.length) electionState.heard = true;
+  else if (role.quarantine) {
+    // Rule 1: silence is not a mandate. Say it once, keep asking.
+    if (!electionState.quietOnce) {
+      console.log('[election] no peer answered — this host stays read-only rather than risk a second writer.'
+        + ' It opens as soon as one answers. If the federation is genuinely gone for good, the operator'
+        + ' promotes it deliberately: stop the host, delete server-data/role.json, unset PEER_FEDERATION, restart.');
+      electionState.quietOnce = true;
+    }
+    return;
+  }
+
+  // Rule 3: a peer that mirrors anyone, or is still checking, is not a
+  // writer and cannot be one.
+  const eligible = peers.filter((p) => !p.primary && !p.quarantine);
+  const writer = pickWriter([self, ...eligible]);
+  electionState.lastWriter = writer && (writer.self ? 'self' : writer.url);
+
+  if (isMirror()) {
+    // Following the chain of "who does your primary follow" can lead back
+    // here. A host mirroring ITSELF syncs from itself forever, so its own
+    // liveness check always passes and it never promotes — a deadlock that
+    // survives the death of every other host. Seen in the mutual-mirror
+    // drill; the knot is cut by dropping the role and re-deciding from
+    // scratch through the same path a fresh boot takes.
+    if (answered.some((p) => p.url === role.mirrorOf && p.nodeId === self.nodeId)) {
+      console.log('[election] this host was set to mirror ITSELF (' + role.mirrorOf
+        + ') — dropping that role and re-deciding.');
+      writeRole('');
+      role.quarantine = true;
+      electionState.fails = 0;
+      mirrorState.ok = null;
+      return;
+    }
+    const mine = peers.find((p) => p.url === role.mirrorOf);
+    // The primary counts as alive only if it is still a WRITER. One that now
+    // mirrors this host (or anyone) is not, and waiting for it forever is
+    // the deadlock rule 3 exists to break. Its own act-sync succeeding is
+    // the second, independent liveness signal.
+    const primaryWrites = !!(mine && !mine.primary && !mine.quarantine);
+    const primaryUp = primaryWrites || (mirrorState.ok === true && (!mine || !mine.primary));
+    electionState.fails = primaryUp ? 0 : electionState.fails + 1;
+    if (mine && mine.primary && mine.primary !== role.mirrorOf) {
+      // It followed someone; follow the same writer rather than a mirror —
+      // unless that someone is this host, which is the knot above seen from
+      // the other side. Then the pen is ours to take, not to chase.
+      const target = normalizePeer(mine.primary, { local: false }) || normalizePeer(mine.primary, { local: true });
+      if (target && target !== role.mirrorOf) {
+        const probe = await probeCandidate(target);
+        if (probe && probe.nodeId === self.nodeId) {
+          console.log('[election] ' + role.mirrorOf + ' says the writer is this host — taking the pen rather than mirroring in a circle.');
+          writeRole('');
+          role.quarantine = true;
+          electionState.fails = 0;
+          mirrorState.ok = null;
+          return;
+        }
+        if (probe) {
+          console.log('[election] ' + role.mirrorOf + ' is now a mirror of ' + target + ' — following the writer');
+          rememberPeer(target);
+          writeRole(target);
+          mirrorState.ok = null;
+          electionState.fails = 0;
+          return;
+        }
+      }
+    }
+    if (electionState.fails >= PROMOTE_AFTER) {
+      if (writer && writer.self) promoteSelf();
+      else if (writer && writer.url && writer.url !== role.mirrorOf) {
+        console.log('[election] the writer moved to ' + writer.url + ' — following it');
+        rememberPeer(writer.url);
+        writeRole(writer.url);
+        mirrorState.ok = null;
+        electionState.fails = 0;
+      }
+    }
+    return;
+  }
+
+  // A primary. Two different questions, and conflating them cost a drill:
+  // while QUARANTINED this host has not yet taken the pen, so any live
+  // writer with a record at least as long keeps it (rule 1 + the equal-
+  // record case). Once seated, only a strictly longer record unseats it
+  // (rule 2).
+  const liveWriters = eligible.filter((p) => p.acts > 0 || p.chainHeight > 0);
+  if (role.quarantine) {
+    const incumbent = pickWriter(liveWriters.filter((p) => !strictlyLonger(self, p)));
+    if (incumbent) { await demoteTo(incumbent, { atLeast: true }); return; }
+    console.log('[election] no host holds a record at least as long as this one — taking the pen with '
+      + self.acts + ' act(s), chain height ' + self.chainHeight + '.');
+    role.quarantine = false;
+    return;
+  }
+  if (writer && !writer.self && writer.url && strictlyLonger(writer, self)) await demoteTo(writer);
+}
+
+let electionErrOnce = false;
+function electionTickSafe() {
+  electionTick().catch((e) => {
+    if (!electionErrOnce) { console.error('[election] tick failed: ' + e.message + ' — retrying on the interval'); electionErrOnce = true; }
+  });
 }
 
 // ── Media store: content-addressed payload carriage (never scored) ──
@@ -1535,7 +2004,7 @@ async function worldState() {
 // is not, and must never be, served by any route.
 let chainBusy = false, chainAgain = false;
 function scheduleChainSeal() {
-  if (MIRROR_OF) return;
+  if (role.mirrorOf) return;
   if (chainBusy) { chainAgain = true; return; }
   chainBusy = true;
   setImmediate(async () => {
@@ -2340,12 +2809,26 @@ function adminMetrics() {
   const day = Date.now() - 86400_000;
   const actsLastDay = acts.filter((a) => a.ts && a.ts > day).length;
   const mem = process.memoryUsage();
+  const chainNow = chainHeadInfo();
   return {
+    // The election candidacy, in the open: every number a peer would rank
+    // this host by is served from the same door anyone can read, so the
+    // ordering is checkable by whoever cares to check it.
+    election: {
+      nodeId: electionState.nodeId,
+      chainHeight: chainNow.height,
+      chainHead: chainNow.hash,
+      acts: acts.length,
+      active: activeAuthors(acts, Date.now()),
+      quarantine: role.quarantine,
+      primary: role.mirrorOf || null,
+      writer: electionState.lastWriter,
+    },
     host: {
       uptimeSec: Math.round((Date.now() - OPS_STARTED) / 1000),
-      role: MIRROR_OF ? 'mirror' : 'primary',
-      mirrorOf: MIRROR_OF || null,
-      mirrorInSync: MIRROR_OF ? mirrorState.ok : null,
+      role: role.mirrorOf ? 'mirror' : 'primary',
+      mirrorOf: role.mirrorOf || null,
+      mirrorInSync: role.mirrorOf ? mirrorState.ok : null,
       node: process.version,
       rssMb: +(mem.rss / 1048576).toFixed(1),
       heapMb: +(mem.heapUsed / 1048576).toFixed(1),
@@ -2428,7 +2911,7 @@ const server = createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/acts') {
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
     const since = Math.max(0, Number(url.searchParams.get('since') ?? 0) || 0);
-    const body = JSON.stringify({ acts: acts.slice(since), total: acts.length, mirror: MIRROR_OF || null });
+    const body = JSON.stringify({ acts: acts.slice(since), total: acts.length, mirror: role.mirrorOf || null });
     const wantsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] ?? '') && body.length > 1024;
     if (wantsGzip) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Content-Encoding': 'gzip', ...SECURITY_HEADERS });
@@ -2437,6 +2920,27 @@ const server = createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
       res.end(body);
     }
+    return;
+  }
+  // The election candidacy, on its own engine-free door. The first federated
+  // drill promoted a mirror OVER A LIVE PRIMARY because the probe rode on
+  // /api/v1/state, which answers 503 while the engine bundle loads — a
+  // healthy host looked dead to the one question where looking dead changes
+  // who holds the pen. A liveness probe must depend on nothing heavier than
+  // the thing it certifies.
+  if (req.method === 'GET' && url.pathname === '/api/election') {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests' }); return; }
+    const chainNow = chainHeadInfo();
+    json(res, 200, {
+      nodeId: electionState.nodeId,
+      chainHeight: chainNow.height,
+      chainHead: chainNow.hash,
+      acts: acts.length,
+      active: activeAuthors(acts, Date.now()),
+      quarantine: role.quarantine,
+      primary: role.mirrorOf || null,
+      writer: electionState.lastWriter,
+    });
     return;
   }
   // The epoch chain, published. blocks.jsonl is every sealed block in height
@@ -3216,16 +3720,32 @@ server.on('upgrade', (req, socket, head) => {
 
 /** A mirror carries no broadcasts, for the same reason it accepts no acts. */
 function mirrorSocketRefuse(conn) {
-  if (!MIRROR_OF) return false;
+  if (!role.mirrorOf) return false;
   conn.close(1013, 'this host is a read-only mirror — broadcast to the primary');
   return true;
 }
 
 server.listen(PORT, () => {
   console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`
-    + (MIRROR_OF ? ` — read-only mirror of ${MIRROR_OF}` : ''));
-  if (MIRROR_OF) { mirrorSync(); setInterval(mirrorSync, MIRROR_INTERVAL); }
+    + (role.mirrorOf ? ` — read-only mirror of ${role.mirrorOf}` : ''));
+  // The role can change while the process runs, so the sync loop always
+  // ticks and asks the CURRENT role — a promoted mirror stops pulling, a
+  // demoted primary starts, no restart in between.
+  if (isMirror()) mirrorSync();
   // A primary that closed epochs while this feature was absent, or while the
   // process was down, seals the backlog now rather than at the next close.
   else scheduleChainSeal();
+  setInterval(() => { if (isMirror()) mirrorSync(); }, MIRROR_INTERVAL);
+  // Election: only a federated host participates. A standalone primary keeps
+  // exactly the old behavior — no probes, no quarantine, no surprises.
+  if (isMirror() || rosterConfigured()) {
+    if (!isMirror()) {
+      // Boot quarantine: the two-writer split always began with a stale
+      // primary waking up and taking writes it should not. Ask first.
+      role.quarantine = true;
+      console.log('[election] federated primary starting in quarantine — checking for a longer record before accepting acts');
+    }
+    electionTickSafe();
+    setInterval(electionTickSafe, ELECTION_INTERVAL);
+  }
 });

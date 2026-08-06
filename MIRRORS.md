@@ -7,10 +7,20 @@ place a copy lives, how to reach one when another is down, and how to become
 a mirror yourself. No copy below requires an account to read, and none of the
 decentralized ones required an account to publish.
 
-**Writes stay on one host** — see the one-writer rule in
-[webapp/HOSTING.md](webapp/HOSTING.md). Every mirror here is a read-only,
-verifiable copy: replay the log it carries and you recompute every standing,
-feed and balance yourself, then check the epoch chain's signed roots
+**One writer at a time — but the writer is an elected office.** Audited
+live (2026-08-06): of every copy below, exactly one accepts new acts (the
+current primary; its write door answers 400 to bad input, not 404), the
+static copies (Pages, nsite, IPFS, bundles) have no write door at all, and
+live mirrors answer 503 naming the current writer. That is the design, not
+a gap: two simultaneous writers fork the log. What is no longer true is
+that the writer is a fixed machine — federated hosts elect it (longest
+sealed chain, then longest log, then liveness), a dead writer's office
+passes to the best-placed mirror automatically, a stale one quarantines
+itself on return, and a partition that wrote on both sides heals by
+deterministic rebase (`webapp/chain/merge.mjs`). Every mirror is one
+`role.json` away from holding the pen, and every copy can verify the
+record it holds: replay the log and you recompute every standing, feed and
+balance, then check the epoch chain's signed roots
 ([webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md)).
 
 ## The copies
@@ -78,11 +88,12 @@ Any one of these makes the project harder to lose. Pick by effort:
 - **Any torrent client** — keep the release torrent seeding. The magnet is
   in the release notes; the GitHub download URL doubles as a webseed, so the
   torrent stays alive even with no human seeds while GitHub lives.
-- **A machine that stays on** — run a live read mirror of the act log
-  itself: the runbook is [webapp/HOSTING.md](webapp/HOSTING.md). Mirrors
-  serve readers when the primary is down and hold complete, verified copies
-  of log + media. This is also the path to *becoming* the primary if the
-  current one retires.
+- **A machine that stays on** — run a live mirror of the act log itself:
+  the runbook is [webapp/HOSTING.md](webapp/HOSTING.md). Mirrors serve
+  readers when the primary is down and hold complete, verified copies of
+  log + media — and a federated mirror is in the line of succession: if the
+  writer dies, the election seats the best-placed mirror automatically.
+  Running a mirror IS hosting the network.
 
 ## If everything above is down
 

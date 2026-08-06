@@ -157,6 +157,91 @@ Redaction-after-pin removes bytes from *future* packs only. If that risk
 reads as too sharp, pin with `-SkipMedia`, or wait for keypair auth to
 replace PINs before the first public pin.
 
+## The writer is an office, not a machine
+
+One writer at a time is still the law — two simultaneous writers fork the
+log. What changed is WHO holds the pen and what happens when it drops:
+
+**Election** (`chain/election.mjs`). Federated hosts rank each other by the
+longest sealed chain, then the longest log, then the most distinct authors
+in the last hour of the public record, then a meaningless stable tiebreak.
+Every ranking field is verifiable from data the candidate already serves —
+an election two honest observers cannot disagree about. A mirror that
+cannot reach its primary (both by probe and by its own sync loop) promotes
+itself once it ranks first; the client follows automatically, because a
+demoted host names the current writer in its refusal and the app retries
+there — but only to an address the published `host.json` vouches for, since
+following a stranger would post the user's PIN to it.
+
+Four rules hold it up, and every one of them is a bug that was found and
+closed rather than a principle stated up front:
+
+1. **Silence is not a mandate.** A federated host that has heard from no
+   peer does not write — quarantine lifts on a successful probe round,
+   never on a failed one. Otherwise a watchdog restart *inside* a partition
+   hands the isolated side a second pen, which is the exact split the
+   feature exists to prevent. A genuinely last-host-standing is promoted
+   deliberately by its operator (stop, delete `role.json`, unset the
+   federation, restart), and the log says so while it waits.
+2. **An incumbent keeps the pen.** A seated writer yields only to a
+   *strictly longer* record; a host still in boot quarantine yields to any
+   live writer whose record is *at least as long*. Conflating those two
+   thresholds made two identical hosts demote into each other's mirrors —
+   a network nobody could write to.
+3. **Never follow someone who follows you.** A peer that reports it mirrors
+   anyone is not a writer, and a host that finds itself set to mirror
+   *itself* drops the role and re-decides. Without this, a
+   restored-from-backup primary and its mirror seated each other forever.
+4. **Claims are checked, not believed.** A peer's advertised numbers only
+   start a handover. Before yielding, the host fetches the record and
+   verifies what was actually delivered — length, shared prefix, and the
+   sealed chain — with a byte ceiling on every federation fetch. Anyone can
+   claim a million acts; nobody can produce them on demand. Roster
+   addresses coming from a network-fetched `host.json` are stripped to bare
+   origins and may not point at private or loopback ranges: that list is
+   untrusted input aimed at a `fetch()`.
+
+**Boot quarantine.** The two-writer split always began the same way: a
+watchdog restarting a stale primary that took writes it should not. A
+federated primary now starts read-only and asks the federation before its
+first act. `role.json` outranks `PEER_MIRROR_OF` on restart, so a stale
+environment variable cannot resurrect a role the election already retired.
+
+**Two signed histories freeze the host.** If a returning host and the
+winner both sealed blocks the other does not have, nothing is adopted and
+nothing is written: the host says so and waits for a person. Code does not
+choose between two attributable records — the same rule `reconcile.mjs`
+enforces for merges.
+
+**Fork healing** (`chain/reconcile.mjs`, `chain/merge.mjs`). A partition
+can still produce two writers — CAP is not negotiable — but "there is no
+merge" is no longer true. References only point backward, so the losing
+tail rebases deterministically onto the longer log: content ids and act
+indexes are rewritten through the same replay everyone runs, whatever no
+longer applies is dropped WITH a reason, and the demoted host saves its
+diverged tail to a fork file before yielding. One command heals it:
+
+```bash
+node chain/merge.mjs --base acts.jsonl --fork fork-<ts>.jsonl --apply
+```
+
+Same inputs, same merged bytes, on any machine. What the merge refuses, and
+says out loud rather than papering over: a handle registered on both sides
+(an id is a name, not a position — the losing registration is dropped, or
+its PIN would overwrite the winner's), an advert that cannot be told apart
+from its own retry, and any merge across DIVERGED SEALED blocks. Carried
+epoch closes are renumbered into one sequence, because two writers both
+closing "epoch 61" would mint two full PEER pools for one epoch. Anything
+that lands in the log but no longer *applies* — a message its author can no
+longer afford, an rsvp to an event that filled on the winning side — is
+reported as effect-lost rather than vanishing quietly.
+
+To federate a host: set `PEER_FEDERATION` (comma-separated peer URLs), or
+drop `server-data/federation.json` (`{"urls":[...]}`), or set
+`PEER_SITE_URL` so the roster comes from the published site's `host.json` —
+every static mirror carries the same file, so discovery has no single home.
+A host with none of these behaves exactly as before.
+
 ## What is and is not decentralized
 
 | | state |
@@ -165,24 +250,27 @@ replace PINs before the first public pin.
 | the record | anyone can hold it: archive + CAR; integrity by hash, not trust |
 | the numbers | anyone can check them: replay + the chain's signed roots |
 | reads | mirrors, archive, IPFS — no single machine required |
-| **writes** | **one host, one writer — unchanged, and stated plainly** |
+| **writes** | **one writer at a time — but the writer is now an elected, rotating office, and a fork heals by deterministic rebase instead of being forever** |
 
 The chain realizes four of the spec's five substrate postulates for the
 record as published — public accessibility, record integrity, irrevocability,
 epoch edge-set provision — and pins the fifth (authoritative ordering) to a
-*named, signed* single producer rather than an anonymous file on one disk.
+*named, signed* producer whose office now rotates by election, each handoff
+attributable in the chain itself (`verifyChain` reports every producer
+change).
 
-The step that would decentralize writes is the one HOSTING.md has always
-named: **content-addressed act ids**. Acts reference each other by log index
-today, so two writers' logs cannot merge; ids derived from content would let
-independent logs converge under canonical order and make the producer role
-rotatable. That is the authored-act substrate of roadmap Phase 3/4 — a
-migration, not a patch, and it is still ahead, not smuggled in here.
-
-Until then, the honest formula: **one writer, whom you no longer have to
-trust about the past.** A producer can still choose what enters the log
-(censorship is visible to its victims); it can no longer rewrite what it
-already published without every holder of one block being able to prove it.
+Still ahead, and still named rather than smuggled: **content-addressed act
+ids** (roadmap Phase 3/4). Today's reconciliation rewrites position-based
+references at merge time; ids derived from content would make acts location-
+independent from birth, shrink merges to set union under canonical order,
+and open the door past one-writer-at-a-time entirely. What exists now is the
+honest middle: **an elected writer, whom you no longer have to trust about
+the past, holding an office any participant can inherit.** Known limits of
+the election, stated plainly: the active-author count can be inflated only
+with real acts (which cost θ), but registrations are cheap on this test
+network — the same sybil surface TOKEN.md already documents; and a
+partition elects one writer per side until it heals, which is the price of
+staying available.
 
 ## Known limits, stated rather than hidden
 
