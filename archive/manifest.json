@@ -1,8 +1,8 @@
 {
-    "acts":  783,
-    "sha256":  "0c3b8bd5df91501aee5633c3b227c1855ef6e0d131be0ab4d5e46ab0f56568bc",
-    "at":  1786036691971,
-    "host":  "https://extract-usually-happened-surfing.trycloudflare.com",
+    "acts":  784,
+    "sha256":  "301d77bb9f86af2da6f0ce5bbe0f1234239ff63735a4fefcb5f79f47484d27ce",
+    "at":  1786058331137,
+    "host":  "https://climb-per-bringing-extent.trycloudflare.com",
     "media":  true,
     "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
     "chain":  {

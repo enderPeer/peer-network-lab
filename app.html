@@ -872,6 +872,18 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // pretending to be live.
   var archiveInfo = null;
   var API = ''; // '' = this origin; set by resolveHost() when served statically
+  // Addresses this app is willing to be handed to, from the published
+  // host.json (see resolveHost). A host that yields the pen names its
+  // successor in the refusal; that name is only honoured if it is on this
+  // list, because following it means re-sending the act — PIN and all.
+  var KNOWN_HOSTS = [];
+  function mayFollow(url) {
+    var u = String(url || '').replace(/\/+$/, '');
+    if (!u) return false;
+    if (KNOWN_HOSTS.indexOf(u) >= 0) return true;
+    // Same-origin is always safe: it is where this page already came from.
+    try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
+  }
   var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
   var feedLimit = 30;    // windowed rendering — raised by "show more"
   // An ORDERED LIST of pending attachments, not one slot. `media` has been an
@@ -1200,7 +1212,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     setTimeout(function () { if (card.parentNode) card.remove(); }, 20000);
   }
 
-  function pushAct(act, onOk, retried) {
+  // One in-flight write at a time. The election added waits — following a
+  // demoted host, and the few seconds a restarting one spends checking the
+  // federation — and during a wait the composer was still live, so a second
+  // press sent the act again. Nothing upstream deduplicates: the host
+  // appends, and a merge appends too, so the copy would be permanent and
+  // charged twice.
+  var pushBusy = false;
+  function pushAct(act, onOk, retry) {
+    retry = retry || { followed: false, waited: false, pin: false };
+    if (retry.owned !== true) {
+      if (pushBusy) { toast('Still recording the last one — one at a time, so nothing is written twice.'); return; }
+      pushBusy = true;
+      retry.owned = true;
+    }
+    var done = function () { pushBusy = false; };
     var actor = act.author || act.from ||
       (act.t === 'closeEpoch' || act.t === 'closeCycle' ? null : act.id) || null;
     // Ask for the PIN before spending the act, not after the host refuses it.
@@ -1210,10 +1236,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // act at the offline check three lines below, is the worst of both.
     if (REMOTE && offline && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
       toast('Still reconnecting — unlock once the connection is back, so nothing is lost.');
-      return;
+      done(); return;
     }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
-      withUnlock(function () { pushAct(act, onOk, retried); });
+      withUnlock(function () { pushAct(act, onOk, retry); });
       return;
     }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
@@ -1221,9 +1247,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       delete act.auth;
       world.acts.push(act); save();
       if (onOk) onOk();
-      render(); return;
+      done(); render(); return;
     }
-    if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); return; }
+    if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); done(); return; }
     act.since = world.acts.length;
     fetch(API + '/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
@@ -1234,35 +1260,63 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           // the primary this morning may answer as a mirror this afternoon.
           // A demoted host names the current writer in its refusal — follow
           // it, once, and the act lands without anyone reloading anything.
-          if (x.status === 503 && x.d && x.d.code === 'MIRROR_READONLY' && x.d.mirrorOf && !retried) {
+          //
+          // Two things this must NOT do, both found in review. It must not
+          // post the act (whose auth field holds the user's plaintext PIN)
+          // to any address a host cares to name — only to one the published
+          // host.json vouches for. And it must not resend against the old
+          // host's act count: the new writer's log may be a rebase of this
+          // one, where `since` and every content id mean something else. So
+          // the app re-reads the record from the new host first, exactly as
+          // if it had just opened there.
+          if (x.status === 503 && x.d && x.d.code === 'MIRROR_READONLY' && x.d.mirrorOf && !retry.followed) {
+            retry.followed = true;
+            if (!mayFollow(x.d.mirrorOf)) {
+              toast('This host says another one holds the record, but that address is not in the published list — nothing was sent there.');
+              done(); render(); return;
+            }
             API = String(x.d.mirrorOf).replace(/\/+$/, '');
-            toast('This host handed the pen to another — retrying there.');
-            pushAct(act, onOk, true);
+            toast('This host handed the pen to another — catching up there.');
+            fetch(API + '/api/acts', { cache: 'no-store' })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (d) {
+                if (!d) { toast('The new host did not answer — nothing was recorded.'); done(); render(); return; }
+                world.acts = d.acts || [];
+                save();
+                pushAct(act, onOk, retry);
+              })
+              .catch(function () { setOnline(false); done(); toast('The new host did not answer — nothing was recorded.'); });
             return;
           }
           // A freshly-restarted federated host checks for a longer record
-          // before its first act. That takes seconds, not minutes.
-          if (x.status === 503 && x.d && x.d.code === 'ELECTION_PENDING' && !retried) {
+          // before its first act. That takes seconds, not minutes — but the
+          // wait must not let the same act be sent twice, so the composer
+          // stays locked until this attempt resolves (see pushBusy).
+          if (x.status === 503 && x.d && x.d.code === 'ELECTION_PENDING' && !retry.waited) {
+            retry.waited = true;
             toast('The host is checking the federation before recording — retrying in a moment.');
-            setTimeout(function () { pushAct(act, onOk, true); }, 4000);
+            setTimeout(function () { pushAct(act, onOk, retry); }, 4000);
             return;
           }
           // 401 means the PIN we hold is stale or wrong. Drop it and ask again,
           // ONCE — resending the same bad PIN would walk the handle into the
           // host's PIN-attempt lockout, and retrying forever would be worse
-          // than the original failure.
-          if (x.status === 401 && actor && !retried) {
+          // than the original failure. Its own budget: a 401 after following
+          // the pen to a new writer is exactly when the unlock is needed, and
+          // one shared flag spent them all.
+          if (x.status === 401 && actor && !retry.pin) {
+            retry.pin = true;
             delete pins[actor]; save();
-            withUnlock(function () { pushAct(act, onOk, true); });
+            withUnlock(function () { pushAct(act, onOk, retry); });
             return;
           }
-          explainRefusal(x.d); render(); return;
+          explainRefusal(x.d); done(); render(); return;
         }
         mergeTail(x.d); save();
         if (onOk) onOk();
-        render();
+        done(); render();
       })
-      .catch(function () { setOnline(false); toast('Connection hiccup — nothing was recorded, try again.'); });
+      .catch(function () { setOnline(false); done(); toast('Connection hiccup — nothing was recorded, try again.'); });
   }
 
   function pollLive() {
@@ -1332,6 +1386,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // across two hosts that are both up.
         var list = (Array.isArray(d.urls) && d.urls.length ? d.urls : [d.url])
           .filter(Boolean).map(function (u) { return String(u).replace(/\/+$/, ''); });
+        // The published list IS the trust boundary. The writer is elected
+        // now, so a host can hand this app to another one mid-session — and
+        // the act it re-sends carries the user's PIN. Following an arbitrary
+        // address named by whoever answered would post that credential to a
+        // stranger, so only addresses on this list are ever followed.
+        KNOWN_HOSTS = list.slice();
         var probe = function (i) {
           if (i >= list.length) return Promise.resolve('');
           var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
