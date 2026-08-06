@@ -487,9 +487,27 @@ describe('the built page is an application, not just valid JavaScript', () => {
 
     expect(text, 'no music on your own profile').toContain('release');
     expect(text, 'the guide did not come with it').toContain('the guide');
-    expect(text, 'the account controls did not move here').toContain('account and security');
     // Scoped: the posts list below renders its own card, with its own player.
     expect(root!.querySelectorAll('.your-music audio').length, 'your catalogue must be one player').toBe(1);
+
+    // Account controls live behind one Settings door now. The button must be
+    // on the profile, and the drawer it opens must carry every control that
+    // used to be in the folded 'account and security' block — a door that
+    // opens onto half the room is worse than the fold it replaced.
+    const settings = root!.querySelector('.settings-btn') as HTMLElement | null;
+    expect(settings, 'no Settings button on the profile').toBeTruthy();
+    settings!.click();
+    await new Promise((r) => setTimeout(r, 300));
+    const drawer = dom.window.document.querySelector('#overlay .drawer');
+    expect(drawer, 'Settings opened no drawer').toBeTruthy();
+    const sTxt = drawer!.textContent ?? '';
+    for (const control of ['Edit profile', 'Set PIN', 'Recovery code', 'Delete account']) {
+      expect(sTxt, control + ' is missing from Settings').toContain(control);
+    }
+    // Destructive actions are the only red in the app, and they say so.
+    expect(drawer!.querySelector('.btn.danger')?.textContent, 'Delete account must carry the danger rank').toContain('Delete');
+    (drawer!.querySelector('.btn.ghost') as HTMLElement).click(); // ← close
+    await new Promise((r) => setTimeout(r, 200));
 
     // The Past lane, and the boundary that decides it.
     const past = [...root!.querySelectorAll('.uline button')].find((b) => b.textContent === 'Past');
