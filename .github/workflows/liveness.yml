@@ -1,0 +1,78 @@
+# Is anybody home?
+#
+# The host watchdog runs on the host, so it dies with it. This runs on
+# GitHub's machines instead: every fifteen minutes it asks each published
+# host whether it is answering, and repoints the app's address book at one
+# that is. When none answer it writes an empty address on purpose, so the
+# app goes straight to the archive published beside it — a working
+# read-only network — instead of waiting on a corpse.
+#
+# It needs no secrets and no account beyond this repository: the built-in
+# token can write to gh-pages, which is the only thing it touches.
+#
+# NOTE: GitHub disables scheduled workflows in a public repository after
+# 60 days without commits. If this repo goes quiet for two months, push
+# anything (or press "Run workflow") to wake it up again.
+name: liveness
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: liveness
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # The published site, but only the two small files this touches: the
+      # branch also carries the media archive, and pulling 50 MB every
+      # quarter hour to read one JSON file would be rude to everyone.
+      - name: Check out the published address book
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: site
+          sparse-checkout: |
+            host.json
+            status.json
+          sparse-checkout-cone-mode: false
+
+      - name: Check out the checker
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Probe the hosts
+        run: node src/webapp/tools/liveness-check.mjs --dir site
+
+      - name: Publish the result
+        working-directory: site
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git config user.name  'peer-liveness'
+          git config user.email 'liveness@users.noreply.github.com'
+          git add host.json status.json
+          git commit -m "Liveness: $(node -e "const s=require('./status.json');console.log(s.anyLive?('host '+ (s.writer||s.hosts.find(h=>h.live).url)+' answering'):'no host answering - the app reads the published archive')")"
+          # Another publish may have landed while this ran; rebase rather
+          # than force, because that publish knows something this job does
+          # not (a brand-new tunnel address).
+          for i in 1 2 3; do
+            git pull --rebase origin gh-pages && git push origin HEAD:gh-pages && exit 0
+            sleep 5
+          done
+          echo "could not push after 3 tries" >&2
+          exit 1
