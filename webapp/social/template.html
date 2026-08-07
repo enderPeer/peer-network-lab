@@ -978,7 +978,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    */
   function save() {
     try {
-      if (!REMOTE) localStorage.setItem(LS_WORLD, JSON.stringify(world));
+      // …and never while showing the published archive either: the world on
+      // screen is the ARCHIVE then, and writing it to LS_WORLD would flatten
+      // whatever private sandbox this browser had. Mode switches call save()
+      // too, so this was reachable without ever posting a thing.
+      if (!REMOTE && !archiveInfo) localStorage.setItem(LS_WORLD, JSON.stringify(world));
       localStorage.setItem(LS_WHO, JSON.stringify(who));
       localStorage.setItem(LS_MODE, JSON.stringify(mode));
       saveView();
@@ -1120,6 +1124,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // ── Connection state (server fallback) ──
   var netFails = 0;
   var offline = false;
+  // Bumped on every wholesale adoption of a host's record (reconnect, follow,
+  // mirror hand-off). A response that left for one world must not land in
+  // another: pollRemote and pushAct capture the generation when they dispatch
+  // and drop the reply if an adoption happened while it was in flight —
+  // otherwise a slow answer from a dying tunnel splices the OLD host's tail
+  // onto the NEW host's log and renders a record neither host ever served.
+  var netGen = 0;
+  // True while the adopted host says it is a read-only mirror (its /api/acts
+  // carries `mirror`). Reads are honest there, but the pen is elsewhere —
+  // watchWriter keeps re-reading host.json until it can move the session on.
+  var onMirror = false;
   /**
    * Two consecutive failures before declaring the connection lost. One failed
    * poll is normal — a tunnel hiccup, a sleeping phone — and announcing it
@@ -1141,6 +1156,63 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     b.className = 'net-banner';
     b.textContent = 'Connection lost — reconnecting… nothing you send is recorded until this clears.';
     document.body.prepend(b);
+  }
+
+  /**
+   * Follow the record when it moves. A quick tunnel dies WITH its address:
+   * the restarted host answers at a brand-new URL, and the liveness job
+   * repoints the published host.json within minutes — but a session that
+   * kept polling the dead address would say "reconnecting…" forever while
+   * the network was fine next door. Once the connection has been lost for
+   * three straight polls, re-read host.json; a different published host that
+   * answers is adopted with a full re-read of the record — the same rule as
+   * following a demoted host's refusal, because the new writer's log may be
+   * a rebase of the old one's. Only addresses the published host.json names
+   * are ever followed (resolveHost refreshes KNOWN_HOSTS as it reads).
+   */
+  var followBusy = false;
+  function maybeFollowMove() {
+    if (!REMOTE || followBusy || netFails < 3 || (netFails - 3) % 4 !== 0) return;
+    followBusy = true;
+    resolveHost().then(function (base) {
+      if (!base || base === API) { followBusy = false; return; }
+      return fetch(base + '/api/acts', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (d) {
+          // Re-checked HERE, not only where the poll failed: seconds of
+          // probing have passed, and tearing down a dialog or a half-typed
+          // form to deliver a feed is a bad trade. Skipping costs nothing —
+          // the polls are still failing, so this runs again shortly.
+          if (document.querySelector('.pin-dialog') || !safeToRepaint()) { followBusy = false; return; }
+          if (!adoptLive(base, d)) { followBusy = false; return; }
+          toast(onMirror
+            ? 'The writer is not answering; reading from a mirror — posting stays off until the writer is back.'
+            : 'The record moved to a new address — reconnected there.');
+          followBusy = false;
+        });
+    }).catch(function () { followBusy = false; });
+  }
+
+  // Sitting on a read-only mirror is a waiting room too: reads are real, but
+  // the pen is elsewhere — and because the polls SUCCEED against a mirror,
+  // maybeFollowMove never fires there. So while the adopted host calls itself
+  // a mirror, keep re-reading host.json once a minute; the moment it names a
+  // writer that answers, move the session on and reopen posting.
+  function watchWriter() {
+    if (!REMOTE || !onMirror || followBusy) return;
+    followBusy = true;
+    resolveHost().then(function (base) {
+      if (!base || base === API) { followBusy = false; return; }
+      return fetch(base + '/api/acts', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (d) {
+          if (d && d.mirror) { followBusy = false; return; } // another mirror is not a move worth a repaint
+          if (document.querySelector('.pin-dialog') || !safeToRepaint()) { followBusy = false; return; }
+          if (!adoptLive(base, d)) { followBusy = false; return; }
+          toast('The writer is answering again — posting is back.');
+          followBusy = false;
+        });
+    }).catch(function () { followBusy = false; });
   }
 
   /** Merge a server tail response into the local log (incremental sync). */
@@ -1190,6 +1262,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // charged twice.
   var pushBusy = false;
   function pushAct(act, onOk, retry) {
+    // Reading a published archive: there is no host, and the banner promises
+    // that nothing done here is silently kept. Until now this path fell
+    // through to the sandbox branch below and WROTE the act into a copy only
+    // this browser would ever see — a post its author watched succeed that
+    // nobody else could ever read. Refuse loudly instead; the composer keeps
+    // the text, and the reconnect loop is already looking for a host.
+    if (!REMOTE && archiveInfo) {
+      toast('This is a read-only archive — no host is answering right now. The app keeps looking and reconnects by itself; what you wrote stays in the composer to send once the banner clears.');
+      return;
+    }
     retry = retry || { followed: false, waited: false, pin: false };
     if (retry.owned !== true) {
       if (pushBusy) { toast('Still recording the last one — one at a time, so nothing is written twice.'); return; }
@@ -1221,9 +1303,19 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }
     if (offline) { toast('Still reconnecting — hold on, nothing can be recorded right now.'); done(); return; }
     act.since = world.acts.length;
+    // Same fence as pollRemote: if an adoption replaced the world while this
+    // write was in flight, its reply describes a record this session no
+    // longer holds. Merging it would corrupt the adopted log — and silently
+    // resending would risk a double post, so the person decides.
+    var gen = netGen;
     fetch(API + '/api/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(act) })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
       .then(function (x) {
+        if (gen !== netGen) {
+          done(); render();
+          toast('The record moved to another host while this was being sent. Check the feed before sending again, so it is not recorded twice.');
+          return;
+        }
         setOnline(true);
         if (!x.ok) {
           // The pen can move: the writer is elected now, and a host that was
@@ -1241,21 +1333,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           // if it had just opened there.
           if (x.status === 503 && x.d && x.d.code === 'MIRROR_READONLY' && x.d.mirrorOf && !retry.followed) {
             retry.followed = true;
-            if (!mayFollow(x.d.mirrorOf)) {
+            var target = String(x.d.mirrorOf).replace(/\/+$/, '');
+            var follow = function () {
+              API = target;
+              netGen++;
+              toast('This host handed the pen to another — catching up there.');
+              fetch(API + '/api/acts', { cache: 'no-store' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                  if (!d || !Array.isArray(d.acts)) { toast('The new host did not answer — nothing was recorded.'); done(); render(); return; }
+                  onMirror = !!d.mirror;
+                  world.acts = d.acts;
+                  save();
+                  loadIceConfig();
+                  pushAct(act, onOk, retry);
+                })
+                .catch(function () { setOnline(false); done(); toast('The new host did not answer — nothing was recorded.'); });
+            };
+            if (mayFollow(target)) { follow(); return; }
+            // The list this session holds may simply be stale: the liveness
+            // job repoints the published host.json while sessions sit open.
+            // Re-read it once before refusing — if it vouches for the named
+            // host NOW, following is exactly as safe as it was at boot.
+            resolveHost().then(function () {
+              if (mayFollow(target)) { follow(); return; }
               toast('This host says another one holds the record, but that address is not in the published list — nothing was sent there.');
-              done(); render(); return;
-            }
-            API = String(x.d.mirrorOf).replace(/\/+$/, '');
-            toast('This host handed the pen to another — catching up there.');
-            fetch(API + '/api/acts', { cache: 'no-store' })
-              .then(function (r) { return r.ok ? r.json() : null; })
-              .then(function (d) {
-                if (!d) { toast('The new host did not answer — nothing was recorded.'); done(); render(); return; }
-                world.acts = d.acts || [];
-                save();
-                pushAct(act, onOk, retry);
-              })
-              .catch(function () { setOnline(false); done(); toast('The new host did not answer — nothing was recorded.'); });
+              done(); render();
+            }).catch(function () {
+              toast('This host says another one holds the record, but that address is not in the published list — nothing was sent there.');
+              done(); render();
+            });
             return;
           }
           // A freshly-restarted federated host checks for a longer record
@@ -1286,7 +1393,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         if (onOk) onOk();
         done(); render();
       })
-      .catch(function () { setOnline(false); done(); toast('Connection hiccup — nothing was recorded, try again.'); });
+      .catch(function () {
+        if (gen !== netGen) {
+          // The failure belongs to the world this session already left —
+          // don't let it mark the adopted one offline.
+          done(); render();
+          toast('The record moved to another host while this was being sent. Check the feed before sending again, so it is not recorded twice.');
+          return;
+        }
+        setOnline(false); done(); toast('Connection hiccup — nothing was recorded, try again.');
+      });
   }
 
   function pollLive() {
@@ -1319,14 +1435,21 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // the connection can wait the five seconds until the next tick.
     if (document.querySelector('.pin-dialog')) return;
     if (!offline && !safeToRepaint()) return;
-    fetch(API + '/api/acts?since=' + world.acts.length, { cache: 'no-store' })
+    // Captured at dispatch, honoured at response. `since` because the world
+    // may have GROWN while the request travelled (a push landing mid-poll
+    // would double the tail); `gen` because the world may have been REPLACED —
+    // a reply from the host this session already left must be dropped, not
+    // merged into the record adopted from its successor.
+    var gen = netGen, since = world.acts.length;
+    fetch(API + '/api/acts?since=' + since, { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw 0; return r.json(); })
       .then(function (d) {
+        if (gen !== netGen) return;
         var wasOffline = offline;
         setOnline(true);
-        if (mergeTail({ acts: d.acts, since: world.acts.length }) || wasOffline) render();
+        if (mergeTail({ acts: d.acts, since: since }) || wasOffline) render();
       })
-      .catch(function () { setOnline(false); });
+      .catch(function () { if (gen !== netGen) return; setOnline(false); maybeFollowMove(); });
   }
 
   /**
@@ -1541,30 +1664,114 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'smallnote mono', text: 'sha256 ' + String(archiveInfo.sha256 || '').slice(0, 32) + '\u2026' }));
   }
 
+  // The live timers start exactly once no matter which door was used to go
+  // live — at boot, or minutes later when a fallen-back session reconnects.
+  // A second adoption doubling every poll would be a slow leak, not a feature.
+  var liveTimersOn = false;
+  function startLiveTimers() {
+    if (liveTimersOn) return;
+    liveTimersOn = true;
+    pollLive();
+    setInterval(pollLive, 8000);
+    setInterval(reportViews, 4000);
+    pollAds();
+    setInterval(pollAds, 60000);
+    window.addEventListener('scroll', function () { reportViews(); }, { passive: true });
+    setInterval(pollRemote, 5000);
+    setInterval(watchWriter, 60000); // only acts while parked on a read-only mirror
+    setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
+    // Background tabs get throttled — poll the moment the tab comes back,
+    // so an incoming call shows immediately instead of one interval late.
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) signalTick(true); });
+    window.addEventListener('focus', function () { signalTick(true); });
+  }
+
+  /**
+   * Go live on a host. The record is adopted whole, never merged: what was on
+   * screen before — a published archive, or the private sandbox — is not a
+   * prefix of the host's log, and `since` or a content id computed against it
+   * would mean something else there. The sandbox copy survives the swap
+   * untouched, because save() only writes the world to localStorage while
+   * !REMOTE.
+   */
+  function adoptLive(base, d) {
+    // A host that answers 200 without an act log is not a host worth
+    // adopting — and half-adopting it (flags flipped, world broken) would
+    // leave the page inert, every loop convinced someone else was in charge.
+    // Refuse whole, adopt whole.
+    if (!d || !Array.isArray(d.acts)) return false;
+    netGen++;
+    API = base;
+    REMOTE = true;
+    archiveInfo = null;
+    ARCHIVE_MEDIA = '';
+    onMirror = !!d.mirror;
+    world = { acts: d.acts };
+    setOnline(true);
+    loadIceConfig();
+    // Timers before render, deliberately: render can throw on a surprise, and
+    // with the polls already running the next merge repaints and heals. The
+    // other order strands REMOTE=true with nothing left alive to retry.
+    startLiveTimers();
+    render();
+    return true;
+  }
+
+  // "When a host comes back the app reconnects by itself" — the archive
+  // banner has said so from the day it existed, and until now nothing made it
+  // true: a session that fell back at boot never looked again, and sat on the
+  // snapshot until somebody happened to reload. Watched in the wild: one
+  // browser posting to the live host while another, opened during a ten-minute
+  // outage, showed a days-old feed for hours. So: every 20 seconds while
+  // fallen back, re-read host.json — the liveness job repoints it, so a host
+  // that came back at a NEW address is found too — probe it, and adopt.
+  var reconnectTimer = null, reconnectBusy = false, reconnectTicks = 0;
+  function startReconnect() {
+    // A file: sandbox has no host.json and no same-origin API — there is
+    // nothing to reconnect TO, and a loop of guaranteed failures is just
+    // console noise and battery heat.
+    if (location.protocol === 'file:') return;
+    if (reconnectTimer) return;
+    reconnectTimer = setInterval(function () {
+      if (REMOTE) { clearInterval(reconnectTimer); reconnectTimer = null; return; }
+      if (reconnectBusy) return;
+      // Eager for the first five minutes — that is the outage this was
+      // written for — then once a minute: a deployment with no host at all
+      // (a sandbox-only fork) should idle, not drum on its own 404 forever.
+      reconnectTicks++;
+      if (reconnectTicks > 15 && reconnectTicks % 3 !== 0) return;
+      // Never out from under an open dialog or a half-typed PIN: adoption
+      // re-renders everything, and the next try is only twenty seconds away.
+      if (document.querySelector('.pin-dialog') || !safeToRepaint()) return;
+      reconnectBusy = true;
+      resolveHost().then(function (base) {
+        return fetch(base + '/api/acts', { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+          .then(function (d) {
+            // Re-checked here, not only at tick start: resolveHost may have
+            // spent ten seconds timing out on dead entries, and a dialog or
+            // form opened meanwhile must not be torn down for a feed. The
+            // next tick retries; the host will still be there.
+            if (document.querySelector('.pin-dialog') || !safeToRepaint()) return;
+            // Acts made in the private sandbox while waiting (registering,
+            // posting) are local to this browser. Adopting hides them — so
+            // say where they went, instead of letting a post someone watched
+            // succeed simply vanish. They stay in localStorage untouched.
+            var localActs = (!archiveInfo && world.acts.length > 1) ? world.acts.length - 1 : 0;
+            if (!adoptLive(base, d)) return;
+            toast(localActs > 0
+              ? 'A host is answering again — you are back on the live network. What you did in the private sandbox (' + localActs + ' act' + (localActs === 1 ? '' : 's') + ') stays saved on this device, but is not part of the shared record.'
+              : 'A host is answering again — you are back on the live network.');
+          });
+      }).then(function () { reconnectBusy = false; }, function () { reconnectBusy = false; });
+    }, 20000);
+  }
+
   function boot() {
     resolveHost().then(function (base) {
-      API = base;
-      return fetch(API + '/api/acts', { cache: 'no-store' });
-    }).then(function (r) {
-      if (!r.ok) throw 0;
-      return r.json();
-    }).then(function (d) {
-      REMOTE = true;
-      world = { acts: d.acts };
-      render();
-      loadIceConfig();
-      pollLive();
-      setInterval(pollLive, 8000);
-      setInterval(reportViews, 4000);
-      pollAds();
-      setInterval(pollAds, 60000);
-      window.addEventListener('scroll', function () { reportViews(); }, { passive: true });
-      setInterval(pollRemote, 5000);
-      setInterval(signalTick, 1200); // call signaling: ~5s idle, ~1.2s in-call
-      // Background tabs get throttled — poll the moment the tab comes back,
-      // so an incoming call shows immediately instead of one interval late.
-      document.addEventListener('visibilitychange', function () { if (!document.hidden) signalTick(true); });
-      window.addEventListener('focus', function () { signalTick(true); });
+      return fetch(base + '/api/acts', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (d) { adoptLive(base, d); });
     }).catch(function () {
       // No host answered. Before falling back to an empty private sandbox —
       // which is a working app but somebody ELSE'S network, with none of this
@@ -1574,9 +1781,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       // machine here being switched off, costs nothing, and needs no server to
       // read. It is the difference between "the network is gone" and "the
       // network is readable but nobody is writing".
+      //
+      // Either way, the fallback is a waiting room, not a destination: the
+      // reconnect loop watches for a host and adopts the first that answers.
       API = '';
       loadArchive().then(function (ok) {
         if (!ok) render();
+        startReconnect();
       });
     });
   }
