@@ -66,9 +66,48 @@ RAM, outbound HTTPS, and the env above. Sleep-on-idle platforms are fine —
 the app's clients retry and reconnect by themselves, and a request wakes the
 instance. Ephemeral disks are fine — that is the journal's whole job.
 
-Platform notes and the current recommendation live in the repo discussion /
-MIRRORS.md as the landscape shifts; the kit itself is platform-agnostic on
-purpose.
+### Where to run it (scanned + verified against official pages, 2026-08-07)
+
+**Recommended first: Render free web service.** The only surveyed platform
+still running a real container on a genuinely free tier with **no card**:
+750 instance-hours/month (a full month), stable `https://<name>.onrender.com`
+URL, single instance (the one-writer rule likes that), spins down after 15
+idle minutes and wakes on the next request in ~1 minute — which the app
+absorbs by itself. Ephemeral disk is exactly what the journal branch exists
+for. **The one real limit: 5 GB/month outbound.** Media served straight from
+this host counts against it — the 51 MB media set ~100 times over. Fine for
+a small tester community (content-addressed media is served `immutable`, so
+repeat views cost nothing); watch it as the network grows.
+
+Deploy: Render dashboard → New Web Service → this repo → root directory
+`webapp` (it finds the Dockerfile) → add env `PEER_PERSIST_REPO`,
+`GIT_TOKEN` (secret) → create. Then wire the address book as above.
+
+**If sleep is unacceptable: Google Cloud e2-micro** — the always-free VM
+(since 2017; official doc re-checked 2026-08-05): 1 GB RAM, 30 GB persistent
+disk, free stable external IPv4, **no idle-reclaim policy**. Card required
+at signup (never charged within limits); only 1 GB/month free egress, so
+batch the journal pushes and keep media reads on Pages. Run the same image,
+or plain `node tools/cloud-writer-boot.mjs` under systemd.
+
+**Nearly-free, best pure fit: Fly.io** — stable `*.fly.dev` URL, no tunnel,
+suspend-until-request with sub-second-ish resume. Card required, ~cents/month
+while mostly asleep. **Benchmarks:** RackNerd promo KVM (~$11-22/year, when
+in stock) and Hetzner CX23 (€5.49/month since the June 2026 price rise) buy
+total absence of reclaim/sleep anxiety.
+
+**$0 and account-free: an old Android phone on a shelf** (Termux from
+F-Droid + Termux:Boot + wake-lock + the Android-12+ phantom-process fix)
+runs `server.mjs` unmodified as a co-writer — same house, though, so it
+covers the desktop being off, not the power being out.
+
+**Closed doors, for honesty's sake:** GitHub Actions as a chained 24/7
+writer violates the Actions terms ("serverless computing" is explicitly
+disallowed — the scheduled workflows here stay what they are: probes and
+archive sync). Oracle's Always Free reclaims instances this idle. Cloudflare
+**named** tunnels are free and permanent but require a domain you own —
+worth doing for the desktop the day a domain exists; it removes URL rotation
+entirely.
 
 ## Handing the pen back
 
