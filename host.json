@@ -5,6 +5,6 @@
     "candidates": [
         "https://gentle-santa-auction-collected.trycloudflare.com"
     ],
-    "checked": "2026-08-07T06:59:52.098Z",
+    "checked": "2026-08-07T08:16:04.110Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
