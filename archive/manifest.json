@@ -1,8 +1,8 @@
 {
     "acts":  801,
     "sha256":  "7dedb615da4ee70f193072f0f3f9fc1de8f5acd143795f10e2d60c123c4b2329",
-    "at":  1786094019894,
-    "host":  "https://gentle-santa-auction-collected.trycloudflare.com",
+    "at":  1786095124731,
+    "host":  "https://plus-magnificent-citizen-telescope.trycloudflare.com",
     "media":  true,
     "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
     "chain":  {
