@@ -796,6 +796,31 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var LS_MODE = 'peer-sandbox-mode-v1';
   var LS_PINS = 'peer-sandbox-pins-v1';
   var LS_VIEW = 'peer-sandbox-view-v1';
+  // The outbox: acts written while no host was answering, waiting on this
+  // device for the network to wake. Stored WITHOUT auth — the PIN is asked
+  // for at send time, never persisted — and drained through the ordinary
+  // pushAct the moment a host is adopted, so a post typed into a dark
+  // window is a post delayed, not a post lost.
+  var LS_OUTBOX = 'peer-sandbox-outbox-v1';
+  var outbox = [];
+  // Loaded defensively: whatever is in localStorage, an entry never enters
+  // the queue carrying an auth field — a PIN planted there by other code
+  // would otherwise ride out on the next drain, signed and unread.
+  try {
+    var ob0 = JSON.parse(localStorage.getItem(LS_OUTBOX));
+    if (Array.isArray(ob0)) outbox = ob0.filter(function (e) { return e && e.act && typeof e.act.t === 'string'; })
+      .map(function (e) { delete e.act.auth; return e; });
+  } catch (e) { /* private mode */ }
+  function saveOutbox() { try { localStorage.setItem(LS_OUTBOX, JSON.stringify(outbox)); return true; } catch (e) { return false; } }
+  // What may wait: plain authored content that stands on its own. Not
+  // register (identity must not be minted against a log nobody can see),
+  // not economic acts (they price themselves against a state that moves),
+  // not media (a live host must hold the bytes first) — and NOT anything
+  // that points at content by position (review/opinion/tag, edits): content
+  // ids are log-order counters, and an adopted log may be a rebase where
+  // c37 is somebody else's post. A reaction that can silently land on
+  // content its author never saw does not get to wait.
+  var OUTBOX_KINDS = { post: 1, dm: 1 };
   // Which tab and which sort you were on survives a reload. Nothing here is
   // protocol state — purely where you were standing.
   // Eight tabs never fitted a phone — the last ones were unreachable rather
@@ -1262,15 +1287,36 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // charged twice.
   var pushBusy = false;
   function pushAct(act, onOk, retry) {
-    // Reading a published archive: there is no host, and the banner promises
-    // that nothing done here is silently kept. Until now this path fell
-    // through to the sandbox branch below and WROTE the act into a copy only
-    // this browser would ever see — a post its author watched succeed that
-    // nobody else could ever read. Refuse loudly instead; the composer keeps
-    // the text, and the reconnect loop is already looking for a host.
-    if (!REMOTE && archiveInfo) {
-      toast('This is a read-only archive — no host is answering right now. The app keeps looking and reconnects by itself; what you wrote stays in the composer to send once the banner clears.');
-      return;
+    // No host is answering (the archive, or the sandbox the reconnect loop
+    // is waiting in). Writing into a copy only this browser can see would be
+    // a post its author watched succeed that nobody could ever read — so
+    // authored content QUEUES on this device instead, and is recorded
+    // through this same function the moment a host is adopted. Everything
+    // that cannot honestly wait is refused with the reason.
+    if (!REMOTE && (archiveInfo || reconnectTimer)) {
+      if (OUTBOX_KINDS[act.t] && act.target == null && act.upd == null && !(act.media && act.media.length)) {
+        delete act.auth;
+        outbox.push({ act: act, at: Date.now() });
+        var kept = saveOutbox();
+        toast(kept
+          ? 'No host is answering right now — saved to your outbox on this device. It is recorded automatically when the network wakes (' + outbox.length + ' waiting).'
+          : 'No host is answering — and this device refused to store the outbox (private browsing?). The act lives only in this open tab; keep the tab open until the network wakes.');
+        if (onOk) onOk();
+        render();
+        return;
+      }
+      if (act.media && act.media.length) {
+        toast('No host is answering — media needs a live host to hold the bytes, so this cannot wait in the outbox. Text-only posts can.');
+        return;
+      }
+      if (archiveInfo) {
+        toast(act.target != null || act.upd != null || act.t === 'review' || act.t === 'opinion' || act.t === 'tag'
+          ? 'No host is answering — and this act points at a post by its POSITION in the record, which can shift while hosts are away. It cannot wait honestly; say it fresh when the banner clears.'
+          : 'This is a read-only archive — no host is answering right now. This kind of act cannot wait in the outbox; try again when the banner clears.');
+        return;
+      }
+      // A non-queueable act in the waiting-room sandbox falls through to the
+      // private local world below, exactly as before.
     }
     retry = retry || { followed: false, waited: false, pin: false };
     if (retry.owned !== true) {
@@ -1291,6 +1337,20 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       done(); return;
     }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor] && !pins[actor]) {
+      // Two guards, both owed to acts that can WAIT now (the outbox).
+      // First: an act signed by an identity that is not the one standing
+      // here is not sendable — and must not recurse: withUnlock keys on
+      // WHO, this gate keys on the act's author, and when the two disagree
+      // the unlock returns immediately into this same line, forever.
+      if (actor !== who) {
+        toast('That act is signed by another of this device’s identities. Switch to it to send — the act keeps waiting meanwhile.');
+        done(); render(); return;
+      }
+      // Second: hand the write slot back BEFORE the dialog. A cancelled
+      // unlock used to strand pushBusy forever — every later act toasting
+      // "still recording the last one" at a composer that never would.
+      done();
+      retry.owned = false;
       withUnlock(function () { pushAct(act, onOk, retry); });
       return;
     }
@@ -1384,6 +1444,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           if (x.status === 401 && actor && !retry.pin) {
             retry.pin = true;
             delete pins[actor]; save();
+            done();
+            retry.owned = false;
             withUnlock(function () { pushAct(act, onOk, retry); });
             return;
           }
@@ -1448,6 +1510,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         var wasOffline = offline;
         setOnline(true);
         if (mergeTail({ acts: d.acts, since: since }) || wasOffline) render();
+        // The drain's second chance: the adoption-time attempt is a single
+        // shot that silently loses to pushBusy or a lingering offline flag.
+        // Untried entries only — drainOutbox never auto-retries a marked one.
+        if (outbox.length && !pushBusy) drainOutbox(false);
       })
       .catch(function () { if (gen !== netGen) return; setOnline(false); maybeFollowMove(); });
   }
@@ -1651,6 +1717,72 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       .catch(function () { return false; });
   }
 
+  /**
+   * Acts waiting on this device for the network to wake. Drained through the
+   * ordinary pushAct — same PIN unlock, same refusal explanations — one at a
+   * time, stopping at the first act the host refuses so the refusal is read
+   * rather than steamrolled. A stopped drain resumes from the banner button.
+   */
+  function drainOutbox(manual) {
+    if (!REMOTE || offline || !outbox.length || pushBusy) return;
+    // At-most-once AUTOMATICALLY: an entry is marked before its first send,
+    // and an entry whose send ended anywhere but success — refused, lost
+    // connection, the record moving mid-flight — is never auto-retried,
+    // because the host may have recorded it even though no reply said so.
+    // Resending that without a human is how a post appears twice, charged
+    // twice, forever. The Send-now button IS the human: it clears the marks.
+    if (manual) { outbox.forEach(function (e) { delete e.tried; }); saveOutbox(); }
+    var entry = null;
+    for (var i = 0; i < outbox.length; i++) if (!outbox[i].tried) { entry = outbox[i]; break; }
+    if (!entry) return; // everything left needs a person; the banner says so
+    entry.tried = 1; saveOutbox();
+    var act = JSON.parse(JSON.stringify(entry.act));
+    pushAct(act, function () {
+      var at = outbox.indexOf(entry);
+      if (at >= 0) outbox.splice(at, 1);
+      saveOutbox();
+      toast(outbox.length ? 'Recorded. ' + outbox.length + ' more in the outbox…' : 'Outbox empty — everything you wrote while the network slept is on the record.');
+      if (outbox.length) setTimeout(function () { drainOutbox(false); }, 500);
+      render();
+    });
+  }
+
+  /** Said on screen while the outbox holds anything, live or dark. */
+  function outboxBanner() {
+    if (!outbox.length) return null;
+    var held = 0;
+    for (var i = 0; i < outbox.length; i++) if (outbox[i].tried) held++;
+    var box = h('div', { class: 'card', style: 'margin-bottom:14px; border-style:dashed' },
+      h('p', { class: 'eyebrow', text: 'outbox — ' + outbox.length + ' act(s) waiting on this device' }),
+      h('p', { class: 'smallnote', text: !REMOTE
+        ? 'No host is answering yet. These were written into the dark window and stay on this device — the PIN is never stored with them — until the network wakes; then they are recorded automatically.'
+        : held
+          ? held + ' of these stopped on a refusal or an unclear send and will not retry by themselves — check the feed for doubles first, then Send now retries everything.'
+          : 'The network is back. These send through the normal door — a PIN-secured handle is asked to unlock first, and anything the host refuses stays here with the reason on screen.' }));
+    // What is actually waiting, not just how much: an act nobody can read is
+    // an act nobody meant, and the drain must never sign a mystery.
+    outbox.slice(0, 6).forEach(function (e) {
+      var line = h('div', { class: 'row', style: 'margin-top:4px; align-items:baseline; gap:6px' },
+        h('span', { class: 'smallnote mono', text: e.act.t + (e.tried ? ' (held)' : '') }),
+        h('span', { class: 'smallnote', text: String(e.act.text || '').slice(0, 64) || '(no text)' }),
+        h('button', { text: '×', title: 'discard this one', onclick: function () {
+          var at = outbox.indexOf(e);
+          if (at >= 0) outbox.splice(at, 1);
+          saveOutbox(); render();
+        } }));
+      box.appendChild(line);
+    });
+    if (outbox.length > 6) box.appendChild(h('p', { class: 'smallnote', text: '…and ' + (outbox.length - 6) + ' more' }));
+    var row = h('div', { class: 'row', style: 'margin-top:6px' });
+    if (REMOTE && !offline) row.appendChild(h('button', { text: 'Send now', onclick: function () { drainOutbox(true); } }));
+    row.appendChild(h('button', { text: 'Discard all', onclick: function () {
+      if (window.confirm && !window.confirm('Throw away ' + outbox.length + ' unsent act(s)? They exist nowhere else.')) return;
+      outbox = []; saveOutbox(); render();
+    } }));
+    box.appendChild(row);
+    return box;
+  }
+
   /** Said on screen whenever what you are reading is a snapshot, not a network. */
   function archiveBanner() {
     if (!archiveInfo) return null;
@@ -1714,6 +1846,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // other order strands REMOTE=true with nothing left alive to retry.
     startLiveTimers();
     render();
+    // Anything written into the dark window goes out now, through the same
+    // door as everything else. A moment's delay so the adoption render (and
+    // any PIN unlock it triggers) has settled ground to stand on.
+    if (outbox.length) setTimeout(drainOutbox, 1200);
     return true;
   }
 
@@ -3548,7 +3684,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       residents.appendChild(h('button', { class: 'lq-pill', onclick: function () { switchTo(id, st); } },
         avatar(id, 'lq-ava xs'), st.handles[id] + (st.pinHash[id] ? ' 🔒' : '')));
     });
+    var heroOb = outboxBanner();
     var wrap = h('div', { class: 'lq-shell' },
+      heroOb || h('span'),
       h('div', { class: 'lq-glass lq-hero' },
         h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
         h('p', { class: 'lede', text: 'Share what you love. Back the people you believe in. Watch trust move like energy.' }),
@@ -3592,6 +3730,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var lqLock = lockBanner(st, true);
     if (lqLock) wrap.appendChild(h('div', { class: 'lq-glass lq-card' }, lqLock));
+
+    // The outbox exists in both modes because posting does; a queue that can
+    // only be seen from the geek shell is a queue simple-mode users cannot
+    // discard, inspect, or even know about.
+    var lqOb = outboxBanner();
+    if (lqOb) wrap.appendChild(lqOb);
 
     if (lqView === 'feed') wrap.appendChild(lqFeed(st));
     else if (lqView === 'peers') wrap.appendChild(lqPeers(st));
@@ -5316,6 +5460,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // conclude the place was dead, when they are looking at a snapshot.
     var archOnboard = archiveBanner();
     if (archOnboard) root.appendChild(archOnboard);
+    var obOnboard = outboxBanner();
+    if (obOnboard) root.appendChild(obOnboard);
     root.appendChild(h('div', { class: 'onboard' },
       h('h1', { class: 'wordmark' }, h('span', { class: 'brandmark' }), h('span', {}, 'Peer', h('em', {}, '\u00A0Network'))),
       h('p', { class: 'lede', text: 'A social network where influence is commitment, not attention. Every act burns reserve; every endorsement transports your own rate; the feed is mathematics you can replay.' }),
@@ -5355,6 +5501,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // everything.
     var arch = archiveBanner();
     if (arch) root.appendChild(arch);
+    var ob = outboxBanner();
+    if (ob) root.appendChild(ob);
     root.appendChild(h('div', { class: 'topbar' },
       h('h1', { class: 'wordmark' }, h('span', { class: 'brandmark' }), h('span', {}, 'Peer', h('em', {}, '\u00A0Network'))),
       h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
