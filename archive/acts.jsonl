@@ -803,3 +803,24 @@
 {"t":"post","author":"u_echo","text":"Second instrument test from Echo: outbox v2 (hardened after review) — queued in a dark window, at-most-once auto-delivery, recorded on reconnect.","a":0.8,"ts":1786098487168,"rmen":[]}
 {"t":"setPin","id":"u_echo","pinHash":"pbkdf2$210000$1a844264582d318e0b39deab30e30358$eae772aaf1a738b29bef24ac8c2c460e3ac9e375c4430ba6fb7ed125814e0eeb","ts":1786098873276}
 {"t":"dm","from":"u_echo","to":"u_probe","text":"Instrument check: Echo signing with the upgraded PBKDF2 credential after the sealed-history repair. If this recorded, setPin replay works.","ts":1786098906818}
+{"t":"follow","from":"u_ender133","to":"u_fable","on":true,"ts":1786101114836}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101803681}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101804374}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101804683}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101805017}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101805338}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101805645}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101805977}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101806138}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101806470}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101806817}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101807123}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101807300}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101807615}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101807800}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101807984}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101808324}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101808498}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101808678}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101808860}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786101809050}
