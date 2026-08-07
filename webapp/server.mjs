@@ -2005,6 +2005,12 @@ async function worldState() {
 let chainBusy = false, chainAgain = false;
 function scheduleChainSeal() {
   if (role.mirrorOf) return;
+  // An explicitly keyless writer (PEER_SEAL=off — the cloud stand-in) does
+  // not seal: loadOrCreateProducerKey would happily mint a NEW key here, and
+  // blocks signed by it are exactly what the producer-pinned archive must
+  // refuse. A chain that pauses at its last sealed height is honest; a
+  // second signature pretending to be the record's author is not.
+  if (String(process.env.PEER_SEAL || '').toLowerCase() === 'off') return;
   if (chainBusy) { chainAgain = true; return; }
   chainBusy = true;
   setImmediate(async () => {
