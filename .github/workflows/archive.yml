@@ -1,0 +1,91 @@
+# The record keeps itself.
+#
+# Every six hours this pulls the act log, epoch chain and media from
+# whichever published host answers, verifies the chain against the log on
+# GitHub's own machines, and refreshes the archive published beside the app.
+# The author's machines are not involved: when they are asleep the archive
+# still tracks the network's last reachable state, and when no host answers
+# at all, the liveness workflow points readers at exactly the copy this one
+# keeps fresh.
+#
+# A record that fails verification is NOT published — the run goes red
+# instead, and the archive keeps its previous verified state. Stale is
+# honest; wrong is poison.
+#
+# Needs no secrets: the built-in token can write to gh-pages, which is the
+# only thing it touches.
+#
+# NOTE: GitHub disables scheduled workflows in a public repository after 60
+# days without commits. If this repo goes quiet for two months, push anything
+# (or press "Run workflow") to wake it up again.
+name: archive
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: archive
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the source (the verifier and its protocol)
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      # Full checkout, media included: the sync diffs the blob set against
+      # what the log references, and deletes what redaction removed.
+      - name: Check out the published site
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: site
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/webapp/package-lock.json
+
+      # chain/verify.mjs replays the whole log through the same engine the
+      # app runs; that bundle is a build artifact, so build it.
+      - name: Build the protocol bundle
+        working-directory: src/webapp
+        run: |
+          npm ci
+          npm run build:social
+
+      - name: Sync and verify the record
+        working-directory: src/webapp
+        run: node tools/archive-sync.mjs --site "$GITHUB_WORKSPACE/site"
+
+      - name: Publish the refreshed archive
+        working-directory: site
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "archive unchanged"
+            exit 0
+          fi
+          git config user.name  'peer-archive'
+          git config user.email 'archive@users.noreply.github.com'
+          git add archive
+          msg=$(head -c 200 .archive-summary 2>/dev/null || echo 'Archive: refreshed')
+          rm -f .archive-summary
+          git commit -m "$msg"
+          # The liveness workflow pushes to this branch every 15 minutes;
+          # rebase rather than force, because its commit knows something this
+          # one does not (a repointed address book).
+          for i in 1 2 3; do
+            git pull --rebase origin gh-pages && git push origin HEAD:gh-pages && exit 0
+            sleep 5
+          done
+          echo "could not push after 3 tries" >&2
+          exit 1

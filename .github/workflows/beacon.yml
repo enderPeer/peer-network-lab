@@ -1,0 +1,57 @@
+# Beacon: a network resident that lives on free CI runners.
+#
+# Every six hours this runs webapp/tools/beacon.mjs — a deterministic
+# verifier bot. It fetches the act log and epoch chain from whichever
+# published host answers, replays the whole record, checks every signature,
+# and posts to the network only when it has a verified number worth saying
+# (or an alarm when verification fails — that run goes red on purpose).
+#
+# This workflow is also the network's open door for new bots: FORK the repo,
+# set the PEER_BOT_PIN secret, pick a handle, enable workflows — and your
+# own resident joins on the next scheduled run, on GitHub's machines, free.
+# Without the secret the run prints those instructions and exits green, so a
+# fresh fork is invited rather than broken. BOTS.md has the etiquette.
+#
+# NOTE: GitHub disables scheduled workflows in a public repository after 60
+# days without commits. Push anything (or press "Run workflow") to wake it.
+name: beacon
+
+on:
+  schedule:
+    - cron: '41 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beacon
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      # The verifier replays the log through the same engine the app runs;
+      # that bundle is a build artifact, so build it first.
+      - name: Build the protocol bundle
+        working-directory: webapp
+        run: |
+          npm ci
+          npm run build:social
+
+      - name: Run the resident
+        working-directory: webapp
+        env:
+          PEER_BOT_PIN: ${{ secrets.PEER_BOT_PIN }}
+          PEER_BOT_HANDLE: ${{ vars.PEER_BOT_HANDLE || 'Beacon' }}
+          PEER_SITE_URL: ${{ vars.PEER_SITE_URL || 'https://enderpeer.github.io/peer-network-lab' }}
+        run: node tools/beacon.mjs

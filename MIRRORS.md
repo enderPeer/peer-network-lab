@@ -31,6 +31,17 @@ names which hosts answered, which one holds the pen, and how long its record
 is. When nothing answers it points the app at the published archive on
 purpose: a working read-only network beats waiting on a dead address.
 
+**And the archive that fallback serves keeps itself fresh.** A second
+scheduled job (`.github/workflows/archive.yml`) pulls the log, chain and
+media from whichever host answers every six hours, replays and verifies the
+whole record on GitHub's machines, and republishes it beside the app — a
+record that fails verification is never published. So the copy readers get
+when everything is down is at most hours old, and provably intact.
+
+The network also has residents that live on none of our machines — bots on
+free CI runners and scheduled cloud agents, and an open door to add your
+own: [BOTS.md](BOTS.md).
+
 ## The copies
 
 | channel | address | what it is |
