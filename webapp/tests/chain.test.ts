@@ -27,7 +27,14 @@ function fileSeed(...names: string[]) {
 }
 function world(...names: string[]) {
   const acts = fileSeed(...names);
-  for (const n of names) for (let i = 0; i < 3; i++) acts.push({ t: 'burn', id: 'u_' + n, amt: 1 });
+  // A proven Bitcoin burn each: token weight comes from destroyed value now,
+  // not from the faucet, so a fixture that only faucets distributes nothing
+  // and these sealing tests would have no economy to seal.
+  for (const n of names) {
+    const txid = (n + ':chain').split('').map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
+      .join('').slice(0, 64).padEnd(64, 'c');
+    acts.push({ t: 'btcBurn', id: 'u_' + n, txid, sats: 1000, addr: 'bc1qdead' });
+  }
   return acts;
 }
 const post = (who: string, text: string, extra: Record<string, unknown> = {}) =>

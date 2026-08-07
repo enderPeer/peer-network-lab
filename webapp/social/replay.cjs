@@ -242,7 +242,12 @@ function replayUncached(acts) {
   // account, no backing, no bridge, no custody — the host holds no keys, so
   // real BTC cannot live here and the symbol says so honestly.
   var TOK_EPOCH = 5000, TOK_DECAY = 0.9, TOK_YEAR = 365, TOK_CAP = 18250000;
-  var TOK_RHO = 0.2, TOK_DIM = 0.3;
+  var TOK_DIM = 0.3;
+  // One "unit" of committed value, in satoshis. Only the RATIO between
+  // burners matters for who gets what share of an epoch, so this number sets
+  // no price and promises nothing — it exists so the weights print as small
+  // readable numbers rather than tens of thousands.
+  var TOK_SAT_UNIT = 1000;
   var TBTC_CLAIM = 0.01;
   var TOK_MINLIQ = 1e-9; // locked forever at pool birth — kills the classic
                          // first-depositor share-inflation attack
@@ -276,6 +281,13 @@ function replayUncached(acts) {
   var adverts = [];      // {id, by, text, url, days, paid, at, until, aim, stopped}
   var adSeq = 0;
   var earnedBurn = {};   // burn an account acquired, EXCLUDING the register grant
+  // Value this account destroyed on the Bitcoin chain, in satoshis, proven by
+  // a txid anyone can check. Not a balance and not a claim: the coins are
+  // gone, paid to a script that can never be satisfied. This is the ONLY
+  // thing that weighs in the token distribution now — see TOK_SAT_UNIT.
+  var burnedSats = {};
+  var burnedTx = {};     // txid -> account, so one burn is claimed exactly once
+  var tokenEpoch0 = 0;   // epochs before a resetTokens act pay nobody
   var tokenCarry = 0;
   var tokEpochN = 0;
   var epochEngage = [];  // {actor, creator, base} since the last close
@@ -522,6 +534,31 @@ function replayUncached(acts) {
       ledgerById[a.id].burnBal += a.amt;
       earnedBurn[a.id] = (earnedBurn[a.id] || 0) + a.amt;
       if (!payloadGone) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (faucet)' });
+    } else if (a.t === 'btcBurn') {
+      // Value destroyed on the Bitcoin chain, recorded only after the host
+      // verified the transaction against public explorers. What makes this
+      // trustworthy is not the host's word: the txid is in the log, the
+      // output pays a script that provably cannot be spent, and anybody can
+      // check both without asking anyone. Replay does NOT re-fetch — a
+      // replay that needed the internet would not be a pure function of the
+      // log — so the act carries what was verified and the chain carries the
+      // proof.
+      if (!known(a.id)) continue;
+      if (burnedTx[a.txid]) continue;            // a burn is claimed once, ever
+      burnedTx[a.txid] = a.id;
+      burnedSats[a.id] = (burnedSats[a.id] || 0) + a.sats;
+      if (!payloadGone) {
+        chron.push({ who: a.id, line: 'burned ' + a.sats + ' sat to the dead address · tx ' + String(a.txid).slice(0, 12) + '… (irreversible, verifiable by anyone)' });
+      }
+    } else if (a.t === 'resetTokens') {
+      // The ledger starts again. Nothing is rewritten: every act that ever
+      // happened is still here and still replays. What changes is which
+      // epochs pay — the balances minted while weight was free were farmed
+      // by a faucet, and carrying them forward would price that farming in
+      // permanently.
+      tokenEpoch0 = certsSoFar;
+      for (var rsym in tokenBal) tokenBal[rsym] = {};
+      if (!payloadGone) chron.push({ who: a.id || null, line: 'the token ledger was reset to zero at epoch ' + certsSoFar + ' — free-minted balances stop here' });
     } else if (a.t === 'deposit') {
       if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !payloadGone) {
         chron.push({ who: a.id, line: 'deposited ' + a.amt.toFixed(2) + ' reserve → escrow (mints at the next cycle boundary)' });
@@ -1056,11 +1093,23 @@ function replayUncached(acts) {
         // against 1.83, and twenty free registrations took 55.9% of an epoch
         // from twenty burned, active users). A grant is a starter, not a
         // stake. An account that has burned nothing now weighs nothing.
-        var earned = earnedBurn[ev.actor] || 0;
-        if (earned <= 0) continue;
-        var spent = THETA * al.actCount;
-        var ahat = (Math.max(0, earned - spent) / al.actCount) / NU;
-        if (ahat < TOK_RHO) continue;                    // gate: no commitment, no weight
+        // ── Weight is linear in value actually destroyed ──────────────────
+        //
+        // It used to be λ(α̂)=α̂/(1+α̂) over FAUCET burn, and TOKEN.md said
+        // plainly what that meant: λ saturates per account, so splitting a
+        // stake across twenty puppets beat concentrating it (measured 59.6%
+        // capture), and the stake itself was free — the cost of weight was
+        // the cost of registering. Both halves are gone now. Weight is the
+        // satoshis an account proved it destroyed, counted linearly, so
+        // twenty accounts holding a stake between them weigh exactly what
+        // one account holding all of it weighs. Sybils stop paying.
+        //
+        // The faucet still exists and still buys the energy to act — nobody
+        // is locked out of speaking — it just does not buy a share of the
+        // mint any more.
+        var sats = burnedSats[ev.actor] || 0;
+        if (sats <= 0) continue;                         // no real burn, no weight
+        var ahat = sats / TOK_SAT_UNIT;
         // A creator who later deleted their account still earned their share.
         // Skipping them here would silently re-cut every OTHER creator's slice
         // of an epoch that closed long ago — the same defect as a deletion that
@@ -1069,7 +1118,7 @@ function replayUncached(acts) {
         var pk = ev.actor + '>' + ev.creator;
         pairN[pk] = (pairN[pk] || 0) + 1;
         var damp = 1 / (1 + TOK_DIM * (pairN[pk] - 1));
-        var lam = ahat / (1 + ahat);
+        var lam = ahat;                                  // linear, not saturating
         var w = ev.base * damp * lam;
         tw[ev.creator] = (tw[ev.creator] || 0) + w;
         twTotal += w;
@@ -1085,6 +1134,11 @@ function replayUncached(acts) {
             nth: pairN[pk], weight: round6(w) });
         }
       }
+      // Epochs that closed before the reset pay nobody: their weights were
+      // computed under the free-faucet rule this reset exists to retire. The
+      // pool they would have paid is not lost — it carries, like any epoch
+      // nobody engaged in, and reaches the people who burn for real.
+      if (certsSoFar <= tokenEpoch0) twTotal = 0;
       if (twTotal > 0 && tokPool > 0) {
         var credited = 0, distTo = {};
         for (var tk in tw) {

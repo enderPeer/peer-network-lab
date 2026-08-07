@@ -14,10 +14,26 @@
 import { describe, it, expect } from 'vitest';
 import { replay, seed } from './helpers/world';
 
-/** seed + burns so actors clear the α̂ ≥ 0.2 gate comfortably. */
+/**
+ * seed + a proven Bitcoin burn each, so every actor carries the same weight.
+ *
+ * Weight used to come from the faucet, which is why this helper used to hand
+ * out `burn` acts. It comes from destroyed value now, so it hands out the
+ * thing that is actually scarce. One TOK_SAT_UNIT (1000 sat) each puts every
+ * actor at exactly λ = 1, which is what makes the arithmetic in these tests
+ * readable: a weight is then just base × damping.
+ */
+const BURN_UNIT = 1000;
+function btcBurn(name: string, sats = BURN_UNIT, nonce = 0) {
+  // A txid is 64 hex characters and each burn must be a distinct one — the
+  // replay credits a given txid exactly once, on purpose.
+  const txid = (name + ':' + sats + ':' + nonce).padEnd(32, '0').split('')
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('').slice(0, 64).padEnd(64, 'a');
+  return { t: 'btcBurn', id: 'u_' + name, txid, sats, addr: 'bc1qdead' };
+}
 function world(...names: string[]) {
   const acts = seed(...names);
-  for (const n of names) for (let i = 0; i < 3; i++) acts.push({ t: 'burn', id: 'u_' + n, amt: 1 });
+  for (const n of names) acts.push(btcBurn(n));
   return acts;
 }
 const post = (who: string, text: string) => ({ t: 'post', author: 'u_' + who, text, a: 0.8, rmen: [] });
@@ -71,7 +87,58 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
     for (const f of fans) rep.push(like(f, 'c2'));                 // ten fans, once each
     rep.push(close());
     const st = replay(rep);
-    expect(st.tokens.bal.PEER.u_bo).toBeGreaterThan(st.tokens.bal.PEER.u_al * 2);
+    // The margin is now exactly derivable, so assert the number rather than a
+    // hand-picked threshold. Ten fans once each weigh 10 × damp(1) = 10; one
+    // fan ten times weighs Σ 1/(1+0.3(n−1)) for n=1..10 = 5.0188…, so breadth
+    // wins by 1.992×. It used to clear 2× because the old λ punished the busy
+    // fan a second time — a high act count lowered α̂ — and weight no longer
+    // depends on how much you act, only on what you burned. Damping alone
+    // still decides it, which is the property this test exists for.
+    const ratio = st.tokens.bal.PEER.u_bo / st.tokens.bal.PEER.u_al;
+    expect(ratio).toBeCloseTo(10 / 5.018773, 3);
+    expect(ratio).toBeGreaterThan(1.9);
+  });
+
+  it('a stake split across twenty puppets weighs exactly what one account weighs', () => {
+    // The whole reason this economy changed. Weight used to be λ(α̂)=α̂/(1+α̂),
+    // which saturates per ACCOUNT, so splitting a stake beat concentrating it
+    // — measured at 59.6% capture by twenty puppets, and documented in
+    // TOKEN.md as unfixable while burn was a faucet. Weight is linear in
+    // destroyed satoshis now, so the split is worth precisely nothing.
+    const puppets = Array.from({ length: 20 }, (_, i) => 'p' + i);
+    const split = seed('cr', 'whale', ...puppets);
+    split.push(btcBurn('whale', 20000));                 // one account, 20k sat
+    puppets.forEach((p, i) => split.push(btcBurn(p, 1000, i))); // twenty, 1k each
+    split.push(post('cr', 'C'));
+    // Both sides engage the same creator the same number of times, so only the
+    // shape of the stake differs.
+    const whaleSide = [...split];
+    for (let i = 0; i < 20; i++) whaleSide.push(like('whale', 'c1'));
+    const puppetSide = [...split];
+    for (const p of puppets) puppetSide.push(like(p, 'c1'));
+
+    const wDetail = replay([...whaleSide, close()]).tokens.dist[0];
+    const pDetail = replay([...puppetSide, close()]).tokens.dist[0];
+    // Same minted pool either way, and the creator receives all of it in both
+    // — what matters is that neither arrangement out-weighs the other, which
+    // is what "linear in committed value" means.
+    expect(wDetail.minted).toBeCloseTo(pDetail.minted, 6);
+    expect(wDetail.to.u_cr).toBeCloseTo(pDetail.to.u_cr, 6);
+  });
+
+  it('the faucet buys energy to act, and no share of the mint', () => {
+    // Anyone can still speak: `burn` is untouched as a source of θ. It simply
+    // stopped being evidence of commitment, because it never cost anything.
+    const acts = [...seed('al', 'bo'),
+      { t: 'burn', id: 'u_bo', amt: 1 }, { t: 'burn', id: 'u_bo', amt: 1 },
+      post('al', 'P'), like('bo', 'c1'), close()];
+    const st = replay(acts);
+    // Nothing was distributed at all, so the PEER ledger was never even
+    // created — a stronger statement than "al got zero".
+    expect((st.tokens.bal.PEER ?? {}).u_al).toBeUndefined();
+    expect(st.tokens.dist.every((d: { minted: number }) => d.minted === 0)
+      || st.tokens.dist.length === 0).toBe(true);
+    expect(st.ledgerById.u_bo.burnBal).toBeGreaterThan(0); // but bo can still act
   });
 
   it('gives zero weight to an actor below the α̂ gate', () => {

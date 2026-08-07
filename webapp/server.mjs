@@ -35,7 +35,7 @@ const DATA_DIR = process.env.PEER_DATA_DIR
 const LOG = resolve(DATA_DIR, 'acts.jsonl');
 const PORT = Number(process.argv[2] ?? 5210);
 
-const ACT_KINDS = new Set(['register', 'burn', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
+const ACT_KINDS = new Set(['register', 'burn', 'btcBurn', 'resetTokens', 'post', 'opinion', 'review', 'tag', 'closeEpoch',
   'deposit', 'burnL0', 'redeem', 'transferL0', 'closeCycle', 'setPin', 'dm',
   'editPost', 'deletePost', 'deleteAccount', 'call', 'stream',
   'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap',
@@ -216,6 +216,11 @@ const ACT_FIELDS = {
   profile: ['t', 'id', 'bio', 'link', 'pic'],
   setRecovery: ['t', 'id', 'codeHash'],
   closeEpoch: ['t', 'epoch'],
+  // The txid is the whole point: it is what lets a reader verify the burn
+  // against the chain without believing this host. addr is recorded so a
+  // later change of burn address cannot make old burns ambiguous.
+  btcBurn: ['t', 'id', 'txid', 'sats', 'addr', 'ts'],
+  resetTokens: ['t', 'id', 'ts'],
   deposit: ['t', 'id', 'amt'],
   burnL0: ['t', 'id', 'x'],
   redeem: ['t', 'id', 'x'],
@@ -1177,6 +1182,21 @@ function persist(act) {
 }
 
 /**
+ * Write an act the HOST itself authored, bypassing the client door.
+ *
+ * A few acts must exist in the record but must never be accepted from
+ * outside: a verified Bitcoin burn (a client declaring its own burn would
+ * make the verification decorative) and an operator's ledger reset. `validate`
+ * refuses both at the door; this is the only way they get written, and every
+ * caller must have done its own checking first.
+ */
+function mintInternal(act) {
+  acts.push(act);
+  persist(act);
+  return act;
+}
+
+/**
  * Attach the standing explanation to any refusal that carries a code.
  *
  * Doing it here, at the one place every response is written, means a new
@@ -1361,6 +1381,88 @@ if (BTC_ADDRESS_RAW) {
     console.error('[ads] Copy a receive address from your wallet; do not type it by hand.');
   }
 }
+// ── Proof of burn ──────────────────────────────────────────────────────────
+//
+// The dead address. Not a wallet: a P2WSH output committing to the script
+// OP_RETURN, which fails the instant it executes, so no witness can ever
+// spend it. That is the difference between "nobody knows the key" and "there
+// is no key" — the first is a rumour, the second is arithmetic. Derivation
+// (reproduce it yourself): scriptPubKey = OP_0 PUSH32 sha256(0x6a), address =
+// bech32('bc', 0, that hash). Verified against the BIP-173/350 vectors and
+// two independent explorers, which also show the address has received coins
+// and never once spent any.
+//
+// It is configuration, not a constant, because an operator running their own
+// copy must be able to point somewhere they derived themselves rather than
+// trust a string that arrived in someone else's source file.
+const BURN_ADDRESS_DEFAULT = 'bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2';
+const BURN_ADDRESS_RAW = (process.env.PEER_BURN_ADDRESS ?? '').trim();
+let BURN_ADDRESS = '';
+// Proof of burn is OFF unless an operator switches it on. A network that
+// starts asking strangers for real money because a default said so would be
+// the worst possible default.
+if (BURN_ADDRESS_RAW) {
+  if (validBtcAddress(BURN_ADDRESS_RAW)) BURN_ADDRESS = BURN_ADDRESS_RAW;
+  else console.error('[burn] PEER_BURN_ADDRESS failed its checksum — proof of burn is OFF.');
+}
+// How many confirmations before a burn counts. Unconfirmed transactions can
+// be replaced; a burn that could be un-burned is not a burn.
+const BURN_MIN_CONF = Math.max(1, Number(process.env.PEER_BURN_MIN_CONF) || 2);
+
+/**
+ * Verify that a transaction really destroyed value, by asking two independent
+ * public explorers and requiring them to agree.
+ *
+ * Trusting one explorer would put this host's economy inside somebody else's
+ * API. Requiring agreement means a single wrong or hostile answer produces a
+ * refusal rather than minted weight — and a refusal is recoverable, whereas a
+ * credited burn that never happened is a lie the log would carry forever.
+ *
+ * Nothing here is taken on faith by readers either: the txid goes into the
+ * act, so anyone can repeat this check against any explorer they like, or
+ * against their own node.
+ */
+async function verifyBurnTx(txid) {
+  const sources = [
+    'https://blockstream.info/api/tx/' + txid,
+    'https://mempool.space/api/tx/' + txid,
+  ];
+  const seen = [];
+  for (const u of sources) {
+    let r;
+    try {
+      r = await fetch(u, { signal: AbortSignal.timeout(15_000) });
+    } catch {
+      return { ok: false, why: 'could not reach a block explorer to check that transaction — try again shortly' };
+    }
+    if (r.status === 404) return { ok: false, why: 'no such transaction on the Bitcoin chain' };
+    if (!r.ok) return { ok: false, why: 'a block explorer answered ' + r.status + ' — nothing was recorded' };
+    let tx;
+    try { tx = await r.json(); } catch { return { ok: false, why: 'a block explorer returned something unreadable' }; }
+    // Sum every output paying the dead address: one transaction may burn
+    // across several outputs, and counting only the first would under-credit.
+    let sats = 0;
+    for (const o of (tx.vout || [])) {
+      if (o && o.scriptpubkey_address === BURN_ADDRESS) sats += Number(o.value) || 0;
+    }
+    const confirmed = !!(tx.status && tx.status.confirmed);
+    const height = tx.status && tx.status.block_height ? Number(tx.status.block_height) : null;
+    seen.push({ sats, confirmed, height });
+  }
+  // Agreement, field by field. Explorers at slightly different tips are
+  // normal; disagreeing about what a transaction PAID is not.
+  if (seen[0].sats !== seen[1].sats) {
+    return { ok: false, why: 'the explorers disagree about what that transaction paid — refusing to record it' };
+  }
+  if (seen[0].sats <= 0) {
+    return { ok: false, why: 'that transaction pays nothing to the dead address ' + BURN_ADDRESS };
+  }
+  if (!seen[0].confirmed || !seen[1].confirmed) {
+    return { ok: false, why: 'that transaction is not confirmed yet — an unconfirmed burn can still be replaced, so it does not count until it is mined' };
+  }
+  return { ok: true, sats: seen[0].sats, height: seen[0].height };
+}
+
 // Contact addresses live beside the log, never in it. server-data/ is
 // gitignored wholesale, the mirror copies only acts and media, and the static
 // archive publishes only acts.jsonl — so nothing here can escape by accident.
@@ -1377,7 +1479,11 @@ function authError(act) {
     // be authorised by whoever can act as it today. It was missing, which made
     // key registration skip the PIN check entirely — a test caught it before
     // the endpoint ever shipped.
-    : (act.author ?? act.from ?? (['burn', 'deposit', 'burnL0', 'redeem', 'setPin', 'setKey', 'deleteAccount',
+    // btcBurn belongs here for the plainest reason: a burn binds destroyed
+    // money to a handle, so it must be authorised by whoever can act as that
+    // handle. Without it the actor derives null, the PIN check is skipped,
+    // and anyone watching the chain could claim a stranger's burn.
+    : (act.author ?? act.from ?? (['burn', 'btcBurn', 'deposit', 'burnL0', 'redeem', 'setPin', 'setKey', 'deleteAccount',
       // profile and setRecovery carry their actor in `id`, like setPin. Left
       // out of this list they derive a null actor and skip the PIN check
       // entirely: anyone could rewrite anyone's biography, or attach a
@@ -1589,6 +1695,16 @@ function validate(act) {
       break;
     }
       break;
+    case 'btcBurn': {
+      // Never accepted from the outside door. A burn is minted by the host
+      // only after /api/burn/claim has verified the transaction against two
+      // independent public explorers; letting a client post one directly
+      // would make the whole mechanism a self-declaration.
+      return 'a burn is recorded by the host after it verifies the transaction — POST /api/burn/claim with your txid instead';
+    }
+    case 'resetTokens': {
+      return 'the token ledger is reset by the operator, not through this door';
+    }
     case 'post': {
       if (tooLong(act.text, 1000, 'post')) return tooLong(act.text, 1000, 'post');
       if (!str(act.author, 24) || !str(act.text, 1000) || !inR(act.a)) return 'bad post';
@@ -3061,6 +3177,72 @@ const server = createServer((req, res) => {
     }
     return;
   }
+  // Where a burn becomes a record. The person sends coins to the dead address
+  // themselves, from their own wallet — this host never touches money, holds
+  // no key, and could not move a satoshi if it wanted to — and then hands in
+  // the txid. Everything after that is verification.
+  if (req.method === 'POST' && url.pathname === '/api/burn/claim') {
+    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down', code: 'RATE_LIMIT' }); return; }
+    if (mirrorRefuse(res)) return;
+    if (!BURN_ADDRESS) {
+      json(res, 404, { code: 'BURN_OFF', error: 'proof of burn is not switched on for this host',
+        why: 'no burn address is configured, so there is nothing to verify against and nothing to send to.' });
+      return;
+    }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', async () => {
+      let b;
+      try { b = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      const id = String(b.id || '').slice(0, 24);
+      const txid = String(b.txid || '').trim().toLowerCase();
+      if (!/^[a-f0-9]{64}$/.test(txid)) { json(res, 400, { code: 'BAD_TXID', error: 'a Bitcoin txid is 64 hex characters' }); return; }
+      if (engineMod && replayMod) {
+        if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+        if (stateCache.len !== acts.length || !stateCache.st) {
+          stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+        }
+        if (!stateCache.st.ledgerById[id]) { json(res, 404, { code: 'NO_SUCH_HANDLE', error: 'no such handle: ' + id }); return; }
+      }
+      // The PIN, exactly as every other act by a secured handle needs it —
+      // otherwise a stranger could bind a burn they watched on the chain to
+      // an account that is not theirs.
+      const aerr = authError({ t: 'btcBurn', id, auth: typeof b.auth === 'string' ? b.auth : '' });
+      if (aerr) { json(res, 401, { code: 'PIN_REQUIRED', error: aerr }); return; }
+      // Claimed once, ever — checked against the log itself, which is the
+      // only record that survives a restart.
+      for (const a of acts) {
+        if (a && a.t === 'btcBurn' && a.txid === txid) {
+          json(res, 409, { code: 'ALREADY_CLAIMED', error: 'that transaction is already recorded' + (a.id === id ? ' — for this handle' : ' for another handle') });
+          return;
+        }
+      }
+      const v = await verifyBurnTx(txid);
+      if (!v.ok) { json(res, 400, { code: 'BURN_UNVERIFIED', error: v.why }); return; }
+      // Minted here rather than through applyAct: `validate` refuses btcBurn
+      // at every door on purpose, so that a client cannot declare its own
+      // burn. This is the one place allowed to write one, and only after
+      // verifyBurnTx said yes.
+      mintInternal({ t: 'btcBurn', id, txid, sats: v.sats, addr: BURN_ADDRESS, ts: Date.now() });
+      json(res, 200, { ok: true, sats: v.sats, txid, address: BURN_ADDRESS, blockHeight: v.height,
+        note: 'recorded. The coins are gone — this address has no key and never had one. Anyone can check this txid against the chain.' });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/burn') {
+    json(res, 200, {
+      accepting: !!BURN_ADDRESS,
+      address: BURN_ADDRESS || null,
+      minConfirmations: BURN_MIN_CONF,
+      whatThisIs: BURN_ADDRESS
+        ? 'Send from your own wallet to this address and the coins are destroyed — it is a P2WSH output committing to the script OP_RETURN, which can never be satisfied, so no key exists and none ever did. Then POST /api/burn/claim {id, txid, auth} and the host verifies your transaction against two independent public explorers before recording it. What you get is weight in the PEER distribution, which is play money on a test network. You are not buying anything and nothing is redeemable.'
+        : 'Proof of burn is not switched on for this host.',
+      verifyItYourself: BURN_ADDRESS
+        ? 'sha256 of the single byte 0x6a is the witness program; address = bech32(hrp "bc", version 0, that hash).'
+        : null,
+    });
+    return;
+  }
   if (req.method === 'POST' && url.pathname === '/api/act') {
     if (!actLimiter(ip)) { json(res, 429, { error: 'slow down — the network accepts at most ' + ACT_RATE + ' acts per minute from one place', code: 'RATE_LIMIT' }); return; }
   if (mirrorRefuse(res)) return;
@@ -3581,6 +3763,29 @@ const server = createServer((req, res) => {
       return;
     }
     const p2 = url.pathname.slice('/api/admin/'.length);
+
+    // Zero the token ledger. Deliberately awkward: it takes the operator
+    // token AND a typed confirmation, because it is the one action here that
+    // changes what everyone's balance says. Nothing is deleted — every act
+    // stays in the log and still replays; the reset is itself an act, so the
+    // record shows the ledger was zeroed, when, and by whom.
+    if (req.method === 'POST' && p2 === 'reset-tokens') {
+      if (mirrorRefuse(res)) return;
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 2048) req.destroy(); });
+      req.on('end', () => {
+        let b = {};
+        try { b = JSON.parse(body || '{}'); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+        if (b.confirm !== 'reset the token ledger') {
+          json(res, 400, { code: 'CONFIRM_REQUIRED',
+            error: 'send {"confirm":"reset the token ledger"} — this zeroes every PEER balance on the network' });
+          return;
+        }
+        mintInternal({ t: 'resetTokens', id: null, ts: Date.now() });
+        json(res, 200, { ok: true, note: 'the ledger is zeroed from this epoch on; the log is unchanged and still replays' });
+      });
+      return;
+    }
 
     if (req.method === 'GET' && p2 === 'metrics') {
       // The engine bundle is imported lazily and asynchronously, so on a

@@ -155,8 +155,11 @@ describe('a paid event moves money and nothing that is ranked', () => {
     // moved money to each other in the same epoch.
     const common = seed('host', 'goer').concat([
       { t: 'btcClaim', author: 'u_goer' },
-      { t: 'burn', id: 'u_goer', amt: 1 }, { t: 'burn', id: 'u_goer', amt: 1 },
-      { t: 'burn', id: 'u_goer', amt: 1 }, { t: 'burn', id: 'u_goer', amt: 1 },
+      // A real burn, because weight comes from destroyed value now — without
+      // one the goer weighs nothing, both sides of this comparison are zero,
+      // and the test would "pass" while proving nothing about the wall.
+      { t: 'btcBurn', id: 'u_goer', sats: 1000, addr: 'bc1qdead',
+        txid: 'e7'.repeat(32) },
       { t: 'event', author: 'u_host', text: 'a reading', fee: 0.004, cur: 'tBTC' },
     ]);
     const paidThenReacted = replay(common.concat([
