@@ -2271,20 +2271,22 @@ function applyAct(act, auth, ip) {
  */
 function flushPinUpgrades() {
   if (!pinUpgrades.size) return;
-  let touched = false;
+  // APPENDED, never rewritten in place — learned from a real fault. The old
+  // version edited the newest register/setPin act's pinHash where it stood,
+  // reasoning the hash is "in no score, no edge and no certificate". True of
+  // the replay; false of the CHAIN: the sealed block's structural hash covers
+  // those exact bytes, and the first upgrade of an already-sealed act made
+  // block 31 unverifiable ("the log was rewritten beyond lawful redaction")
+  // — which then correctly froze every verify-then-publish pipeline. A
+  // setPin act is the append-only way to say the same thing: pinIndex and
+  // both replays already take the newest one in log order.
   for (const [id, fresh] of pinUpgrades) {
-    for (let i = acts.length - 1; i >= 1; i--) {
-      const a = acts[i];
-      if ((a.t === 'register' || a.t === 'setPin') && a.id === id && a.pinHash) {
-        a.pinHash = fresh;
-        pinIndex.set(id, fresh);
-        touched = true;
-        break; // newest wins, exactly as the index does
-      }
-    }
+    const act = { t: 'setPin', id, pinHash: fresh, ts: Date.now() };
+    acts.push(act);
+    persist(act);
+    pinIndex.set(id, fresh);
   }
   pinUpgrades.clear();
-  if (touched) rewriteLog();
 }
 
 function applyActInner(act, auth, ip) {
