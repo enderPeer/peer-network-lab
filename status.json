@@ -1,16 +1,16 @@
 {
-  "checked": "2026-08-07T09:14:08.521Z",
-  "anyLive": true,
-  "writer": "https://gentle-santa-auction-collected.trycloudflare.com",
+  "checked": "2026-08-07T09:29:19.710Z",
+  "anyLive": false,
+  "writer": null,
   "hosts": [
     {
       "url": "https://gentle-santa-auction-collected.trycloudflare.com",
-      "live": true,
-      "acts": 802,
-      "role": "primary",
-      "writer": true,
-      "chainHeight": 60,
-      "error": null
+      "live": false,
+      "acts": null,
+      "role": null,
+      "writer": false,
+      "chainHeight": null,
+      "error": "HTTP 530"
     }
   ],
   "note": "Written every 15 minutes by a scheduled GitHub Action. It probes the hosts named in host.json and repoints that file; it never touches the act log."
