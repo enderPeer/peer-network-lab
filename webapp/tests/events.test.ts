@@ -20,7 +20,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -185,6 +185,17 @@ describe('the host on events', () => {
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'peer-events-test-'));
     mkdirSync(join(dir, 'server-data'), { recursive: true });
+    // Seeded into the LOG rather than posted. Registering opens an account
+    // at zero now, and a btcBurn can never arrive through the client door -
+    // the host mints those itself, only after verifying a transaction. So
+    // these actors are given reserve the way the live network gives it:
+    // from destroyed bitcoin, written straight into the record.
+    writeFileSync(join(dir, 'server-data', 'acts.jsonl'), [
+      { t: 'register', id: 'u_org', handle: 'Org', seed: 1, epoch: 0, pinHash: pinHash('u_org', '2468') },
+      { t: 'register', id: 'u_open', handle: 'Openhandle', seed: 1, epoch: 0 },
+      { t: 'btcBurn', id: 'u_org', txid: 'a'.repeat(64), sats: 30000, addr: 'bc1qdead' },
+      { t: 'btcBurn', id: 'u_open', txid: 'b'.repeat(64), sats: 30000, addr: 'bc1qdead' },
+    ].map((a) => JSON.stringify(a)).join(String.fromCharCode(10)) + String.fromCharCode(10));
     child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {
       stdio: 'ignore',
       // This file spends more than twenty acts a minute setting its worlds up,
@@ -195,8 +206,6 @@ describe('the host on events', () => {
     for (let i = 0; i < 100; i++) {
       try { await fetch(BASE + '/api/live'); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
     }
-    await act({ t: 'register', id: 'u_org', handle: 'Org', seed: 1, epoch: 0, pinHash: pinHash('u_org', '2468') });
-    await act({ t: 'register', id: 'u_open', handle: 'Openhandle', seed: 1, epoch: 0 });   // no PIN on purpose
     await act({ t: 'assetCreate', author: 'u_open', sym: 'TBTC', name: 'test unit', supply: 0.01 });
   }, 30000);
 

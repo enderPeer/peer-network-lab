@@ -7876,7 +7876,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('h2', { text: 'Liquidity pools' }),
         h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
       var pids = Object.keys(myPools);
-      if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. Open the first one below — PEER/tBTC is the intended opening pair.' }));
+      if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. PEER trades on Base, against cbBTC — that pool is the real one. Anything opened here trades minted assets against each other and settles nothing outside this log.' }));
       pids.forEach(function (pid) {
         var pl = myPools[pid];
         var mine = pl.shares[who] || 0;
@@ -7926,13 +7926,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
 
       var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
-      var npB = h('input', { type: 'text', placeholder: 'tBTC', style: 'width:70px', maxlength: '8' });
+      var npB = h('input', { type: 'text', placeholder: 'SYMBOL', style: 'width:70px', maxlength: '8' });
       var npAmtA = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
       var npAmtB = h('input', { type: 'text', placeholder: 'amount', style: 'width:80px', inputmode: 'decimal' });
       pCard.appendChild(h('div', { class: 'mini-form' }, npA, npAmtA, npB, npAmtB,
         h('button', { class: 'btn small primary', text: 'Open pool · −θ', onclick: function () {
           var va = parseFloat(npAmtA.value), vb = parseFloat(npAmtB.value);
-          var sa = (npA.value || 'PEER').trim(), sb = (npB.value || 'tBTC').trim();
+          var sa = (npA.value || 'PEER').trim(), sb = (npB.value || '').trim();
           if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both starting amounts, please.'); return; }
           tryAct(who, { t: 'poolCreate', author: who, symA: sa, symB: sb, amtA: va, amtB: vb }, 'Opened the ' + sa + '/' + sb + ' pool. The starting ratio IS the starting price.');
         } })));
@@ -7944,7 +7944,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var faSupply = h('input', { type: 'text', placeholder: 'supply', style: 'width:90px', inputmode: 'decimal' });
       wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'Mint a fun asset' }),
-        h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER or tBTC and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
+        h('p', { class: 'smallnote', text: 'Your own token, full supply to you, worth exactly what a pool says and nothing more. Pair it against PEER and find out what the network thinks a joke is worth. It cannot buy standing — nothing can.' }),
         h('div', { class: 'mini-form' }, faSym, faName, faSupply,
           h('button', { class: 'btn small primary', text: 'Mint · −θ', onclick: function () {
             var sup = parseFloat(faSupply.value);
@@ -7957,12 +7957,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       // around something nobody could actually buy. Publish first, moderate
       // after — the advertiser or the operator can stop one with a single act.
       var adPrice = st.adPricePerDay || 10;
-      var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
+      var myTbtc = (st.tokens && st.tokens.bal.PEER && st.tokens.bal.PEER[who]) || 0;
 
       var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'Buy a placement' }));
       adCard2.appendChild(h('p', { class: 'smallnote', text:
-        'A box in the feed, paid for in tBTC — sandbox money, and it is BURNED rather than paid to anyone, because advertising should destroy value here the way every other commitment does. It goes live immediately.' }));
+        'A box in the feed, paid for in PEER — and the PEER is DESTROYED rather than paid to anyone. PEER is earned by drawing engagement, or bought from the pool on Base, so buying attention means buying it from the people who earned it. It goes live immediately.' }));
       adCard2.appendChild(h('p', { class: 'smallnote', text:
         'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
 
@@ -7973,7 +7973,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       function priceIt() {
         var d = Math.max(1, Math.min(90, parseInt(adDays.value, 10) || 7));
         var c = Math.round(adPrice * d * 1e6) / 1e6;
-        adCost.textContent = c + ' tBTC · you hold ' + Math.round(myTbtc * 1e6) / 1e6
+        adCost.textContent = c + ' PEER · you hold ' + Math.round(myTbtc * 1e6) / 1e6
           + (c > myTbtc ? ' — not enough' : '');
         adCost.className = 'smallnote' + (c > myTbtc ? ' warn' : '');
       }
@@ -8048,11 +8048,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             text: adText.value.trim(), url: adUrl.value.trim(), days: d,
             placement: placement, tags: Object.keys(chosenTags),
             people: people, posts: split(postsIn.value), regions: split(regionIn.value),
-          }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' tBTC, which was burned.');
+          }, 'Placement is live. It cost ' + (Math.round(adPrice * d * 1e6) / 1e6) + ' PEER, which was destroyed.');
         } })));
       if (!myTbtc) {
         adCard2.appendChild(h('p', { class: 'smallnote warn', text:
-          'You hold no tBTC. Claim 0.01 above — once per account — or trade for some in a pool.' }));
+          'You hold no PEER. It arrives when an epoch closes and people have engaged with what you made — or buy some from the pool on Base.' }));
       }
 
       // Your own placements, and the one control that matters after publishing.
