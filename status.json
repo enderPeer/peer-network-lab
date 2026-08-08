@@ -1,12 +1,12 @@
 {
-  "checked": "2026-08-08T14:47:40.849Z",
+  "checked": "2026-08-08T15:19:21.968Z",
   "anyLive": true,
   "writer": "https://plus-magnificent-citizen-telescope.trycloudflare.com",
   "hosts": [
     {
       "url": "https://plus-magnificent-citizen-telescope.trycloudflare.com",
       "live": true,
-      "acts": 1,
+      "acts": 3,
       "role": "primary",
       "writer": true,
       "chainHeight": 0,
