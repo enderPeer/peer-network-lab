@@ -117,6 +117,26 @@ export const CATALOGUE = {
   },
 
   // ── This host ───────────────────────────────────────────────────────────
+  BURN_UNVERIFIED: {
+    http: 400,
+    why: 'A burn is only a burn if the chain says so. The host asked two independent public block explorers about that transaction and did not get an answer it could act on: either the transaction does not exist, or it pays nothing to the dead address, or it is not confirmed yet, or the explorers disagreed about what it paid. Recording it on any of those answers would put a number in a permanent public record that nobody could check.',
+    fix: 'Check the txid on any block explorer yourself. If you have just sent it, wait for confirmations — an unconfirmed transaction can still be replaced, so it does not count until it is mined.',
+  },
+  BURN_OFF: {
+    http: 404,
+    why: 'Proof of burn is not switched on for this host: no burn address is configured, so there is nothing to verify against and nowhere to send anything.',
+    fix: 'Nothing you can do from here. The operator sets a burn address, or this network simply does not use burns.',
+  },
+  ALREADY_CLAIMED: {
+    http: 409,
+    why: 'That transaction is already recorded. A burn counts once, whoever presents it — otherwise one payment could be replayed into unlimited weight, which is the same as no cost at all.',
+    fix: 'If it is your burn and it is credited to another handle, the burn was claimed before you got to it. Bind future burns quickly, and remember the log shows exactly which handle holds which txid.',
+  },
+  ONCHAIN_OFF: {
+    http: 404,
+    why: 'No on-chain token is configured for this host. A token address written into source code is one nobody verified, so this stays off until an operator points it at a deployment they made and checked themselves.',
+    fix: 'Nothing from here. The network still works — the token is an addition to it, not a requirement.',
+  },
   MIRROR_READONLY: {
     http: 503,
     why: 'You reached a read-only mirror rather than the primary. Two hosts accepting acts would fork the log the first time both were reachable, and there is no merge — acts are ordered, and two orders are two networks.',

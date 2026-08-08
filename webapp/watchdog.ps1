@@ -46,6 +46,10 @@ while ($true) {
       $env:PEER_RP_ORIGIN = $rp
       $env:PEER_RP_ID = ($rp -replace '^https?://', '' -replace '/.*$', '')
     }
+        # The dead address proof-of-burn verifies against. A file like the rest, so
+    # a watchdog restart cannot silently switch proof of burn off.
+    $burnFile = Join-Path $logDir 'burn-address.txt'
+    if (Test-Path $burnFile) { $env:PEER_BURN_ADDRESS = (Get-Content $burnFile -Raw).Trim() }
     $btcFile = Join-Path $logDir 'btc-address.txt'
     if (Test-Path $btcFile) { $env:PEER_BTC_ADDRESS = (Get-Content $btcFile -Raw).Trim() }
     Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `

@@ -3238,7 +3238,7 @@ const server = createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/token/onchain') {
     import('./chain-l2/onchain.mjs').then(async (m) => {
       if (!m.L2_ON) {
-        json(res, 404, { code: 'L2_OFF', deployed: false,
+        json(res, 404, { code: 'ONCHAIN_OFF', deployed: false,
           error: 'no on-chain token is configured for this host',
           why: 'PEER_TOKEN_ADDR is unset. An address baked into source is one nobody verified, so this stays off until an operator points it at a deployment they made themselves.' });
         return;
