@@ -126,6 +126,24 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
     expect(wDetail.to.u_cr).toBeCloseTo(pDetail.to.u_cr, 6);
   });
 
+  it('a real burn buys BOTH the right to speak and a share of the mint', () => {
+    // The inversion this guards against: burning real bitcoin used to grant
+    // weight but no reserve, while the free faucet granted reserve but no
+    // weight — so the fake currency bought more participation than the real
+    // one. A burn must buy at least what the faucet buys, or nobody sane
+    // would ever burn.
+    // The DELTA, not the balance: registering already hands out a starter
+    // grant, and asserting the total would silently pin that grant's size
+    // into a test about burns.
+    const before = replay(seed('al')).ledgerById.u_al.burnBal;
+    const after = replay([...seed('al'), btcBurn('al', 10000)]).ledgerById.u_al.burnBal;
+    expect(after - before).toBeCloseTo(100, 6);  // 10,000 sat at 100 sat/unit
+    // …and it still weighs, which the faucet never does.
+    const withEngagement = replay([...seed('al', 'bo'), btcBurn('bo', 10000),
+      post('al', 'P'), like('bo', 'c1'), close()]);
+    expect(withEngagement.tokens.bal.PEER.u_al).toBeGreaterThan(0);
+  });
+
   it('the faucet buys energy to act, and no share of the mint', () => {
     // Anyone can still speak: `burn` is untouched as a source of θ. It simply
     // stopped being evidence of commitment, because it never cost anything.

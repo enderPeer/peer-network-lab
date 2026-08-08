@@ -251,6 +251,9 @@ function replayUncached(acts) {
   // no price and promises nothing — it exists so the weights print as small
   // readable numbers rather than tens of thousands.
   var TOK_SAT_UNIT = 1000;
+  // Satoshis per unit of reserve — the price of the energy acts are debited
+  // from, when that energy comes from a real burn. See the btcBurn branch.
+  var SATS_PER_RESERVE = 100;
   var TBTC_CLAIM = 0.01;
   var TOK_MINLIQ = 1e-9; // locked forever at pool birth — kills the classic
                          // first-depositor share-inflation attack
@@ -565,8 +568,25 @@ function replayUncached(acts) {
       if (burnedTx[a.txid]) continue;            // a burn is claimed once, ever
       burnedTx[a.txid] = a.id;
       burnedSats[a.id] = (burnedSats[a.id] || 0) + a.sats;
+      // …and it buys the right to speak, not only a share of the mint.
+      //
+      // This was missing and it inverted the whole point: a real burn granted
+      // WEIGHT but no reserve, while the free faucet granted reserve — the
+      // energy every act is debited from — but no weight. Destroying bitcoin
+      // therefore bought strictly less participation than clicking a button,
+      // which is the fake currency outranking the real one in the dimension
+      // that decides whether you can post at all.
+      //
+      // The rate is a CHOICE, not a discovery: nothing about a satoshi says
+      // what a sentence should cost. At 100 sat per unit of reserve and
+      // θ ≈ 0.0528 an act, roughly 190 acts come from 10,000 sat. Change the
+      // constant and you change the price of speech here; there is no market
+      // setting it and this comment exists so nobody mistakes it for one.
+      var gained = a.sats / SATS_PER_RESERVE;
+      ledgerById[a.id].burnBal += gained;
       if (!payloadGone) {
-        chron.push({ who: a.id, line: 'burned ' + a.sats + ' sat to the dead address · tx ' + String(a.txid).slice(0, 12) + '… (irreversible, verifiable by anyone)' });
+        chron.push({ who: a.id, line: 'burned ' + a.sats + ' sat to the dead address → +' + gained.toFixed(4)
+          + ' reserve · tx ' + String(a.txid).slice(0, 12) + '… (irreversible, verifiable by anyone)' });
       }
     } else if (a.t === 'resetTokens') {
       // The ledger starts again. Nothing is rewritten: every act that ever
