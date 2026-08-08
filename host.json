@@ -1,5 +1,10 @@
 {
-    "url":  "https://plus-magnificent-citizen-telescope.trycloudflare.com",
-    "updated":  "2026-08-08T11:31:13Z",
-    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
+    "url": "https://plus-magnificent-citizen-telescope.trycloudflare.com",
+    "updated": "2026-08-08T11:31:13Z",
+    "note": "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.",
+    "candidates": [
+        "https://plus-magnificent-citizen-telescope.trycloudflare.com"
+    ],
+    "checked": "2026-08-08T11:51:08.071Z",
+    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
