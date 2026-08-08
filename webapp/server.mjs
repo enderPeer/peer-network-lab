@@ -3232,6 +3232,24 @@ const server = createServer((req, res) => {
     });
     return;
   }
+  // The token as it exists on the chain, not as this host wishes it existed.
+  // Read-only by construction: chain-l2/onchain.mjs contains no signing code
+  // and accepts no key, so this door cannot move value however it is called.
+  if (req.method === 'GET' && url.pathname === '/api/token/onchain') {
+    import('./chain-l2/onchain.mjs').then(async (m) => {
+      if (!m.L2_ON) {
+        json(res, 404, { code: 'L2_OFF', deployed: false,
+          error: 'no on-chain token is configured for this host',
+          why: 'PEER_TOKEN_ADDR is unset. An address baked into source is one nobody verified, so this stays off until an operator points it at a deployment they made themselves.' });
+        return;
+      }
+      const q = url.searchParams.get('of');
+      const state = await m.tokenState();
+      if (q) state.account = await m.balanceOf(q);
+      json(res, 200, { deployed: true, ...state });
+    }).catch((e) => json(res, 502, { code: 'L2_UNREACHABLE', error: 'could not read the chain: ' + String(e.message).slice(0, 120) }));
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/burn') {
     json(res, 200, {
       accepting: !!BURN_ADDRESS,
