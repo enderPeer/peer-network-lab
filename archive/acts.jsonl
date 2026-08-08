@@ -889,3 +889,5 @@
 {"t":"burn","id":"u_ender","amt":1,"ts":1786194370797}
 {"t":"burnL0","id":"u_ender","x":1,"ts":1786194498148}
 {"t":"transferL0","from":"u_ender","to":"alice","x":1,"cls":"live","ts":1786194505961}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786197286488}
+{"t":"burn","id":"u_ender133","amt":1,"ts":1786197409130}
