@@ -50,10 +50,10 @@ beforeAll(async () => {
     { t: 'register', id: 'u_fresh', handle: 'Fresh', seed: 1, epoch: 0 },
     // Enough energy for the whole file: a W1 refusal mid-suite would look
     // exactly like the rule under test failing.
-    { t: 'burn', id: 'u_secured', amt: 1 },
-    { t: 'burn', id: 'u_secured', amt: 1 },
-    { t: 'burn', id: 'u_secured', amt: 1 },
-    { t: 'burn', id: 'u_open', amt: 1 },
+    { t: 'btcBurn', id: 'u_secured', txid: '4bc0984eab22cf8190dd1aa25084b1f7c859ae77793b71b286fb211064bd401c', sats: 10000, addr: 'bc1qdead' },
+    { t: 'btcBurn', id: 'u_secured', txid: 'e3f9d21e48284c9ec3d8cef4da9fbc43a49c6485c874a1ae7d8a51b3abdccfe5', sats: 10000, addr: 'bc1qdead' },
+    { t: 'btcBurn', id: 'u_secured', txid: 'adf3748846c7b5cd2259b5a0b9fa86ddd49e902ef39aa72e2a7892622d7e0bc2', sats: 10000, addr: 'bc1qdead' },
+    { t: 'btcBurn', id: 'u_open', txid: 'ae0deb67054a3dad9be14d29b78e89fad8bb3f93991edceee0438901d88321d1', sats: 10000, addr: 'bc1qdead' },
     // u_open has spoken; u_fresh has not. That distinction decides who may
     // still put a first PIN on a handle.
     { t: 'post', author: 'u_open', text: 'a post from an unsecured handle', a: 0.8, rmen: [] },

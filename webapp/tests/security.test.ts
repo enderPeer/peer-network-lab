@@ -38,7 +38,7 @@ beforeAll(async () => {
   writeFileSync(join(dir, 'server-data', 'acts.jsonl'), [
     // Legacy sha256 hash, exactly as accounts on the live network carry.
     { t: 'register', id: 'u_ender133', handle: 'Ender133', seed: 1, epoch: 0, pinHash: sha('u_ender133', '1234') },
-    { t: 'burn', id: 'u_ender133', amt: 1 },
+    { t: 'btcBurn', id: 'u_ender133', txid: '67ddbd3a7bc2b4ec2ec432a5a5c32e4c1033a385168ef61989f6c0c78b17e6ba', sats: 10000, addr: 'bc1qdead' },
     { t: 'post', author: 'u_ender133', text: 'the real one', a: 0.8, rmen: [] },
   ].map((a) => JSON.stringify(a)).join('\n') + '\n');
   child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {
@@ -302,7 +302,7 @@ describe('an act must come from an account that exists', () => {
       { t: 'opinion', author: 'Darth Vader', target: 'c1', p: 0.5, r: 0.5 },
       { t: 'review', author: 'Han Solo', target: 'c1', e: 0.5, f: 0.5, text: 'x' },
       { t: 'tag', author: 'Boba Fett', target: 'c1', name: 'x', r: 0.5, c: 0.5 },
-      { t: 'burn', id: 'Chewbacca', amt: 1 },
+      { t: 'btcBurn', id: 'Chewbacca', txid: '66b34bac260923511e7e45e96160283e5ee4f1c38535344605546fa70f40ea50', sats: 10000, addr: 'bc1qdead' },
       { t: 'dm', from: 'Leia', to: 'u_ender133', text: 'x' },
     ]) {
       const r = await act(a);
@@ -330,7 +330,7 @@ describe('an act must come from an account that exists', () => {
     const acts = [
       { t: 'seedWorld' },
       { t: 'register', id: 'u_real', handle: 'Real', seed: 1, epoch: 0 },
-      { t: 'burn', id: 'u_real', amt: 1 },
+      { t: 'btcBurn', id: 'u_real', txid: '0607497776aadf5027afae71c21d70abac62e34d25508b83958373601d70fdc8', sats: 10000, addr: 'bc1qdead' },
       { t: 'post', author: 'u_real', text: 'genuine', a: 0.8, rmen: [] },
       { t: 'post', author: 'Luke Skywalker', text: 'ghost post', a: 0.8, rmen: [] },
       { t: 'opinion', author: 'Darth Vader', target: 'c1', p: 0.9, r: 0.9 },

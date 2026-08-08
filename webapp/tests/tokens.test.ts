@@ -144,34 +144,26 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
     expect(withEngagement.tokens.bal.PEER.u_al).toBeGreaterThan(0);
   });
 
-  it('the faucet buys energy to act, and no share of the mint', () => {
-    // Anyone can still speak: `burn` is untouched as a source of θ. It simply
-    // stopped being evidence of commitment, because it never cost anything.
-    const acts = [...seed('al', 'bo'),
-      { t: 'btcBurn', id: 'u_bo', txid: 'abboabboabboabboabboabboabboabboffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' }, { t: 'btcBurn', id: 'u_bo', txid: 'abboabboabboabboabboabboabboabboffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' },
-      post('al', 'P'), like('bo', 'c1'), close()];
-    const st = replay(acts);
-    // Nothing was distributed at all, so the PEER ledger was never even
-    // created — a stronger statement than "al got zero".
-    expect((st.tokens.bal.PEER ?? {}).u_al).toBeUndefined();
-    expect(st.tokens.dist.every((d: { minted: number }) => d.minted === 0)
-      || st.tokens.dist.length === 0).toBe(true);
-    expect(st.ledgerById.u_bo.burnBal).toBeGreaterThan(0); // but bo can still act
+  it('the faucet buys nothing at all — it does not even exist any more', () => {
+    // It used to buy energy but no share of the mint. Now it buys neither:
+    // a `burn` act credits nothing, because it destroyed nothing. Old ones
+    // still replay, so a pre-restart log is not rewritten; they just have
+    // no effect.
+    const withFaucet = replay([...seed('al', 'bo'),
+      { t: 'burn', id: 'u_bo', amt: 1 }, { t: 'burn', id: 'u_bo', amt: 1 },
+      post('al', 'P'), like('bo', 'c1'), close()]);
+    const without = replay([...seed('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()]);
+    expect(withFaucet.ledgerById.u_bo.burnBal).toBeCloseTo(without.ledgerById.u_bo.burnBal, 9);
+    expect((withFaucet.tokens.bal.PEER ?? {}).u_al).toBeUndefined();
   });
 
-  it('gives zero weight to an actor below the α̂ gate', () => {
-    // cy burns once (rate 1-θ·n ≈ high)… the gate needs α̂ < 0.2 to exclude,
-    // so exhaust cy's rate with spam first.
-    const acts = [...world('al'), { t: 'register', id: 'u_cy', handle: 'cy', seed: 1, epoch: 0 },
-      { t: 'btcBurn', id: 'u_cy', txid: 'abcyabcyabcyabcyabcyabcyabcyabcyffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' }, post('al', 'P')];
-    // ~48 acts at θ≈0.0528 drain 1.0 burn to ≈0; rate collapses under 0.02·ν
-    for (let i = 0; i < 40; i++) acts.push(post('cy', 'spam ' + i));
-    acts.push(like('cy', 'c1'), close());
+  it('gives zero weight to an actor who burned nothing', () => {
+    // There is no α̂ gate any more — weight is linear in destroyed satoshis,
+    // so there is no threshold to sit under, only zero and more than zero.
+    const acts = [...seed('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
     const st = replay(acts);
-    const cyLedger = st.ledgerById.u_cy;
-    expect((cyLedger.burnBal / cyLedger.actCount) / 0.1).toBeLessThan(0.2); // gate really below
-    expect(st.tokens.bal.PEER?.u_al).toBeUndefined();
-    expect(st.tokens.carry).toBe(5000); // gated weight ⇒ full carryover
+    expect(st.tokens.dist[0].minted).toBe(0);
+    expect(st.tokens.carry).toBe(5000);
   });
 
   it('never counts self-engagement', () => {

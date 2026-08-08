@@ -138,7 +138,7 @@ describe('a paid event moves money and nothing that is ranked', () => {
   it('makes an event react-able, comment-able and rankable like any post', () => {
     // The whole integration: contentAuthor is set, so the ordinary acts work.
     const st = replay(seed('host', 'fan').concat([
-      { t: 'burn', id: 'u_fan', amt: 1 },
+      { t: 'btcBurn', id: 'u_fan', txid: 'f6ed4dd288fe6fd9fe89f83eb3abf4bad0302c43f7941608a2d14d9404280b0f', sats: 10000, addr: 'bc1qdead' },
       { t: 'event', author: 'u_host', text: 'a reading' },
       { t: 'opinion', author: 'u_fan', target: 'c1', p: 0.9, r: 0.9 },
       { t: 'review', author: 'u_fan', target: 'c1', e: 0.7, f: 0.8, text: 'looking forward to it' },
@@ -178,27 +178,7 @@ describe('a paid event moves money and nothing that is ranked', () => {
   });
 });
 
-  it('bounds the faucet, and only from a future epoch', () => {
-    // Two hundred free burns took an account to fifty-two times its standing
-    // with an act count of one, and to maximum distribution eligibility. The
-    // ceiling starts at a FUTURE epoch on purpose: applying it to the whole
-    // log would recompute every standing on the network and invalidate epoch
-    // certificates that are already published.
-    const many = (n: number, epochsClosed: number) => {
-      const acts: Record<string, unknown>[] = seed('faucet');
-      for (let e = 0; e < epochsClosed; e++) acts.push({ t: 'closeEpoch', epoch: e });
-      for (let i = 0; i < n; i++) acts.push({ t: 'burn', id: 'u_faucet', amt: 1 });
-      return replay(acts);
-    };
-    // Below the threshold nothing is capped — history is untouched.
-    const old = many(50, 0);
-    expect(old.ledgerById.u_faucet.burnBal).toBeGreaterThan(50);
-    // At and beyond it, the faucet gives eight an epoch and no more.
-    const now = many(50, 62);
-    const seedGrant = replay(seed('faucet')).ledgerById.u_faucet.burnBal;
-    expect(now.ledgerById.u_faucet.burnBal).toBeCloseTo(seedGrant + 8, 6);
-  });
-
+  
 // ── The host's half ──────────────────────────────────────────────────────
 
 describe('the host on events', () => {
@@ -217,8 +197,6 @@ describe('the host on events', () => {
     }
     await act({ t: 'register', id: 'u_org', handle: 'Org', seed: 1, epoch: 0, pinHash: pinHash('u_org', '2468') });
     await act({ t: 'register', id: 'u_open', handle: 'Openhandle', seed: 1, epoch: 0 });   // no PIN on purpose
-    for (let i = 0; i < 4; i++) await act({ t: 'burn', id: 'u_org', amt: 1, auth: '2468' });
-    for (let i = 0; i < 4; i++) await act({ t: 'burn', id: 'u_open', amt: 1 });
     await act({ t: 'assetCreate', author: 'u_open', sym: 'TBTC', name: 'test unit', supply: 0.01 });
   }, 30000);
 
@@ -230,9 +208,9 @@ describe('the host on events', () => {
   it('refuses a fee that is not a positive, finite, real currency', async () => {
     expect((await act({ t: 'event', author: 'u_org', text: 'x', fee: -1, cur: 'PEER', auth: '2468' })).status).toBe(400);
     expect((await act({ t: 'event', author: 'u_org', text: 'x', fee: 1e12, cur: 'PEER', auth: '2468' })).status).toBe(400);
-    const odd = await act({ t: 'event', author: 'u_org', text: 'x', fee: 5, cur: 'GALA', auth: '2468' });
+    const odd = await act({ t: 'event', author: 'u_org', text: 'x', fee: 5, cur: 'not a symbol', auth: '2468' });
     expect(odd.status).toBe(400);
-    expect(String(odd.body.error)).toMatch(/PEER or tBTC/);
+    expect(String(odd.body.error)).toMatch(/PEER, or in any minted asset/);
   });
 
   it('refuses a paid answer from a handle nobody can prove they own', async () => {

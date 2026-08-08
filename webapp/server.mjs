@@ -1859,7 +1859,11 @@ function validate(act) {
         // Infinity passes a naive comparison.
         if (!num(act.fee) || !(act.fee > 0)) return 'an entry fee must be a positive number';
         if (act.fee > 1e9) return 'that entry fee is not a real number';
-        if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
+        // PEER, or any asset somebody minted. Not tBTC: it is retired, and a
+        // whitelist naming a currency nobody can obtain prices tickets in
+        // nothing. A minted symbol is honest — worth what a pool says it is,
+        // and the buyer can see who created it.
+        if (!/^[A-Z][A-Z0-9]{2,7}$/.test(String(act.cur || ''))) return 'entry is payable in PEER, or in any minted asset';
       }
       if (act.cap !== undefined && act.cap !== 0 && (!num(act.cap) || act.cap < 1 || act.cap > 100000)) return 'bad capacity';
       break;
@@ -1877,7 +1881,11 @@ function validate(act) {
       if (unknownTarget(act.cid)) return unknownTarget(act.cid);
       if (act.amt !== undefined && act.amt !== 0) {
         if (!num(act.amt) || !(act.amt > 0)) return 'an entry payment must be a positive number';
-        if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
+        // PEER, or any asset somebody minted. Not tBTC: it is retired, and a
+        // whitelist naming a currency nobody can obtain prices tickets in
+        // nothing. A minted symbol is honest — worth what a pool says it is,
+        // and the buyer can see who created it.
+        if (!/^[A-Z][A-Z0-9]{2,7}$/.test(String(act.cur || ''))) return 'entry is payable in PEER, or in any minted asset';
         if (!str(act.to, 24)) return 'an entry payment must name who receives it';
       }
       // A deleted event, and an event that is over, both stop taking money.
