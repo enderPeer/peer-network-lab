@@ -1,0 +1,13 @@
+{
+  "acts": 893,
+  "sha256": "15b0eb295eaeb28cecce06d9661b1d4464c63e66bbbd4c367e9eb4b54f67b4f9",
+  "at": 1786200508125,
+  "sealed": true,
+  "media": false,
+  "chain": {
+    "height": 60,
+    "hash": "09818371b784fa9557c558599feab4137c11abbdab72d578670662447d1f9446",
+    "producer": "lD2Z1G6mz-e-umbOUx9ONgSGa3m-Mc26rVneYASo8u4"
+  },
+  "note": "The first Peer Network, sealed at its final state. Verify it yourself: replay acts.jsonl with webapp/social/replay.cjs, and check chain/blocks.jsonl with webapp/chain/verify.mjs. Nothing here needs the host that served it, or anyone serving it now."
+}
