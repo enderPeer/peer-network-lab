@@ -48,6 +48,13 @@ while ($true) {
     }
         # The dead address proof-of-burn verifies against. A file like the rest, so
     # a watchdog restart cannot silently switch proof of burn off.
+        # The PEER token on Base, and the asset it is paired against. Files like the
+    # rest of server-data, so a watchdog restart cannot silently unconfigure the
+    # on-chain surface. An address baked into source is one nobody verified.
+    $tokFile2 = Join-Path $logDir 'token-address.txt'
+    if (Test-Path $tokFile2) { $env:PEER_TOKEN_ADDR = (Get-Content $tokFile2 -Raw).Trim() }
+    $btcTok = Join-Path $logDir 'btc-token-address.txt'
+    if (Test-Path $btcTok) { $env:PEER_BTC_ADDR = (Get-Content $btcTok -Raw).Trim() }
     $burnFile = Join-Path $logDir 'burn-address.txt'
     if (Test-Path $burnFile) { $env:PEER_BURN_ADDRESS = (Get-Content $burnFile -Raw).Trim() }
     $btcFile = Join-Path $logDir 'btc-address.txt'
