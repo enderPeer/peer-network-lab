@@ -177,9 +177,35 @@ async function findNew() {
   return null;
 }
 
+// Nobody should have to know that the id has a "u_" on the front.
+//
+// Typed "ender133" during a real burn; the id is "u_ender133", and the claim
+// would have been refused as no-such-handle AFTER the bitcoin was already
+// destroyed. The prefix is an implementation detail of the log, so this
+// resolves whatever was typed against the peer list — by id, by id without
+// the prefix, or by the displayed handle, case-insensitively — and only
+// gives up if none of them match.
+var idCache = null;
+async function resolveId(typed) {
+  var want = String(typed || '').trim();
+  if (!want) return null;
+  if (!idCache) {
+    try {
+      var r = await fetch(HOST + '/api/v1/peers');
+      var d = await r.json();
+      idCache = d.peers || d;
+    } catch (e) { return want; }   // offline: send it as typed, host decides
+  }
+  var lc = want.toLowerCase();
+  var hit = idCache.find(function (p) { return String(p.id).toLowerCase() === lc; })
+    || idCache.find(function (p) { return String(p.id).toLowerCase() === 'u_' + lc; })
+    || idCache.find(function (p) { return String(p.handle || '').toLowerCase() === lc; });
+  return hit ? hit.id : want;
+}
+
 async function claim(txid) {
   step(4, 'on');
-  var body = { id: document.getElementById('who').value.trim(), txid: txid, auth: document.getElementById('pin').value };
+  var body = { id: await resolveId(document.getElementById('who').value), txid: txid, auth: document.getElementById('pin').value };
   var r = await fetch(HOST + '/api/burn/claim', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
@@ -216,12 +242,12 @@ async function watch() {
     if (tries > 120) { clearInterval(conf); log('still unconfirmed after an hour — file it later with the txid above', 'bad'); return; }
     var r = await fetch(HOST + '/api/burn/claim', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: document.getElementById('who').value.trim(), txid: got.txid, auth: document.getElementById('pin').value }),
+      body: JSON.stringify({ id: await resolveId(document.getElementById('who').value), txid: got.txid, auth: document.getElementById('pin').value }),
     });
     var d = await r.json().catch(function () { return {}; });
     if (r.ok) { clearInterval(conf); step(3, 'done'); step(4, 'done');
       log('');
-      log('RECORDED · ' + d.sats + ' sat destroyed, credited to ' + document.getElementById('who').value.trim(), 'ok');
+      log('RECORDED · ' + d.sats + ' sat destroyed, credited to ' + (d.id || document.getElementById('who').value.trim()), 'ok');
       log('That bought reserve to act AND weight in the epoch distribution.', 'ok');
       return; }
     if (d.code === 'BURN_UNVERIFIED' && /not confirmed/.test(d.error || '')) return; // keep waiting
