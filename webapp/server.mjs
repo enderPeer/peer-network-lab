@@ -3959,6 +3959,27 @@ function mirrorSocketRefuse(conn) {
   return true;
 }
 
+// A host that cannot take the port must DIE, not linger.
+//
+// Node's default on a failed listen is to emit 'error' and keep the process
+// alive with nothing listening. Measured on this machine: five server.mjs
+// processes at once, four of them awake, holding the act log open, answering
+// nothing. The watchdog restarts on "the port does not answer", so every
+// restart while a healthy host already held the port added another ghost.
+//
+// Worse than untidy: these processes have the writable log open and the
+// federation would count them as instances. A second writer is the one
+// failure this whole design exists to prevent, so the safe answer to "the
+// address is in use" is to exit and let whoever holds it keep working.
+server.on('error', (e) => {
+  if (e && e.code === 'EADDRINUSE') {
+    console.error(`[host] port ${PORT} is already in use — another host is running. Exiting rather than lingering.`);
+    process.exit(1);
+  }
+  console.error('[host] listen failed: ' + (e && e.message ? e.message : e));
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`
     + (role.mirrorOf ? ` — read-only mirror of ${role.mirrorOf}` : ''));
