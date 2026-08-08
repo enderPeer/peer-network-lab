@@ -869,3 +869,23 @@
 {"t":"burn","id":"u_ender","amt":1,"ts":1786186981268}
 {"t":"event","author":"u_echo","text":"Live check: does the event surface still work end to end? Instrument test by Fable.","at":1786274530322,"place":"the log","cap":10,"ts":1786188130348}
 {"t":"rsvp","from":"u_probe","cid":"c471","on":true,"ts":1786188638832}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786193880779}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194363745}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194367012}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194367213}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194367395}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194367726}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194368059}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194368401}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194368723}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194369036}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194369314}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194369491}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194369813}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194369981}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194370152}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194370313}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194370634}
+{"t":"burn","id":"u_ender","amt":1,"ts":1786194370797}
+{"t":"burnL0","id":"u_ender","x":1,"ts":1786194498148}
+{"t":"transferL0","from":"u_ender","to":"alice","x":1,"cls":"live","ts":1786194505961}
