@@ -41,8 +41,15 @@ export function seed(...ids: string[]): Record<string, unknown>[] {
   const acts: Record<string, unknown>[] = [{ t: 'seedWorld' }];
   for (const id of ids) {
     acts.push({ t: 'register', id: `u_${id}`, handle: id, seed: 1, epoch: 0 });
-    // three burns each: comfortably above the theta floor for a short test
-    for (let i = 0; i < 3; i++) acts.push({ t: 'burn', id: `u_${id}`, amt: 1 });
+    // A proven Bitcoin burn, because registering now opens an account at
+    // exactly zero — the grant it used to hand out was invented value, and
+    // the faucet that replaced it is closed. Reserve comes from destroyed
+    // bitcoin or from nowhere, in fixtures as on the live network.
+    // 30,000 sat at 100 sat per unit is 300 reserve: room to act freely in
+    // a short test without any fixture thinking about the price of speech.
+    acts.push({ t: 'btcBurn', id: `u_${id}`, sats: 30000, addr: 'bc1qdead',
+      txid: `seed${id}`.padEnd(32, '0').split('')
+        .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('').slice(0, 64).padEnd(64, 'e') });
   }
   return acts;
 }

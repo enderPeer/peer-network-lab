@@ -36,6 +36,12 @@ function world(...names: string[]) {
   for (const n of names) acts.push(btcBurn(n));
   return acts;
 }
+/** Registered, but with no burn at all — for the tests about weighing nothing. */
+function bare(...names: string[]) {
+  const acts: Record<string, unknown>[] = [{ t: 'seedWorld' }];
+  for (const n of names) acts.push({ t: 'register', id: 'u_' + n, handle: n, seed: 1, epoch: 0 });
+  return acts;
+}
 const post = (who: string, text: string) => ({ t: 'post', author: 'u_' + who, text, a: 0.8, rmen: [] });
 const like = (who: string, cid: string) => ({ t: 'opinion', author: 'u_' + who, target: cid, p: 0.8, r: 0.8 });
 const comment = (who: string, cid: string) => ({ t: 'review', author: 'u_' + who, target: cid, e: 0.7, f: 0.8, text: 'nice' });
@@ -149,10 +155,10 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
     // a `burn` act credits nothing, because it destroyed nothing. Old ones
     // still replay, so a pre-restart log is not rewritten; they just have
     // no effect.
-    const withFaucet = replay([...seed('al', 'bo'),
+    const withFaucet = replay([...bare('al', 'bo'),
       { t: 'burn', id: 'u_bo', amt: 1 }, { t: 'burn', id: 'u_bo', amt: 1 },
       post('al', 'P'), like('bo', 'c1'), close()]);
-    const without = replay([...seed('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()]);
+    const without = replay([...bare('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()]);
     expect(withFaucet.ledgerById.u_bo.burnBal).toBeCloseTo(without.ledgerById.u_bo.burnBal, 9);
     expect((withFaucet.tokens.bal.PEER ?? {}).u_al).toBeUndefined();
   });
@@ -160,7 +166,7 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
   it('gives zero weight to an actor who burned nothing', () => {
     // There is no α̂ gate any more — weight is linear in destroyed satoshis,
     // so there is no threshold to sit under, only zero and more than zero.
-    const acts = [...seed('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
+    const acts = [...bare('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
     const st = replay(acts);
     expect(st.tokens.dist[0].minted).toBe(0);
     expect(st.tokens.carry).toBe(5000);

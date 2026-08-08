@@ -521,7 +521,17 @@ function replayUncached(acts) {
       // The LABEL is what every screen renders — standings, the graph, the
       // feed byline. A later namesake must never render as the bare name it
       // copied, or the interface repeats the impersonation on every surface.
-      addActor(a.id, a.handle, a.seed, 0, a.epoch,
+      // Registering grants NOTHING spendable. The act carries a `seed` and
+      // that used to become the new account's reserve — roughly eighteen
+      // free acts, minted from nowhere, which is the same fiction as the
+      // faucet wearing a different name. It reads as a burn in the
+      // chronicle and no bitcoin was ever destroyed for it.
+      //
+      // The grant is exactly the θ this registration act costs, so the two
+      // cancel and a new account opens at zero. You can exist here for
+      // free; speaking is what costs, and it is paid for with bitcoin
+      // somebody actually destroyed.
+      addActor(a.id, a.handle, THETA, 0, a.epoch,
         payloadGone ? '[deleted]' : (handleTwin[a.id] ? a.handle + ' (' + a.id + ', not the original)' : a.handle));
       if (a.pinHash) pinHash[a.id] = a.pinHash;
       g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
@@ -532,7 +542,7 @@ function replayUncached(acts) {
       // economy. Everything spendable here now comes from bitcoin somebody
       // actually destroyed, so arriving grants you a name and nothing else.
       if (payloadGone) ledgerById[a.id].deleted = true;
-      else chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
+      else chron.push({ who: a.id, line: 'registered · opens at zero, nothing granted' + (a.pinHash ? ' · PIN-secured' : '') });
     } else if (a.t === 'burn') {
       if (!known(a.id)) continue;
       // ── The faucet, and why it now has a ceiling ────────────────────────
