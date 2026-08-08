@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Burn bitcoin → Peer Network</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--paper:#131110;--ink:#EFE7DB;--muted:#9C8E7E;--ember:#B84525;--ok:#3f7d4e;--line:#2a2622}
+  body{background:var(--paper);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:26px 18px 80px}
+  main{max-width:660px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 20px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0;background:#181513}
+  button{background:var(--ember);color:#fff;border:0;border-radius:7px;padding:12px 20px;font-size:15px;cursor:pointer}
+  button:disabled{background:#3a3531;color:#7d746c;cursor:not-allowed}
+  input{background:#0f0d0c;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:9px;font-family:ui-monospace,monospace;box-sizing:border-box}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  label{display:block;color:var(--muted);font-size:13px;margin:10px 0 4px}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
+  .ok{color:var(--ok)}.bad{color:var(--ember)}.muted{color:var(--muted)}
+  #log{white-space:pre-wrap;margin-top:12px}
+  .addr{background:#0f0d0c;border:1px solid var(--line);border-radius:6px;padding:10px;margin:8px 0}
+  .step{opacity:.45}.step.on{opacity:1}.step.done{opacity:1;color:var(--ok)}
+  a{color:var(--ember)}
+</style></head><body><main>
+<h1>Burn bitcoin, earn standing</h1>
+<p class="sub">You send. Everything after that is automatic: this page watches the chain, waits for confirmations, and files the claim with the network for you.</p>
+
+<div class="card">
+  <div class="row">
+    <div><label>Your handle</label><input id="who" placeholder="u_fable" style="width:190px"></div>
+    <div><label>PIN</label><input id="pin" type="password" placeholder="••••" style="width:130px"></div>
+    <div><label>Amount (sat)</label><input id="sats" value="2000" style="width:130px"></div>
+  </div>
+  <p class="muted" style="font-size:13px;margin:12px 0 0">
+    The PIN is your network credential, sent only to your own host to file the claim. It is never stored and never touches Bitcoin.
+    2,000 sat is about 20 units of reserve — roughly 380 acts at the current θ.
+  </p>
+  <p><button id="go">Burn and claim</button></p>
+</div>
+
+<div class="card" id="pay" style="display:none">
+  <b>Send exactly <span id="amt" class="mono"></span> sat to the dead address</b>
+  <div class="addr mono" id="addr"></div>
+  <div class="row">
+    <button id="open" class="mono">Open in wallet</button>
+    <button id="copy" class="mono">Copy address</button>
+  </div>
+  <p class="muted" style="font-size:13px">
+    This output pays a script that can never be satisfied — a P2WSH commitment to <code>OP_RETURN</code>. There is no key and there never was, so the coins are destroyed by arithmetic rather than by trust. Nobody can spend them, including the network, including you.
+  </p>
+</div>
+
+<div class="card">
+  <div id="s1" class="step">1 · waiting for you to send</div>
+  <div id="s2" class="step">2 · watching the chain for your transaction</div>
+  <div id="s3" class="step">3 · waiting for confirmations</div>
+  <div id="s4" class="step">4 · filing the claim with the network</div>
+  <div id="log" class="mono"></div>
+</div>
+</main>
+<script>
+// The host this page files claims with. Same origin if served by the host
+// itself; otherwise the local host, which is where the operator runs it.
+var HOST = location.port === '8899' ? 'http://localhost:5210' : '';
+var EXPLORERS = ['https://blockstream.info/api', 'https://mempool.space/api'];
+var BURN = null, seen = {}, timer = null;
+
+function log(m, cls) { var d = document.getElementById('log'); d.innerHTML += '<div class="' + (cls || '') + '">' + m + '</div>'; }
+function step(n, cls) { var e = document.getElementById('s' + n); e.className = 'step ' + (cls || 'on'); }
+
+// Which transactions already paid this address BEFORE we started. Without
+// this snapshot the page would "detect" somebody else's old burn and file a
+// claim for a transaction the user never made — which the host would refuse
+// as already claimed, but only after telling them it had worked.
+async function snapshot() {
+  for (var i = 0; i < EXPLORERS.length; i++) {
+    try {
+      var r = await fetch(EXPLORERS[i] + '/address/' + BURN + '/txs');
+      if (!r.ok) continue;
+      var txs = await r.json();
+      txs.forEach(function (t) { seen[t.txid] = true; });
+      return true;
+    } catch (e) { /* try the next one */ }
+  }
+  return false;
+}
+
+// A transaction that is NEW since the snapshot and pays the dead address.
+async function findNew() {
+  for (var i = 0; i < EXPLORERS.length; i++) {
+    try {
+      var r = await fetch(EXPLORERS[i] + '/address/' + BURN + '/txs');
+      if (!r.ok) continue;
+      var txs = await r.json();
+      for (var j = 0; j < txs.length; j++) {
+        var t = txs[j];
+        if (seen[t.txid]) continue;
+        var paid = 0;
+        (t.vout || []).forEach(function (o) { if (o.scriptpubkey_address === BURN) paid += o.value; });
+        if (paid > 0) return { txid: t.txid, sats: paid, confirmed: !!(t.status && t.status.confirmed) };
+      }
+      return null;
+    } catch (e) { /* try the next one */ }
+  }
+  return null;
+}
+
+async function claim(txid) {
+  step(4, 'on');
+  var body = { id: document.getElementById('who').value.trim(), txid: txid, auth: document.getElementById('pin').value };
+  var r = await fetch(HOST + '/api/burn/claim', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  var d = await r.json().catch(function () { return {}; });
+  if (r.ok) {
+    step(4, 'done');
+    log('');
+    log('RECORDED · ' + d.sats + ' sat destroyed, credited to ' + body.id, 'ok');
+    log('That bought reserve to act AND weight in the epoch distribution.', 'ok');
+    log('<a href="https://mempool.space/tx/' + txid + '" target="_blank" rel="noopener">check the transaction yourself</a>');
+  } else {
+    log('the network refused the claim: ' + (d.error || r.status), 'bad');
+    if (d.why) log(d.why, 'muted');
+    // The burn is real either way — it is on the chain and nothing can undo
+    // it — so say so rather than let it look like the money vanished.
+    log('Your bitcoin is burnt regardless; the txid is ' + txid + ' and the claim can be filed again once the reason above is fixed.', 'muted');
+  }
+}
+
+async function watch() {
+  var got = await findNew();
+  if (!got) return;
+  clearInterval(timer); timer = null;
+  step(1, 'done'); step(2, 'done');
+  log('seen: ' + got.txid, 'ok');
+  if (!got.sats) return;
+  step(3, 'on');
+  log('waiting for it to be mined — an unconfirmed burn can still be replaced, so it does not count yet');
+  // Poll until the host will accept it. The host requires confirmations; we
+  // simply retry the claim until it stops saying "not confirmed".
+  var tries = 0;
+  var conf = setInterval(async function () {
+    tries++;
+    if (tries > 120) { clearInterval(conf); log('still unconfirmed after an hour — file it later with the txid above', 'bad'); return; }
+    var r = await fetch(HOST + '/api/burn/claim', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: document.getElementById('who').value.trim(), txid: got.txid, auth: document.getElementById('pin').value }),
+    });
+    var d = await r.json().catch(function () { return {}; });
+    if (r.ok) { clearInterval(conf); step(3, 'done'); step(4, 'done');
+      log('');
+      log('RECORDED · ' + d.sats + ' sat destroyed, credited to ' + document.getElementById('who').value.trim(), 'ok');
+      log('That bought reserve to act AND weight in the epoch distribution.', 'ok');
+      return; }
+    if (d.code === 'BURN_UNVERIFIED' && /not confirmed/.test(d.error || '')) return; // keep waiting
+    clearInterval(conf);
+    log('the network refused: ' + (d.error || r.status), 'bad');
+    log('Your bitcoin is burnt regardless; txid ' + got.txid, 'muted');
+  }, 30000);
+}
+
+document.getElementById('go').onclick = async function () {
+  var who = document.getElementById('who').value.trim();
+  var sats = parseInt(document.getElementById('sats').value, 10);
+  if (!who) { log('your handle is needed to credit the burn to somebody', 'bad'); return; }
+  if (!(sats > 0)) { log('amount must be a positive number of satoshis', 'bad'); return; }
+  document.getElementById('go').disabled = true;
+
+  var r = await fetch(HOST + '/api/burn').catch(function () { return null; });
+  if (!r || !r.ok) { log('cannot reach the host at ' + (HOST || 'this origin') + ' — is it running?', 'bad'); document.getElementById('go').disabled = false; return; }
+  var info = await r.json();
+  if (!info.accepting) { log('this host is not accepting burns', 'bad'); return; }
+  BURN = info.address;
+
+  document.getElementById('addr').textContent = BURN;
+  // Grouped with a THIN SPACE, not toLocaleString(): on a German locale
+  // that renders 2000 as "2.000", which beside the word "sat" reads as two
+  // satoshis or as two whole bitcoin depending on the reader. An amount
+  // somebody is about to send must not be ambiguous in any locale.
+  document.getElementById('amt').textContent = String(sats).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  document.getElementById('pay').style.display = '';
+  var uri = 'bitcoin:' + BURN + '?amount=' + (sats / 1e8).toFixed(8);
+  document.getElementById('open').onclick = function () { location.href = uri; };
+  document.getElementById('copy').onclick = function () { navigator.clipboard.writeText(BURN); log('address copied'); };
+
+  step(1, 'on');
+  log('snapshotting what already paid this address, so your transaction is told apart from everyone else’s…');
+  await snapshot();
+  step(2, 'on');
+  log('watching. Send whenever you are ready — this page does the rest.');
+  timer = setInterval(watch, 15000);
+  watch();
+};
+</script></body></html>
