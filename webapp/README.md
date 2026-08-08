@@ -1,15 +1,23 @@
 # Peer Network Lab
 
 Layer-1 reference implementation of the Peer Network protocol
-(spec `PeerNetwork_PeerNetwork_v0.24.1-dev`) with an interactive browser
-explorer. Phases 1–2 of [`../ROADMAP.md`](../ROADMAP.md).
+(spec `PeerNetwork_PeerNetwork_v0.24.1-dev`): the pure engine, an
+interactive explorer, the social sandbox app, the multi-user host with an
+elected writer, and the signed epoch chain. Started as Phases 1–2 of
+[`../ROADMAP.md`](../ROADMAP.md); several later-phase pieces have since
+shipped early, scoped honestly in
+[`DECENTRALIZATION.md`](DECENTRALIZATION.md).
 
 ## Run
 
 ```bash
 npm install
-npm run dev      # → http://localhost:5199 (or Vite's chosen port)
-npm test         # 33 unit tests against the spec's Appendix F verification suite
+npm test               # 340 tests, 20 suites: spec vectors, replay, host, chain, election
+npm run dev            # protocol lab → http://localhost:5199 (or Vite's chosen port)
+npm run build:social   # assemble the social app + PWA assets
+node server.mjs        # shared-network host → http://localhost:5210
+node chain/build.mjs   # seal every closed epoch into the signed chain
+node chain/verify.mjs  # replay the chain: every root, every signature
 ```
 
 ## What's here
@@ -25,9 +33,21 @@ npm test         # 33 unit tests against the spec's Appendix F verification suit
     activation → hop-faded tilt → conserved transport Π → mediant fixed point;
     W1/W2a/W2b epoch gates
   - `can.ts` — compositional attribution (AttrView)
+  - `cogra.ts` — the CoGra Layer-2 feed ranking (see the top-level README)
   - `fixtures.ts` — the Appendix F reference graph and reference epoch
 - `src/ui/` — the explorer (vanilla TS + SVG, no framework)
-- `tests/` — spec-vector tests; `registry.json` holds 505 numeric values
+- `social/` — the social sandbox: `template.html` (the whole app, one file),
+  `assemble.mjs` (the build, which parses before it emits), and `replay.cjs`
+  — the **one** shared replay, inlined into the page and imported by the host
+- `server.mjs` — the multi-user host: act log, refusals, mirrors, federation
+  and the writer election. Runbook: [`HOSTING.md`](HOSTING.md)
+- `chain/` — the epoch chain (`build.mjs`, `verify.mjs`) and the writer's
+  office (`election.mjs`, `reconcile.mjs`, `merge.mjs`):
+  [`DECENTRALIZATION.md`](DECENTRALIZATION.md)
+- `tools/` — the off-machine jobs' working parts: liveness check, archive
+  sync, the beacon resident ([`../BOTS.md`](../BOTS.md)), and a stress driver
+- `examples/bot.mjs` — a working bot in a single file
+- `tests/` — 20 suites; `registry.json` holds 505 numeric values
   extracted from the spec's embedded value registry
 
 ## Validation

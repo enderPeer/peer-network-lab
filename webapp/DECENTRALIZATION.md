@@ -1,7 +1,7 @@
 # Decentralization: the chain, the CAR, and what each one actually claims
 
-Two additions move this network from "one machine, honestly described" toward
-the spec's decentralized phase:
+Three additions move this network from "one machine, honestly described"
+toward the spec's decentralized phase:
 
 1. **The epoch chain** (`webapp/chain/`) — every closed epoch is sealed into a
    signed, hash-linked block: the epoch's act range, its full economic state
@@ -11,10 +11,15 @@ the spec's decentralized phase:
    media, chain) as one content-addressed archive anyone can pin, so the
    network stays readable and *verifiable* with every machine this project
    owns switched off.
+3. **The writer election** (`chain/election.mjs`, `reconcile.mjs`,
+   `merge.mjs`) — the writer is an office, not a machine: federated hosts
+   elect it, liveness rotates it, any mirror can inherit it, and a fork
+   heals by deterministic rebase.
 
-Honesty first, as everywhere in this repo: **writes are still centralized on
-one host.** That is not concealed by the word "chain" — see "What is and is
-not decentralized" below.
+Honesty first, as everywhere in this repo: **writes still pass through
+exactly one host at a time — an elected, rotating office now, but never
+concurrent.** That is not concealed by the word "chain" — see "What is and
+is not decentralized" below.
 
 ## The epoch chain
 

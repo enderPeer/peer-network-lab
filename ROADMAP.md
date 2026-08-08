@@ -136,11 +136,16 @@ depth-4 computation):
 
 **Current status**: Phase 0 complete; Phases 1–2 being built now in
 `webapp/` (engine in `src/engine/`, UI in `src/ui/`, tests in `tests/`).
-Two pieces of the later phases shipped early, scoped honestly
+Three pieces of the later phases shipped early, scoped honestly
 (`webapp/DECENTRALIZATION.md`): the **epoch chain** (`webapp/chain/`) —
 Phase 5's constant-transparency rule as signed, hash-linked epoch
-certificates over the act log, verified by replay — and the **IPFS pack**
+certificates over the act log, verified by replay; the **IPFS pack**
 (`webapp/publish-ipfs.ps1`) — the read side of Phase 6's substrate: app,
-record and chain under one reproducible content address. Writes remain
-single-host until the authored-act substrate (Phase 3/4) lands; the chain
-makes that single writer accountable rather than pretending it away.
+record and chain under one reproducible content address; and the **writer
+election** (`webapp/chain/election.mjs`, `reconcile.mjs`, `merge.mjs`) — a
+first slice of Phase 6's authoritative-ordering postulate. Writes are still
+one-at-a-time, but the writer is now an **elected office any federated
+mirror can inherit** — longest sealed chain wins, liveness rotates it, and
+a fork heals by deterministic rebase. Concurrent writing waits on the
+authored-act substrate (Phase 3/4); until then the chain makes each seated
+writer accountable rather than pretending the office away.

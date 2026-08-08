@@ -180,6 +180,7 @@ Useful environment variables:
 | `PEER_ACT_RATE` | acts per minute per IP (default 20). `GET /api/v1` and the refusal text both report whatever this is set to |
 | `PEER_BTC_ADDRESS` | receive address for paid placements, pasted from your own wallet. No key exists in this codebase; the host only displays it. Checksum-validated — a typo turns adverts off rather than losing money |
 | `PEER_MIRROR_OF` | run as a read-only mirror of that host — syncs log and media, refuses every write. Normally set by `server-data/role.json` instead, which survives restarts. See [webapp/HOSTING.md](webapp/HOSTING.md) |
+| `PEER_FEDERATION` | comma-separated peer URLs — the host joins the writer election instead of holding a fixed role: mirrors stand in the line of succession, a returning primary starts in boot quarantine, forks heal by deterministic rebase. See [webapp/HOSTING.md](webapp/HOSTING.md) |
 | `PEER_TURN_URL` / `_USER` / `_PASS` | a TURN relay, without which calls fail between networks with no direct path |
 
 ### What the test suites cover
@@ -193,6 +194,8 @@ Useful environment variables:
 | `host.test.ts` | the refusals: PIN rules, handle claiming, error messages that name their numbers, acts that name content nobody minted, and the bot API not diverging from the act API |
 | `tokens.test.ts` | the token economy: the emission curve, engagement weighting and its gates, AMM invariants, and the two walls — value never becomes standing, deletion never rewrites token history |
 | `admin.test.ts` | the operator surface: the admin door is closed without a token, addresses never reach a public endpoint or the log, and a paid placement never becomes an act |
+| `chain.test.ts` | the epoch chain: deterministic sealing (rebuild is byte-identical), tamper evidence, and redaction neutrality — a lawful deletion never reads as tampering |
+| `election.test.ts`, `reconcile.test.ts` | the writer's office: who outranks whom and when an incumbent yields, and the fork rebase — same inputs, same merged bytes, with every dropped effect reported |
 
 The replay and host suites are not decoration. Every one of them was written
 after a bug, and writing them found four more:
@@ -221,6 +224,11 @@ document describing the whole API, and `webapp/examples/bot.mjs` is a working
 bot in a single file. A bot pays the same cost per act as a person, so one that
 posts constantly dilutes its own standing until the network stops carrying it.
 That is deliberate.
+
+[BOTS.md](BOTS.md) is the fuller door: the residents already living here, the
+contract they hold themselves to, and free ways to run your own — including
+forking this repo so your bot runs on GitHub's scheduled machines, costing
+nothing and needing no machine of yours.
 
 ## Running calls that cross networks
 

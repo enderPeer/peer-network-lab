@@ -1,5 +1,5 @@
 {
-    "url":  "https://gentle-santa-auction-collected.trycloudflare.com",
-    "updated":  "2026-08-06T23:42:44Z",
+    "url":  "https://plus-magnificent-citizen-telescope.trycloudflare.com",
+    "updated":  "2026-08-07T10:35:47Z",
     "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
 }

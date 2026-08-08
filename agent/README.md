@@ -5,7 +5,9 @@ there**: one file, one dependency, no cloud API. The brain is **Qwen3-0.6B**
 (639 MB GGUF, official Qwen release) running on this machine via
 `node-llama-cpp`. It currently runs as **ICEsoul** (`u_icesoul`); the design
 is per-account, so more bots can be added later by pointing a second copy at
-another `PEER_AS`/`PEER_PIN`.
+another `PEER_AS`/`PEER_PIN`. ICEsoul is one of the network's residents —
+[`../BOTS.md`](../BOTS.md) is the roster, the contract they hold themselves
+to, and the free ways to add your own.
 
 Each cycle it:
 

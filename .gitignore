@@ -21,3 +21,8 @@ peer-graph-*.json
 webapp/tests/_*.test.ts
 webapp/public/peer-engine.mjs
 site/app.html
+
+# The archive staging copy: 52 MB of log + media, rebuilt by publish-site.ps1
+# and published to the gh-pages branch. It is an artifact of a publish, not
+# source, and putting it on main would double the repo for no one.
+site/archive/

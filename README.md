@@ -19,16 +19,19 @@ replay.
 | Epoch chain | [webapp/chain/](webapp/chain) | One signed, hash-linked block per closed epoch: act commitments, standing, certificate, PEER distribution, pools, constants and formula editions — verified by replay, published at `/api/chain` and in the archive. See [webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md) |
 | IPFS pack | [webapp/publish-ipfs.ps1](webapp/publish-ipfs.ps1) | The whole site (app + log + media + chain) as one deterministic CAR with a reproducible CID — pin it anywhere and the network outlives every machine here |
 | Mirrors | [MIRRORS.md](MIRRORS.md) | Every place a copy of this project lives — Radicle, IPFS, nsite, Software Heritage, snapshot release — none needing an account, and how to become a mirror yourself |
-| Writer election | [webapp/chain/election.mjs](webapp/chain/election.mjs), [reconcile.mjs](webapp/chain/reconcile.mjs), [merge.mjs](webapp/chain/merge.mjs) | The writer is an elected office: longest sealed chain wins, liveness rotates it, a stale primary quarantines itself, and a partition heals by deterministic rebase — no fork is forever. See [webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md) |
-| Test suite | [webapp/tests/](webapp/tests) | 320 tests: Appendix F verification vectors, the replay and host suites that guard deletion, revision, id stability and every refusal, and the chain suite (determinism, tamper evidence, redaction neutrality) |
+| Writer election | [webapp/chain/election.mjs](webapp/chain/election.mjs), [reconcile.mjs](webapp/chain/reconcile.mjs), [merge.mjs](webapp/chain/merge.mjs) | The writer is an elected office anyone can stand for: longest sealed chain wins, liveness rotates it, a stale primary quarantines itself, and a partition heals by deterministic rebase — no fork is forever. See [webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md) |
+| Always-on jobs | [.github/workflows/](.github/workflows) | Scheduled work on GitHub's machines, assuming no machine of ours is on: liveness repoints the address book every 15 minutes, the archive re-pulls and re-verifies the record every 6 hours, and the beacon resident attests the chain |
+| Residents & bots | [BOTS.md](BOTS.md) | Who lives here besides people — a local model, a cloud routine, a CI verifier — the contract they hold themselves to, and the open door (fork the repo + one secret) to add your own for free |
+| Test suite | [webapp/tests/](webapp/tests) | 340 tests: Appendix F verification vectors, the replay and host suites that guard deletion, revision, id stability and every refusal, the chain suite (determinism, tamper evidence, redaction neutrality), and the election/reconcile suites (who holds the pen, and how a fork heals) |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
 
 **Online tester build:** https://claude.ai/code/artifact/b196455b-b5a5-4b08-9dac-fd03b499e440
 — create accounts, post, react, tag, review, vouch, close epochs. Each
-visitor gets an independent copy of the network in their browser (the shared
-multi-user host is roadmap Phase 3). Share the link from the page's share menu.
+visitor gets an independent copy of the network in their browser; the shared
+multi-user network lives at the public address below. Share the link from
+the page's share menu.
 
 ## Quickstart
 
@@ -46,8 +49,13 @@ node chain/verify.mjs  # replay the chain: every root, every signature
 
 **Public address:** <https://enderpeer.github.io/peer-network-lab/> — permanent,
 and installable as an app on a phone (on iOS: Share → Add to Home Screen). It
-finds whichever host is currently live; when none answers it runs a private
-copy of the network in your browser instead, so the link is never dead.
+finds whichever host is currently live: `status.json` beside it is rewritten
+every fifteen minutes by a scheduled job on GitHub's machines, so the address
+book works with every machine of ours switched off. When no host answers, the
+app serves the published archive — the real network, read-only, re-pulled and
+re-verified every six hours by a second scheduled job — and only with no
+connection at all falls back to a private in-browser copy. The link is never
+dead.
 
 **Every refusal explains itself:** GET /api/v1/errors publishes all 31 —
 each with a stable code to branch on, the mechanism that produced it, and the
@@ -82,9 +90,15 @@ from the operator's own wallet; this codebase holds no key. See
 
 **Running it on your own machine:** [webapp/HOSTING.md](webapp/HOSTING.md) —
 `setup-host.ps1` turns a spare PC into a host in one command. A second machine
-runs as a **read-only mirror**: it syncs the log and media continuously, refuses
-every write (two writers would fork the log), and the app falls through to it
-when the primary stops answering. Migration is mirror first, promote second.
+runs as a **read-only mirror**: it syncs the log and media continuously,
+refuses every write (two simultaneous writers would fork the log), and the app
+falls through to it when the primary stops answering. Since the elected-writer
+build, a federated mirror also stands **in the line of succession**: hosts
+elect the writer among themselves — longest sealed chain, then longest log,
+then liveness — a dead writer's office passes to the best-placed mirror
+automatically, and a fork heals by deterministic rebase. Anyone who runs a
+mirror can end up holding the pen; that is the design, not an accident.
+Migration is mirror first, promote second.
 
 **Go public (shared test instance):** `webapp/serve-public.ps1` builds the
 page, starts the host, and opens a Cloudflare quick tunnel on a throwaway
@@ -202,15 +216,23 @@ file included.
 
 ```
 ToRuleThemAll/
-├── README.md · ROADMAP.md · build.ps1
+├── README.md · ROADMAP.md · MIRRORS.md · BOTS.md · build.ps1
 ├── PeerNetwork_PeerNetwork_v0.24.1-dev_flat.tex   (spec source)
+├── .github/workflows/         (liveness, archive, beacon — the jobs that
+│                               assume no machine of ours is on)
 ├── docs/
 │   ├── COVERAGE.md            (audit)
 │   └── spec-digests/          (12 extracted section digests)
+├── site/                      (published landing + app + verified archive)
+├── agent/                     (ICEsoul — the resident local-model bot)
 └── webapp/
     ├── src/engine/            (the protocol: kernels, tensor, graph,
     │                           traversal, feed, standing, can, families)
     ├── src/ui/                (protocol lab)
-    ├── social/                (social sandbox template + assembler)
-    └── tests/                 (35 spec-vector tests + registry.json)
+    ├── social/                (social sandbox template + assembler +
+    │                           replay.cjs, the one shared replay)
+    ├── chain/                 (epoch chain: build, verify — and election,
+    │                           reconcile, merge: the writer as an office)
+    ├── tools/                 (liveness check, archive sync, beacon, stress)
+    └── tests/                 (20 suites, 340 tests + registry.json)
 ```

@@ -4,10 +4,13 @@ The act log is the network. Everything else — standings, feeds, the chronicle
 — is a pure function of it, so hosting is mostly about keeping one log safe
 and reachable, and about never letting a second machine write to it.
 
-**The one rule: one network, one writer.** A mirror reads everything and
-writes nothing. Two hosts accepting acts fork the log the moment both are
-reachable, and there is no merge — the acts are ordered, and two orders are
-two networks. Everything below exists to make that impossible by accident.
+**The one rule: one network, one writer at a time.** A mirror reads
+everything and writes nothing; two hosts accepting acts at once fork the
+log the moment both are reachable. What is new is that the writer is an
+**elected office, not a fixed machine** — any federated mirror stands in
+the line of succession — and a fork now heals by deterministic rebase
+(`chain/merge.mjs`) instead of being forever. A fork is still an incident,
+not a workflow: everything below exists to make it impossible by accident.
 
 ## The shape
 
@@ -21,8 +24,10 @@ two networks. Everything below exists to make that impossible by accident.
 
 The app reads `host.json` from the permanent address and probes `urls` **in
 order**: primary first, mirror second. The mirror therefore only ever answers
-people the primary has already failed. When neither answers, the app runs its
-own private copy of the network in the browser — the address is never dead.
+people the primary has already failed. When neither answers, the app loads
+the published archive — the real network, read-only — and only with no
+connection at all falls back to a private in-browser copy. The address is
+never dead.
 
 ## The writer is elected now
 
@@ -404,6 +409,13 @@ hosting. When no host answers, the app loads it instead of falling back to an
 empty private sandbox — which is a working app but somebody *else's* network,
 with none of these people in it.
 
+The published copy also **keeps itself fresh with no machine of ours on**: a
+scheduled job on GitHub's runners (`.github/workflows/archive.yml` →
+`tools/archive-sync.mjs`) pulls log, chain and media from whichever host
+answers every six hours, verifies the chain against the log, and republishes.
+A record that fails verification is never published — stale is honest, wrong
+is poison.
+
 The manifest carries the act count and a SHA-256 of the file. The app **refuses
 a snapshot that does not match**, because a truncated archive that looks live is
 worse than none: everything computed from it would be wrong and nothing would
@@ -453,6 +465,7 @@ is a ratchet, and today's log carries PIN hashes and plaintext DMs.
 | the archive (log + media) | GitHub Pages, beside the app | free |
 | the live host | any machine you own, behind a Cloudflare quick tunnel | free |
 | read-only mirrors | any other machine, `-MirrorOf` | free |
+| the address book, the archive refresh, a resident bot | GitHub Actions, scheduled (`liveness.yml`, `archive.yml`, `beacon.yml`) | free |
 | a permanent hostname | a named Cloudflare tunnel + a domain | domain only |
 
 `host.json` now carries an ordered `urls` list of any length — primary first,
@@ -460,29 +473,40 @@ then every mirror — so `-Mirrors https://a,https://b` adds as many read
 fallbacks as you have machines. The app walks the list top to bottom and stops
 at the first that answers.
 
-### What CANNOT be done: merging two write-accepting hosts
+### Two writers: what now heals, and what is still impossible
 
-Not a missing feature. Acts reference each other **by index**: a deletion names
-the position of the post it removes, a revision names the position of the post
-it supersedes, a comment edit names the position of the comment. Merging two
-logs means interleaving them, and interleaving changes every index after the
-first insertion — so every deletion and every revision in the merged log would
-point at a different act than the one its author meant.
+Acts reference each other **by index**: a deletion names the position of the
+post it removes, a revision names the position of the post it supersedes, a
+comment edit names the position of the comment. Interleaving two logs
+re-points every index after the first insertion, which is why for a long time
+the honest sentence here was "there is no merge".
 
-That is why there is exactly one writer, and why a mirror refuses writes rather
-than queueing them for reconciliation. A queue would imply a merge that cannot
-be performed.
+That sentence is retired. `chain/merge.mjs` heals a fork by **deterministic
+rebase**: the losing tail is replayed onto the longer log, content ids and
+act indexes are rewritten through the same `replay.cjs` everyone runs, and
+whatever no longer applies is dropped *with a reason* rather than silently —
+same inputs, same merged bytes, on any machine. What it refuses, out loud: a
+handle registered on both sides (the losing registration is dropped, or its
+PIN would overwrite the winner's), an advert that cannot be told apart from
+its own retry, and any merge across diverged **sealed** blocks — code does
+not choose between two signed histories; a person does. Carried epoch closes
+are renumbered into one sequence, because two writers both closing "epoch 61"
+would mint two full PEER pools for one epoch.
 
-**What would unlock it: content-addressed act ids.** If each act named its
-referents by a hash of their content rather than by position, the union of two
-logs could be sorted into one canonical order and both sides would converge —
-because replay is already a pure function of an ordered list. The specification
-calls for exactly this (the authored-act substrate, Phase 3/4), and it is a
-migration rather than a patch: every existing reference would have to be
-rewritten once, and the whole point of this record is that it does not get
-rewritten.
+Still impossible, and named rather than pretended at: two hosts accepting
+acts **concurrently**. A rebase needs a loser, so simultaneous writing still
+costs one side its ordering — that is why a mirror refuses writes rather
+than queueing them. **Content-addressed act ids** would remove even that: if
+each act named its referents by a hash of their content rather than by
+position, the union of two logs would sort into one canonical order and both
+sides would converge. The specification calls for exactly this (the
+authored-act substrate, Phase 3/4), and it is a migration rather than a
+patch: every existing reference would have to be rewritten once, and the
+whole point of this record is that it does not get rewritten.
 
-So the honest position today: **writes are centralised on one host, reads are
-decentralised across mirrors and a free static archive, and the record itself is
-portable and verifiable by anyone.** The step that would make writes
-decentralised is named above rather than pretended at.
+So the honest position today: **writes go through one writer at a time, but
+the writer is an elected office any federated mirror can inherit, and a fork
+is a repairable incident rather than a permanent split. Reads are
+decentralised across mirrors and a free static archive that refreshes
+itself, and the record is portable and verifiable by anyone.** The step that
+would decentralise writes fully is named above rather than pretended at.
