@@ -57,6 +57,80 @@
 </div>
 </main>
 <script>
+// ── Sending the bitcoin from this page ────────────────────────────────────
+//
+// MetaMask can do it, through the Multichain API rather than window.ethereum:
+// the Bitcoin snap ships inside the extension (a direct dependency since
+// v13.37.0) and dapps reach it over a postMessage channel with CAIP-2 scopes.
+// It is real and stable, and it is also UNDOCUMENTED — the public multichain
+// docs cover only EVM and Solana. So nothing here assumes it exists: the
+// capability is probed against the live session and the button only appears
+// if the wallet itself says it can sendTransfer. Otherwise the page falls
+// back to showing the address, which always works.
+var MM_CS = 'metamask-contentscript', MM_INPAGE = 'metamask-inpage', MM_CH = 'metamask-multichain-provider';
+var BTC_SCOPE = 'bip122:000000000019d6689c085ae165831e93';   // Bitcoin mainnet
+var mmSeq = 0, mmPending = {}, mmAddr = null;
+
+window.addEventListener('message', function (e) {
+  if (e.origin !== location.origin) return;
+  var d = e.data || {};
+  if (d.target !== MM_INPAGE || !d.data || d.data.name !== MM_CH) return;
+  var m = d.data.data;
+  if (m && m.id != null && mmPending[m.id]) { mmPending[m.id](m); delete mmPending[m.id]; }
+});
+
+function mmRpc(method, params, ms) {
+  return new Promise(function (resolve, reject) {
+    var id = ++mmSeq;
+    var to = setTimeout(function () { delete mmPending[id]; reject(new Error('no answer')); }, ms || 60000);
+    mmPending[id] = function (m) { clearTimeout(to); m.error ? reject(new Error(m.error.message || 'refused')) : resolve(m.result); };
+    window.postMessage({ target: MM_CS, data: { name: MM_CH, data: { jsonrpc: '2.0', id: id, method: method, params: params } } }, location.origin);
+  });
+}
+
+// The first request after page load is routinely dropped — MetaMask's own
+// client warms up with a retried getSession before trusting the channel, so
+// this does the same rather than concluding "no wallet" from one silence.
+async function mmWarm() {
+  for (var i = 0; i < 4; i++) {
+    try { return await mmRpc('wallet_getSession', {}, 800); } catch (e) { /* again */ }
+  }
+  return null;
+}
+
+// Returns the BTC address MetaMask will send from, or null if it cannot.
+async function mmConnect() {
+  // If the warm-up never got an answer there is no extension listening, and
+  // going on to wait a minute for a session that cannot come would leave
+  // somebody staring at "asking MetaMask…" on a browser that has none.
+  // Measured: exactly that, for sixty seconds.
+  if (!(await mmWarm())) return null;
+  var scopes = {};
+  scopes[BTC_SCOPE] = { methods: [], notifications: [] };
+  var s = await mmRpc('wallet_createSession', { optionalScopes: scopes });
+  var sc = s && s.sessionScopes && s.sessionScopes[BTC_SCOPE];
+  if (!sc || !sc.accounts || !sc.accounts.length) return null;
+  // The capability probe. MetaMask hydrates this list from the installed
+  // snap, so it is the wallet stating what it can actually do — worth far
+  // more than this page assuming an undocumented method is present.
+  if (!(sc.methods || []).includes('sendTransfer')) return null;
+  var caip = sc.accounts[0];                 // bip122:<genesis>:<address>
+  return caip.split(':').pop();
+}
+
+// amount is SATOSHIS, as a decimal string, and exactly one recipient — the
+// snap rejects arrays of any other length despite the plural name.
+async function mmSend(from, to, sats) {
+  var r = await mmRpc('wallet_invokeMethod', {
+    scope: BTC_SCOPE,
+    request: { method: 'sendTransfer', params: {
+      account: { address: from },
+      recipients: [{ address: to, amount: String(sats) }],
+    } },
+  }, 300000);
+  return r && r.txid;
+}
+
 // The host this page files claims with. Same origin if served by the host
 // itself; otherwise the local host, which is where the operator runs it.
 var HOST = location.port === '8899' ? 'http://localhost:5210' : '';
@@ -185,8 +259,37 @@ document.getElementById('go').onclick = async function () {
   log('snapshotting what already paid this address, so your transaction is told apart from everyone else’s…');
   await snapshot();
   step(2, 'on');
-  log('watching. Send whenever you are ready — this page does the rest.');
   timer = setInterval(watch, 15000);
   watch();
+
+  // Can the wallet send it for us? Asked, never assumed.
+  log('asking MetaMask whether it can send bitcoin from here…');
+  var from = null;
+  try { from = await mmConnect(); } catch (e) { /* declined, absent, or older build */ }
+  if (!from) {
+    log('it cannot — send the amount above to that address from any wallet. This page keeps watching and does the rest.', 'muted');
+    return;
+  }
+  mmAddr = from;
+  log('yes — sending from ' + from.slice(0, 12) + '…' + from.slice(-6), 'ok');
+  var send = document.createElement('button');
+  send.textContent = 'Send ' + String(sats).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' sat with MetaMask';
+  send.onclick = async function () {
+    send.disabled = true;
+    log('MetaMask will ask you to confirm — check the address before approving.');
+    try {
+      var txid = await mmSend(from, BURN, sats);
+      // Recorded immediately: the watcher would find it anyway, but knowing
+      // the txid means a refusal later can name the transaction instead of
+      // leaving somebody wondering whether their money went anywhere.
+      log('sent: ' + txid, 'ok');
+      seen[txid] = false;                     // make sure the watcher adopts it
+      step(1, 'done');
+    } catch (e) {
+      log('not sent: ' + (e.message || e), 'bad');
+      send.disabled = false;
+    }
+  };
+  document.querySelector('#pay .row').appendChild(send);
 };
 </script></body></html>
