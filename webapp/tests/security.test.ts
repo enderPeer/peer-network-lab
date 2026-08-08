@@ -115,11 +115,44 @@ describe('a PIN hash in a public log', () => {
     const ok = await act({ t: 'post', author: 'u_ender133', text: 'signing in', a: 0.8, auth: '1234' });
     expect(ok.status).toBe(200);
 
-    // Correct PIN on a legacy hash upgrades it in place, silently, for the
-    // people who would never read a notice telling them to reset anything.
+    // Correct PIN on a legacy hash upgrades the CREDENTIAL: a setPin act is
+    // appended and pbkdf2 becomes what the door checks from now on.
     const after = readFileSync(join(dir, 'server-data', 'acts.jsonl'), 'utf8');
-    expect(after).not.toContain(sha('u_ender133', '1234'));
     expect(after).toMatch(/pbkdf2\$\d{6}\$[a-f0-9]{32}\$[a-f0-9]{64}/);
+
+    // And the legacy hash is STILL THERE, deliberately. This assertion looks
+    // backwards and is the most important line in the file.
+    //
+    // The upgrade used to rewrite that byte range in place, which did erase
+    // it — and broke the epoch chain the first time it ran against a sealed
+    // act, because chain/acts.mjs commits every field except {text, media,
+    // place}. pinHash is inside the structural hash. You cannot both keep a
+    // verifiable record and erase something the record sealed; anyone who
+    // "fixes" this line by rewriting history will break block verification
+    // again, and the record is worth more than the erasure.
+    //
+    // So the exposure of an ALREADY-SEALED weak hash is permanent, and the
+    // remedy is not erasure but rotation — see the next test.
+    expect(after).toContain(sha('u_ender133', '1234'));
+  });
+
+  it('rotating to a new secret is what makes an exposed hash worthless', () => {
+    // The real defence, and the one actually applied to this network: a
+    // published fast hash reveals a PIN STRING. Give the handle a different
+    // string and what the attacker recovers unlocks nothing. The old hash
+    // stays in the log forever and stops mattering.
+    const stored = 'pbkdf2$210000$' + 'ab'.repeat(16) + '$' + 'cd'.repeat(32);
+    // The live credential is whatever the NEWEST register/setPin says, which
+    // is the same rule the host's pinIndex and both replays follow.
+    const log = [
+      { t: 'register', id: 'u_x', pinHash: sha('u_x', '1234') },   // exposed
+      { t: 'setPin', id: 'u_x', pinHash: stored },                 // rotated
+    ];
+    let live: string | undefined;
+    for (const a of log) if (a.pinHash) live = a.pinHash;
+    expect(live).toBe(stored);
+    expect(live).not.toBe(sha('u_x', '1234'));
+    expect(String(live).startsWith('pbkdf2$')).toBe(true);
   });
 
   it('still accepts the same PIN after the upgrade', async () => {
