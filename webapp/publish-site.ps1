@@ -188,12 +188,18 @@ if ($hasBranch) {
     # An orphan checkout still carries the index from main; empty it so the
     # published branch contains only the site.
     git reset --hard | Out-Null
-    Get-ChildItem $wt -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force
+    # Sealed records survive a publish. genesis-N/ holds a finished network,
+  # kept at a permanent address precisely so a later restart cannot erase
+  # what came before it - and this line used to delete exactly that.
+  Get-ChildItem $wt -Force | Where-Object { $_.Name -ne '.git' -and $_.Name -notlike 'genesis-*' } | Remove-Item -Recurse -Force
   } finally { Pop-Location }
 }
 
 try {
-  Get-ChildItem $wt -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force
+  # Sealed records survive a publish. genesis-N/ holds a finished network,
+  # kept at a permanent address precisely so a later restart cannot erase
+  # what came before it - and this line used to delete exactly that.
+  Get-ChildItem $wt -Force | Where-Object { $_.Name -ne '.git' -and $_.Name -notlike 'genesis-*' } | Remove-Item -Recurse -Force
   Copy-Item (Join-Path $site '*') $wt -Recurse -Force
   # Tell GitHub Pages not to run Jekyll: it would drop files starting with _
   # and rewrite things we hand-authored.
