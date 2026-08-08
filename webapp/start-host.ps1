@@ -1,0 +1,47 @@
+# Start the host with every file-backed setting loaded, and nothing else.
+#
+# serve-public.ps1 also starts a tunnel and a watchdog; this is the piece that
+# just brings the HOST up on an existing tunnel — which is what a code deploy
+# needs, since the quick-tunnel address survives a host restart but not a
+# cloudflared restart.
+#
+# ASCII-only on purpose - Windows PowerShell 5.1 misparses BOM-less UTF-8.
+$ErrorActionPreference = 'Continue'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$logDir = Join-Path $here 'server-data'
+
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -like '*server.mjs*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 3
+
+# Same files serve-public.ps1 and watchdog.ps1 read. Kept in step with them by
+# hand, which is a real hazard: a setting one script loads and another forgets
+# changes behaviour silently on the next restart.
+$tok = Join-Path $logDir 'operator-token.txt'
+if (Test-Path $tok) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tok -Raw).Trim() }
+$burn = Join-Path $logDir 'burn-address.txt'
+if (Test-Path $burn) { $env:PEER_BURN_ADDRESS = (Get-Content $burn -Raw).Trim() }
+$btc = Join-Path $logDir 'btc-address.txt'
+if (Test-Path $btc) { $env:PEER_BTC_ADDRESS = (Get-Content $btc -Raw).Trim() }
+$rp = Join-Path $logDir 'rp-origin.txt'
+if (Test-Path $rp) {
+  $o = (Get-Content $rp -Raw).Trim()
+  $env:PEER_RP_ORIGIN = $o
+  $env:PEER_RP_ID = ($o -replace '^https?://', '' -replace '/.*$', '')
+}
+
+Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' `
+  -WorkingDirectory $here -WindowStyle Hidden `
+  -RedirectStandardOutput (Join-Path $logDir 'host.log') `
+  -RedirectStandardError (Join-Path $logDir 'host.err.log')
+
+foreach ($i in 1..20) {
+  Start-Sleep -Seconds 1
+  try {
+    $r = Invoke-WebRequest -Uri 'http://localhost:5210/api/v1/state' -UseBasicParsing -TimeoutSec 3
+    if ($r.StatusCode -eq 200) { Write-Output ('host up: ' + $r.Content.Substring(0, 60)); exit 0 }
+  } catch { }
+}
+Write-Output 'WARNING: host did not answer within 20s'
+exit 1

@@ -358,7 +358,11 @@ describe('the relay', () => {
 
 // ── The whole path, through a real server process ─────────────────────────
 
-const PORT = 5317;
+// 5323, not 5317: media.test.ts already owns that port, and when vitest ran
+// the two files at once one suite silently spoke to the OTHER suite's host
+// and its own data directory went unread. Ports here are hand-assigned, so
+// they have to stay unique by hand.
+const PORT = 5323;
 const BASE = `http://127.0.0.1:${PORT}`;
 const ROOT = resolve(__dirname, '..');
 let child: ChildProcess;

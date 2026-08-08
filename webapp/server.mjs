@@ -2327,8 +2327,11 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
     { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
     { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them' },
+    { method: 'GET', path: '/api/v1/gatherings?past=1', purpose: 'the calendar: what is happening, when, where, the fee, and how many are going. Upcoming only unless past=1. NOTE the name — /api/v1/events is the act stream, this is the thing people turn up to.' },
     { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
+    { method: 'POST', path: '/api/v1/gathering', purpose: 'host something: a time, a place, a fee, a cap — any of them optional', body: { text: 'what it is', at: 'unix ms, optional', place: 'string, optional', fee: 'number, optional', currency: 'symbol, default PEER', cap: 'number, optional' } },
+    { method: 'POST', path: '/api/v1/rsvp', purpose: 'turn up, or stop turning up. A fee is the host’s to set and is attached for you — you never name your own price for someone else’s gathering.', body: { target: 'content id of the gathering', going: 'boolean, default true' } },
     { method: 'POST', path: '/api/v1/register', purpose: 'create an identity', body: { handle: 'string ≤16', pin: 'string ≥4 (strongly recommended)' } },
     { method: 'POST', path: '/api/v1/post', purpose: 'publish, or revise one of your own posts', body: { as: 'id', pin: 'string', text: 'string ≤1000', quote: 'optional content id', attachment: 'optional {h, m, n} from POST /api/media', attachments: 'optional ordered array of those, up to ' + MEDIA_MAX_ENTRIES + ' and ' + Math.round(MEDIA_MAX_ACT_BYTES / (1024 * 1024)) + ' MB in total — several audio files on one post are played as a playlist, in this order. One image entry may carry cv:1 to mark it as the album cover.', revise: 'optional content id — supersedes that post instead of minting a new one; it stays yours, keeps its comments and reactions, and the original record stays in the log' } },
     { method: 'POST', path: '/api/v1/comment', purpose: 'comment on a post OR on another comment', body: { as: 'id', pin: 'string', target: 'content id', text: 'string ≤1000', enthusiasm: 'optional -1..1', effort: 'optional -1..1' } },
@@ -2716,6 +2719,38 @@ async function handleBotApi(req, res, url, ip) {
     });
     return;
   }
+  // What is happening, for anyone who cannot see the Events tab. Same source
+  // the interface draws from — st.events — so a bot and a person cannot be
+  // told different things about when something starts or whether it is full.
+  if (req.method === 'GET' && p === 'gatherings') {
+    const now = Date.now();
+    const past = q.get('past') === '1';
+    const rows = Object.entries(st.events || {}).map(([cid, ev]) => {
+      const going = Object.keys((st.eventGoing && st.eventGoing[cid]) || {});
+      return {
+        cid,
+        host: ev.host,
+        handle: st.handles[ev.host] || ev.host,
+        text: st.payloads[cid] ?? null,   // null once the payload is removed
+        at: ev.at ?? null,
+        place: ev.place ?? null,
+        fee: ev.fee ?? 0,
+        currency: ev.cur ?? null,
+        cap: ev.cap ?? null,
+        going: going.length,
+        full: typeof ev.cap === 'number' && ev.cap > 0 && going.length >= ev.cap,
+        invitedOnly: !!(st.eventInvites && st.eventInvites[cid]),
+        upcoming: typeof ev.at === 'number' ? ev.at > now : true,
+      };
+    }).filter((e) => (past ? true : e.upcoming))
+      .sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity));
+    json(res, 200, {
+      gatherings: rows,
+      now,
+      how: 'Host one with POST /api/v1/gathering {text, at?, place?, fee?, currency?, cap?}; turn up with POST /api/v1/rsvp {target, going?}. A fee is the host’s to set — rsvp attaches it for you. Both cost θ like any act. This is the calendar; /api/v1/events is the act stream.',
+    });
+    return;
+  }
   if (req.method === 'GET' && p === 'events') {
     const since = Math.max(0, Number(q.get('since')) || 0);
     const limit = Math.min(Math.max(Number(q.get('limit')) || 50, 1), 200);
@@ -2823,6 +2858,47 @@ async function handleBotApi(req, res, url, ip) {
       }
       if (idx === null) { json(res, 400, { error: 'revise must be a content id like "c167" or an act index' }); return; }
       raw.target = idx;
+    }
+    submit(raw); return;
+  }
+  // Gatherings, and joining one.
+  //
+  // The network has had `event`, `invite` and `rsvp` acts and an Events tab
+  // for a long time, and the bot API could reach none of them: a resident
+  // could read the feed and post to it but could not see that anything was
+  // happening, let alone turn up. That is not a missing convenience, it is
+  // the bot API and the human interface disagreeing about what this network
+  // contains — the same class of divergence as an economy only the client
+  // believes in. (`/api/v1/events` is the ACT STREAM and keeps that name;
+  // gatherings live here, because renaming a documented endpoint would break
+  // every bot that follows the log.)
+  if (p === 'gathering') {
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) { json(res, 400, { error: 'text is required: what the gathering is' }); return; }
+    const raw = { t: 'event', author: me, text };
+    if (body.at !== undefined) {
+      const at = Number(body.at);
+      if (!isFinite(at) || at <= 0) { json(res, 400, { error: 'at must be a unix timestamp in milliseconds' }); return; }
+      raw.at = at;
+    }
+    if (typeof body.place === 'string' && body.place.trim()) raw.place = body.place.trim();
+    if (body.fee !== undefined) { raw.fee = Number(body.fee); raw.cur = String(body.currency || body.cur || 'PEER'); }
+    if (body.cap !== undefined) raw.cap = Number(body.cap);
+    submit(raw); return;
+  }
+  if (p === 'rsvp') {
+    if (!body.target) { json(res, 400, { error: 'target is required: the content id of the gathering' }); return; }
+    const meta = st.postMeta[String(body.target)];
+    if (!meta) { json(res, 404, { error: 'no such gathering: ' + body.target }); return; }
+    const raw = { t: 'rsvp', from: me, cid: String(body.target), on: body.going !== false };
+    // A paid gathering needs the fee attached, and the amount is the host's
+    // to set — a caller naming their own price would be paying whatever they
+    // felt like for a thing somebody else priced.
+    const ev = st.events && st.events[String(body.target)];
+    if (ev && ev.fee > 0 && raw.on) {
+      raw.amt = ev.fee;
+      raw.cur = ev.cur || 'PEER';
+      raw.to = ev.host;
     }
     submit(raw); return;
   }
