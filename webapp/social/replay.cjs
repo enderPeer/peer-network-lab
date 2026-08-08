@@ -259,12 +259,12 @@ function replayUncached(acts) {
                          // first-depositor share-inflation attack
   var tokenBal = {};     // sym -> { actor -> amount }
   var tokenMeta = { PEER: { name: 'Peer epoch token', creator: null },
-                    // Legacy. The faucet that minted this is closed (see
-                    // btcClaim); the units already issued still exist and
-                    // still trade, because the log is not rewritten, but
-                    // nothing mints more. It is being replaced by an asset
-                    // that represents bitcoin somebody really burned.
-                    tBTC: { name: 'legacy sandbox unit — faucet closed, backed by nothing, not bitcoin', creator: null } };
+                    // tBTC is gone. It was a bitcoin-shaped name on a number
+                    // this code invented, and after the restart there is no
+                    // supply of it and no way to claim any. Kept in the table
+                    // only so a pre-restart log still replays; it can hold no
+                    // balance, because none was ever minted after genesis.
+                    tBTC: { name: 'retired — never real bitcoin, no supply, nothing mints it', creator: null } };
   var tokenSupply = { PEER: 0, tBTC: 0 };
   var btcClaimed = {};
   var pools = {};        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
@@ -402,11 +402,7 @@ function replayUncached(acts) {
       // funded with them, and stop sealed epoch state from reproducing. A
       // rule that starts ahead of the record changes what happens next
       // without rewriting what happened.
-      if (certsSoFar >= TBTC_FAUCET_CLOSED_FROM) {
-        return 'the tBTC faucet is closed — value comes from a verified Bitcoin burn now (GET /api/burn), not from a free claim';
-      }
-      if (btcClaimed[who]) return 'this account already claimed its tBTC — one claim per account, ever';
-      return null;
+      return 'tBTC is retired — it was never bitcoin. Value here comes from a verified Bitcoin burn (GET /api/burn) and from nothing else.';
     }
     if (a.t === 'assetCreate') {
       if (!/^[A-Z][A-Z0-9]{2,7}$/.test(a.sym || '')) return 'symbol must be 3-8 characters, A-Z and digits, starting with a letter';
@@ -506,12 +502,8 @@ function replayUncached(acts) {
       creators.photo = 'alice'; creators.comment = 'bob'; creators.sneakers = 'bob'; creators.streetart = 'carol';
       payloads.photo = SEED_POSTS.photo; payloads.comment = SEED_POSTS.comment;
       reviewMeta.comment = { e: 0.7, f: 0.8 };
-      // Layer-0 seed: residents get an external-reserve faucet and a starter
-      // grant of live units from the operator (the genesis holder).
-      ['alice', 'bob', 'carol', 'dave'].forEach(function (id) {
-        l0.faucet(id, 10);
-        l0safe(function () { l0.transfer('op', id, 2, 'live'); });
-      });
+      // The seed actors get no Layer-0 fortune either. They exist to make the
+      // graph legible from the first act, not to hold value nobody deposited.
       chron.push({ who: 'alice', line: 'posted Photo — seed world', to: 'photo' });
       chron.push({ who: 'bob', line: 'reviewed Photo, minting a Comment — seed world', to: 'comment' });
     } else if (a.t === 'register') {
@@ -523,10 +515,11 @@ function replayUncached(acts) {
       if (a.pinHash) pinHash[a.id] = a.pinHash;
       g.append({ id: 'reg_' + a.id, family: 'Registration', src: a.id, tgt: 'prof_' + a.id, pd: 1, pi: 1 });
       debit(a.id); weighHome(a.id, 1, 1);
-      // Layer-0 onboarding: external-reserve faucet + operator starter grant.
-      // Muted actors keep full economic parity — only visibility goes.
-      l0.faucet(a.id, 10);
-      l0safe(function () { l0.transfer('op', a.id, 2, 'live'); });
+      // No onboarding fortune any more. Registering used to hand out ten
+      // units of "external reserve" and two "live" units from an operator
+      // who had never deposited anything — invented value, dressed as an
+      // economy. Everything spendable here now comes from bitcoin somebody
+      // actually destroyed, so arriving grants you a name and nothing else.
       if (payloadGone) ledgerById[a.id].deleted = true;
       else chron.push({ who: a.id, line: 'registered · genesis attestation ' + a.seed.toFixed(2) + ' · θ-debit' + (a.pinHash ? ' · PIN-secured' : '') });
     } else if (a.t === 'burn') {
@@ -547,14 +540,13 @@ function replayUncached(acts) {
       // append-only record exists to prevent. Sixty epochs are closed as this
       // ships and the heaviest account has averaged about one burn per epoch,
       // so this constrains nobody who is using it as intended.
-      if (certsSoFar >= FAUCET_CAP_FROM_EPOCH) {
-        var fk = a.id + '@' + certsSoFar;
-        faucetCount[fk] = (faucetCount[fk] || 0) + 1;
-        if (faucetCount[fk] > FAUCET_PER_EPOCH) continue;   // the host refuses it too
-      }
-      ledgerById[a.id].burnBal += a.amt;
-      earnedBurn[a.id] = (earnedBurn[a.id] || 0) + a.amt;
-      if (!payloadGone) chron.push({ who: a.id, line: 'burned +' + a.amt.toFixed(2) + ' reserve (faucet)' });
+      // The faucet is gone, not rationed. It called itself "burn" and
+      // destroyed nothing: it minted reserve from nowhere, which is the
+      // exact fiction this network is being taken out of. A `burn` act in
+      // the record from before the restart still replays — history is not
+      // rewritten — but nothing credits one now. Reserve comes from
+      // btcBurn, and from nowhere else.
+      if (!payloadGone) chron.push({ who: a.id, line: 'a faucet burn, from before the restart — credits nothing' });
     } else if (a.t === 'btcBurn') {
       // Value destroyed on the Bitcoin chain, recorded only after the host
       // verified the transaction against public explorers. What makes this

@@ -48,8 +48,8 @@ describe('a paid event moves money and nothing that is ranked', () => {
   /** Two accounts, one holding tBTC, and an event with an entry fee. */
   function world(fee: number) {
     const base = seed('host', 'goer').concat([
-      { t: 'btcClaim', author: 'u_goer' },
-      { t: 'event', author: 'u_host', text: 'a reading', at: 0, place: 'the back room', fee, cur: 'tBTC', cap: 0 },
+      { t: 'assetCreate', author: 'u_goer', sym: 'TBTC', name: 'test unit', supply: 0.01 },
+      { t: 'event', author: 'u_host', text: 'a reading', at: 0, place: 'the back room', fee, cur: 'TBTC', cap: 0 },
     ]);
     return base;
   }
@@ -57,12 +57,12 @@ describe('a paid event moves money and nothing that is ranked', () => {
   it('an entry fee is a transfer: balances move, standings do not', () => {
     const before = replay(world(0).concat([{ t: 'rsvp', from: 'u_goer', cid: 'c1', on: true }]));
     const after = replay(world(0.004).concat([
-      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 0.004, cur: 'tBTC', to: 'u_host' },
+      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 0.004, cur: 'TBTC', to: 'u_host' },
     ]));
 
     // The money moved.
-    expect(after.tokens.bal.tBTC.u_host).toBeCloseTo(0.004, 9);
-    expect(after.tokens.bal.tBTC.u_goer).toBeCloseTo(0.006, 9);
+    expect(after.tokens.bal.TBTC.u_host).toBeCloseTo(0.004, 9);
+    expect(after.tokens.bal.TBTC.u_goer).toBeCloseTo(0.006, 9);
     // Nothing else did. This is the assertion the whole feature stands on.
     expect(standings(after), 'paying moved a standing').toEqual(standings(before));
     expect(after.g.edges.length, 'paying added an edge').toBe(before.g.edges.length);
@@ -77,26 +77,26 @@ describe('a paid event moves money and nothing that is ranked', () => {
     // debit(-x) followed by credit(-x) is a credit and a no-op: the payer ends
     // richer and the supply is silently inflated.
     const st = replay(world(-5).concat([
-      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: -5, cur: 'tBTC', to: 'u_host' },
+      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: -5, cur: 'TBTC', to: 'u_host' },
     ]));
-    expect(st.tokens.bal.tBTC.u_goer).toBeCloseTo(0.01, 9);
-    expect(st.tokens.bal.tBTC.u_host === undefined || st.tokens.bal.tBTC.u_host === 0).toBe(true);
+    expect(st.tokens.bal.TBTC.u_goer).toBeCloseTo(0.01, 9);
+    expect(st.tokens.bal.TBTC.u_host === undefined || st.tokens.bal.TBTC.u_host === 0).toBe(true);
   });
 
   it('refuses a payment that does not match what the event asks', () => {
     const st = replay(world(0.004).concat([
-      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 0.001, cur: 'tBTC', to: 'u_host' },
+      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 0.001, cur: 'TBTC', to: 'u_host' },
     ]));
     expect(st.eventGoing.c1, 'an underpaying answer was accepted').toBeUndefined();
-    expect(st.tokens.bal.tBTC.u_goer).toBeCloseTo(0.01, 9);
+    expect(st.tokens.bal.TBTC.u_goer).toBeCloseTo(0.01, 9);
   });
 
   it('refuses a payment somebody cannot cover', () => {
     const st = replay(world(5).concat([
-      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 5, cur: 'tBTC', to: 'u_host' },
+      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 5, cur: 'TBTC', to: 'u_host' },
     ]));
     expect(st.eventGoing.c1).toBeUndefined();
-    expect(st.tokens.bal.tBTC.u_goer).toBeCloseTo(0.01, 9);
+    expect(st.tokens.bal.TBTC.u_goer).toBeCloseTo(0.01, 9);
   });
 
   it('does not credit a symbol the payer never held, and does not throw', () => {
@@ -154,16 +154,16 @@ describe('a paid event moves money and nothing that is ranked', () => {
     // out. Suppressed by refusing engagement weight between two accounts that
     // moved money to each other in the same epoch.
     const common = seed('host', 'goer').concat([
-      { t: 'btcClaim', author: 'u_goer' },
+      { t: 'assetCreate', author: 'u_goer', sym: 'TBTC', name: 'test unit', supply: 0.01 },
       // A real burn, because weight comes from destroyed value now — without
       // one the goer weighs nothing, both sides of this comparison are zero,
       // and the test would "pass" while proving nothing about the wall.
       { t: 'btcBurn', id: 'u_goer', sats: 1000, addr: 'bc1qdead',
         txid: 'e7'.repeat(32) },
-      { t: 'event', author: 'u_host', text: 'a reading', fee: 0.004, cur: 'tBTC' },
+      { t: 'event', author: 'u_host', text: 'a reading', fee: 0.004, cur: 'TBTC' },
     ]);
     const paidThenReacted = replay(common.concat([
-      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 0.004, cur: 'tBTC', to: 'u_host' },
+      { t: 'rsvp', from: 'u_goer', cid: 'c1', on: true, amt: 0.004, cur: 'TBTC', to: 'u_host' },
       { t: 'opinion', author: 'u_goer', target: 'c1', p: 0.9, r: 0.9 },
       { t: 'closeEpoch', epoch: 0 },
     ]));
@@ -219,7 +219,7 @@ describe('the host on events', () => {
     await act({ t: 'register', id: 'u_open', handle: 'Openhandle', seed: 1, epoch: 0 });   // no PIN on purpose
     for (let i = 0; i < 4; i++) await act({ t: 'burn', id: 'u_org', amt: 1, auth: '2468' });
     for (let i = 0; i < 4; i++) await act({ t: 'burn', id: 'u_open', amt: 1 });
-    await act({ t: 'btcClaim', author: 'u_open' });
+    await act({ t: 'assetCreate', author: 'u_open', sym: 'TBTC', name: 'test unit', supply: 0.01 });
   }, 30000);
 
   afterAll(() => {
@@ -236,7 +236,7 @@ describe('the host on events', () => {
   });
 
   it('refuses a paid answer from a handle nobody can prove they own', async () => {
-    const ev = await act({ t: 'event', author: 'u_org', text: 'paid night', fee: 0.004, cur: 'tBTC', auth: '2468' });
+    const ev = await act({ t: 'event', author: 'u_org', text: 'paid night', fee: 0.004, cur: 'TBTC', auth: '2468' });
     expect(ev.status).toBe(200);
     // Never derive a content id by counting: the id counter also ticks for
     // hyperedge legs, which is a defect this project already shipped once and
@@ -247,7 +247,7 @@ describe('the host on events', () => {
     const cid = mine.length ? String(mine[mine.length - 1].node) : '';
     expect(cid, 'the host did not report the minted id').toMatch(/^c\d+$/);
     // u_open holds tBTC but has no PIN: the payment must be refused.
-    const r = await act({ t: 'rsvp', from: 'u_open', cid: cid, on: true, amt: 0.004, cur: 'tBTC', to: 'u_org' });
+    const r = await act({ t: 'rsvp', from: 'u_open', cid: cid, on: true, amt: 0.004, cur: 'TBTC', to: 'u_org' });
     // The status comes from the error catalogue, not from a number chosen here.
     expect(r.status, 'refused for the wrong reason: ' + JSON.stringify(r.body)).toBe(401);
     expect(String(r.body.error)).toMatch(/needs a PIN/);
@@ -261,7 +261,7 @@ describe('the host on events', () => {
     // past. The checks live at the host, never in the shared replay, because
     // deletion and the wall clock are both retroactive there and would rewrite
     // balances in a log that has already been replayed.
-    const ev = await act({ t: 'event', author: 'u_org', text: 'doomed', fee: 0.001, cur: 'tBTC', auth: '2468' });
+    const ev = await act({ t: 'event', author: 'u_org', text: 'doomed', fee: 0.001, cur: 'TBTC', auth: '2468' });
     expect(ev.status).toBe(200);
     const evs = await (await fetch(BASE + '/api/v1/events?since=0&limit=300')).json() as
       { events: Array<{ node?: string }> };
@@ -271,18 +271,18 @@ describe('the host on events', () => {
     const { total: n } = await (await fetch(BASE + '/api/acts')).json() as { total: number };
     expect((await act({ t: 'deletePost', author: 'u_org', target: n - 1, auth: '2468' })).status).toBe(200);
 
-    const paid = await act({ t: 'rsvp', from: 'u_org', cid, on: true, amt: 0.001, cur: 'tBTC', to: 'u_org', auth: '2468' });
+    const paid = await act({ t: 'rsvp', from: 'u_org', cid, on: true, amt: 0.001, cur: 'TBTC', to: 'u_org', auth: '2468' });
     expect(paid.status, 'a deleted event still took money').not.toBe(200);
     expect(String(paid.body.error)).toMatch(/deleted/);
 
     // And one whose time has passed.
-    const past = await act({ t: 'event', author: 'u_org', text: 'last year', at: Date.now() - 200 * 86400000, fee: 0.001, cur: 'tBTC', auth: '2468' });
+    const past = await act({ t: 'event', author: 'u_org', text: 'last year', at: Date.now() - 200 * 86400000, fee: 0.001, cur: 'TBTC', auth: '2468' });
     expect(past.status).toBe(200);
     const evs2 = await (await fetch(BASE + '/api/v1/events?since=0&limit=300')).json() as
       { events: Array<{ node?: string }> };
     const nodes2 = evs2.events.filter((e) => e.node);
     const cid2 = String(nodes2[nodes2.length - 1].node);
-    const late = await act({ t: 'rsvp', from: 'u_org', cid: cid2, on: true, amt: 0.001, cur: 'tBTC', to: 'u_org', auth: '2468' });
+    const late = await act({ t: 'rsvp', from: 'u_org', cid: cid2, on: true, amt: 0.001, cur: 'TBTC', to: 'u_org', auth: '2468' });
     expect(late.status, 'an event that is over still took money').not.toBe(200);
     expect(String(late.body.error)).toMatch(/already happened/);
   }, 30000);

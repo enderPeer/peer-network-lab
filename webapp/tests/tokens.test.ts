@@ -193,12 +193,12 @@ describe('the wall between value and standing', () => {
   it('token acts create no graph edges and compile no vouches', () => {
     const base = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
     const withTok = [...base,
-      { t: 'btcClaim', author: 'u_al' },
-      { t: 'btcClaim', author: 'u_bo' },
+      { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.02 },
+      { t: 'tokenSend', from: 'u_al', to: 'u_bo', sym: 'TBTC', amt: 0.01 },
       { t: 'assetCreate', author: 'u_al', sym: 'FUN', name: 'a joke', supply: 1000 },
       { t: 'tokenSend', author: 'u_al', sym: 'FUN', to: 'u_bo', amt: 10 },
-      { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'tBTC', amtA: 100, amtB: 0.005 },
-      { t: 'poolSwap', author: 'u_bo', pool: 'PEER/tBTC', sell: 'tBTC', amt: 0.001 },
+      { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 100, amtB: 0.005 },
+      { t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 },
     ];
     const a = replay(base), b = replay(withTok);
     expect(b.g.edges.length).toBe(a.g.edges.length);
@@ -215,7 +215,7 @@ describe('the wall between value and standing', () => {
     // acts on anything else.
     const rich = [...world('al', 'bo'),
       { t: 'assetCreate', author: 'u_bo', sym: 'GOLD', name: 'all of it', supply: 1e9 },
-      { t: 'btcClaim', author: 'u_bo' },
+      { t: 'assetCreate', author: 'u_bo', sym: 'TBTC', name: 'test unit', supply: 0.01 },
     ];
     const poor = [...world('al', 'bo'),
       post('bo', 'x'), post('bo', 'y'), // same act count, no tokens
@@ -228,46 +228,49 @@ describe('the wall between value and standing', () => {
 describe('pools — constant product with the fee inside', () => {
   const setup = () => [...world('al', 'bo'),
     post('al', 'P'), like('bo', 'c1'), close(),               // al holds 5000 PEER
-    { t: 'btcClaim', author: 'u_al' }, { t: 'btcClaim', author: 'u_bo' },
-    { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'tBTC', amtA: 1000, amtB: 0.005 },
+    // A symbol can only be minted once, so al mints both sides' worth and
+    // sends bo a share — the faucet this replaces gave each of them 0.01.
+    { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.02 },
+    { t: 'tokenSend', from: 'u_al', to: 'u_bo', sym: 'TBTC', amt: 0.01 },
+    { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 1000, amtB: 0.005 },
   ];
 
   it('k never falls, and grows on every swap — the fee is the yield', () => {
     const acts = setup();
-    const before = replay(acts).pools['PEER/tBTC'];
+    const before = replay(acts).pools['PEER/TBTC'];
     const k0 = before.resA * before.resB;
-    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/tBTC', sell: 'tBTC', amt: 0.001 });
-    const after = replay(acts).pools['PEER/tBTC'];
+    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 });
+    const after = replay(acts).pools['PEER/TBTC'];
     expect(after.resA * after.resB).toBeGreaterThan(k0);
   });
 
   it('quotes the uniswap number exactly', () => {
     const acts = setup();
-    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/tBTC', sell: 'tBTC', amt: 0.001 });
+    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 });
     const st = replay(acts);
     const eff = 0.001 * 0.997;
     const expected = 1000 * eff / (0.005 + eff);
     // bo held no PEER before the swap, so the balance IS the fill.
     expect(st.tokens.bal.PEER.u_bo).toBeCloseTo(expected, 9);
-    expect(st.tokens.bal.tBTC.u_bo).toBeCloseTo(0.01 - 0.001, 9);
+    expect(st.tokens.bal.TBTC.u_bo).toBeCloseTo(0.01 - 0.001, 9);
   });
 
   it('pays a later liquidity provider their exact proportional share back', () => {
     const acts = setup();
     acts.push({ t: 'tokenSend', author: 'u_al', sym: 'PEER', to: 'u_bo', amt: 500 });
-    acts.push({ t: 'poolAdd', author: 'u_bo', pool: 'PEER/tBTC', amtA: 500, amtB: 0.0025 });
-    const mid = replay(acts).pools['PEER/tBTC'];
+    acts.push({ t: 'poolAdd', author: 'u_bo', pool: 'PEER/TBTC', amtA: 500, amtB: 0.0025 });
+    const mid = replay(acts).pools['PEER/TBTC'];
     const boShares = mid.shares.u_bo;
     expect(boShares / mid.totalShares).toBeCloseTo(1 / 3, 9); // 500 into 1500 total
-    acts.push({ t: 'poolRemove', author: 'u_bo', pool: 'PEER/tBTC', shares: boShares });
+    acts.push({ t: 'poolRemove', author: 'u_bo', pool: 'PEER/TBTC', shares: boShares });
     const st = replay(acts);
     expect(st.tokens.bal.PEER.u_bo).toBeCloseTo(500, 6);       // deposit comes back
-    expect(st.tokens.bal.tBTC.u_bo).toBeCloseTo(0.01 - 0.0025 + 0.0025, 9);
+    expect(st.tokens.bal.TBTC.u_bo).toBeCloseTo(0.01 - 0.0025 + 0.0025, 9);
   });
 
   it('locks a sliver of the first deposit forever — the share-inflation guard', () => {
     const st = replay(setup());
-    const pl = st.pools['PEER/tBTC'];
+    const pl = st.pools['PEER/TBTC'];
     expect(pl.shares._locked).toBeGreaterThan(0);
     // even the founder cannot withdraw to an empty pool
     expect(pl.shares.u_al).toBeLessThan(pl.totalShares);
@@ -276,11 +279,11 @@ describe('pools — constant product with the fee inside', () => {
   it('refuses a swap that would fill below minOut', () => {
     const acts = setup();
     const before = replay(acts);
-    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/tBTC', sell: 'tBTC', amt: 0.001, minOut: 99999 });
+    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001, minOut: 99999 });
     const st = replay(acts);
     // the act is skipped wholesale: no balance moved, no reserve moved
-    expect(st.pools['PEER/tBTC'].resA).toBe(before.pools['PEER/tBTC'].resA);
-    expect(st.tokens.bal.tBTC.u_bo).toBe(before.tokens.bal.tBTC.u_bo);
+    expect(st.pools['PEER/TBTC'].resA).toBe(before.pools['PEER/TBTC'].resA);
+    expect(st.tokens.bal.TBTC.u_bo).toBe(before.tokens.bal.TBTC.u_bo);
   });
 
   it('tells the host and the replay the same story', () => {
@@ -288,17 +291,17 @@ describe('pools — constant product with the fee inside', () => {
     // the replay skips, byte for byte the same reason.
     const acts = setup();
     const st = replay(acts);
-    expect(st.tokenActError({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/tBTC', sell: 'tBTC', amt: 999 }))
+    expect(st.tokenActError({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 999 }))
       .toMatch(/balance is/);
-    expect(st.tokenActError({ t: 'btcClaim', author: 'u_al' })).toMatch(/already claimed/);
+    expect(st.tokenActError({ t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 })).toMatch(/already claimed/);
     expect(st.tokenActError({ t: 'assetCreate', author: 'u_al', sym: 'PEER', name: 'x', supply: 1 })).toMatch(/taken/);
-    expect(st.tokenActError({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/tBTC', sell: 'tBTC', amt: 0.001 })).toBeNull();
+    expect(st.tokenActError({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 })).toBeNull();
   });
 
   it('a fun asset can trade against anything', () => {
     const acts = setup();
     acts.push({ t: 'assetCreate', author: 'u_bo', sym: 'MEME', name: 'worth a laugh', supply: 10000 });
-    acts.push({ t: 'poolCreate', author: 'u_bo', symA: 'MEME', symB: 'tBTC', amtA: 5000, amtB: 0.002 });
+    acts.push({ t: 'poolCreate', author: 'u_bo', symA: 'MEME', symB: 'TBTC', amtA: 5000, amtB: 0.002 });
     const st = replay(acts);
     expect(st.pools['MEME/tBTC']).toBeDefined();
     expect(st.tokens.bal.MEME.u_bo).toBeCloseTo(5000, 6);
@@ -311,13 +314,13 @@ describe('deleting an account does not rewrite token history', () => {
   // record. Found by probing, not by review.
   const base = () => [...world('al', 'bo'),
     post('al', 'P'), like('bo', 'c1'), close(),
-    { t: 'btcClaim', author: 'u_al' },
-    { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'tBTC', amtA: 1000, amtB: 0.005 },
+    { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
+    { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 1000, amtB: 0.005 },
   ];
 
   it('leaves a pool the departed account funded, and everyone who traded in it', () => {
-    const before = replay(base()).pools['PEER/tBTC'];
-    const after = replay([...base(), { t: 'deleteAccount', id: 'u_al' }]).pools['PEER/tBTC'];
+    const before = replay(base()).pools['PEER/TBTC'];
+    const after = replay([...base(), { t: 'deleteAccount', id: 'u_al' }]).pools['PEER/TBTC'];
     expect(after).toBeDefined();
     expect(after.resA).toBe(before.resA);
     expect(after.resB).toBe(before.resB);
@@ -371,17 +374,17 @@ describe('hostile numbers reach the replay and are skipped, never applied', () =
 describe('pool identity is one pair, whichever way you name it', () => {
   it('normalises the order and refuses a mirrored duplicate', () => {
     const acts = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close(),
-      { t: 'btcClaim', author: 'u_al' },
-      { t: 'poolCreate', author: 'u_al', symA: 'tBTC', symB: 'PEER', amtA: 0.005, amtB: 1000 },
+      { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
+      { t: 'poolCreate', author: 'u_al', symA: 'TBTC', symB: 'PEER', amtA: 0.005, amtB: 1000 },
     ];
     const st = replay(acts);
-    const pl = st.pools['PEER/tBTC'];
+    const pl = st.pools['PEER/TBTC'];
     expect(pl).toBeDefined();
     // reserves follow the symbols, not the argument order
     expect(pl.a).toBe('PEER');
     expect(pl.resA).toBe(1000);
     expect(pl.resB).toBe(0.005);
-    const dup = replay([...acts, { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'tBTC', amtA: 10, amtB: 0.0001 }]);
+    const dup = replay([...acts, { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 10, amtB: 0.0001 }]);
     expect(Object.keys(dup.pools)).toHaveLength(1);
   });
 });
@@ -421,7 +424,7 @@ describe('deletion stays scoring-neutral even when token acts are in the log', (
     // rests on is that a certificate still reproduces from the log afterwards.
     const base = [...world('al', 'bo'),
       post('al', 'P'),
-      { t: 'btcClaim', author: 'u_bo' },
+      { t: 'assetCreate', author: 'u_bo', sym: 'TBTC', name: 'test unit', supply: 0.01 },
       { t: 'assetCreate', author: 'u_bo', sym: 'BYE', name: 'leaving soon', supply: 100 },
       like('bo', 'c1'),
       close(),
@@ -474,7 +477,7 @@ describe('the registration grant is a starter, not a stake', () => {
 describe('adverts: paid in tBTC, live at once, still outside the graph', () => {
   const funded = () => [...world('al', 'bo'),
     post('al', 'P'), like('bo', 'c1'), close(),
-    { t: 'btcClaim', author: 'u_al' },
+    { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
   ];
   const buy = (extra: Record<string, unknown> = {}) => ({
     t: 'advert', author: 'u_al', text: 'A shop.', url: 'https://example.org', days: 5, ts: 1000, ...extra,
@@ -486,7 +489,7 @@ describe('adverts: paid in tBTC, live at once, still outside the graph', () => {
     const before = replay(funded()).tokens;
     const after = replay([...funded(), buy()]).tokens;
     const cost = 0.0002 * 5;
-    expect(after.bal.tBTC.u_al).toBeCloseTo(before.bal.tBTC.u_al - cost, 9);
+    expect(after.bal.TBTC.u_al).toBeCloseTo(before.bal.TBTC.u_al - cost, 9);
     expect(after.supply.tBTC).toBeCloseTo(before.supply.tBTC - cost, 9);
     // nobody received it
     for (const [id, v] of Object.entries(after.bal.tBTC)) {

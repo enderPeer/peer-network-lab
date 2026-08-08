@@ -130,11 +130,11 @@ describe('fork reconciliation', () => {
     // that advert has nothing to stop. Every step of that cascade must be
     // said out loud, none of it silently.
     const base = [...prefix(),
-      { t: 'btcClaim', author: 'u_z' },
+      { t: 'assetCreate', author: 'u_z', sym: 'TBTC', name: 'test unit', supply: 0.01 },
       { t: 'advert', author: 'u_z', text: 'base-side advert', url: 'https://example.org', days: 50, ts: 1000 },
     ];
     const fork = [...prefix(),
-      { t: 'btcClaim', author: 'u_z' },
+      { t: 'assetCreate', author: 'u_z', sym: 'TBTC', name: 'test unit', supply: 0.01 },
       { t: 'advert', author: 'u_z', text: 'fork-side advert', url: 'https://example.org', days: 50, ts: 2000 },
       { t: 'adStop', author: 'u_z', ad: 'ad1' },
     ];
@@ -195,13 +195,13 @@ describe('fork reconciliation', () => {
     // during the split; in the merged record only the first can apply. The
     // second is still record — but its effect is gone, and the report has to
     // say so, or the operator merges believing nothing was lost.
-    const base = [...prefix(), { t: 'btcClaim', author: 'u_z', ts: 1000 }];
-    const fork = [...prefix(), { t: 'btcClaim', author: 'u_z', ts: 2000 }];
+    const base = [...prefix(), { t: 'assetCreate', author: 'u_z', sym: 'TZ', name: 'test unit', supply: 1000, ts: 1000 }];
+    const fork = [...prefix(), { t: 'assetCreate', author: 'u_z', sym: 'TZ', name: 'test unit', supply: 1000, ts: 2000 }];
     const { merged, report } = reconcile({ baseActs: base, forkActs: fork, R });
     expect(report.appended).toBe(1);
     expect(report.effectLost.some((e: any) => e.t === 'btcClaim')).toBe(true);
     // Exactly one claim's worth of tBTC exists, not two.
-    expect(replay(merged).tokens.bal.tBTC.u_z).toBe(0.01);
+    expect(replay(merged).tokens.bal.TBTC.u_z).toBe(0.01);
   });
 
   it('refuses to merge under a diverged sealed chain', async () => {
