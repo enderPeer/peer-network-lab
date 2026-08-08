@@ -148,6 +148,9 @@ function replayUncached(acts) {
   // network stands, so no already-recorded standing moves; see the burn branch.
   var FAUCET_PER_EPOCH = 8;
   var FAUCET_CAP_FROM_EPOCH = 62;
+  // The epoch the tBTC faucet shuts for good. Ahead of the record on
+  // purpose: see the btcClaim branch.
+  var TBTC_FAUCET_CLOSED_FROM = 62;
   var faucetCount = {};   // (id '@' epoch) -> how many this epoch
   var events = {};        // cid -> {host, at, place, fee, cur, cap, idx}
   var eventInvites = {};  // cid -> { invitee: true }
@@ -253,7 +256,12 @@ function replayUncached(acts) {
                          // first-depositor share-inflation attack
   var tokenBal = {};     // sym -> { actor -> amount }
   var tokenMeta = { PEER: { name: 'Peer epoch token', creator: null },
-                    tBTC: { name: 'test bitcoin — sandbox value, backed by nothing', creator: null } };
+                    // Legacy. The faucet that minted this is closed (see
+                    // btcClaim); the units already issued still exist and
+                    // still trade, because the log is not rewritten, but
+                    // nothing mints more. It is being replaced by an asset
+                    // that represents bitcoin somebody really burned.
+                    tBTC: { name: 'legacy sandbox unit — faucet closed, backed by nothing, not bitcoin', creator: null } };
   var tokenSupply = { PEER: 0, tBTC: 0 };
   var btcClaimed = {};
   var pools = {};        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
@@ -384,6 +392,16 @@ function replayUncached(acts) {
       return null;
     }
     if (a.t === 'btcClaim') {
+      // The faucet is closed — from a FUTURE epoch, exactly like the faucet
+      // ceiling above and for the same reason. Refusing it outright would
+      // make the replay skip claims that are already in the log, which would
+      // retroactively delete balances people are holding, break every pool
+      // funded with them, and stop sealed epoch state from reproducing. A
+      // rule that starts ahead of the record changes what happens next
+      // without rewriting what happened.
+      if (certsSoFar >= TBTC_FAUCET_CLOSED_FROM) {
+        return 'the tBTC faucet is closed — value comes from a verified Bitcoin burn now (GET /api/burn), not from a free claim';
+      }
       if (btcClaimed[who]) return 'this account already claimed its tBTC — one claim per account, ever';
       return null;
     }

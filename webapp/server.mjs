@@ -2023,7 +2023,10 @@ function validate(act) {
         if (!str(act.credId, 512) || !Array.isArray(act.cose) || act.cose.length > 16) return 'bad credential';
       }
       break;
+    // The faucet door, closed at the host as well as in the replay, so the
+    // refusal is a sentence rather than an act that quietly does nothing.
     case 'btcClaim':
+      return 'the tBTC faucet is closed — value comes from a verified Bitcoin burn now (GET /api/burn), not from a free claim';
     case 'assetCreate':
     case 'tokenSend':
     case 'poolCreate':
