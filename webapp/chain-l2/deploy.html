@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Deploy PEER — Peer Network</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--paper:#131110;--ink:#EFE7DB;--muted:#9C8E7E;--ember:#B84525;--ok:#3f7d4e;--line:#2a2622}
+  body{background:var(--paper);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:28px 18px 80px}
+  main{max-width:640px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 22px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0;background:#181513}
+  .step{display:flex;gap:10px;align-items:baseline}
+  .n{color:var(--ember);font-weight:700;min-width:1.2em}
+  button{background:var(--ember);color:#fff;border:0;border-radius:7px;padding:11px 18px;font-size:15px;cursor:pointer}
+  button:disabled{background:#3a3531;color:#7d746c;cursor:not-allowed}
+  button.sec{background:#2a2622;color:var(--ink)}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
+  .ok{color:var(--ok)} .bad{color:var(--ember)} .muted{color:var(--muted)}
+  #log{white-space:pre-wrap;margin-top:10px}
+  input{background:#0f0d0c;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:9px;width:100%;box-sizing:border-box;font-family:ui-monospace,monospace}
+  a{color:var(--ember)}
+</style></head><body><main>
+<h1>Deploy PEER</h1>
+<p class="sub">Your key never leaves MetaMask. This page holds no secret, asks for none, and signs nothing — it hands MetaMask a transaction and MetaMask asks you.</p>
+
+<div class="card">
+  <div class="step"><span class="n">1</span><div>
+    <b>Connect</b><div class="muted">Read-only until you press Deploy.</div>
+    <p><button id="conn">Connect MetaMask</button></p>
+    <div id="who" class="mono muted"></div>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="step"><span class="n">2</span><div>
+    <b>Supply</b><div class="muted">Whole tokens. 18,250,000 is the cap TOKEN.md sets for the epoch emission schedule.</div>
+    <p><input id="supply" value="18250000"></p>
+  </div></div>
+</div>
+
+<div class="card">
+  <div class="step"><span class="n">3</span><div>
+    <b>Deploy</b>
+    <div class="muted">One transaction on Base. Roughly $0.04 of gas. MetaMask will show you the exact cost before anything happens.</div>
+    <p><button id="go" disabled>Deploy PEER</button></p>
+  </div></div>
+  <div id="log" class="mono"></div>
+</div>
+
+<p class="muted" style="font-size:13px">
+Contract: no owner, no mint function, no pause, no blacklist, no proxy — the whole supply is created once to you and after that it can only do what an ERC-20 does.
+Compiled from <code>PeerToken.sol</code> with solc 0.8.24, optimizer on, 200 runs. Bytecode is embedded in this page; nothing is fetched.
+</p>
+</main>
+<script>
+const BYTECODE = "0x60a060405234801561000f575f80fd5b506040516107a53803806107a583398101604081905261002e916100ec565b5f81116100815760405162461bcd60e51b815260206004820152601760248201527f737570706c79206d75737420626520706f736974697665000000000000000000604482015260640160405180910390fd5b5f61008e6012600a6101f9565b610098908361020b565b6080819052335f8181526020818152604080832085905551848152939450919290917fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef910160405180910390a35050610222565b5f602082840312156100fc575f80fd5b5051919050565b634e487b7160e01b5f52601160045260245ffd5b600181815b8085111561015157815f190482111561013757610137610103565b8085161561014457918102915b93841c939080029061011c565b509250929050565b5f82610167575060016101f3565b8161017357505f6101f3565b81600181146101895760028114610193576101af565b60019150506101f3565b60ff8411156101a4576101a4610103565b50506001821b6101f3565b5060208310610133831016604e8410600b84101617156101d2575081810a6101f3565b6101dc8383610117565b805f19048211156101ef576101ef610103565b0290505b92915050565b5f6102048383610159565b9392505050565b80820281158282048414176101f3576101f3610103565b60805161056c6102395f395f60fd015261056c5ff3fe608060405234801561000f575f80fd5b5060043610610090575f3560e01c8063313ce56711610063578063313ce5671461014057806370a082311461015a57806395d89b4114610179578063a9059cbb1461019c578063dd62ed3e146101af575f80fd5b806306fdde0314610094578063095ea7b3146100d557806318160ddd146100f857806323b872dd1461012d575b5f80fd5b6100bf6040518060400160405280600c81526020016b50656572204e6574776f726b60a01b81525081565b6040516100cc9190610424565b60405180910390f35b6100e86100e336600461048b565b6101d9565b60405190151581526020016100cc565b61011f7f000000000000000000000000000000000000000000000000000000000000000081565b6040519081526020016100cc565b6100e861013b3660046104b3565b610244565b610148601281565b60405160ff90911681526020016100cc565b61011f6101683660046104ec565b5f6020819052908152604090205481565b6100bf604051806040016040528060048152602001632822a2a960e11b81525081565b6100e86101aa36600461048b565b6102f5565b61011f6101bd366004610505565b600160209081525f928352604080842090915290825290205481565b335f8181526001602090815260408083206001600160a01b038716808552925280832085905551919290917f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925906102339086815260200190565b60405180910390a350600192915050565b6001600160a01b0383165f9081526001602090815260408083203384529091528120545f1981146102e157828110156102b95760405162461bcd60e51b8152602060048201526012602482015271185b1b1bddd85b98d948195e18d95959195960721b60448201526064015b60405180910390fd5b6001600160a01b0385165f908152600160209081526040808320338452909152902083820390555b6102ec858585610308565b95945050505050565b5f610301338484610308565b9392505050565b5f6001600160a01b03831661035f5760405162461bcd60e51b815260206004820152601c60248201527f7472616e7366657220746f20746865207a65726f20616464726573730000000060448201526064016102b0565b6001600160a01b0384165f90815260208190526040902054828110156103b95760405162461bcd60e51b815260206004820152600f60248201526e62616c616e636520746f6f206c6f7760881b60448201526064016102b0565b6001600160a01b038581165f81815260208181526040808320888703905593881680835291849020805488019055925186815290927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef910160405180910390a3506001949350505050565b5f602080835283518060208501525f5b8181101561045057858101830151858201604001528201610434565b505f604082860101526040601f19601f8301168501019250505092915050565b80356001600160a01b0381168114610486575f80fd5b919050565b5f806040838503121561049c575f80fd5b6104a583610470565b946020939093013593505050565b5f805f606084860312156104c5575f80fd5b6104ce84610470565b92506104dc60208501610470565b9150604084013590509250925092565b5f602082840312156104fc575f80fd5b61030182610470565b5f8060408385031215610516575f80fd5b61051f83610470565b915061052d60208401610470565b9050925092905056fea2646970667358221220a634351596c3df4985587ed12ca4d877393c59e7106a7d55b97954b4779a207c64736f6c63430008180033";
+const BASE_CHAIN_ID = '0x2105'; // 8453
+const log = (m, cls) => { const d=document.getElementById('log'); d.innerHTML += '<div class="'+(cls||'')+'">'+m+'</div>'; };
+let account = null;
+
+document.getElementById('conn').onclick = async () => {
+  if (!window.ethereum) { log('No wallet found in this browser. Open this page in a browser with MetaMask.', 'bad'); return; }
+  try {
+    const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    account = accs[0];
+    const chain = await window.ethereum.request({ method: 'eth_chainId' });
+    document.getElementById('who').textContent = account + '  ·  chain ' + parseInt(chain, 16);
+    if (chain !== BASE_CHAIN_ID) {
+      log('That is not Base. Asking MetaMask to switch…', 'bad');
+      try {
+        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] });
+        log('Switched to Base.', 'ok');
+      } catch (e) { log('Could not switch: ' + (e.message||e) + ' — switch to Base by hand, then reconnect.', 'bad'); return; }
+    }
+    // Balance, so you find out you are short BEFORE signing rather than after.
+    const bal = await window.ethereum.request({ method: 'eth_getBalance', params: [account, 'latest'] });
+    const eth = Number(BigInt(bal)) / 1e18;
+    log('Balance on Base: ' + eth.toFixed(6) + ' ETH');
+    if (eth < 0.00005) log('That may be too little for gas. Deployment needs roughly 0.00002 ETH.', 'bad');
+    document.getElementById('go').disabled = false;
+  } catch (e) { log('Connect failed: ' + (e.message || e), 'bad'); }
+};
+
+document.getElementById('go').onclick = async () => {
+  const raw = document.getElementById('supply').value.trim();
+  if (!/^[0-9]+$/.test(raw) || BigInt(raw) <= 0n) { log('Supply must be a whole number greater than zero.', 'bad'); return; }
+  // ABI-encode one uint256: 32 bytes, big-endian, left-padded. That is the
+  // entire encoder this page needs, so it needs no library.
+  const arg = BigInt(raw).toString(16).padStart(64, '0');
+  document.getElementById('go').disabled = true;
+  log('Sending the deployment to MetaMask — approve it there.');
+  try {
+    const tx = await window.ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{ from: account, data: BYTECODE + arg }],
+    });
+    log('Transaction sent: ' + tx);
+    log('Waiting for it to be mined…');
+    let receipt = null;
+    for (let i = 0; i < 120 && !receipt; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      receipt = await window.ethereum.request({ method: 'eth_getTransactionReceipt', params: [tx] });
+    }
+    if (!receipt) { log('Still not mined after four minutes. Check the hash on basescan.org — it may yet land.', 'bad'); return; }
+    if (receipt.status !== '0x1') { log('The transaction failed on chain. Nothing was deployed; you paid gas.', 'bad'); return; }
+    const addr = receipt.contractAddress;
+    log('');
+    log('DEPLOYED: ' + addr, 'ok');
+    log('<a href="https://basescan.org/address/' + addr + '" target="_blank" rel="noopener">View on Basescan</a>');
+    log('');
+    log('Give this address to the host as PEER_TOKEN_ADDR, then GET /api/token/onchain reports it live.');
+  } catch (e) {
+    log('Refused or failed: ' + (e.message || e), 'bad');
+    document.getElementById('go').disabled = false;
+  }
+};
+</script></body></html>
