@@ -127,7 +127,7 @@ export const CATALOGUE = {
     why: 'Proof of burn is not switched on for this host: no burn address is configured, so there is nothing to verify against and nowhere to send anything.',
     fix: 'Nothing you can do from here. The operator sets a burn address, or this network simply does not use burns.',
   },
-  ALREADY_CLAIMED: {
+  BURN_ALREADY_CLAIMED: {
     http: 409,
     why: 'That transaction is already recorded. A burn counts once, whoever presents it — otherwise one payment could be replayed into unlimited weight, which is the same as no cost at all.',
     fix: 'If it is your burn and it is credited to another handle, the burn was claimed before you got to it. Bind future burns quickly, and remember the log shows exactly which handle holds which txid.',

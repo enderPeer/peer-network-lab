@@ -2328,6 +2328,11 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
     { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them' },
     { method: 'GET', path: '/api/v1/gatherings?past=1', purpose: 'the calendar: what is happening, when, where, the fee, and how many are going. Upcoming only unless past=1. NOTE the name — /api/v1/events is the act stream, this is the thing people turn up to.' },
+    // Undiscoverable until now, which made it useless: proof of burn is the
+    // ONLY source of weight in the PEER distribution since the faucet closed,
+    // and a door nobody can find pays nobody. Sixty epochs had minted zero.
+    { method: 'GET', path: '/api/burn', purpose: 'proof of burn: the dead address to send to, how many confirmations count, and what it does and does not buy. Destroying bitcoin at a provably unspendable output is the only thing that earns weight in the PEER distribution — the faucet buys energy to act, never a share of the mint.' },
+    { method: 'POST', path: '/api/burn/claim', purpose: 'bind a burn you already made to your handle. The host checks the txid against two independent public block explorers, which must agree, and requires confirmations — then records it with the txid, so any reader can check the chain instead of believing this host.', body: { id: 'your handle id', txid: '64 hex characters', auth: 'your PIN' } },
     { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/gathering', purpose: 'host something: a time, a place, a fee, a cap — any of them optional', body: { text: 'what it is', at: 'unix ms, optional', place: 'string, optional', fee: 'number, optional', currency: 'symbol, default PEER', cap: 'number, optional' } },
@@ -2367,7 +2372,12 @@ const API_DOC = {
 // where pulling a lever is meant to cost the puller something. 'profile' is
 // NOT — editing your own description is a correction, and corrections are
 // never gated on reserve here.
-const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'event']);
+// 'stream' belongs here and was missing: replay.cjs debits a stream exactly
+// like a post (debit(); weighHome()) and debit() has no floor, so a drained
+// author could mint a Content node the host would refuse them as a post and
+// drive their balance negative. That is precisely the defect this set was
+// introduced to close, left open on one act kind.
+const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'event', 'stream']);
 
 /**
  * The single write door, wrapped so telemetry cannot drift from reality:
@@ -3292,7 +3302,7 @@ const server = createServer((req, res) => {
       // only record that survives a restart.
       for (const a of acts) {
         if (a && a.t === 'btcBurn' && a.txid === txid) {
-          json(res, 409, { code: 'ALREADY_CLAIMED', error: 'that transaction is already recorded' + (a.id === id ? ' — for this handle' : ' for another handle') });
+          json(res, 409, { code: 'BURN_ALREADY_CLAIMED', error: 'that transaction is already recorded' + (a.id === id ? ' — for this handle' : ' for another handle') });
           return;
         }
       }

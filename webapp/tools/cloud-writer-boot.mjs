@@ -102,10 +102,31 @@ function setupPersistence() {
   }
   git(['config', 'user.name', 'peer-cloud-writer'], DATA);
   git(['config', 'user.email', 'writer@peer-network.invalid'], DATA);
-  // What the journal must NEVER carry: keys. The election identity the server
-  // mints for itself, any producer key handed in by secret, and the desktop's
-  // key bag if this ever runs there by mistake.
-  writeFileSync(join(DATA, '.gitignore'), ['*.log', '*.bak', 'chain/producer.pem', 'decentral-keys/', ''].join('\n'));
+  // An ALLOWLIST, because the denylist version of this was a credential leak.
+  //
+  // It used to name the things not to publish — logs, backups, the producer
+  // key, the key bag — and that is exactly backwards for a directory the
+  // operator keeps adding files to. server-data/ had since gained
+  // operator-token.txt and rotated-pins.json (the fresh PINs for 34 accounts),
+  // and both sat outside the denylist, so the first journal push would have
+  // put the admin credential and thirty-four people's PINs on a public branch.
+  //
+  // So: ignore everything, then name the four things a successor actually
+  // needs to resume — the log, the media it references, and the sealed chain.
+  // Anything added to this directory in future is excluded until somebody
+  // deliberately adds it here, which is the only safe default for a folder
+  // whose whole purpose is holding secrets next to data.
+  writeFileSync(join(DATA, '.gitignore'), [
+    '# Allowlist. Everything is secret until named here — see cloud-writer-boot.mjs.',
+    '*',
+    '!acts.jsonl',
+    '!media/',
+    '!media/**',
+    '!chain/',
+    '!chain/blocks.jsonl',
+    '!chain/HEAD.json',
+    '',
+  ].join('\n'));
   return true;
 }
 
