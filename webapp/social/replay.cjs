@@ -288,7 +288,17 @@ function replayUncached(acts) {
   // destroy value the way every other commitment here does — routing it to an
   // operator would make the one party who cannot be voted out the only party
   // who profits from attention.
-  var AD_TBTC_PER_DAY = 0.0002;
+  // An advert costs PEER, and the PEER is DESTROYED — not paid to the
+  // operator, not paid to anyone. It used to be priced in tBTC, which was a
+  // faucet asset, so a placement cost its buyer nothing real and the
+  // "burn" reduced a supply that had been conjured anyway.
+  //
+  // PEER is the network's own scarce thing now: minted only by the epoch
+  // distribution, and obtainable by anyone else only from the pool on Base.
+  // So buying attention means buying PEER from people who earned it and
+  // then destroying it, which is the one arrangement where advertising
+  // pays the network's participants rather than its operator.
+  var AD_PEER_PER_DAY = 10;
   var adverts = [];      // {id, by, text, url, days, paid, at, until, aim, stopped}
   var adSeq = 0;
   var earnedBurn = {};   // burn an account acquired, EXCLUDING the register grant
@@ -381,9 +391,10 @@ function replayUncached(acts) {
       if (typeof a.text !== 'string' || !a.text.trim()) return 'the advert needs text';
       if (a.text.length > 280) return 'advert text is ' + a.text.length + ' characters; the limit is 280';
       if (typeof a.url !== 'string' || !/^https?:\/\/[^\s]{3,300}$/i.test(a.url)) return 'url must be a plain http(s) link';
-      var cost = round6(AD_TBTC_PER_DAY * days);
-      if (balOf('tBTC', who) < cost) {
-        return 'this advert costs ' + cost + ' tBTC for ' + days + ' day(s) and you hold ' + round6(balOf('tBTC', who));
+      var cost = round6(AD_PEER_PER_DAY * days);
+      if (balOf('PEER', who) < cost) {
+        return 'this advert costs ' + cost + ' PEER for ' + days + ' day(s) and you hold ' + round6(balOf('PEER', who))
+          + '. PEER is earned by drawing engagement, or bought from the pool.';
       }
       return null;
     }
@@ -1004,9 +1015,9 @@ function replayUncached(acts) {
         if (a.t === 'advert') {
           adSeq++;
           var adDays = Math.floor(a.days);
-          var adCost = round6(AD_TBTC_PER_DAY * adDays);
-          tokDebit('tBTC', a.author, adCost);
-          tokenSupply.tBTC = round6(tokenSupply.tBTC - adCost);  // burned, not moved
+          var adCost = round6(AD_PEER_PER_DAY * adDays);
+          tokDebit('PEER', a.author, adCost);
+          tokenSupply.PEER = round6(tokenSupply.PEER - adCost);  // burned, not moved
           adverts.push({
             id: 'ad' + adSeq, by: a.author, text: a.text.trim(), url: a.url,
             days: adDays, paid: adCost, at: a.ts || 0,
@@ -1248,7 +1259,7 @@ function replayUncached(acts) {
       dist: tokenDist, carry: tokenCarry, epochN: tokEpochN },
     pools: pools,
     adverts: adverts,
-    adPricePerDay: AD_TBTC_PER_DAY,
+    adPricePerDay: AD_PEER_PER_DAY,
     tokenActError: tokenActError,
     // act index -> the node that act minted. Exposed because API clients were
     // deriving ids themselves and deriving them wrong — the counter also ticks

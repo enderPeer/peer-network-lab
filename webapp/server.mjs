@@ -3784,7 +3784,7 @@ const server = createServer((req, res) => {
           }));
         json(res, 200, {
           ads: live,
-          priceTbtcPerDay: st ? st.adPricePerDay : null,
+          pricePeerPerDay: st ? st.adPricePerDay : null,
           howItWorks: 'Post an `advert` act with {text, url, days} and optional targeting. It costs θ like any act plus tBTC for the days you buy, and it is live the moment it lands — there is no approval queue. The tBTC is burned, not paid to anyone.',
           whatItIsNot: 'An advert holds no standing, sits in no graph and changes no feed score, including its own. Money buys this box and nothing else in the network.',
           targeting: 'placement (feed/live/record), tags, people (handle ids), posts (content ids — shown to anyone who engaged with them), regions (a country or language code). ALL of it is matched in the reader\'s browser against the public log and their own device locale. The host serves an identical list to everyone and never learns who saw what. Where someone connects from is never used.',

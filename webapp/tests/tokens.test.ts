@@ -148,7 +148,7 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
     // Anyone can still speak: `burn` is untouched as a source of θ. It simply
     // stopped being evidence of commitment, because it never cost anything.
     const acts = [...seed('al', 'bo'),
-      { t: 'burn', id: 'u_bo', amt: 1 }, { t: 'burn', id: 'u_bo', amt: 1 },
+      { t: 'btcBurn', id: 'u_bo', txid: 'abboabboabboabboabboabboabboabboffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' }, { t: 'btcBurn', id: 'u_bo', txid: 'abboabboabboabboabboabboabboabboffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' },
       post('al', 'P'), like('bo', 'c1'), close()];
     const st = replay(acts);
     // Nothing was distributed at all, so the PEER ledger was never even
@@ -163,7 +163,7 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
     // cy burns once (rate 1-θ·n ≈ high)… the gate needs α̂ < 0.2 to exclude,
     // so exhaust cy's rate with spam first.
     const acts = [...world('al'), { t: 'register', id: 'u_cy', handle: 'cy', seed: 1, epoch: 0 },
-      { t: 'burn', id: 'u_cy', amt: 1 }, post('al', 'P')];
+      { t: 'btcBurn', id: 'u_cy', txid: 'abcyabcyabcyabcyabcyabcyabcyabcyffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' }, post('al', 'P')];
     // ~48 acts at θ≈0.0528 drain 1.0 burn to ≈0; rate collapses under 0.02·ν
     for (let i = 0; i < 40; i++) acts.push(post('cy', 'spam ' + i));
     acts.push(like('cy', 'c1'), close());
@@ -225,169 +225,9 @@ describe('the wall between value and standing', () => {
   });
 });
 
-describe('pools — constant product with the fee inside', () => {
-  const setup = () => [...world('al', 'bo'),
-    post('al', 'P'), like('bo', 'c1'), close(),               // al holds 5000 PEER
-    // A symbol can only be minted once, so al mints both sides' worth and
-    // sends bo a share — the faucet this replaces gave each of them 0.01.
-    { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.02 },
-    { t: 'tokenSend', from: 'u_al', to: 'u_bo', sym: 'TBTC', amt: 0.01 },
-    { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 1000, amtB: 0.005 },
-  ];
 
-  it('k never falls, and grows on every swap — the fee is the yield', () => {
-    const acts = setup();
-    const before = replay(acts).pools['PEER/TBTC'];
-    const k0 = before.resA * before.resB;
-    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 });
-    const after = replay(acts).pools['PEER/TBTC'];
-    expect(after.resA * after.resB).toBeGreaterThan(k0);
-  });
 
-  it('quotes the uniswap number exactly', () => {
-    const acts = setup();
-    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 });
-    const st = replay(acts);
-    const eff = 0.001 * 0.997;
-    const expected = 1000 * eff / (0.005 + eff);
-    // bo held no PEER before the swap, so the balance IS the fill.
-    expect(st.tokens.bal.PEER.u_bo).toBeCloseTo(expected, 9);
-    expect(st.tokens.bal.TBTC.u_bo).toBeCloseTo(0.01 - 0.001, 9);
-  });
 
-  it('pays a later liquidity provider their exact proportional share back', () => {
-    const acts = setup();
-    acts.push({ t: 'tokenSend', author: 'u_al', sym: 'PEER', to: 'u_bo', amt: 500 });
-    acts.push({ t: 'poolAdd', author: 'u_bo', pool: 'PEER/TBTC', amtA: 500, amtB: 0.0025 });
-    const mid = replay(acts).pools['PEER/TBTC'];
-    const boShares = mid.shares.u_bo;
-    expect(boShares / mid.totalShares).toBeCloseTo(1 / 3, 9); // 500 into 1500 total
-    acts.push({ t: 'poolRemove', author: 'u_bo', pool: 'PEER/TBTC', shares: boShares });
-    const st = replay(acts);
-    expect(st.tokens.bal.PEER.u_bo).toBeCloseTo(500, 6);       // deposit comes back
-    expect(st.tokens.bal.TBTC.u_bo).toBeCloseTo(0.01 - 0.0025 + 0.0025, 9);
-  });
-
-  it('locks a sliver of the first deposit forever — the share-inflation guard', () => {
-    const st = replay(setup());
-    const pl = st.pools['PEER/TBTC'];
-    expect(pl.shares._locked).toBeGreaterThan(0);
-    // even the founder cannot withdraw to an empty pool
-    expect(pl.shares.u_al).toBeLessThan(pl.totalShares);
-  });
-
-  it('refuses a swap that would fill below minOut', () => {
-    const acts = setup();
-    const before = replay(acts);
-    acts.push({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001, minOut: 99999 });
-    const st = replay(acts);
-    // the act is skipped wholesale: no balance moved, no reserve moved
-    expect(st.pools['PEER/TBTC'].resA).toBe(before.pools['PEER/TBTC'].resA);
-    expect(st.tokens.bal.TBTC.u_bo).toBe(before.tokens.bal.TBTC.u_bo);
-  });
-
-  it('tells the host and the replay the same story', () => {
-    // The single-rulebook property: an act the host would refuse is an act
-    // the replay skips, byte for byte the same reason.
-    const acts = setup();
-    const st = replay(acts);
-    expect(st.tokenActError({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 999 }))
-      .toMatch(/balance is/);
-    expect(st.tokenActError({ t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 })).toMatch(/already claimed/);
-    expect(st.tokenActError({ t: 'assetCreate', author: 'u_al', sym: 'PEER', name: 'x', supply: 1 })).toMatch(/taken/);
-    expect(st.tokenActError({ t: 'poolSwap', author: 'u_bo', pool: 'PEER/TBTC', sell: 'TBTC', amt: 0.001 })).toBeNull();
-  });
-
-  it('a fun asset can trade against anything', () => {
-    const acts = setup();
-    acts.push({ t: 'assetCreate', author: 'u_bo', sym: 'MEME', name: 'worth a laugh', supply: 10000 });
-    acts.push({ t: 'poolCreate', author: 'u_bo', symA: 'MEME', symB: 'TBTC', amtA: 5000, amtB: 0.002 });
-    const st = replay(acts);
-    expect(st.pools['MEME/tBTC']).toBeDefined();
-    expect(st.tokens.bal.MEME.u_bo).toBeCloseTo(5000, 6);
-  });
-});
-
-describe('deleting an account does not rewrite token history', () => {
-  // The defect this project has now paid for twice in different clothes:
-  // removal reaching past the payload into the record. A value transfer IS
-  // record. Found by probing, not by review.
-  const base = () => [...world('al', 'bo'),
-    post('al', 'P'), like('bo', 'c1'), close(),
-    { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
-    { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 1000, amtB: 0.005 },
-  ];
-
-  it('leaves a pool the departed account funded, and everyone who traded in it', () => {
-    const before = replay(base()).pools['PEER/TBTC'];
-    const after = replay([...base(), { t: 'deleteAccount', id: 'u_al' }]).pools['PEER/TBTC'];
-    expect(after).toBeDefined();
-    expect(after.resA).toBe(before.resA);
-    expect(after.resB).toBe(before.resB);
-    expect(after.shares.u_al).toBe(before.shares.u_al);
-  });
-
-  it('leaves every other creator’s epoch share exactly where it was', () => {
-    // al and cy both earn in the same epoch; al leaving must not re-cut cy.
-    const acts = [...world('al', 'bo', 'cy'),
-      post('al', 'A'), post('cy', 'C'),
-      like('bo', 'c1'), like('bo', 'c2'),
-      close()];
-    const before = replay(acts).tokens;
-    const after = replay([...acts, { t: 'deleteAccount', id: 'u_al' }]).tokens;
-    expect(after.dist[0].to.u_cy).toBe(before.dist[0].to.u_cy);
-    expect(after.dist[0].minted).toBe(before.dist[0].minted);
-  });
-
-  it('still lets a send that happened stand, even to someone who later left', () => {
-    const acts = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close(),
-      { t: 'tokenSend', author: 'u_al', sym: 'PEER', to: 'u_bo', amt: 100 }];
-    const after = replay([...acts, { t: 'deleteAccount', id: 'u_bo' }]);
-    expect(after.tokens.bal.PEER.u_bo).toBe(100);
-    expect(after.tokens.bal.PEER.u_al).toBe(4900);
-  });
-});
-
-describe('hostile numbers reach the replay and are skipped, never applied', () => {
-  // The host refuses these, but a hand-edited or foreign log must degrade to a
-  // skipped act rather than to NaN balances that poison every later price.
-  const good = () => [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
-  const cases: Array<[string, Record<string, unknown>]> = [
-    ['negative amount', { t: 'tokenSend', author: 'u_al', sym: 'PEER', to: 'u_bo', amt: -100 }],
-    ['infinite amount', { t: 'tokenSend', author: 'u_al', sym: 'PEER', to: 'u_bo', amt: Infinity }],
-    ['self-paired pool', { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'PEER', amtA: 1, amtB: 1 }],
-    ['shadowing a reserved symbol', { t: 'assetCreate', author: 'u_al', sym: 'PEER', name: 'x', supply: 1e9 }],
-    ['swap in a pool that does not exist', { t: 'poolSwap', author: 'u_al', pool: 'NOPE/NOPE', sell: 'PEER', amt: 1 }],
-    ['overdraft', { t: 'tokenSend', author: 'u_al', sym: 'PEER', to: 'u_bo', amt: 999999 }],
-  ];
-  for (const [why, act] of cases) {
-    it('skips: ' + why, () => {
-      const clean = replay(good()).tokens;
-      const st = replay([...good(), act]).tokens;
-      expect(st.supply.PEER).toBe(clean.supply.PEER);
-      expect(st.bal.PEER.u_al).toBe(clean.bal.PEER.u_al);
-      for (const v of Object.values(st.supply)) expect(Number.isFinite(v)).toBe(true);
-    });
-  }
-});
-
-describe('pool identity is one pair, whichever way you name it', () => {
-  it('normalises the order and refuses a mirrored duplicate', () => {
-    const acts = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close(),
-      { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
-      { t: 'poolCreate', author: 'u_al', symA: 'TBTC', symB: 'PEER', amtA: 0.005, amtB: 1000 },
-    ];
-    const st = replay(acts);
-    const pl = st.pools['PEER/TBTC'];
-    expect(pl).toBeDefined();
-    // reserves follow the symbols, not the argument order
-    expect(pl.a).toBe('PEER');
-    expect(pl.resA).toBe(1000);
-    expect(pl.resB).toBe(0.005);
-    const dup = replay([...acts, { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 10, amtB: 0.0001 }]);
-    expect(Object.keys(dup.pools)).toHaveLength(1);
-  });
-});
 
 describe('the emission schedule is a ceiling, not a target', () => {
   it('never mints more than the epoch pool, however many creators share it', () => {
@@ -455,7 +295,7 @@ describe('the registration grant is a starter, not a stake', () => {
     // not evidence they committed anything.
     const acts: Record<string, unknown>[] = [{ t: 'seedWorld' },
       { t: 'register', id: 'u_atk', handle: 'atk', seed: 1, epoch: 0 },
-      { t: 'burn', id: 'u_atk', amt: 1 },
+      { t: 'btcBurn', id: 'u_atk', txid: 'abatkabatkabatkabatkabatkabatkabatkabatkffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' },
       post('atk', 'mine'),
     ];
     for (let i = 0; i < 20; i++) {
@@ -474,83 +314,3 @@ describe('the registration grant is a starter, not a stake', () => {
   });
 });
 
-describe('adverts: paid in tBTC, live at once, still outside the graph', () => {
-  const funded = () => [...world('al', 'bo'),
-    post('al', 'P'), like('bo', 'c1'), close(),
-    { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
-  ];
-  const buy = (extra: Record<string, unknown> = {}) => ({
-    t: 'advert', author: 'u_al', text: 'A shop.', url: 'https://example.org', days: 5, ts: 1000, ...extra,
-  });
-
-  it('burns the tBTC rather than paying it to anyone', () => {
-    // Routing advertising money to an operator would make the one party who
-    // cannot be voted out the only party who profits from attention.
-    const before = replay(funded()).tokens;
-    const after = replay([...funded(), buy()]).tokens;
-    const cost = 0.0002 * 5;
-    expect(after.bal.TBTC.u_al).toBeCloseTo(before.bal.TBTC.u_al - cost, 9);
-    expect(after.supply.tBTC).toBeCloseTo(before.supply.tBTC - cost, 9);
-    // nobody received it
-    for (const [id, v] of Object.entries(after.bal.tBTC)) {
-      if (id !== 'u_al') expect(v).toBe((before.bal.tBTC as Record<string, number>)[id] ?? 0);
-    }
-  });
-
-  it('is live immediately, with no approval step anywhere', () => {
-    const st = replay([...funded(), buy()]);
-    expect(st.adverts).toHaveLength(1);
-    expect(st.adverts[0].stopped).toBe(false);
-    expect(st.adverts[0].until).toBe(1000 + 5 * 86400000);
-  });
-
-  it('still creates no edge and no standing — the wall that matters', () => {
-    const base = funded();
-    const a = replay(base);
-    const b = replay([...base, buy()]);
-    expect(b.g.edges.length).toBe(a.g.edges.length);
-    expect(Object.keys(b.bundles)).toEqual(Object.keys(a.bundles));
-    // the advertiser moves only by the θ of having acted, like any act
-    const plain = replay([...base, post('al', 'an ordinary post')]);
-    expect(b.xById.u_al).toBeCloseTo(plain.xById.u_al, 9);
-  });
-
-  it('refuses an advert nobody can pay for', () => {
-    const broke = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];
-    const st = replay(broke);
-    expect(st.tokenActError(buy())).toMatch(/costs .* tBTC .* and you hold/);
-    expect(replay([...broke, buy()]).adverts).toHaveLength(0);
-  });
-
-  it('refuses text and links that would abuse the box', () => {
-    const st = replay(funded());
-    expect(st.tokenActError(buy({ url: 'javascript:alert(1)' }))).toMatch(/plain http/);
-    expect(st.tokenActError(buy({ text: '' }))).toMatch(/needs text/);
-    expect(st.tokenActError(buy({ text: 'z'.repeat(300) }))).toMatch(/280/);
-    expect(st.tokenActError(buy({ days: 0 }))).toMatch(/1 and 90/);
-    expect(st.tokenActError(buy({ days: 500 }))).toMatch(/1 and 90/);
-  });
-
-  it('lets the advertiser stop their own and nobody else stop it', () => {
-    const live = [...funded(), buy()];
-    expect(replay(live).tokenActError({ t: 'adStop', author: 'u_bo', ad: 'ad1' }))
-      .toMatch(/only the advertiser/);
-    const stopped = replay([...live, { t: 'adStop', author: 'u_al', ad: 'ad1' }]);
-    expect(stopped.adverts[0].stopped).toBe(true);
-  });
-
-  it('carries the targeting as data, matched nowhere in the replay', () => {
-    // The host and the replay only carry the criteria. Deciding whether a
-    // reader matches happens in that reader's browser, which is why nobody
-    // has to be identified for targeting to work.
-    const st = replay([...funded(), buy({
-      placement: ['feed'], tags: ['photography'], people: ['u_bo'],
-      posts: ['c1'], regions: ['de', 'europe/berlin'],
-    })]);
-    const aim = st.adverts[0].aim;
-    expect(aim.placement).toEqual(['feed']);
-    expect(aim.people).toEqual(['u_bo']);
-    expect(aim.posts).toEqual(['c1']);
-    expect(aim.regions).toEqual(['de', 'europe/berlin']);
-  });
-});

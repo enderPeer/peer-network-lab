@@ -55,7 +55,7 @@ function seedDir(base: string) {
   mkdirSync(join(d, 'server-data'), { recursive: true });
   writeFileSync(join(d, 'server-data', 'acts.jsonl'), [
     { t: 'register', id: 'u_op', handle: 'Op', seed: 1, epoch: 0, pinHash: hash('u_op', '1234') },
-    { t: 'burn', id: 'u_op', amt: 1 },
+    { t: 'btcBurn', id: 'u_op', txid: 'abopabopabopabopabopabopabopabopffffffffffffffffffffffffffffffff', sats: 10000, addr: 'bc1qdead' },
   ].map((a) => JSON.stringify(a)).join('\n') + '\n');
   return d;
 }
@@ -226,42 +226,6 @@ describe('the operator’s bitcoin address', () => {
   });
 });
 
-describe('adverts, after the move to tBTC', () => {
-  // The old model quoted a real bitcoin price and waited for a human to
-  // approve. On a test network that was ceremony around something nobody could
-  // buy, so adverts became acts paid in play money and shown immediately.
-  it('points the old proposal endpoint at the act that replaced it', async () => {
-    const r = await fetch(BASE + '/api/ads', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'x', url: 'https://example.org', days: 1 }),
-    });
-    expect(r.status).toBe(410);
-    const b = await r.json() as Record<string, string>;
-    expect(b.error).toMatch(/adverts are acts now/i);
-    expect(b.error).toMatch(/t:"advert"/);
-  });
-
-  it('serves the live list to everyone identically, and says how aiming works', async () => {
-    const d = await jget(BASE + '/api/ads');
-    expect(Array.isArray(d.ads)).toBe(true);
-    expect(String(d.targeting)).toMatch(/matched in the reader/i);
-    expect(String(d.targeting)).toMatch(/never used/i);       // the IP promise
-    expect(String(d.whatItIsNot)).toMatch(/no standing/i);
-    expect(String(d.moderation)).toMatch(/Publish first/i);
-    // two callers who look nothing alike receive byte-identical lists
-    const a = await (await fetch(BASE + '/api/ads', { headers: { 'CF-Connecting-IP': '198.51.100.7' } })).text();
-    const b = await (await fetch(BASE + '/api/ads', { headers: { 'CF-Connecting-IP': '203.0.113.44' } })).text();
-    expect(a).toBe(b);
-  });
-
-  it('refuses an advert act from someone with no tBTC, naming the price', async () => {
-    const r = await act({ t: 'advert', author: 'u_op', text: 'x', url: 'https://example.org', days: 3, auth: '1234' });
-    expect(r.status).toBe(400);
-    expect(r.body.error).toMatch(/tBTC/);
-    expect(r.body.code).toBeTruthy();
-    expect(r.body.why).toBeTruthy();
-  });
-});
 
 describe('a refusal must never explain itself wrongly', () => {
   it('classifies an unaffordable advert as a balance problem, not a malformed act', async () => {

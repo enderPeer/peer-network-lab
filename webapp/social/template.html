@@ -5894,7 +5894,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var evAt = h('input', { type: 'datetime-local', value: draft.at });
     var evPlace = h('input', { type: 'text', placeholder: 'where', maxlength: '120', value: draft.place, style: 'flex:1; min-width:0' });
     var evFee = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'entry (blank = free)', value: draft.fee, style: 'width:150px' });
-    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }), h('option', { value: 'tBTC', text: 'tBTC' }));
+    // PEER only. tBTC is retired, and an entry fee denominated in a retired
+    // faucet asset would be a price in a currency nobody can obtain.
+    var evCur = h('select', {}, h('option', { value: 'PEER', text: 'PEER' }));
     evCur.value = draft.cur;
     var evCap = h('input', { type: 'text', inputmode: 'numeric', placeholder: 'places', value: draft.cap, style: 'width:90px' });
     [[evAt, 'at'], [evPlace, 'place'], [evFee, 'fee'], [evCur, 'cur'], [evCap, 'cap']].forEach(function (p) {
@@ -6404,7 +6406,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       card.appendChild(h('p', { class: 'smallnote', text: 'Shown to everyone here. This advert names no audience, so nothing about you was consulted.' }));
     }
     if (ad.byHandle) {
-      card.appendChild(h('p', { class: 'smallnote', text: 'Bought by ' + ad.byHandle + ' for ' + (ad.paidTbtc || 0) + ' tBTC, which was burned rather than paid to anyone.' }));
+      card.appendChild(h('p', { class: 'smallnote', text: 'Bought by ' + ad.byHandle + ' for ' + (ad.paid || 0) + ' PEER, which was destroyed rather than paid to anyone.' }));
     }
     card.appendChild(h('p', { class: 'smallnote', text: 'This is not an act. It holds no standing, sits outside the graph, and changes nobody’s feed score — including its own, because it has none. Money buys this box and nothing else in the network.' }));
     return card;
@@ -7681,14 +7683,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var anyHeld = false;
     syms.forEach(function (sym) {
       var b = (tok.bal[sym] && tok.bal[sym][who]) || 0;
-      if (b <= 0 && sym !== 'PEER' && sym !== 'tBTC') return;
+      if (b <= 0 && sym !== 'PEER') return;
       if (b > 0) anyHeld = true;
       kv.appendChild(h('span', { text: sym }));
       kv.appendChild(h('b', { class: 'num', text: fmt(b, 6) }));
     });
     hold.appendChild(kv);
     if (!anyHeld) {
-      hold.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER arrives when an epoch closes and someone has engaged with what you made; tBTC is claimable once, below.' }));
+      hold.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER arrives when an epoch closes and someone has engaged with what you made — or from the pool, if somebody is selling.' }));
     }
     wrap.appendChild(hold);
 
@@ -7753,13 +7755,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     // ── claim + send ──
     var act1 = h('div', { class: 'card', style: 'margin-top:14px' }, h('h2', { text: 'Move value' }));
-    if (!tok.claimed[who]) {
-      act1.appendChild(h('div', { class: 'mini-form' },
-        h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC \u00b7 \u2212\u03b8', onclick: function () {
-          tryAct(who, { t: 'btcClaim', author: who }, 'Claimed. Sandbox value with a bitcoin-shaped name \u2014 backed by nothing, once per account.');
-        } }),
-        h('span', { class: 'smallnote', text: 'one claim per account, ever' })));
-    }
     var sSym = h('select', {});
     syms.forEach(function (sym) {
       if (((tok.bal[sym] && tok.bal[sym][who]) || 0) > 0) sSym.appendChild(h('option', { value: sym, text: sym }));
@@ -7789,7 +7784,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
     st.chron.forEach(function (c, i) {
       var l = c.line || '';
-      if (/claimed .* tBTC|minted \d+ |sent .* to |swapped |added liquidity|withdrew from|opened the .* pool|bought a placement|stopped advert/.test(l)) {
+      if (/minted \d+ |sent .* to |swapped |added liquidity|withdrew from|opened the .* pool|bought a placement|stopped advert/.test(l)) {
         rows.push({ idx: i, kind: 'act', who: c.who, text: l });
       }
     });
@@ -7858,20 +7853,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var symsAll = Object.keys(tok.meta);
       for (var ti = 0; ti < symsAll.length; ti++) {
         var sym0 = symsAll[ti];
-        if (tbal(sym0) > 0 || sym0 === 'PEER' || sym0 === 'tBTC') {
+        if (tbal(sym0) > 0 || sym0 === 'PEER') {
           bkv.appendChild(h('span', { text: sym0 }));
           bkv.appendChild(h('b', { class: 'num', text: round6(tbal(sym0)) + '' }));
         }
       }
       tCard.appendChild(bkv);
       tCard.appendChild(h('p', { class: 'smallnote', text: 'Supply: ' + round6(tok.supply.PEER) + ' PEER minted over ' + tok.epochN + ' epoch(s) · ' + round6(tok.carry) + ' carried to the next · your distributions ride on people engaging with what you make.' }));
-      if (!tok.claimed[who]) {
-        tCard.appendChild(h('div', { class: 'mini-form' },
-          h('button', { class: 'btn small primary', text: 'Claim 0.01 tBTC · −θ', onclick: function () {
-            tryAct(who, { t: 'btcClaim', author: who }, 'Claimed 0.01 tBTC — sandbox value, one claim per account, backed by nothing.');
-          } }),
-          h('span', { class: 'smallnote', text: 'test bitcoin: a bitcoin-shaped name on sandbox value. The host holds no keys; nothing here touches the real chain.' })));
-      }
       var myDist = [];
       for (var di = 0; di < tok.dist.length; di++) if (tok.dist[di].to[who]) myDist.push(tok.dist[di]);
       if (myDist.length) {
@@ -7968,7 +7956,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       // front of it: on a test network with play money, a queue was ceremony
       // around something nobody could actually buy. Publish first, moderate
       // after — the advertiser or the operator can stop one with a single act.
-      var adPrice = st.adPricePerDay || 0.0002;
+      var adPrice = st.adPricePerDay || 10;
       var myTbtc = (st.tokens && st.tokens.bal.tBTC && st.tokens.bal.tBTC[who]) || 0;
 
       var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
