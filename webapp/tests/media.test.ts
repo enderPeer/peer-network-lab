@@ -72,8 +72,8 @@ beforeAll(async () => {
   writeFileSync(join(dir, 'server-data', 'acts.jsonl'), [
     { t: 'register', id: 'u_a', handle: 'Ayla', seed: 1, epoch: 0, pinHash: pinHash('u_a', '1234') },
     { t: 'register', id: 'u_b', handle: 'Bo', seed: 1, epoch: 0 },
-    ...Array.from({ length: 8 }, () => ({ t: 'burn', id: 'u_a', amt: 1 })),
-    { t: 'burn', id: 'u_b', amt: 1 },
+    ...Array.from({ length: 8 }, () => ({ t: 'btcBurn', id: 'u_a', txid: '07588b0256a26c4ace258691cfe9ebbb3bf77828faf82142d4a4a7de5011fefa', sats: 10000, addr: 'bc1qdead' })),
+    { t: 'btcBurn', id: 'u_b', txid: 'fc593ba831429fca8f864d7e66af8aabeff6538c05fe11b3e353198f614c98e5', sats: 10000, addr: 'bc1qdead' },
   ].map((a) => JSON.stringify(a)).join('\n') + '\n');
 
   child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {

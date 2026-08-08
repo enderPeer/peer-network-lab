@@ -123,30 +123,7 @@ describe('fork reconciliation', () => {
     expect(JSON.stringify(one.report)).toBe(JSON.stringify(two.report));
   });
 
-  it('reports an advert that no longer applies, and drops its dependents with a reason', () => {
-    // The classic double-write: u_z claimed tBTC and spent ALL of it on both
-    // sides. The base's claim+advert stand; the fork's claim is skipped as a
-    // duplicate, so its advert cannot be paid for, so the adStop that named
-    // that advert has nothing to stop. Every step of that cascade must be
-    // said out loud, none of it silently.
-    const base = [...prefix(),
-      { t: 'btcClaim', author: 'u_z' },
-      { t: 'advert', author: 'u_z', text: 'base-side advert', url: 'https://example.org', days: 50, ts: 1000 },
-    ];
-    const fork = [...prefix(),
-      { t: 'btcClaim', author: 'u_z' },
-      { t: 'advert', author: 'u_z', text: 'fork-side advert', url: 'https://example.org', days: 50, ts: 2000 },
-      { t: 'adStop', author: 'u_z', ad: 'ad1' },
-    ];
-    const { merged, report } = reconcile({ baseActs: base, forkActs: fork, R });
-    expect(report.effectLost.some((e: any) => e.t === 'advert')).toBe(true);
-    expect(report.dropped.some((d: any) => d.t === 'adStop')).toBe(true);
-    const st = replay(merged);
-    expect(st.adverts.length).toBe(1);
-    expect(st.adverts[0].text).toBe('base-side advert');
-    expect(st.adverts[0].stopped).toBe(false); // the fork's adStop named ITS advert, not this one
-  });
-
+  
   it('carries extra epoch closes over and counts them — each one mints', () => {
     const base = [...prefix(), ...baseTail()];
     const fork = [...prefix(), { t: 'closeEpoch', epoch: 1 }];
@@ -190,20 +167,7 @@ describe('fork reconciliation', () => {
     expect(epochs).toEqual([1, 2]);
   });
 
-  it('reports a non-minting act the merged state skips, instead of losing it silently', () => {
-    // The tBTC claim is once per account, ever. Both writers accepted one
-    // during the split; in the merged record only the first can apply. The
-    // second is still record — but its effect is gone, and the report has to
-    // say so, or the operator merges believing nothing was lost.
-    const base = [...prefix(), { t: 'btcClaim', author: 'u_z', ts: 1000 }];
-    const fork = [...prefix(), { t: 'btcClaim', author: 'u_z', ts: 2000 }];
-    const { merged, report } = reconcile({ baseActs: base, forkActs: fork, R });
-    expect(report.appended).toBe(1);
-    expect(report.effectLost.some((e: any) => e.t === 'btcClaim')).toBe(true);
-    // Exactly one claim's worth of tBTC exists, not two.
-    expect(replay(merged).tokens.bal.tBTC.u_z).toBe(0.01);
-  });
-
+  
   it('refuses to merge under a diverged sealed chain', async () => {
     const key = newKey();
     const proto = { R, editions: { engine: 'e', replay: 'r' }, constants: { theta: 0.1, nu: 0.1, quantum: 1e-9 } };

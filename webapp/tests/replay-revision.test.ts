@@ -138,13 +138,21 @@ describe('the chronicle', () => {
   it('never leaks a departed handle into chronicle text', () => {
     const acts = [
       ...seed('al', 'bo'),
-      { t: 'transferL0', from: 'u_bo', to: 'u_al', x: 1, cls: 'live' },
+      { t: 'post', author: 'u_al', text: 'before leaving', a: 0.8, rmen: [] },
+      { t: 'review', author: 'u_bo', target: 'c1', e: 0.7, f: 0.8, text: 'noted' },
       { t: 'deleteAccount', id: 'u_al' },
     ];
     const st = replay(acts);
-    const line = st.chron.find((c) => /sent/.test(c.line));
-    expect(line?.line).toContain('[deleted]');
-    expect(line?.line).not.toContain('al ');
+    // Asserted over the WHOLE chronicle rather than one line. The original
+    // pinned a single transferL0 line, and when Layer 0 was retired the test
+    // broke for a reason that had nothing to do with the property. What
+    // matters is that NO line names the departed handle, wherever it came
+    // from — a stronger claim, and one that survives acts coming and going.
+    expect(st.chron.length).toBeGreaterThan(0);
+    for (const c of st.chron) {
+      expect(c.line, 'a chronicle line named a departed handle').not.toMatch(/al/);
+    }
+    expect(st.chron.some((c) => /\[deleted\]|deleted/.test(c.line))).toBe(true);
   });
 });
 

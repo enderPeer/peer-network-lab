@@ -109,8 +109,11 @@ describe('getting back in after the host re-stores your PIN', () => {
     expect(await verify(id, PIN, legacy), 'the app must read the old format').toBe(true);
 
     // One ordinary act with the correct PIN. This is all it took in production.
-    const burn = await post('/api/act', { t: 'burn', id, amt: 1, auth: PIN, since: await total() });
-    expect(burn.status).toBe(200);
+    // A profile edit, not a burn: burns are minted by the host after it
+    // verifies a transaction, so they never come through this door. Any
+    // PIN-gated act exercises the upgrade the same way.
+    const ok = await post('/api/act', { t: 'profile', id, bio: 'signing in', auth: PIN, since: await total() });
+    expect(ok.status).toBe(200);
 
     const upgraded = await storedHashFor(id);
     expect(upgraded, 'the host re-stores it as PBKDF2 on a correct act').toMatch(/^pbkdf2\$\d+\$[0-9a-f]+\$[0-9a-f]{64}$/);

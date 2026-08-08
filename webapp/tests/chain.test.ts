@@ -109,12 +109,12 @@ describe('the economic layer, sealed', () => {
 
   it('seals pools and later balances into later blocks', () => {
     const acts = [...world('al', 'bo'), post('al', 'P', { rmen: [] }), like('bo', 'c1'), close(1),
-      { t: 'btcClaim', author: 'u_al' },
-      { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'tBTC', amtA: 100, amtB: 0.005 },
+      { t: 'assetCreate', author: 'u_al', sym: 'TBTC', name: 'test unit', supply: 0.01 },
+      { t: 'poolCreate', author: 'u_al', symA: 'PEER', symB: 'TBTC', amtA: 100, amtB: 0.005 },
       close(2)];
     const { blocks } = build(acts);
     expect(Object.keys(blocks[0].package.pools)).toHaveLength(0);
-    const pool = blocks[1].package.pools['PEER/tBTC'];
+    const pool = blocks[1].package.pools['PEER/TBTC'];
     expect(pool).toBeDefined();
     expect(pool.resA).toBe(100);
     expect(pool.resB).toBe(0.005);

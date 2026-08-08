@@ -1675,26 +1675,12 @@ function validate(act) {
       if (act.pinHash !== undefined && !validPinHash(act.pinHash)) return 'bad pin hash';
       break;
     }
-    case 'burn': {
-      if (!str(act.id, 24) || act.amt !== 1) return 'bad burn';
-      // The faucet's per-epoch ceiling lives in the replay, so the door and
-      // the record cannot disagree about how many are left. This check FAILS
-      // OPEN when the engine is not loaded — the same rule unknownTarget
-      // follows, and for the same reason: a missing build must never silence
-      // the network. The replay still applies the ceiling either way; the
-      // host consults it only so a refusal arrives as a sentence instead of
-      // as an act that quietly does nothing.
-      if (engineMod && replayMod) {
-        if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
-        if (stateCache.len !== acts.length || !stateCache.st) {
-          stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
-        }
-        const berr = stateCache.st.tokenActError({ t: 'burn', author: act.id });
-        if (berr) return berr;
-      }
-      break;
-    }
-      break;
+    // The faucet, closed HERE rather than further down. A second `case
+    // 'burn'` added below would have been dead code: the first matching case
+    // wins a switch, so the door would have stayed open while the source
+    // read as though it were shut.
+    case 'burn':
+      return 'the reserve faucet is closed — it was named for destruction and destroyed nothing, crediting reserve from thin air. Reserve comes from a verified Bitcoin burn now: GET /api/burn';
     case 'btcBurn': {
       // Never accepted from the outside door. A burn is minted by the host
       // only after /api/burn/claim has verified the transaction against two
@@ -1873,7 +1859,11 @@ function validate(act) {
         // Infinity passes a naive comparison.
         if (!num(act.fee) || !(act.fee > 0)) return 'an entry fee must be a positive number';
         if (act.fee > 1e9) return 'that entry fee is not a real number';
-        if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
+        // PEER, or any asset somebody minted. Not tBTC: it is retired, and a
+        // whitelist naming a currency nobody can obtain prices tickets in
+        // nothing. A minted symbol is honest — worth what a pool says it is,
+        // and the buyer can see who created it.
+        if (!/^[A-Z][A-Z0-9]{2,7}$/.test(String(act.cur || ''))) return 'entry is payable in PEER, or in any minted asset';
       }
       if (act.cap !== undefined && act.cap !== 0 && (!num(act.cap) || act.cap < 1 || act.cap > 100000)) return 'bad capacity';
       break;
@@ -1891,7 +1881,11 @@ function validate(act) {
       if (unknownTarget(act.cid)) return unknownTarget(act.cid);
       if (act.amt !== undefined && act.amt !== 0) {
         if (!num(act.amt) || !(act.amt > 0)) return 'an entry payment must be a positive number';
-        if (act.cur !== 'PEER' && act.cur !== 'tBTC') return 'entry is payable in PEER or tBTC';
+        // PEER, or any asset somebody minted. Not tBTC: it is retired, and a
+        // whitelist naming a currency nobody can obtain prices tickets in
+        // nothing. A minted symbol is honest — worth what a pool says it is,
+        // and the buyer can see who created it.
+        if (!/^[A-Z][A-Z0-9]{2,7}$/.test(String(act.cur || ''))) return 'entry is payable in PEER, or in any minted asset';
         if (!str(act.to, 24)) return 'an entry payment must name who receives it';
       }
       // A deleted event, and an event that is over, both stop taking money.
@@ -2023,10 +2017,25 @@ function validate(act) {
         if (!str(act.credId, 512) || !Array.isArray(act.cose) || act.cose.length > 16) return 'bad credential';
       }
       break;
-    // The faucet door, closed at the host as well as in the replay, so the
-    // refusal is a sentence rather than an act that quietly does nothing.
+    // Every door that used to mint value out of nothing, closed at the host
+    // as well as in the replay, so a refusal arrives as a sentence rather
+    // than as an act that quietly does nothing.
+    //
+    // `burn` was the worst of them: it was named for destruction and
+    // destroyed nothing, crediting reserve from thin air. Layer 0 was an
+    // attestation economy over deposits nobody ever made — full-reserve
+    // arithmetic on an empty reserve. And tBTC wore bitcoin's name on a
+    // number this code invented. Reserve now comes from bitcoin actually
+    // destroyed at an address with no key, proven by a txid anyone can
+    // check, and from nowhere else.
     case 'btcClaim':
-      return 'the tBTC faucet is closed — value comes from a verified Bitcoin burn now (GET /api/burn), not from a free claim';
+      return 'tBTC is retired — it was never bitcoin. Burn real bitcoin instead: GET /api/burn';
+    case 'deposit':
+    case 'burnL0':
+    case 'redeem':
+    case 'transferL0':
+    case 'closeCycle':
+      return 'Layer 0 is retired — it kept full-reserve books over a reserve nobody had funded. The only real value here is bitcoin destroyed at the dead address: GET /api/burn';
     case 'assetCreate':
     case 'tokenSend':
     case 'poolCreate':
@@ -3783,7 +3792,7 @@ const server = createServer((req, res) => {
           }));
         json(res, 200, {
           ads: live,
-          priceTbtcPerDay: st ? st.adPricePerDay : null,
+          pricePeerPerDay: st ? st.adPricePerDay : null,
           howItWorks: 'Post an `advert` act with {text, url, days} and optional targeting. It costs θ like any act plus tBTC for the days you buy, and it is live the moment it lands — there is no approval queue. The tBTC is burned, not paid to anyone.',
           whatItIsNot: 'An advert holds no standing, sits in no graph and changes no feed score, including its own. Money buys this box and nothing else in the network.',
           targeting: 'placement (feed/live/record), tags, people (handle ids), posts (content ids — shown to anyone who engaged with them), regions (a country or language code). ALL of it is matched in the reader\'s browser against the public log and their own device locale. The host serves an identical list to everyone and never learns who saw what. Where someone connects from is never used.',

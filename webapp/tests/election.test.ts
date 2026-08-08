@@ -76,7 +76,7 @@ describe('writer election', () => {
       { t: 'post', author: 'u_a', ts: now - 100 },
       { t: 'post', author: 'u_a', ts: now - 200 },          // same person, once
       { t: 'dm', from: 'u_b', to: 'u_a', ts: now - 500 },   // `from` counts
-      { t: 'burn', id: 'u_c', ts: now - 3_599_000 },        // inside the hour
+      { t: 'btcBurn', id: 'u_c', txid: 'd75c1e48d9e933381abfcae380f954dd53d5957bb4bf90f503b372d9a1cd086e', sats: 10000, addr: 'bc1qdead', ts: now - 3_599_000 },  // inside the hour
       { t: 'post', author: 'u_old', ts: now - 3_600_001 },  // outside
       { t: 'post', author: 'u_unstamped' },                 // no ts proves no recency
     ];

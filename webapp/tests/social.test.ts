@@ -148,8 +148,10 @@ describe('the host on following, profiles and recovery', () => {
     expect(ok.status).toBe(200);
 
     // The new PIN works and the old one does not.
-    expect((await act({ t: 'burn', id: 'u_ann', amt: 1, auth: '9999' })).status).toBe(200);
-    expect((await act({ t: 'burn', id: 'u_ann', amt: 1, auth: '4321' })).status).toBe(401);
+    // A PIN-gated act, not a burn: burns are minted by the host after it
+    // verifies a transaction, so they can never come through this door.
+    expect((await act({ t: 'profile', id: 'u_ann', bio: 'right pin', auth: '9999' })).status).toBe(200);
+    expect((await act({ t: 'profile', id: 'u_ann', bio: 'wrong pin', auth: '4321' })).status).toBe(401);
 
     // And the record says how it happened, rather than looking like an
     // ordinary PIN change by the owner.
