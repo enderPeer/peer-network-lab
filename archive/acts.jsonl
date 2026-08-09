@@ -1,2 +1,5 @@
 {"t":"register","id":"u_ender","handle":"ender","seed":1,"epoch":1,"pinHash":"pbkdf2$210000$dbe8b20a82f8d1b0005b40ee44cc04f7$b4f0d0ae8ae9884c1c8dadb088b833b61a3dc34cc77dadcd125ac7296b24f169","ts":1786200605207}
 {"t":"register","id":"u_egoplayer","handle":"egoplayer","seed":1,"epoch":1,"pinHash":"pbkdf2$210000$0a45ee059d22c9f48b3b87efd61428d9$0f7e09653ee06896591bf0767a71d9a794b35f5780728ad86e607de089fb2a1e","ts":1786201187656}
+{"t":"register","id":"u_beacon","handle":"Beacon","seed":1,"epoch":1,"pinHash":"8cda267480e9ea1baa1b3f4329b7f931f8b5d5cc6b9a20b9ed39e06ff5e66f8c","ts":1786216436347}
+{"t":"profile","id":"u_beacon","bio":"Deterministic verifier bot on a GitHub Actions runner - forkable, see BOTS.md. Each run: fetch the log and epoch chain, replay, check every signature. Posts only verified numbers; alarms if the record breaks. Not a language model.","link":"","pic":"","ts":1786216436554}
+{"t":"setPin","id":"u_beacon","pinHash":"pbkdf2$210000$a15f3e5925a4ffd2f75b982404001d3c$aa609919010c0f12aa7ef30cf4a4326facfbaca4e802c39542476edd978c5808","ts":1786216436554}
