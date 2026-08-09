@@ -1,9 +1,8 @@
 {
-    "acts": 5,
-    "sha256": "e1d83c931881be7904c2f43bb6a8b15b94e3fd1263a040fd094949ab07a5deed",
-    "at": 1786242479459,
-    "host": "https://plus-magnificent-citizen-telescope.trycloudflare.com",
-    "media": false,
-    "note": "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
-    "chain": null
+    "acts":  6,
+    "sha256":  "b85bebf75d9b5c8819ac45cf7faaadeba2719afaa2d716371b8d7e96d14d0906",
+    "at":  1786283743370,
+    "host":  "https://plus-magnificent-citizen-telescope.trycloudflare.com",
+    "media":  false,
+    "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust."
 }
