@@ -5481,6 +5481,107 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('button', { class: 'btn small ghost', style: 'margin-top:10px', text: '← simple mode', onclick: function () { setMode('liquid'); } })));
   }
 
+  // ── Burning bitcoin, from inside the app ────────────────────────────────
+  //
+  // The faucet button that used to sit here credited reserve from nothing.
+  // This is what replaced it: the real thing, in one place, so nobody has to
+  // find a separate page to acquire the only currency that works.
+  //
+  // MetaMask can send native BTC through its Multichain API - shipped in the
+  // extension, undocumented - so the capability is PROBED and the send button
+  // appears only if the wallet itself reports it. Without it the address is
+  // shown to pay by hand, which always works.
+  var MM_CS = 'metamask-contentscript', MM_INPAGE = 'metamask-inpage', MM_CH = 'metamask-multichain-provider';
+  var BTC_SCOPE = 'bip122:000000000019d6689c085ae165831e93';
+  var mmSeq = 0, mmPending = {};
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    var d = e.data || {};
+    if (d.target !== MM_INPAGE || !d.data || d.data.name !== MM_CH) return;
+    var m = d.data.data;
+    if (m && m.id != null && mmPending[m.id]) { mmPending[m.id](m); delete mmPending[m.id]; }
+  });
+  function mmRpc(method, params, ms) {
+    return new Promise(function (resolve, reject) {
+      var id = ++mmSeq;
+      var to = setTimeout(function () { delete mmPending[id]; reject(new Error('no answer')); }, ms || 60000);
+      mmPending[id] = function (m) { clearTimeout(to); m.error ? reject(new Error(m.error.message || 'refused')) : resolve(m.result); };
+      window.postMessage({ target: MM_CS, data: { name: MM_CH, data: { jsonrpc: '2.0', id: id, method: method, params: params } } }, location.origin);
+    });
+  }
+  async function mmWarm() {
+    for (var i = 0; i < 4; i++) { try { return await mmRpc('wallet_getSession', {}, 800); } catch (e) { /* again */ } }
+    return null;
+  }
+  async function mmConnectBtc() {
+    if (!(await mmWarm())) return null;
+    var sc = {}; sc[BTC_SCOPE] = { methods: [], notifications: [] };
+    var ses = await mmRpc('wallet_createSession', { optionalScopes: sc });
+    var z = ses && ses.sessionScopes && ses.sessionScopes[BTC_SCOPE];
+    if (!z || !z.accounts || !z.accounts.length) return null;
+    if (!(z.methods || []).includes('sendTransfer')) return null;   // the wallet's own word
+    return String(z.accounts[0]).split(':').pop();
+  }
+
+  /** The panel. Fetches the dead address from the host; never hard-codes one. */
+  function burnDialog() {
+    var box = h('div', { class: 'a2hs', style: 'max-width:560px' });
+    var log = h('div', { class: 'smallnote mono', style: 'margin-top:8px; white-space:pre-wrap' });
+    var say = function (t, cls) { log.appendChild(h('div', { class: cls || 'smallnote', text: t })); };
+    box.appendChild(h('b', { text: 'Burn bitcoin to get reserve' }));
+    box.appendChild(h('div', { class: 'smallnote', style: 'margin-top:6px',
+      text: 'Reserve is what every act is debited from, and the only way to get it is to destroy bitcoin at an address with no key. Nobody receives it — not the operator, not the network. That is what makes it cost something.' }));
+    var amt = h('input', { type: 'text', value: '2000', style: 'width:110px', inputmode: 'numeric' });
+    var row = h('div', { class: 'row', style: 'margin-top:10px; align-items:center' },
+      h('span', { class: 'smallnote', text: 'satoshi' }), amt);
+    box.appendChild(row);
+    var addrLine = h('div', { class: 'smallnote mono', style: 'margin-top:8px; word-break:break-all' });
+    box.appendChild(addrLine);
+    var actions = h('div', { class: 'row', style: 'margin-top:10px' });
+    box.appendChild(actions); box.appendChild(log);
+    actions.appendChild(h('button', { class: 'btn small', text: 'Close', onclick: function () { box.remove(); } }));
+    document.body.appendChild(box);
+
+    fetch(API + '/api/burn', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(async function (info) {
+      if (!info || !info.accepting) { say('This host is not accepting burns.', 'bad'); return; }
+      addrLine.textContent = info.address;
+      var copy = h('button', { class: 'btn small', text: 'Copy address', onclick: function () {
+        navigator.clipboard.writeText(info.address); say('address copied');
+      } });
+      actions.insertBefore(copy, actions.firstChild);
+      var from = null;
+      try { from = await mmConnectBtc(); } catch (e) { /* declined or absent */ }
+      if (!from) { say('Send the amount above to that address from any wallet, then reload — the host credits it once it is confirmed.'); return; }
+      var send = h('button', { class: 'btn small primary', text: 'Send with MetaMask', onclick: async function () {
+        send.disabled = true;
+        var sats = parseInt(amt.value, 10);
+        if (!(sats > 0)) { say('amount must be a positive number of satoshi', 'bad'); send.disabled = false; return; }
+        say('MetaMask will ask you to confirm — check the address before approving.');
+        try {
+          var res = await mmRpc('wallet_invokeMethod', { scope: BTC_SCOPE, request: { method: 'sendTransfer', params: {
+            account: { address: from }, recipients: [{ address: info.address, amount: String(sats) }] } } }, 300000);
+          var txid = res && res.txid;
+          say('sent: ' + txid, 'ok');
+          say('Waiting for confirmations, then the network records it. You can close this.');
+          // Retry the claim until the host stops saying it is unconfirmed.
+          var tries = 0;
+          var iv = setInterval(function () {
+            tries++;
+            if (tries > 120) { clearInterval(iv); return; }
+            fetch(API + '/api/burn/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: who, txid: txid, auth: pins[who] || '' }) })
+              .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+              .then(function (x) {
+                if (x.ok) { clearInterval(iv); say('RECORDED — ' + x.d.sats + ' sat, credited to you.', 'ok'); pollRemote(); }
+                else if (!/not confirmed/.test(x.d.error || '')) { clearInterval(iv); say(x.d.error || 'refused', 'bad'); }
+              }).catch(function () { /* keep waiting */ });
+          }, 30000);
+        } catch (e) { say('not sent: ' + (e.message || e), 'bad'); send.disabled = false; }
+      } });
+      actions.insertBefore(send, actions.firstChild);
+      say('MetaMask can send from ' + from.slice(0, 10) + '…' + from.slice(-6), 'ok');
+    }).catch(function () { say('could not reach the host', 'bad'); });
+  }
   function renderGeek(st) {
     var me = st.ledgerById[who];
     var myX = st.xById[who] || 0;
@@ -5543,7 +5644,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('span', { class: 'g-gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
       h('span', { class: 'num', text: Math.floor(me.burnBal / THETA) + ' acts' }),
       h('button', { class: 'btn small', text: 'Burn +1', onclick: function () {
-        pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Burned 1.00 reserve.'); });
+        burnDialog();
       } })));
     // Left rail: how the feed is read (search, order, filters) plus the
     // build's paperwork. Right rail: who you are, then one instrument at a
@@ -5640,11 +5741,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('span', { class: 'gate ' + (wallPass ? 'pass' : 'fail'), text: 'W2a wall' }),
         h('span', { class: 'gate ' + (me.burnBal >= THETA ? 'pass' : 'fail'), text: 'W1 solvent' })),
       h('div', { style: 'margin-top:10px' },
-        h('button', { class: 'btn small', text: 'Burn +1.00 reserve', onclick: function () {
-          pushAct({ t: 'burn', id: who, amt: 1 }, function () {
-            toast('Burned 1.00 reserve. Burn raises your rate — it is the only way in.');
-          });
-        } }),
+        h('button', { class: 'btn small primary', text: 'Burn bitcoin \u2192', onclick: function () { burnDialog(); } }),
         // Burn stays here — it is needed on every screen, mid-sentence, when a
         // reserve runs out. Everything else about the account lives on the
         // Profile tab now; two copies of Delete account is one too many.
@@ -8288,7 +8385,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('li', {}, 'Note your ', B('rate'), ' in the identity card. ', B('React'), ' to any horizon post. ', h('span', { class: 'watch', text: 'Watch:' }), ' rate drops by one θ-dilution, and the post jumps into your ranked feed with a printed S.'),
           h('li', {}, B('Post'), ' something. ', h('span', { class: 'watch', text: 'Watch:' }), ' it exists for everyone but ranks only for people connected to you.'),
           h('li', {}, 'Open a peer’s ', B('Profile'), ' and vouch with high support. ', h('span', { class: 'watch', text: 'Watch:' }), ' the ▲▼ chips — if your post-debit rate is below their standing, your vouch ', B('lowers'), ' them. Sincerity is priced.'),
-          h('li', {}, 'Burn +1.00, then vouch again. ', h('span', { class: 'watch', text: 'Watch:' }), ' with your rate lifted, the same vouch now pulls them up.'),
+          h('li', {}, 'Burn bitcoin, then vouch again. ', h('span', { class: 'watch', text: 'Watch:' }), ' with your rate lifted, the same vouch now pulls them up.'),
           h('li', {}, B('Close the epoch'), '. ', h('span', { class: 'watch', text: 'Watch:' }), ' the certificate in Record, and edge weights shift as tenure advances.'),
           h('li', {}, 'Open ', B('Network'), ' and click the edges you just created — every number you caused, derived in front of you.'))),
 
@@ -8688,10 +8785,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     ]));
 
     drawer.appendChild(group('Reserve', 'Burning is the only way in: every act debits θ from the reserve and raises your act count.', [
-      h('button', { class: 'btn small', text: 'Burn +1.00 reserve', onclick: function () {
-        close();
-        pushAct({ t: 'burn', id: who, amt: 1 }, function () { toast('Burned 1.00 reserve.'); });
-      } }),
+      h('button', { class: 'btn small primary', text: 'Burn bitcoin \u2192', onclick: function () { burnDialog(); } }),
     ]));
 
     drawer.appendChild(group('Leaving',
