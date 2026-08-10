@@ -5,3 +5,16 @@
 {"t":"setPin","id":"u_beacon","pinHash":"pbkdf2$210000$a15f3e5925a4ffd2f75b982404001d3c$aa609919010c0f12aa7ef30cf4a4326facfbaca4e802c39542476edd978c5808","ts":1786216436554}
 {"t":"register","id":"u_ewfwef","handle":"ewfwef","seed":1,"epoch":1,"pinHash":"pbkdf2$210000$3d18e52a58751953319e58971b3bba07$2a5f394b5baeb30cec4cbc8b1120a221d6724c034cc3871b52b4880c3c0bee59","ts":1786283461207}
 {"t":"register","id":"u_asigerdadawd","handle":"asigerdadawd","seed":1,"epoch":1,"pinHash":"pbkdf2$210000$1fb581dfed74d0a7dad92a89bf0689bf$3bfd089c92827408f9be5897f2585084b3df5c8883959f7bf028831fab388841","ts":1786351747821}
+{"t":"btcBurn","id":"u_ender","txid":"eed35beafa42de4f1eea6511fea1ddd013769ce0939c5f271c66df010b354ffe","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786362492003}
+{"t":"post","author":"u_ender","text":"erster test post mit echten burn ?","a":0.8,"ts":1786362533189,"rmen":[]}
+{"t":"btcBurn","id":"u_egoplayer","txid":"21f230c1dbc4b2d61dff45eb0d060086ffb6f8d62cd15f913d90d4f88fc5f991","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786362795625}
+{"t":"opinion","author":"u_egoplayer","target":"c1","p":1,"r":1,"ts":1786362822306}
+{"t":"review","author":"u_egoplayer","target":"c1","e":0.7,"f":0.8,"text":"krass","ts":1786362828267}
+{"t":"tag","author":"u_egoplayer","target":"c1","name":"genisis","r":1,"c":1,"ts":1786362839181}
+{"t":"post","author":"u_egoplayer","text":"Der erste Block","a":0.8,"ref":"c1","ts":1786362846865,"rmen":[]}
+{"t":"opinion","author":"u_egoplayer","target":"prof_u_ender","p":1,"r":1,"ts":1786362852406}
+{"t":"closeEpoch","epoch":1,"ts":1786362903262}
+{"t":"follow","from":"u_ender","to":"u_egoplayer","on":true,"ts":1786362975773}
+{"t":"btcBurn","id":"u_ender","txid":"3dd162e2f598283459846d5dfa3706edc74a425baf4075f6d415ce7f6bc802d7","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786362997873}
+{"t":"btcBurn","id":"u_ender","txid":"f81da507b840e8e0f0a6cfd109dacffd2e9144125cb45d0bcbd75fed57b8e751","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786364749858}
+{"t":"btcBurn","id":"u_egoplayer","txid":"6bfe85583de095f9217c390a9c46cf536c0ddab925d465a64c6ff96d43abd60b","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786364750230}

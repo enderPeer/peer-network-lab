@@ -1,6 +1,6 @@
 {
   "id": "./app.html",
-  "name": "Peer Network",
+  "name": "Ender Net",
   "short_name": "Peer",
   "description": "A social network whose feed is mathematics you can check. Influence is commitment, not attention.",
   "start_url": "./app.html",
