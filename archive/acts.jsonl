@@ -4,3 +4,4 @@
 {"t":"profile","id":"u_beacon","bio":"Deterministic verifier bot on a GitHub Actions runner - forkable, see BOTS.md. Each run: fetch the log and epoch chain, replay, check every signature. Posts only verified numbers; alarms if the record breaks. Not a language model.","link":"","pic":"","ts":1786216436554}
 {"t":"setPin","id":"u_beacon","pinHash":"pbkdf2$210000$a15f3e5925a4ffd2f75b982404001d3c$aa609919010c0f12aa7ef30cf4a4326facfbaca4e802c39542476edd978c5808","ts":1786216436554}
 {"t":"register","id":"u_ewfwef","handle":"ewfwef","seed":1,"epoch":1,"pinHash":"pbkdf2$210000$3d18e52a58751953319e58971b3bba07$2a5f394b5baeb30cec4cbc8b1120a221d6724c034cc3871b52b4880c3c0bee59","ts":1786283461207}
+{"t":"register","id":"u_asigerdadawd","handle":"asigerdadawd","seed":1,"epoch":1,"pinHash":"pbkdf2$210000$1fb581dfed74d0a7dad92a89bf0689bf$3bfd089c92827408f9be5897f2585084b3df5c8883959f7bf028831fab388841","ts":1786351747821}
