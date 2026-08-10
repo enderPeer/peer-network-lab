@@ -1,4 +1,4 @@
-<title>Peer Network — social sandbox</title>
+<title>Ender Net — social sandbox</title>
 <style>
 :root {
   --paper: #EDE4CC;
@@ -11,6 +11,7 @@
   --ember: #A94708;
   --ember-hot: #B54B0A;
   --ember-soft: rgba(169, 71, 8, 0.10);
+  --logo-red: #F51106;
   --on-ember: #FFF3E2;
   --brass: #8A6F3C;
   --brass-soft: rgba(138, 111, 60, 0.14);
@@ -23,50 +24,32 @@
   --display: 'Century Gothic', 'Futura', 'Twentieth Century', 'Bahnschrift', 'Avenir Next', sans-serif;
   --body: 'Charter', 'Bitstream Charter', Cambria, 'Iowan Old Style', Georgia, serif;
   --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  /* ledger tokens (mainstream view) — paper, ink, one signal colour */
-  --lq-paper: #EFEFEA;
-  --lq-sheet: #FFFFFF;
-  --lq-sunk: #E7E7E1;
-  --lq-ink: #17181B;
-  --lq-muted: #6E7075;
-  --lq-rule: #D6D6CF;
-  --lq-rule-2: #BFBFB6;
-  --lq-accent: #D8330F;
-  --lq-accent-2: #1F3A6B;
-  --lq-gold: #8A6A2B;
-  --lq-good: #1F6B4A;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #12100B; --card: #1B1710; --card-2: #241E13; --ink: #E9DDC0; --muted: #A08F6C;
     --line: #37301E; --line-2: #4B4128; --ember: #E8641B; --ember-hot: #F5822F;
-    --ember-soft: rgba(232, 100, 27, 0.16); --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201, 181, 147, 0.13);
+    --ember-soft: rgba(232, 100, 27, 0.16);
+  --logo-red: #F51106; --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201, 181, 147, 0.13);
     --moss: #8CAF7F; --moss-soft: rgba(140, 175, 127, 0.14); --bad: #E05A3C; --bad-soft: rgba(224, 90, 60, 0.15);
     --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.4);
-    --lq-paper: #131315; --lq-sheet: #1A1B1E; --lq-sunk: #202126;
-    --lq-ink: #ECECE7; --lq-muted: #92949A; --lq-rule: #2C2D32; --lq-rule-2: #3D3E45;
-    --lq-accent: #FF5630; --lq-accent-2: #7FA3E8; --lq-gold: #C9A25E; --lq-good: #58B98A;
   }
 }
 :root[data-theme="light"] {
   --paper: #EDE4CC; --card: #F5EDD8; --card-2: #E4D8B9; --ink: #2A2312; --muted: #665732;
   --line: #D2C29B; --line-2: #B9A778; --ember: #A94708; --ember-hot: #B54B0A; --on-ember: #FFF3E2;
-  --ember-soft: rgba(169,71,8,0.10); --brass: #8A6F3C; --brass-soft: rgba(138,111,60,0.14);
+  --ember-soft: rgba(169,71,8,0.10);
+  --logo-red: #F51106; --brass: #8A6F3C; --brass-soft: rgba(138,111,60,0.14);
   --moss: #55703F; --moss-soft: rgba(85,112,63,0.13); --bad: #A93B2A; --bad-soft: rgba(169,59,42,0.11);
   --shadow: 0 1px 2px rgba(52,40,18,0.08), 0 8px 28px rgba(52,40,18,0.08);
-  --lq-paper: #EFEFEA; --lq-sheet: #FFFFFF; --lq-sunk: #E7E7E1;
-  --lq-ink: #17181B; --lq-muted: #6E7075; --lq-rule: #D6D6CF; --lq-rule-2: #BFBFB6;
-  --lq-accent: #D8330F; --lq-accent-2: #1F3A6B; --lq-gold: #8A6A2B; --lq-good: #1F6B4A;
 }
 :root[data-theme="dark"] {
   --paper: #12100B; --card: #1B1710; --card-2: #241E13; --ink: #E9DDC0; --muted: #A08F6C;
   --line: #37301E; --line-2: #4B4128; --ember: #E8641B; --ember-hot: #F5822F;
-  --ember-soft: rgba(232,100,27,0.16); --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201,181,147,0.13);
+  --ember-soft: rgba(232,100,27,0.16);
+  --logo-red: #F51106; --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201,181,147,0.13);
   --moss: #8CAF7F; --moss-soft: rgba(140,175,127,0.14); --bad: #E05A3C; --bad-soft: rgba(224,90,60,0.15);
   --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.4);
-  --lq-paper: #131315; --lq-sheet: #1A1B1E; --lq-sunk: #202126;
-  --lq-ink: #ECECE7; --lq-muted: #92949A; --lq-rule: #2C2D32; --lq-rule-2: #3D3E45;
-  --lq-accent: #FF5630; --lq-accent-2: #7FA3E8; --lq-gold: #C9A25E; --lq-good: #58B98A;
 }
 
 * { box-sizing: border-box; }
@@ -78,7 +61,7 @@ button { font-family: var(--body); cursor: pointer; }
 
 .shell { max-width: 1220px; margin: 0 auto; padding: 0 18px 40px; }
 
-/* ═══ GEEK MODE (Layer-1 lab look) ═══ */
+/* ═══ THE LAB LOOK ═══ */
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -87,7 +70,7 @@ button { font-family: var(--body); cursor: pointer; }
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
-/* The base wordmark stays block-level: the simple mode still renders the
+/* The base wordmark stays block-level: other surfaces still render the
    old three-piece 'Peer' markup, and a flex container splits it apart. The
    insignia lockup applies only where the insignia markup exists (geek). */
 .wordmark { font-family: var(--display); font-weight: 700; text-transform: uppercase; font-size: 24px; margin: 0; letter-spacing: 0.04em; }
@@ -95,7 +78,7 @@ button { font-family: var(--body); cursor: pointer; }
 body[data-mode='geek'] .wordmark { font-size: 17px; letter-spacing: 0.22em; display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 /* The insignia. Drawn as a vector so it stays sharp from favicon to hero;
    swap the data URI for a raster only if the original art must be exact. */
-.brandmark { width: 34px; height: 34px; flex: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'%3E%3Ccircle cx='120' cy='120' r='76' fill='none' stroke='%23c9b593' stroke-width='9'/%3E%3Cpath d='M120 56 L192 120 L120 184 L48 120 Z' fill='none' stroke='%2312100b' stroke-width='19'/%3E%3Cpath d='M120 56 L192 120 L120 184 L48 120 Z' fill='none' stroke='%23c9b593' stroke-width='8'/%3E%3Cg fill='%23c9b593' stroke='%2312100b' stroke-width='5' paint-order='stroke'%3E%3Cpath d='M158 96 L236 88 L222 104 L166 106 Z'/%3E%3Cpath d='M166 114 L228 110 L216 126 L172 124 Z'/%3E%3Cpath d='M172 132 L210 132 L200 146 L176 141 Z'/%3E%3Cpath d='M82 96 L4 88 L18 104 L74 106 Z'/%3E%3Cpath d='M74 114 L12 110 L24 126 L68 124 Z'/%3E%3Cpath d='M68 132 L30 132 L40 146 L64 141 Z'/%3E%3C/g%3E%3Cg stroke='%2312100b' stroke-width='6' paint-order='stroke'%3E%3Cpath d='M120 14 L136 52 L104 52 Z' fill='%23e8641b'/%3E%3Cpath d='M106 56 L134 56 L140 70 L140 172 L134 186 L106 186 L100 172 L100 70 Z' fill='%23e8641b'/%3E%3Cpath d='M120 226 L104 190 L136 190 Z' fill='%23e8641b'/%3E%3C/g%3E%3Cg fill='none' stroke='%2312100b' stroke-width='6' stroke-linecap='square'%3E%3Cpath d='M112 68 L112 120'/%3E%3Cpath d='M112 68 L126 68 L132 76 L132 90 L126 98 L112 98'/%3E%3Cpath d='M112 128 L112 178'/%3E%3Cpath d='M112 128 L130 178'/%3E%3Cpath d='M130 128 L130 178'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat; }
+.brandmark { width: 34px; height: 34px; flex: none; display: block; color: var(--ink); }
 /* Eight tabs do not fit a phone, and the page clips horizontal overflow, so
    the last ones were unreachable rather than merely off-screen — reported as
    "the Live tab is not shown". The row scrolls on its own instead. */
@@ -116,20 +99,20 @@ body[data-mode='geek'] .wordmark { font-size: 17px; letter-spacing: 0.22em; disp
 /* Structural backstop: whatever a peer posts, the page itself never widens —
    an oversized child scrolls inside its own card instead. */
 html, body { overflow-x: hidden; }
-.post, .card, .lq-card, .chat-msg, .lq-msg { max-width: 100%; }
+.post, .card, .chat-msg { max-width: 100%; }
 /* Applied to the CONTAINERS, not to a list of text classes. overflow-wrap
    inherits, so every piece of peer-written text inside a card is covered —
    including the ones nobody thought of. The first version of this rule
-   enumerated class names and missed .txt, the comment body in simple mode,
-   which a tester found within the hour: a single 1000-character word still
+   enumerated class names and missed the comment body, which a tester found
+   within the hour: a single 1000-character word still
    blew that column out to 7200px. Enumerating was the bug. */
-.post, .card, .lq-card, .comment, .lq-comment, .lq-comments, .chat-thread, .lq-thread,
-.chat-row, .lq-peer, .lq-alert, .alert-row, .chron-row, .toast, .quote-embed {
+.post, .card, .comment, .chat-thread,
+.chat-row, .alert-row, .chron-row, .toast, .quote-embed {
   overflow-wrap: anywhere; word-break: break-word;
 }
 /* Flex and grid children default to min-width:auto, which refuses to shrink
    below their content. Without this the wrap above cannot take effect. */
-.post *, .card *, .lq-card *, .comment *, .lq-comment *, .grow { min-width: 0; }
+.post *, .card *, .comment *, .grow { min-width: 0; }
 .rail { position: sticky; top: 62px; }
 /* right-rail instrument switch — one bar, one instrument at a time */
 .rail-toggle { display: flex; gap: 2px; border: 1px solid var(--line-2); border-radius: 2px; padding: 2px; margin: 14px 0; background: var(--card-2); }
@@ -161,7 +144,7 @@ html, body { overflow-x: hidden; }
 .idcard .who { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
 .avatar { width: 42px; height: 42px; border-radius: 5px; border: 1.5px solid var(--ink); background: var(--card-2); color: var(--ink); display: flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 700; font-size: 21px; flex: none; }
 .avatar.s { width: 27px; height: 27px; font-size: 13.5px; }
-.avatar, .lq-ava { position: relative; overflow: hidden; }
+.avatar { position: relative; overflow: hidden; }
 /* The portrait sits ON the monogram rather than instead of it, so a picture
    that never loads leaves the letter behind. `cover`, never `contain`: the
    blob is already a square crop, and contain would letterbox anything that
@@ -170,7 +153,6 @@ html, body { overflow-x: hidden; }
 .ava-img.ok { opacity: 1; }
 .handle { font-weight: 700; font-size: 15px; }
 .standing-chip { font-family: var(--mono); font-size: 11px; color: var(--brass); background: var(--brass-soft); border: 1px solid var(--brass); border-radius: 2px; padding: 1px 8px; white-space: nowrap; }
-body[data-mode='liquid'] .standing-chip { border: 0; border-radius: 10px; }
 .ledger { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12.5px; margin: 0; }
 .ledger dt { color: var(--muted); }
 .ledger dd { margin: 0; text-align: right; }
@@ -238,8 +220,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
    -webkit-fill-available is the value that actually matches the window. */
 body[data-standalone='1'] .shell { padding-top: env(safe-area-inset-top, 0px); }
 body[data-standalone='1'] .topbar { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
-body[data-standalone='1'] .lq-head { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
-body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
+body[data-standalone='1'] .shell {
   padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
 }
 @supports (-webkit-touch-callout: none) {
@@ -346,25 +327,19 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
 @media (max-width: 700px) {
   .infowin { width: 100vw; max-height: 100%; height: 100%; top: 0; left: 0; transform: none; }
 }
-body[data-mode='liquid'] .view-chip { color: var(--lq-muted, #888); }
 .lock-warn { border-color: var(--ember); }
 .lock-warn b { color: var(--ember); }
-.g-handle.locked, .lq-ava.locked { outline: 2px solid var(--ember); outline-offset: 1px; }
 .hop-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 2px; padding: 1px 6px; white-space: nowrap; }
 .hop-chip.far { opacity: 0.55; border-style: dashed; }
 .react-count { color: var(--ember); font-size: 11.5px; }
-body[data-mode='liquid'] .react-count { color: var(--lq-accent); }
 .contribute { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
 .contribute p { margin: 4px 0 9px; }
 .contribute .row { display: flex; flex-wrap: wrap; gap: 7px; }
 .contribute a.btn { text-decoration: none; }
 .who-link { font: inherit; font-weight: 700; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; border-bottom: 1px dotted var(--line-2); }
 .who-link:hover { color: var(--ember); border-bottom-color: var(--ember); }
-body[data-mode='liquid'] .who-link { color: var(--lq-ink); }
-body[data-mode='liquid'] .who-link:hover { color: var(--lq-accent); }
 .ref-link { font: inherit; font-family: var(--mono); font-size: 0.92em; color: var(--ember); background: var(--ember-soft); border: 0; border-radius: 4px; padding: 0 4px; cursor: pointer; }
 .ref-link:hover { background: var(--ember); color: #fff; }
-body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0,0,0,0.05); }
 .charcount { display: block; text-align: right; font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; }
 .charcount.near { color: var(--ember); }
 .charcount.over { color: var(--bad); font-weight: 700; }
@@ -378,9 +353,6 @@ body[data-mode='liquid'] .ref-link { color: var(--lq-accent); background: rgba(0
 .uline > button { border: 1px solid transparent; background: transparent; color: var(--muted); font-family: var(--display); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 2px; cursor: pointer; }
 .uline > button:hover { color: var(--ink); }
 .uline > button.on { color: var(--ink); border-color: var(--line-2); background: var(--card-2); }
-/* the simple mode shares eventLanes' .uline — keep its own voice there */
-body[data-mode='liquid'] .uline > button { font-family: inherit; text-transform: none; letter-spacing: 0; color: var(--lq-muted); }
-body[data-mode='liquid'] .uline > button.on { color: var(--lq-ink); border-color: var(--lq-rule-2); background: var(--lq-sunk); }
 .mini-form { background: var(--card-2); border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; margin-top: 10px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .mini-form input[type='text'], .mini-form input[type='password'], .mini-form input[type='search'],
 body[data-mode='geek'] input[type='search'] { background: var(--card); border: 1px solid var(--line); color: var(--ink); border-radius: 2px; padding: 6px 9px; font-size: 13px; font-family: var(--body); }
@@ -406,7 +378,6 @@ body[data-mode='geek'] input[type='search'] { background: var(--card); border: 1
 .audio-wrap { margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 4px; background: var(--card-2); }
 .audio-wave { display: block; width: 100%; height: 44px; cursor: pointer; }
 .audio-wrap.wave-none .audio-wave { display: none; }
-body[data-mode='liquid'] .audio-wrap { background: var(--lq-sunk); border-color: var(--lq-rule); border-radius: 4px; }
 .track-now { font-size: 12.5px; color: var(--muted); padding: 2px 0 4px; }
 .album-head { display: flex; gap: 12px; align-items: flex-start; padding: 2px 0 6px; }
 /* Both dimensions, always. The blob can be up to 1280px on its long edge, and
@@ -420,10 +391,8 @@ body[data-mode='liquid'] .audio-wrap { background: var(--lq-sunk); border-color:
 .release-row:hover { color: var(--ember); }
 .release-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .release-n, .release-when { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
-body[data-mode='liquid'] .release-list, body[data-mode='liquid'] .release-row { border-color: var(--lq-rule); }
 .album-title { font-weight: 700; font-size: 14.5px; line-height: 1.3; margin-bottom: 2px; overflow-wrap: anywhere; }
 .audio-wrap.has-cover .track-now { padding-top: 0; }
-body[data-mode='liquid'] .album-art { border-color: var(--lq-rule); border-radius: 4px; }
 .compose-chip.busy { border-style: solid; color: var(--ink); }
 .compose-total { font-size: 11.5px; color: var(--muted); align-self: center; }
 .compose-chip .cover-btn { color: var(--brass, var(--ember)); font-size: 13px; }
@@ -439,20 +408,15 @@ body[data-mode='liquid'] .album-art { border-color: var(--lq-rule); border-radiu
 .track-size { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .offline-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 6px 0 2px; }
 .offline-row .kept { font-size: 12.5px; color: var(--good, var(--ember)); }
-body[data-mode='liquid'] .track-row:hover, body[data-mode='liquid'] .track-row.on { background: var(--lq-glass-2); }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; border: 1px solid var(--line-2); border-radius: 9px; padding: 5px 11px; margin: 8px 0 4px; color: var(--ink); text-decoration: none; background: var(--card-2); }
 .file-chip:hover { border-color: var(--ember); }
-body[data-mode='liquid'] .file-chip { background: var(--lq-glass-2); border-color: var(--lq-edge); color: var(--lq-ink); border-radius: 12px; }
 .quote-embed { border-left: 3px solid var(--ember); background: var(--card-2); border-radius: 8px; padding: 8px 12px; margin: 8px 0 4px; cursor: pointer; }
 .quote-embed .q-head { font-size: 11.5px; color: var(--muted); }
 .quote-embed .q-head b { color: var(--ink); }
 .quote-embed .q-text { font-size: 13px; line-height: 1.5; }
 .quote-embed.gone { border-left-color: var(--line-2); cursor: default; }
 .quote-embed.gone .q-text { font-style: italic; color: var(--muted); }
-body[data-mode='liquid'] .quote-embed { background: var(--lq-glass-2); border-left-color: var(--lq-accent); border-radius: 12px; }
-body[data-mode='liquid'] .quote-embed .q-text { color: var(--lq-ink); }
 .mention-chip { font-size: 11.5px; color: var(--ember); background: var(--ember-soft); border-radius: 9px; padding: 2px 9px; }
-body[data-mode='liquid'] .mention-chip { color: var(--lq-accent); background: color-mix(in srgb, var(--lq-accent) 12%, transparent); }
 .compose-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; border: 1px dashed var(--line-2); border-radius: 9px; padding: 3px 9px; color: var(--muted); }
 .compose-chip button { border: 0; background: transparent; color: var(--bad); cursor: pointer; font-size: 13px; padding: 0 2px; }
 
@@ -491,20 +455,16 @@ table.standings tr:not(:first-child):hover td { background: var(--card-2); }
 .focus-wrap { border: 2px solid var(--ember); border-radius: 14px; padding: 4px; margin-bottom: 14px; scroll-margin-top: 70px; }
 .focus-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 10px 6px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ember); font-weight: 700; }
 .focus-hit { background: var(--ember-soft); border-radius: 8px; outline: 1px solid var(--ember); }
-body[data-mode='liquid'] .focus-wrap { border-color: var(--lq-accent); border-radius: 6px; }
-body[data-mode='liquid'] .focus-bar { color: var(--lq-accent); }
-body[data-mode='liquid'] .focus-hit { background: color-mix(in srgb, var(--lq-accent) 12%, transparent); outline-color: var(--lq-accent); }
 @media (prefers-reduced-motion: no-preference) {
   .focus-wrap { animation: focusIn 0.35s ease-out; }
   @keyframes focusIn { from { box-shadow: 0 0 0 6px var(--ember-soft); } to { box-shadow: 0 0 0 0 transparent; } }
 }
 
 /* threaded replies */
-.comments .nested, .lq-comments .nested { margin-left: 22px; border-left: 2px solid var(--line); padding-left: 10px; }
-.comment .grow, .lq-comment .grow { flex: 1; min-width: 0; }
+.comments .nested { margin-left: 22px; border-left: 2px solid var(--line); padding-left: 10px; }
+.comment .grow { flex: 1; min-width: 0; }
 .reply-btn { margin-top: 4px; opacity: 0.75; }
 .reply-btn:hover { opacity: 1; }
-body[data-mode='liquid'] .reply-btn { padding: 3px 11px; font-size: 12px; }
 
 /* wall warning */
 .wall-warn { background: rgba(210, 153, 34, 0.14); border: 1px solid rgba(210, 153, 34, 0.45); border-radius: 10px; padding: 8px 11px; margin-bottom: 10px; }
@@ -555,7 +515,7 @@ body[data-mode='geek'] .onboard .wordmark { font-size: 30px; margin-bottom: 2px;
   .onboard > *:nth-child(5) { animation-delay: 0.24s; }
   .onboard > *:nth-child(6) { animation-delay: 0.30s; }
   @keyframes settle { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-  .post, .lq-card { animation: settle 0.3s ease-out backwards; }
+  .post { animation: settle 0.3s ease-out backwards; }
 }
 
 .netwrap { overflow-x: auto; }
@@ -625,108 +585,6 @@ details.about b { color: var(--ink); }
 .guide td:first-child { font-family: var(--mono); white-space: nowrap; color: var(--ink); }
 .guide .jump { margin-left: 8px; }
 
-/* ═══ MAINSTREAM MODE — the ledger look: paper, ink, one signal colour ═══ */
-body[data-mode='liquid'] {
-  background: var(--lq-paper);
-  color: var(--lq-ink);
-  font-family: var(--body);
-}
-.lq-shell { max-width: 640px; margin: 0 auto; padding: 12px 14px 110px; }
-.lq-glass {
-  background: var(--lq-sheet);
-  border: 1px solid var(--lq-rule-2);
-  border-radius: 6px;
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--lq-ink) 10%, transparent);
-}
-.lq-head { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin: 0 -14px 16px; background: var(--lq-sheet); border: 0; border-bottom: 2px solid var(--lq-ink); border-radius: 0; box-shadow: none; }
-.lq-head .wordmark { font-size: 21px; color: var(--lq-ink); }
-.lq-head .wordmark em { color: var(--lq-accent); }
-.lq-energy { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--lq-muted); }
-.lq-energy .bar { width: 74px; height: 9px; border: 1px solid var(--lq-rule-2); background: var(--lq-sunk); overflow: hidden; }
-.lq-energy .bar i { display: block; height: 100%; background: var(--lq-accent); transition: width 0.4s; }
-.lq-ava { width: 36px; height: 36px; border-radius: 4px; border: 1.5px solid var(--lq-ink); background: var(--lq-sunk); color: var(--lq-ink); font-family: var(--display); font-weight: 700; font-size: 17px; display: flex; align-items: center; justify-content: center; }
-.lq-ava.s { width: 29px; height: 29px; font-size: 13.5px; }
-.lq-ava.xs { width: 23px; height: 23px; font-size: 11.5px; }
-
-.lq-card { padding: 16px 18px; margin-bottom: 14px; }
-.lq-card h2 { font-family: var(--display); font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px; border-bottom: 1px solid var(--lq-rule); padding-bottom: 6px; }
-.lq-name { font-family: var(--display); font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--lq-ink); }
-.lq-sub { font-size: 12px; color: var(--lq-muted); }
-.lq-cred { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-family: var(--mono); color: var(--lq-gold); font-weight: 700; }
-.lq-body { font-size: 16px; line-height: 1.55; margin: 10px 0 4px; color: var(--lq-ink); }
-.lq-tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
-.lq-tag { font-size: 11px; font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--lq-accent-2); border: 1px solid currentColor; padding: 1px 8px; font-weight: 600; }
-
-.lq-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.lq-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1.5px solid var(--lq-ink); background: var(--lq-sheet);
-  color: var(--lq-ink); border-radius: 4px; padding: 7px 14px;
-  font-family: var(--display); font-size: 12.5px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.05em;
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--lq-ink) 25%, transparent);
-  transition: transform 0.06s, box-shadow 0.06s;
-}
-.lq-pill:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 color-mix(in srgb, var(--lq-ink) 25%, transparent); }
-.lq-pill:active { transform: translate(1px, 1px); box-shadow: 0 0 0 transparent; }
-.lq-pill.hot { background: var(--lq-accent); color: #FFF; border-color: var(--lq-ink); }
-.lq-pill svg { width: 14px; height: 14px; }
-.lq-pill:focus-visible, .lq-input:focus-visible { outline: 2px solid var(--lq-accent); outline-offset: 1px; }
-
-.lq-input, body[data-mode='liquid'] textarea.lq-input {
-  width: 100%; background: var(--lq-sunk); border: 1.5px solid var(--lq-rule-2);
-  color: var(--lq-ink); border-radius: 4px; padding: 10px 13px; font-size: 16px; font-family: var(--body);
-}
-body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical; }
-.lq-input::placeholder { color: var(--lq-muted); }
-.lq-input:focus { background: var(--lq-sheet); border-color: var(--lq-ink); }
-
-.lq-comments { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.lq-comment { display: flex; gap: 9px; align-items: flex-start; background: var(--lq-sunk); border-left: 3px solid var(--lq-rule-2); padding: 8px 12px; }
-.lq-comment .lq-sub b { color: var(--lq-ink); }
-.lq-comment .txt { font-size: 14px; line-height: 1.5; }
-
-.lq-nav {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 25;
-  display: flex; justify-content: center; gap: 0; padding: 0;
-  background: var(--lq-sheet); border: 0; border-top: 2px solid var(--lq-ink);
-  border-radius: 0; box-shadow: none;
-}
-.lq-nav button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; border: 0; background: transparent; color: var(--lq-muted); font-family: var(--display); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 9px 20px calc(9px + env(safe-area-inset-bottom, 0px)); }
-.lq-nav button.on { background: var(--lq-ink); color: var(--lq-paper); }
-.lq-nav button .nbadge { position: absolute; top: 3px; right: 8px; background: var(--lq-accent); color: #FFF; font-family: var(--mono); font-size: 9.5px; min-width: 15px; height: 15px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
-.lq-nav svg { width: 18px; height: 18px; }
-
-.lq-peer { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-top: 1px solid var(--lq-rule); }
-.lq-peer:first-of-type { border-top: 0; }
-.lq-peer .grow { flex: 1; min-width: 0; }
-.lq-sheet { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; background: var(--lq-sunk); border: 1px solid var(--lq-rule); border-radius: 4px; padding: 12px 14px; }
-.lq-range { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--lq-muted); }
-.lq-range input { accent-color: var(--lq-accent); width: 130px; }
-.lq-range output { font-family: var(--mono); font-size: 13px; color: var(--lq-ink); width: 34px; text-align: right; }
-.lq-note { font-size: 12.5px; color: var(--lq-muted); line-height: 1.55; }
-.lq-stat-row { display: flex; gap: 20px; margin: 8px 0 2px; flex-wrap: wrap; }
-.lq-stat b { display: block; font-family: var(--mono); font-size: 21px; font-weight: 600; color: var(--lq-ink); }
-.lq-stat { font-size: 11px; font-family: var(--display); text-transform: uppercase; letter-spacing: 0.07em; color: var(--lq-muted); }
-
-/* chat */
-.lq-thread { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 46vh; overflow-y: auto; padding-right: 4px; }
-.lq-msg { max-width: 82%; align-self: flex-start; padding: 8px 12px; font-size: 14.5px; line-height: 1.45; border: 1px solid var(--lq-rule-2); background: var(--lq-sunk); border-radius: 4px; }
-.lq-msg.mine { align-self: flex-end; background: var(--lq-ink); color: var(--lq-paper); border-color: var(--lq-ink); }
-.lq-msg .m-meta { display: block; font-size: 10px; font-family: var(--display); text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.65; margin-bottom: 2px; }
-
-/* notifications */
-.lq-alert { display: flex; gap: 10px; align-items: center; padding: 10px 0 10px 12px; border-top: 1px solid var(--lq-rule); font-size: 14px; }
-.lq-alert:first-of-type { border-top: 0; }
-.lq-alert.fresh { border-left: 3px solid var(--lq-accent); }
-.lq-alert .a-verb { color: var(--lq-muted); }
-
-.lq-hero { text-align: center; padding: 36px 24px 30px; margin-top: 5vh; border-width: 2px; border-color: var(--lq-ink); }
-.lq-hero .wordmark { font-size: 54px; letter-spacing: 0.02em; }
-.lq-hero .lede { font-family: var(--body); font-style: italic; font-size: 18px; line-height: 1.55; margin: 10px auto 20px; max-width: 26em; text-wrap: balance; color: var(--lq-ink); }
-.lq-hero .join { display: flex; flex-direction: column; gap: 10px; max-width: 320px; margin: 0 auto; }
-.lq-hero .lq-note { margin-top: 18px; }
-
 /* connection banner (server fallback) */
 .net-banner {
   position: sticky; top: 0; z-index: 60;
@@ -736,7 +594,7 @@ body[data-mode='liquid'] textarea.lq-input { min-height: 72px; resize: vertical;
 }
 
 /* ═══ MOBILE OPTIMIZATION ═══ */
-button, .btn, .lq-pill { touch-action: manipulation; }
+button, .btn { touch-action: manipulation; }
 
 /* compact geek identity strip — desktop hides it, mobile leads with it */
 .geek-strip { display: none; }
@@ -770,20 +628,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   .album-head { gap: 10px; }
   .album-title { font-size: 14px; }
   .shell { padding: 0 10px 30px; }
-  .lq-shell { padding: 10px 10px calc(96px + env(safe-area-inset-bottom, 0px)); }
-  .lq-card { padding: 15px 16px; border-radius: 20px; }
-  .lq-head { padding: 8px 12px; top: 6px; }
-  .lq-head .wordmark { font-size: 21px; }
-  .lq-hero { padding: 28px 16px 26px; margin-top: 3vh; }
-  .lq-hero .wordmark { font-size: 44px; }
-  .lq-hero .lede { font-size: 16.5px; }
-  .lq-body { font-size: 15px; }
-  .lq-pill { padding: 10px 16px; font-size: 14px; min-height: 42px; }
-  .lq-nav { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
-  .lq-nav button { padding: 8px 15px; }
-  .lq-range input { width: 110px; }
   /* iOS zooms any focused input under 16px — keep them at 16px on touch */
-  input, textarea, select, .lq-input, body[data-mode='liquid'] textarea.lq-input,
+  input, textarea, select,
   .composer textarea, .mini-form textarea, .mini-form input[type='text'],
   .mini-form input[type='password'], .onboard input { font-size: 16px; }
   .btn { padding: 9px 15px; min-height: 40px; }
@@ -822,7 +668,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var THETA = E.THETA, NU = E.NU, SAFE_FLOOR = E.SAFE_FLOOR, PART_FLOOR = E.PART_FLOOR;
   var LS_WORLD = 'peer-sandbox-world-v2';
   var LS_WHO = 'peer-sandbox-who-v2';
-  var LS_MODE = 'peer-sandbox-mode-v1';
   var LS_PINS = 'peer-sandbox-pins-v1';
   var LS_VIEW = 'peer-sandbox-view-v1';
   // The outbox: acts written while no host was answering, waiting on this
@@ -872,10 +717,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var econView = 'wallet';   // + 'net'  — the graph lives here now
   var alertView = 'inbound'; // | 'record'
   var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags'
-  var LQ_VIEWS = ['feed', 'chats', 'alerts', 'peers', 'you', 'person'];
-  var lqPersonId = null;   // whose page, when lqView is 'person'
 
-  var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed', lqView = 'feed';
+  var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed';
   var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new' | 'follow'
   // A query is where you are LOOKING, not where you are standing, so it is
   // deliberately not persisted: a restored query would silently filter
@@ -908,7 +751,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // Same-origin is always safe: it is where this page already came from.
     try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
   }
-  var lqSort = 'foryou'; // liquid feed: 'foryou' | 'new'
   var feedLimit = 30;    // windowed rendering — raised by "show more"
   // An ORDERED LIST of pending attachments, not one slot. `media` has been an
   // array in the record since the day it existed — the composer was the only
@@ -951,27 +793,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var netTarget = null; // network tab: whose reach we are explaining
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
-  // There is one mode. It was two, and the simple one hid the mathematics
-  // without explaining it — which left the numbers unexplained in the only
-  // view that showed them. The terms explain themselves now instead.
-  // was the front door and it does not carry the newer surfaces — Live has no
-  // tab there at all, which is why testers on several devices reported the
-  // stream tab simply missing.
-  var mode = 'geek';
+  // There was a second UI — "simple mode" — that hid the mathematics instead
+  // of explaining it, so the numbers went unexplained in the only view that
+  // showed them, and every new surface (Live had no tab there at all) had to
+  // be built twice or silently skipped. It is gone. The term layer explains
+  // the numbers where they are read, which is what it was really for.
   var pins = {};
   try { var w0 = JSON.parse(localStorage.getItem(LS_WORLD)); if (w0 && w0.acts) world = { acts: w0.acts }; } catch (e) {}
   try { who = JSON.parse(localStorage.getItem(LS_WHO)); } catch (e) { who = null; }
-  try { var m0 = JSON.parse(localStorage.getItem(LS_MODE)); if (m0 === 'geek' || m0 === 'liquid') mode = m0; } catch (e) {}
-  // One-time migration: anyone still parked in simple mode from before this
-  // change lands in geek once. A deliberate switch after that is respected —
-  // the migration only ever runs a single time per browser.
-  try {
-    if (!localStorage.getItem('peer-sandbox-geek-default-v1')) {
-      localStorage.setItem('peer-sandbox-geek-default-v1', '1');
-      mode = 'geek';
-      localStorage.setItem(LS_MODE, JSON.stringify(mode));
-    }
-  } catch (e) {}
+  // The old mode preference and its one-time migration flag are swept up
+  // rather than left to rot in every existing browser's localStorage.
+  try { localStorage.removeItem('peer-sandbox-mode-v1'); localStorage.removeItem('peer-sandbox-geek-default-v1'); } catch (e) {}
   // PINs live in sessionStorage only: closing the browser forgets them, so a
   // shared or stolen device never carries them. (One-time migration wipes the
   // old localStorage copy.)
@@ -981,7 +813,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var v0 = JSON.parse(localStorage.getItem(LS_VIEW));
     if (v0 && typeof v0 === 'object') {
       if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
-      if (LQ_VIEWS.indexOf(v0.lqView) >= 0) lqView = v0.lqView;
       if (['l1', 'cogra', 'new', 'follow', 'old', 'talked', 'backed'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['all', 'image', 'video', 'audio', 'file', 'text'].indexOf(v0.feedFile) >= 0) feedFile = v0.feedFile;
       if (['any', 'post', 'event', 'stream', 'onair'].indexOf(v0.feedKind) >= 0) feedKind = v0.feedKind;
@@ -989,7 +820,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
       if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
-      if (['foryou', 'new'].indexOf(v0.lqSort) >= 0) lqSort = v0.lqSort;
       if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
     }
     // #feed / #chat / #profile override the restored view: the installed app's
@@ -999,13 +829,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // old #live and #ledger shortcuts opened the feed and looked like they had
     // worked. The manifest names only tabs that exist now.
     var h0 = (location.hash || '').slice(1);
-    if (GEEK_TABS.indexOf(h0) >= 0) {
-      tab = h0;
-      // The two names the modes spell differently. Without these, #chat and
-      // #profile move geek mode and leave the simple mode where it was.
-      lqView = h0 === 'chat' ? 'chats' : h0 === 'profile' ? 'you'
-        : (LQ_VIEWS.indexOf(h0) >= 0 ? h0 : lqView);
-    }
+    if (GEEK_TABS.indexOf(h0) >= 0) tab = h0;
   } catch (e) {}
 
   function epochOf() {
@@ -1019,7 +843,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   function saveView() {
     try {
       localStorage.setItem(LS_VIEW, JSON.stringify({
-        tab: tab, lqView: lqView, feedMode: feedMode, feedFile: feedFile, feedKind: feedKind, econView: econView, alertView: alertView, eventView: eventView, lqSort: lqSort, netScope: netScope, railView: railView,
+        tab: tab, feedMode: feedMode, feedFile: feedFile, feedKind: feedKind, econView: econView, alertView: alertView, eventView: eventView, netScope: netScope, railView: railView,
       }));
     } catch (e) { /* private mode */ }
   }
@@ -1028,7 +852,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * Three storages, on purpose, because the three things have different
    * lifetimes. The act log is only kept locally in sandbox mode — against a
    * host the log belongs to the host and a cached copy would be a second
-   * source of truth. Identity and mode persist across visits. PINs go to
+   * source of truth. Identity persists across visits. PINs go to
    * sessionStorage alone, so closing the browser forgets them and a shared
    * machine cannot hold someone's credential.
    */
@@ -1036,11 +860,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     try {
       // …and never while showing the published archive either: the world on
       // screen is the ARCHIVE then, and writing it to LS_WORLD would flatten
-      // whatever private sandbox this browser had. Mode switches call save()
-      // too, so this was reachable without ever posting a thing.
+      // whatever private sandbox this browser had.
       if (!REMOTE && !archiveInfo) localStorage.setItem(LS_WORLD, JSON.stringify(world));
       localStorage.setItem(LS_WHO, JSON.stringify(who));
-      localStorage.setItem(LS_MODE, JSON.stringify(mode));
       saveView();
       sessionStorage.setItem(LS_PINS, JSON.stringify(pins));
     } catch (e) { /* private mode */ }
@@ -2011,9 +1833,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (!l) return;
     var nActs = actCost(actObj, st);
     if (nActs > 0 && l.burnBal < nActs * THETA) {
-      toast(mode === 'liquid'
-        ? (nActs > 1 ? 'This costs ' + nActs + ' sparks (post + references) — not enough energy.' : 'Out of energy — recharge to keep acting.')
-        : 'W1 refuses: this is ' + nActs + ' act' + (nActs === 1 ? '' : 's') + ' at θ ' + THETA.toFixed(4) + ' each; reserve ' + l.burnBal.toFixed(3) + ' is short.');
+      toast('W1 refuses: this is ' + nActs + ' act' + (nActs === 1 ? '' : 's') + ' at θ ' + THETA.toFixed(4) + ' each; reserve ' + l.burnBal.toFixed(3) + ' is short.');
       return;
     }
     Object.keys(st.xById).forEach(function (id) { prevX[id] = st.xById[id]; });
@@ -2029,6 +1849,45 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     setTimeout(function () { t.remove(); }, 4600);
   }
 
+  // ── DOM helpers ──
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function h(tag, attrs) {
+    var n = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), attrs[k]);
+      else n.setAttribute(k, attrs[k]);
+    }
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null) continue;
+      n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return n;
+  }
+  function sv(tag, attrs) {
+    var n = document.createElementNS(SVG_NS, tag);
+    if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  /**
+   * The mark, drawn inline rather than set as a CSS background image.
+   *
+   * The face and the ink nodes are `currentColor`, so the logo follows the
+   * theme by itself — the insignia this replaced hard-coded its colours and
+   * needed a separate copy per theme block to stay visible.
+   */
+  var MARK_FACE = 'M250 116C288 100 330 96 366 104C408 113 438 138 456 172C476 209 490 253 502 302C510 336 516 366 522 388C527 404 538 412 546 420C552 426 550 432 542 434C534 436 530 438 530 445C530 452 540 456 550 466C566 482 588 500 592 512C596 522 588 528 574 529C562 530 552 528 546 534C540 541 556 547 554 556C552 566 540 566 542 575C544 585 560 588 561 601C562 614 552 620 558 632C564 645 570 656 564 672C556 692 528 706 494 708C452 711 408 700 374 678C340 656 300 636 272 626L250 622ZM336.0 208.5L370.2 208.5L370.9 206.4L371.8 204.4L373.0 202.5L374.2 200.7L375.7 199.0L377.3 197.4L379.0 196.0L380.8 194.8L382.7 193.7L384.7 192.8L386.8 192.1L389.0 191.5L391.2 191.2L393.4 191.0L395.6 191.1L397.8 191.3L400.0 191.7L402.1 192.3L404.2 193.2L406.1 194.1L408.0 195.3L409.8 196.6L411.5 198.1L413.0 199.7L414.3 201.5L415.5 203.3L416.6 205.3L417.4 207.3L418.1 209.4L418.6 211.6L418.9 213.8L419.0 216.0L418.9 218.2L418.6 220.4L418.1 222.6L417.4 224.7L416.6 226.7L415.5 228.7L414.3 230.5L413.0 232.3L411.5 233.9L409.8 235.4L408.0 236.7L406.1 237.9L404.2 238.8L402.1 239.7L400.0 240.3L397.8 240.7L395.6 240.9L393.4 241.0L391.2 240.8L389.0 240.5L386.8 239.9L384.7 239.2L382.7 238.3L380.8 237.2L379.0 236.0L377.3 234.6L375.7 233.0L374.2 231.3L373.0 229.5L371.8 227.6L370.9 225.6L370.2 223.5L336.0 223.5ZM334.0 322.5L368.2 322.5L368.9 320.4L369.8 318.4L371.0 316.5L372.2 314.7L373.7 313.0L375.3 311.4L377.0 310.0L378.8 308.8L380.7 307.7L382.7 306.8L384.8 306.1L387.0 305.5L389.2 305.2L391.4 305.0L393.6 305.1L395.8 305.3L398.0 305.7L400.1 306.3L402.2 307.2L404.1 308.1L406.0 309.3L407.8 310.6L409.5 312.1L411.0 313.7L412.3 315.5L413.5 317.3L414.6 319.3L415.4 321.3L416.1 323.4L416.6 325.6L416.9 327.8L417.0 330.0L416.9 332.2L416.6 334.4L416.1 336.6L415.4 338.7L414.6 340.7L413.5 342.7L412.3 344.5L411.0 346.3L409.5 347.9L407.8 349.4L406.0 350.7L404.1 351.9L402.2 352.8L400.1 353.7L398.0 354.3L395.8 354.7L393.6 354.9L391.4 355.0L389.2 354.8L387.0 354.5L384.8 353.9L382.7 353.2L380.7 352.3L378.8 351.2L377.0 350.0L375.3 348.6L373.7 347.0L372.2 345.3L371.0 343.5L369.8 341.6L368.9 339.6L368.2 337.5L334.0 337.5ZM338.0 444.5L372.2 444.5L372.9 442.4L373.8 440.4L375.0 438.5L376.2 436.7L377.7 435.0L379.3 433.4L381.0 432.0L382.8 430.8L384.7 429.7L386.7 428.8L388.8 428.1L391.0 427.5L393.2 427.2L395.4 427.0L397.6 427.1L399.8 427.3L402.0 427.7L404.1 428.3L406.2 429.2L408.1 430.1L410.0 431.3L411.8 432.6L413.5 434.1L415.0 435.7L416.3 437.5L417.5 439.3L418.6 441.3L419.4 443.3L420.1 445.4L420.6 447.6L420.9 449.8L421.0 452.0L420.9 454.2L420.6 456.4L420.1 458.6L419.4 460.7L418.6 462.7L417.5 464.7L416.3 466.5L415.0 468.3L413.5 469.9L411.8 471.4L410.0 472.7L408.1 473.9L406.2 474.8L404.1 475.7L402.0 476.3L399.8 476.7L397.6 476.9L395.4 477.0L393.2 476.8L391.0 476.5L388.8 475.9L386.7 475.2L384.7 474.3L382.8 473.2L381.0 472.0L379.3 470.6L377.7 469.0L376.2 467.3L375.0 465.5L373.8 463.6L372.9 461.6L372.2 459.5L338.0 459.5ZM394.0 598.5L428.2 598.5L428.9 596.4L429.8 594.4L431.0 592.5L432.2 590.7L433.7 589.0L435.3 587.4L437.0 586.0L438.8 584.8L440.7 583.7L442.7 582.8L444.8 582.1L447.0 581.5L449.2 581.2L451.4 581.0L453.6 581.1L455.8 581.3L458.0 581.7L460.1 582.3L462.2 583.2L464.1 584.1L466.0 585.3L467.8 586.6L469.5 588.1L471.0 589.7L472.3 591.5L473.5 593.3L474.6 595.3L475.4 597.3L476.1 599.4L476.6 601.6L476.9 603.8L477.0 606.0L476.9 608.2L476.6 610.4L476.1 612.6L475.4 614.7L474.6 616.7L473.5 618.7L472.3 620.5L471.0 622.3L469.5 623.9L467.8 625.4L466.0 626.7L464.1 627.9L462.2 628.8L460.1 629.7L458.0 630.3L455.8 630.7L453.6 630.9L451.4 631.0L449.2 630.8L447.0 630.5L444.8 629.9L442.7 629.2L440.7 628.3L438.8 627.2L437.0 626.0L435.3 624.6L433.7 623.0L432.2 621.3L431.0 619.5L429.8 617.6L428.9 615.6L428.2 613.5L394.0 613.5ZM334.0 275.0L288.5 353.8L197.5 353.8L152.0 275.0L197.5 196.2L288.5 196.2ZM346.0 570.0L301.5 647.1L212.5 647.1L168.0 570.0L212.5 492.9L301.5 492.9ZM413.0 693.0L368.5 770.1L279.5 770.1L235.0 693.0L279.5 615.9L368.5 615.9Z';
+  var MARK_INK = 'M322.00 1.00C333.60 1.00 343.00 10.40 343.00 22.00C343.00 33.60 333.60 43.00 322.00 43.00C310.40 43.00 301.00 33.60 301.00 22.00C301.00 10.40 310.40 1.00 322.00 1.00ZM315 22L329 22L329 153L315 153ZM384.0 153.0L353.0 206.7L291.0 206.7L260.0 153.0L291.0 99.3L353.0 99.3ZM175 438L267 438L267 452L175 452ZM175.0 445.0L147.5 492.6L92.5 492.6L65.0 445.0L92.5 397.4L147.5 397.4Z';
+  var MARK_RED = 'M195.0 155.0L175.0 189.6L135.0 189.6L115.0 155.0L135.0 120.4L175.0 120.4ZM125 268L167 268L167 282L125 282ZM125.0 275.0L104.0 311.4L62.0 311.4L41.0 275.0L62.0 238.6L104.0 238.6ZM323.0 275.0L283.0 344.3L203.0 344.3L163.0 275.0L203.0 205.7L283.0 205.7ZM77 563L184 563L184 577L77 577ZM77.0 570.0L56.0 606.4L14.0 606.4L-7.0 570.0L14.0 533.6L56.0 533.6ZM335.0 570.0L296.0 637.5L218.0 637.5L179.0 570.0L218.0 502.5L296.0 502.5ZM209.0 705.0L185.5 745.7L138.5 745.7L115.0 705.0L138.5 664.3L185.5 664.3ZM402.0 693.0L363.0 760.5L285.0 760.5L246.0 693.0L285.0 625.5L363.0 625.5ZM317 693L331 693L331 863L317 863ZM324.00 842.00C335.60 842.00 345.00 851.40 345.00 863.00C345.00 874.60 335.60 884.00 324.00 884.00C312.40 884.00 303.00 874.60 303.00 863.00C303.00 851.40 312.40 842.00 324.00 842.00Z';
+  function brandmark() {
+    var s = sv('svg', { viewBox: '-10 0 620 890', class: 'brandmark', 'aria-hidden': 'true' });
+    s.appendChild(sv('path', { fill: 'currentColor', 'fill-rule': 'evenodd', d: MARK_FACE }));
+    s.appendChild(sv('path', { fill: 'currentColor', d: MARK_INK }));
+    s.appendChild(sv('path', { fill: 'var(--logo-red)', d: MARK_RED }));
+    return s;
+  }
   function fmt(v, d) { return Number(v).toFixed(d == null ? 3 : d); }
 
   /* ── The term layer ─────────────────────────────────────────────────────
@@ -2531,7 +2390,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         return navigator.credentials.create({
           publicKey: {
             challenge: b64urlToBytes(d.challenge),
-            rp: { id: d.rpId, name: 'Peer Network' },
+            rp: { id: d.rpId, name: 'Ender Net' },
             user: { id: b64urlToBytes(bytesToB64url(new TextEncoder().encode(who))), name: st.handles[who] || who, displayName: st.handles[who] || who },
             pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -8 }],
             authenticatorSelection: { userVerification: 'preferred', residentKey: 'preferred' },
@@ -2780,7 +2639,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       var label = n + (n === 1 ? ' view' : ' views');
       var chip = el.querySelector('.view-chip');
       if (chip) { chip.textContent = label; return; }
-      var head = el.querySelector('.head') || el.querySelector('.lq-name');
+      var head = el.querySelector('.head');
       if (head) head.appendChild(viewChip(cid));
     });
   }
@@ -2794,7 +2653,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     });
   }
 
-  function hopChip(st, nodeId, liquid) {
+  function hopChip(st, nodeId) {
     if (!who) return null;
     var d = hopsFrom(st, nodeId);
     return h('span', {
@@ -2814,27 +2673,24 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return { n: n, net: net };
   }
 
-  function commentTree(st, comments, depth, liquid) {
-    var wrap = h('div', { class: liquid ? 'lq-comments' : 'comments' });
+  function commentTree(st, comments, depth) {
+    var wrap = h('div', { class: 'comments' });
     comments.forEach(function (c) {
       var rx = reactionsOn(st, c.id);
       var body = h('div', { class: 'grow' },
-        liquid
-          ? h('div', { class: 'lq-sub' }, h('b', {}, st.handles[c.author] || '—'),
-              rx.n ? h('span', { class: 'react-count', text: ' ♥ ' + rx.n }) : null)
-          : h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
-              c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review',
-              rx.n ? h('span', { class: 'react-count', text: ' · ♥ ' + rx.n + (rx.net < 0 ? ' (net −)' : '') }) : null,
-              ' ', hopChip(st, c.id, false)),
-        h.apply(null, [liquid ? 'div' : 'div', { class: liquid ? 'txt' : 'c-body' }].concat(richText(st, c.text))));
-      var row = h('div', { class: (liquid ? 'lq-comment' : 'comment') + (depth > 0 ? ' nested' : '') },
-        avatar(c.author, liquid ? 'lq-ava xs' : 'avatar s'), body);
+        h('div', { class: 'c-head' }, h('b', {}, st.handles[c.author] || '—'),
+          c.meta ? ' · review (e ' + fmt(c.meta.e, 2) + ', f ' + fmt(c.meta.f, 2) + ')' : ' · review',
+          rx.n ? h('span', { class: 'react-count', text: ' · ♥ ' + rx.n + (rx.net < 0 ? ' (net −)' : '') }) : null,
+          ' ', hopChip(st, c.id)),
+        h.apply(null, ['div', { class: 'c-body' }].concat(richText(st, c.text))));
+      var row = h('div', { class: 'comment' + (depth > 0 ? ' nested' : '') },
+        avatar(c.author, 'avatar s'), body);
       var openForm = null;
       // React on the comment itself — cam's ask, confirmed on the data side by
       // feedback2000. An Opinion act targeting the Comment node.
       if (c.author !== who) {
         body.appendChild(h('button', {
-          class: liquid ? 'lq-pill' : 'btn small ghost',
+          class: 'btn small ghost',
           text: '♥ React',
           onclick: function () {
             tryAct(who, { t: 'opinion', author: who, target: c.id, p: 0.8, r: 0.8 },
@@ -2843,21 +2699,18 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         }));
       }
       body.appendChild(h('button', {
-        class: liquid ? 'lq-pill reply-btn' : 'btn small ghost reply-btn',
+        class: 'btn small ghost reply-btn',
         text: 'Reply',
         onclick: function () {
           if (openForm) { openForm.remove(); openForm = null; return; }
           var txt = h('textarea', { placeholder: 'reply to ' + (st.handles[c.author] || 'this comment') });
-          var body2 = null;
-          if (!liquid) {
-            // Geek mode gets the stance sliders on a reply too — cam noted the
-            // comment form gave no params. e = enthusiasm, f = effort.
-            var e2 = slider('enthusiasm', 0.7), f2 = slider('effort', 0.8);
-            body2 = { e: e2, f: f2, rows: [e2.row, f2.row] };
-          }
-          openForm = h.apply(null, [liquid ? 'div' : 'div', { class: liquid ? 'lq-sheet' : 'mini-form' }, txt]
-            .concat(body2 ? body2.rows : [])
-            .concat([h('button', { class: liquid ? 'lq-pill hot' : 'btn small primary', text: 'Reply · −θ', onclick: function () {
+          // A reply carries the stance sliders too — cam noted the comment
+          // form gave no params. e = enthusiasm, f = effort.
+          var e2 = slider('enthusiasm', 0.7), f2 = slider('effort', 0.8);
+          var body2 = { e: e2, f: f2, rows: [e2.row, f2.row] };
+          openForm = h.apply(null, ['div', { class: 'mini-form' }, txt]
+            .concat(body2.rows)
+            .concat([h('button', { class: 'btn small primary', text: 'Reply · −θ', onclick: function () {
               if (!txt.value.trim()) { toast('Write your reply first.'); return; }
               tryAct(who, { t: 'review', author: who, target: c.id, e: body2 ? body2.e.value() : 0.7, f: body2 ? body2.f.value() : 0.8, text: txt.value.trim() },
                 'Reply appended — a Review act on the comment itself, so it threads underneath.');
@@ -2869,7 +2722,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       // replies to this comment, capped so a pathological chain can't blow up the DOM
       if (depth < 4) {
         var kids = commentsOf(st, c.id);
-        if (kids.length) wrap.appendChild(commentTree(st, kids, depth + 1, liquid));
+        if (kids.length) wrap.appendChild(commentTree(st, kids, depth + 1));
       }
     });
     return wrap;
@@ -2942,7 +2795,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (nodeId && st.ledgerById[nodeId]) { openProfile(nodeId); return; }
     if (!nodeId || !resolvePost(st, nodeId)) { toast('Nothing to open here — this act moved units or closed a period.'); return; }
     focusNode = nodeId;
-    if (mode === 'geek') tab = 'feed'; else lqView = 'feed';
+    tab = 'feed';
     render();
     setTimeout(function () {
       var el = document.querySelector('.focus-wrap');
@@ -2950,17 +2803,15 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }, 40);
   }
   /** The pinned card: the resolved post, with the jumped-to comment highlighted. */
-  function focusCard(st, liquid) {
+  function focusCard(st) {
     if (!focusNode) return null;
     var post = resolvePost(st, focusNode);
     if (!post) { focusNode = null; return null; }
     var isComment = (st.g.nodes.get(focusNode) || {}).kind === 'Comment';
-    var card = liquid
-      ? lqPost(st, st.g.nodes.get(post), null)
-      : postCard(st, { node: st.g.nodes.get(post), relevance: 0, bfsWeight: 0, amplifier: 1, contentNorm: 0, jumped: true }, null, 1);
+    var card = postCard(st, { node: st.g.nodes.get(post), relevance: 0, bfsWeight: 0, amplifier: 1, contentNorm: 0, jumped: true }, null, 1);
     if (isComment) {
       // mark the specific comment that was clicked
-      var bodies = card.querySelectorAll(liquid ? '.lq-comment' : '.comment');
+      var bodies = card.querySelectorAll('.comment');
       var want = (st.payloads[focusNode] || '').slice(0, 40);
       for (var i = 0; i < bodies.length; i++) {
         if (bodies[i].textContent.indexOf(want) >= 0) { bodies[i].classList.add('focus-hit'); break; }
@@ -2969,7 +2820,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return h('div', { class: 'focus-wrap' },
       h('div', { class: 'focus-bar' },
         h('span', { text: isComment ? 'jumped to a comment' : 'jumped to a post' }),
-        h('button', { class: liquid ? 'lq-pill' : 'btn small ghost', text: 'close', onclick: function () { focusNode = null; render(); } })),
+        h('button', { class: 'btn small ghost', text: 'close', onclick: function () { focusNode = null; render(); } })),
       card);
   }
 
@@ -3766,11 +3617,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return !(document.querySelector('.drawer')
       || document.querySelector('.infowin')
       || document.querySelector('.mini-form:not(.persistent)')
-      || document.querySelector('.lq-sheet:not(.persistent)'));
+      );
   }
 
   function render() {
-    document.body.setAttribute('data-mode', mode);
+    // The CSS still scopes the lab look under this attribute; it is written
+    // as a literal now rather than read from a variable that can only hold
+    // one value.
+    document.body.setAttribute('data-mode', 'geek');
     var st = replay();
     // If this identity was deleted (possibly from another device), log out.
     if (who && st.deleted && st.deleted[who]) { delete pins[who]; who = null; save(); }
@@ -3782,25 +3636,18 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     document.getElementById('overlay').innerHTML = '';
     // ── The broadcast bar ───────────────────────────────────────────────
     //
-    // Drawn here, above the mode branch, so a broadcast and a viewing session
-    // survive every tab change, every poll and both modes with one piece of
-    // code. This has to exist before going live can be offered from the
-    // composer: the composer is destroyed on every repaint, so a broadcast
-    // started there and stopped only there could not be stopped at all — and
-    // simple mode has no live surface whatsoever, which would have left
-    // somebody paying θ for a broadcast they could neither see nor end.
+    // Drawn here, above the view branch, so a broadcast and a viewing
+    // session survive every tab change and every poll with one piece of code.
+    // This has to exist before going live can be offered from the composer:
+    // the composer is destroyed on every repaint, so a broadcast started there
+    // and stopped only there could not be stopped at all.
     //
     // The video elements are the SAME objects each time, re-appended rather
     // than rebuilt: a fresh one restarts playback and re-asks the autoplay
     // question, and an element left out of the document gets paused.
     if (live || watching) root.appendChild(liveBar());
-    if (mode === 'liquid') {
-      if (!who || !st.ledgerById[who]) renderLiquidHero(st);
-      else renderLiquid(st);
-    } else {
-      if (!who || !st.ledgerById[who]) renderOnboard(st);
-      else renderGeek(st);
-    }
+    if (!who || !st.ledgerById[who]) renderOnboard(st);
+    else renderGeek(st);
   }
   /** The persistent strip: whatever is on air, and the one button that ends it. */
   /**
@@ -3926,14 +3773,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('button', { class: 'btn small primary', text: 'Watch', onclick: function () { watchStart(e); } })));
     });
     return card;
-  }
-
-  function setMode(m) {
-    // Leaving geek mode while broadcasting used to strand the camera: simple
-    // mode had no live surface at all, so the stream ran on with no way to
-    // end it. The bar above follows into both modes now, but the identity
-    // exits still need saying out loud.
-    mode = m; save(); render();
   }
 
   // ── Voice calls: negotiated through the host, carried peer-to-peer ────────
@@ -5017,11 +4856,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   // ── Own-post controls: edit inside the 5-minute window, delete any time ──
   // The server is the arbiter (its clock stamps ts, its validate enforces the
   // window and authorship); these buttons only show what will be accepted.
-  function ownPostControls(st, cid, toggle, geek) {
+  function ownPostControls(st, cid, toggle) {
     var pm = st.postMeta[cid];
     if (!pm || st.creators[cid] !== who) return null;
     var frag = document.createDocumentFragment();
-    var btnC = geek ? 'btn small' : 'lq-pill';
+    var btnC = 'btn small';
     // Without a PIN the server refuses these acts, and rightly so — say that
     // here instead of offering a button that will bounce.
     if (!st.pinHash[who]) {
@@ -5034,12 +4873,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // end, so it can be authored whenever — and it costs θ, like everything.
     frag.appendChild(h('button', { class: btnC, text: 'Revise · −θ', onclick: function () {
       toggle(function () {
-        var txt = h('textarea', geek ? {} : { class: 'lq-input', style: 'width:100%; min-height:70px' });
+        var txt = h('textarea', {});
         txt.value = st.payloads[cid] || '';
-        return h('div', { class: geek ? 'mini-form' : 'lq-sheet' }, txt,
+        return h('div', { class: 'mini-form' }, txt,
           h('div', { class: 'smallnote', style: 'flex-basis:100%' },
             'A revision is a further record about this post, not a rewrite of it. The original act stays in the log with its original text; readers see the latest. To make the old text actually go away, use Delete — that removes the payload.'),
-          h('button', { class: geek ? 'btn small primary' : 'lq-pill hot', text: 'Publish revision · −θ', onclick: function () {
+          h('button', { class: 'btn small primary', text: 'Publish revision · −θ', onclick: function () {
             var t2 = txt.value.trim();
             if (!t2) { toast('Empty text deletes nothing — use Delete for that.'); return; }
             if (t2 === (st.payloads[cid] || '')) { toast('That is the same text; nothing to record.'); return; }
@@ -5160,7 +4999,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var obOnboard = outboxBanner();
     if (obOnboard) root.appendChild(obOnboard);
     root.appendChild(h('div', { class: 'onboard' },
-      h('h1', { class: 'wordmark' }, h('span', { class: 'brandmark' }), h('span', {}, 'Peer', h('em', {}, '\u00A0Network'))),
+      h('h1', { class: 'wordmark' }, brandmark(), h('span', {}, 'Ender', h('em', {}, '\u00A0Net'))),
       h('p', { class: 'lede', text: 'A social network where influence is commitment, not attention. Every act burns reserve; every endorsement transports your own rate; the feed is mathematics you can replay.' }),
       h('div', { class: 'pulse' },
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.ledgers.length) }), 'peers'),
@@ -5180,7 +5019,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'smallnote', style: 'margin-top:30px', text: REMOTE
         ? 'Public test instance · real Layer-1 mathematics (spec v0.24.1-dev) · one shared network for every visitor — a PIN protects your handle; don’t post anything private.'
         : 'Tester build · real Layer-1 mathematics (spec v0.24.1-dev) · identities live in this browser only — every visitor gets an independent copy of the network.' }),
-      h('button', { class: 'btn small ghost', style: 'margin-top:10px', text: '← simple mode', onclick: function () { setMode('liquid'); } })));
+      ));
   }
 
   // ── Burning bitcoin, from inside the app ────────────────────────────────
@@ -5441,7 +5280,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var ob = outboxBanner();
     if (ob) root.appendChild(ob);
     root.appendChild(h('div', { class: 'topbar' },
-      h('h1', { class: 'wordmark' }, h('span', { class: 'brandmark' }), h('span', {}, 'Peer', h('em', {}, '\u00A0Network'))),
+      h('h1', { class: 'wordmark' }, brandmark(), h('span', {}, 'Ender', h('em', {}, '\u00A0Net'))),
       h('div', { class: 'tabs' }, tabBtn('feed', 'Feed'), tabBtn('chat', 'Chats'),
         (function () {
           var b = tabBtn('alerts', 'Alerts');
@@ -5466,7 +5305,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // only thing on the page that explains the page.
         h('button', { class: 'btn small', text: '? guide', title: 'What every number on this screen means',
           onclick: function () { infoWin(null); } }),
-        h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
 
@@ -5474,7 +5312,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       : tab === 'econ' ? econTab(st)
       : tab === 'profile' ? profileTab(st) : feedTab(st);
     var shell = h('div', { class: 'shell' });
-    var geekLock = lockBanner(st, false);
+    var geekLock = lockBanner(st);
     if (geekLock) shell.appendChild(h('div', { class: 'card' }, geekLock));
     // Compact identity strip: leads the page on mobile, hidden on desktop.
     shell.appendChild(h('div', { class: 'geek-strip' },
@@ -5496,7 +5334,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       //  phones — CSS shows exactly one of the two copies per breakpoint)
       h('div', { class: 'geek-center' }, center),
       h('div', { class: 'rail rail-right' }, idCard(st, me, myX, rate), railPane(st))));
-    shell.appendChild(h('p', { class: 'footer-note' }, 'Peer sandbox · chartered constants ',
+    shell.appendChild(h('p', { class: 'footer-note' }, 'Ender Net · chartered constants ',
       term('theta', 'θ'), ' ' + fmt(THETA, 4) + ' · ', term('nu', 'ν'), ' ' + NU + ' · ',
       term('wall', 'wall'), ' ' + fmt(SAFE_FLOOR, 3) + ' · ', term('door', 'door'), ' ' + PART_FLOOR + ' · ',
       term('horizon', 'depth'), ' 4'));
@@ -5532,29 +5370,29 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * One banner, because to a reader they are the same question: is this
    * really my account right now?
    */
-  function lockBanner(st, compact) {
+  function lockBanner(st) {
     if (!REMOTE || !who) return null;
     var name = st.handles[who] || who;
     if (sessionLocked()) {
       return h('div', { class: 'wall-warn lock-warn' },
         h('b', { text: '🔒 session locked' }),
-        h('div', { class: compact ? 'lq-note' : 'smallnote' },
+        h('div', { class: 'smallnote' },
           'Your PIN is not in this browser any more — it is forgotten whenever the browser closes, on purpose, so a shared machine cannot keep it. You are still ' + name + ' and nothing you posted is affected; you just cannot act or receive calls until you prove it is you.'),
-        h('button', { class: compact ? 'lq-pill hot' : 'btn small primary', style: 'margin-top:8px',
+        h('button', { class: 'btn small primary', style: 'margin-top:8px',
           text: 'Unlock', onclick: function () { withUnlock(function () {}); } }));
     }
     if (!st.pinHash[who]) {
       return h('div', { class: 'wall-warn lock-warn' },
         h('b', { text: '⚠ this handle has no PIN' }),
-        h('div', { class: compact ? 'lq-note' : 'smallnote' },
+        h('div', { class: 'smallnote' },
           'Anyone who knows the name ' + name + ' can post, message and vouch as you — that has already happened to someone here. Deleting or editing your own posts is refused for the same reason: the host cannot tell it is you. Setting a PIN takes a second and only a hash of it ever enters the record.'),
-        h('button', { class: compact ? 'lq-pill hot' : 'btn small primary', style: 'margin-top:8px',
+        h('button', { class: 'btn small primary', style: 'margin-top:8px',
           text: 'Secure this handle', onclick: function () { setPinFlow(st, false); } }));
     }
     return null;
   }
 
-  function wallBanner(st, id, compact) {
+  function wallBanner(st, id) {
     var w = wallState(st, id);
     if (!w || !w.near) return null;
     var msg = w.below
@@ -5564,7 +5402,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         : 'Close to the safety wall: about ' + w.actsLeft + ' more act' + (w.actsLeft === 1 ? '' : 's') + ' before your rate drops under it. Burn credits to keep talking.');
     return h('div', { class: 'wall-warn' + (w.below ? ' bad' : '') },
       h('b', { text: w.below ? '⛔ frozen' : '⚠ approaching the wall' }),
-      h('div', { class: compact ? 'lq-note' : 'smallnote', text: msg }));
+      h('div', { class: 'smallnote', text: msg }));
   }
 
   function idCard(st, me, myX, rate) {
@@ -5604,7 +5442,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * the card's relevance stays at nothing. A page about what YOU are going to
    * cannot be built on a ranking that does not know you went.
    */
-  function eventLanes(st, liquid) {
+  function eventLanes(st) {
     var wrap = h('div', { class: 'your-events' });
     var now = Date.now();
     var head = h('div', { class: 'sect' }, h('p', { class: 'eyebrow', text: 'your events' }));
@@ -5652,13 +5490,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     list.slice(0, 10).forEach(function (cid) {
       var node = st.g.nodes.get(cid);
       if (!node) return;
-      // The same card the FEED of this mode builds, so the door, the fee and
-      // the invite are the same controls and there is one implementation of
-      // each. Never the geek card in the simple mode: .card is painted from
-      // the geek palette and would drop a grey panel into a glass page.
-      wrap.appendChild(liquid
-        ? lqPost(st, node, null)
-        : postCard(st, { node: node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1));
+      // The same card the feed builds, so the door, the fee and the invite
+      // are the same controls with one implementation of each.
+      wrap.appendChild(postCard(st, { node: node, relevance: 0, bfsWeight: 0, amplifier: 0, contentNorm: 0, newest: true }, 0, 1));
     });
     if (list.length > 10) {
       wrap.appendChild(h('p', { class: 'smallnote', text: 'Showing 10 of ' + list.length + '.' }));
@@ -5702,7 +5536,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     wrap.appendChild(h('div', { class: 'card' }, eventLanes(st)));
 
-    var music = musicSection(st, who, false);
+    var music = musicSection(st, who);
     if (music) wrap.appendChild(h('div', { class: 'card' }, music));
 
     // Your own work, which was the one thing the app showed of everybody
@@ -5969,7 +5803,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     wrap.appendChild(ctlM);
     var onAir = onAirStrip(st);
     if (onAir) wrap.appendChild(onAir);
-    var focused = focusCard(st, false);
+    var focused = focusCard(st);
     if (focused) wrap.appendChild(focused);
     wrap.appendChild(composer);
     var cogra = feedMode === 'cogra';
@@ -6117,7 +5951,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
             avatar(id, 'avatar s'),
             h('div', { class: 'grow' }, h('b', { text: st.handles[id] }),
               h('div', { class: 'smallnote', text: 'standing ' + fmt(credibility(st, id), 4) })),
-            followBtn(st, id, true),
+            followBtn(st, id),
             h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(id); } }));
           pc.appendChild(row);
         });
@@ -6515,7 +6349,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * would hold today — but the log already contains posts published before
    * that check existed, and this page reads the whole log.
    */
-  function musicSection(st, id, liquid) {
+  function musicSection(st, id) {
     var rows = songsOf(st, id);
     if (!rows.length) return null;
     // One row per track, carrying the release it came from. Without this the
@@ -6529,7 +6363,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         per.push({ cover: r.cover, title: r.title, no: j + 1 });
       });
     });
-    var box = h('div', { class: (liquid ? 'lq-glass lq-card' : 'sect') + ' your-music' });
+    var box = h('div', { class: 'sect your-music' });
     box.appendChild(h('p', { class: 'eyebrow', text: 'music · ' + rows.length + ' release'
       + (rows.length === 1 ? '' : 's') + ' carrying audio, ' + tracks.length + ' track'
       + (tracks.length === 1 ? '' : 's') }));
@@ -6605,7 +6439,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
         onAirChip(st, n.id),
         viewChip(n.id),
-        hopChip(st, n.id, false),
+        hopChip(st, n.id),
         // When it was written. Older acts carry no stamp at all — the log only
         // started recording one partway through — so this is empty for them
         // rather than showing a guess.
@@ -6624,7 +6458,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // host of an event whose text, title and address had all been removed.
     var evm = (st.events && st.events[n.id] && st.payloads[n.id] !== undefined) ? st.events[n.id] : null;
     if (evm) card.appendChild(eventPanel(st, n.id, evm));
-    var liveNow = liveEntryFor(n.id);   // see lqPost for the simple-mode twin
+    var liveNow = liveEntryFor(n.id);
     if (liveNow && st.postMeta[n.id] && st.postMeta[n.id].stream) {
       card.appendChild(h('div', { class: 'mini-form' },
         h('button', { class: 'btn small primary', text: 'Watch · on air', onclick: function () {
@@ -6673,7 +6507,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
     var comments = commentsOf(st, n.id);
     if (comments.length) {
-      card.appendChild(commentTree(st, comments, 0, false));
+      card.appendChild(commentTree(st, comments, 0));
     }
 
     var actions = h('div', { class: 'actions' });
@@ -6727,7 +6561,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (author && author !== who) {
       actions.appendChild(h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(author); } }));
     }
-    var ownCtl = ownPostControls(st, n.id, toggle, true);
+    var ownCtl = ownPostControls(st, n.id, toggle);
     if (ownCtl) actions.appendChild(ownCtl);
     card.appendChild(actions);
     return card;
@@ -7306,7 +7140,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         matView(e.pv, 'path view · det ' + fmt(det, 4))));
   }
 
-  // Geek alerts — same notification feed as simple mode, act-level detail.
+  // Alerts — the notification feed, at act-level detail.
   function alertsTab(st) {
     var outer = h('div', {});
     var bar = h('div', { class: 'lanes' });
@@ -7390,7 +7224,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'eyebrow', text: 'how this works' }),
       h('p', { class: 'smallnote', text: 'Messages are priced acts in the public record, and vouching is the only thing here that moves a rate. The guide explains both, and what a standing actually is.' }),
       h('button', { class: 'btn small', text: 'Open the guide →', onclick: function () {
-        tab = 'profile'; lqView = 'you'; saveView(); render();
+        tab = 'profile'; saveView(); render();
         setTimeout(function () {
           var g = document.getElementById('guide');
           if (g) { g.open = true; g.scrollIntoView({ block: 'start' }); }
@@ -7407,7 +7241,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * feed ranks, and reacting or commenting on one is the ordinary priced act
    * that moves standing. Only the going and the paying are unscored.
    */
-  // Geek chats — the same dm acts and threads as simple mode, lab styling.
+  // Chats — the dm acts and their threads.
   /**
    * Every conversation on the network, not only yours.
    *
@@ -7534,7 +7368,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // not, and the row says which is which.
     card2.appendChild(h('div', { class: 'mini-form', style: 'margin-bottom:8px' },
       h('span', { class: 'smallnote', text: 'their rate ' + fmt(credibility(st, chatPeer), 4) + ' · ' }),
-      followBtn(st, chatPeer, true),
+      followBtn(st, chatPeer),
       h('button', { class: 'btn small', text: 'Vouch · −θ', title: 'A Vouch transports part of your own rate to them — this is the act that moves standing.',
         onclick: function () { openProfile(chatPeer); } }),
       h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(chatPeer); } })));
@@ -7593,7 +7427,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     acts.appendChild(h('button', { class: 'btn small primary', text: 'Send', onclick: send }));
     card.appendChild(acts);
     var comments = commentsOf(st, cid);
-    if (comments.length) card.appendChild(commentTree(st, comments, 0, false));
+    if (comments.length) card.appendChild(commentTree(st, comments, 0));
     else card.appendChild(h('p', { class: 'smallnote', text: 'Nothing said yet.' }));
     return card;
   }
@@ -8130,9 +7964,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       h('p', { class: 'eyebrow', text: 'guidebook — how to drive the Layer-1 sandbox' }),
 
       sect('What you are looking at', true,
-        P('This app runs the ', B('Peer Network'), ' protocol (spec v0.24.1-dev, Layer 1) for real: every number on screen comes out of the specified mathematics, and the whole network state is replayed from an append-only log of acts — anyone holding the log computes identical results.'),
+        P('Ender Net runs the ', B('Peer Network'), ' protocol (spec v0.24.1-dev, Layer 1) for real — the network is Ender Net, the specification it implements is called Peer Network: every number on screen comes out of the specified mathematics, and the whole network state is replayed from an append-only log of acts — anyone holding the log computes identical results.'),
         P('The core idea in one line: ', B('influence is transported commitment, not attention.'), ' You buy the right to act by burning reserve; every act spends θ = ' + fmt(THETA, 4) + ' of it; and when you vouch for someone, you don’t give them points — you route your own commitment rate to them. Nothing in the system can mint standing.'),
-        P('This Geek view exposes the machinery. The ✨ simple mode (top bar) is the same network with the math tucked away.')),
+        P('Every quantity on screen is explained where it is read: the dotted words are the mathematics saying what it means. Hover one, or tap it on a phone, and the guide is one click further on.')),
 
       sect('The layout: three columns, and what each one is for', false,
         P('The screen is a workbench, not a stack of panels. ', B('Left'), ' is how you READ: search, the order the feed is in, and the filters for what a card carries. ', B('Middle'), ' is the network itself \u2014 the composer and the cards. ', B('Right'), ' is YOU: your identity card with reserve and standing, then one instrument at a time behind the ', B('Alerts \u00b7 Network \u00b7 Tags'), ' switch.'),
@@ -8167,7 +8001,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         P('Every ranked card prints its own S decomposition — check the arithmetic. ', jump('open feed', 'feed'))),
 
       sect('The CoGra ranking (Layer-2)', false,
-        P('The Feed tab has two rankings. ', B('L1 default'), ' is the substrate’s conservative readout: single best path × creator amplifier × content norm. ', B('CoGra'), ' is the published Layer-2 replacement (from the CoGra content-graph spec) — the ranking the simple mode uses:'),
+        P('The Feed tab has two rankings. ', B('L1 default'), ' is the substrate’s conservative readout: single best path × creator amplifier × content norm. ', B('CoGra'), ' is the published Layer-2 replacement, from the CoGra content-graph spec:'),
         F('S(u,c) = Σ over k disjoint paths of  σ(π) · m(π) · f(Δt)'),
         P(B('Breadth counts, funnels don’t.'), ' Up to k=5 node-disjoint strongest paths are summed. Twenty independent endorsement chains beat one strong chain, but a cluster fanning out behind one bridge scores as exactly one path — the min-cut is the amplification ceiling.'),
         P(B('Sign is social, not L1 parity.'), ' balance = product of directional signs (the enemy of my enemy ranks positive again); ', B('taint'), ' — any negative intensity on the route — is absorbing and forces the term negative. Hate-and-avoid ranks opposite to love-and-seek.'),
@@ -8552,11 +8386,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   }
 
   /** Follow / unfollow, priced like every other act and scored like none. */
-  function followBtn(st, id, small) {
+  function followBtn(st, id) {
     if (!who || id === who || !st.ledgerById[id]) return null;
     var on = iFollow(st, id);
     return h('button', {
-      class: 'btn' + (small ? ' small' : '') + (on ? '' : ' primary'),
+      class: 'btn small' + (on ? '' : ' primary'),
       text: on ? 'Following' : 'Follow · −θ',
       title: on ? 'Stop following. Recorded as an act; it is in no score.'
         : 'Follow. Free, and in no score — θ is itself a standing input, so a follow must not spend one. Following is attention, and attention is not standing here.',
@@ -8571,7 +8405,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * Settings — one door for everything about the account.
    *
    * These controls were spread over a folded 'account and security' block on
-   * the Profile tab, the lock banner, and two places in the simple mode. They
+   * the Profile tab and the lock banner. They
    * are all the same question — who can act as this handle — so they live in
    * one drawer now, reachable from the Profile tab and from the identity card.
    * Delete account is the only red button in the app, and it is last.
@@ -8654,9 +8488,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       prof && prof.link ? h('p', { class: 'sect', style: 'margin:4px 0 0' },
         h('a', { href: prof.link, target: '_blank', rel: 'noopener noreferrer nofollow', text: prof.link })) : null,
       h('div', { class: 'mini-form sect' },
-        followBtn(st, id, true),
+        followBtn(st, id),
         h('button', { class: 'btn small', text: 'Guide →', title: 'What a standing is, and what moves it.',
-          onclick: function () { close(); tab = 'profile'; lqView = 'you'; saveView(); render(); } }),
+          onclick: function () { close(); tab = 'profile'; saveView(); render(); } }),
         (function () {
           if (id !== who) return null;
           return h('button', { class: 'btn small', text: prof ? 'Edit profile' : 'Add a profile', onclick: function () { profileFlow(st); } });
@@ -8682,7 +8516,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
       return s;
     }
-    var music = musicSection(st, id, false);
+    var music = musicSection(st, id);
     if (music) drawer.appendChild(music);
     drawer.appendChild(vsect('vouches given', given, 'out'));
     drawer.appendChild(vsect('vouches received', received, 'in'));
@@ -8691,7 +8525,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('button', { class: 'btn small', text: 'Chat with ' + st.handles[id], onclick: function () {
           close();
           chatPeer = id;
-          if (mode === 'geek') { tab = 'chat'; } else { lqView = 'chats'; }
+          tab = 'chat';
           save(); render();
         } })));
       var p = slider('support', 0.7), r = slider('conviction', 0.7);

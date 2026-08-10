@@ -249,15 +249,13 @@ describe('the built page is an application, not just valid JavaScript', () => {
   }, 30000);
 
   it('shows an album with its cover, and a person’s music on their page', async () => {
-    // Three claims at once, because they share one path:
+    // Two claims at once, because they share one path:
     //   - a marked image renders as ALBUM ART inside the player, and does NOT
     //     also render as an ordinary picture below it. Nothing that counts
     //     players or track rows would catch that duplicate.
     //   - a person’s page lists what they released and plays all of it from
     //     ONE player — a player per release downloads the whole catalogue on
     //     open, which is the failure audioPlaylist was written to kill.
-    //   - the simple mode has a page for somebody who is not you at all, which
-    //     it did not before: every route led to a list or to your own wallet.
     const now = Date.now();
     const A = 'a'.repeat(64), B = 'b'.repeat(64), C = 'c'.repeat(64);
     const SLEEVE = 'd'.repeat(64), PHOTO = 'e'.repeat(64);
@@ -304,7 +302,7 @@ describe('the built page is an application, not just valid JavaScript', () => {
       .toEqual(['archive/media/' + PHOTO]);
     expect(geek.root!.textContent).toContain('Second Wind');
 
-    // ── the person page, geek mode ───────────────────────────────────────
+    // ── the person page ──────────────────────────────────────────────────
     // The Profile button ON THE CARD, not the one in the account rail — that
     // one opens the editor for your own description and cost one false failure.
     const card = [...geek.root!.querySelectorAll('.post')]
@@ -322,31 +320,13 @@ describe('the built page is an application, not just valid JavaScript', () => {
     expect(drawer!.querySelectorAll('audio').length, 'a catalogue must be ONE player').toBe(1);
     expect(drawer!.querySelectorAll('.release-row').length).toBe(2);
     expect(drawer!.querySelectorAll('.track-row').length, 'all three tracks in one list').toBe(3);
+    // Both releases are named, not just counted — the claim is that the page
+    // lists what they RELEASED, and a count alone would pass over one title
+    // shown twice. ('what they published' was the deleted mode's heading.)
+    const titles = [...drawer!.querySelectorAll('.release-row')].map((r) => r.textContent || '');
+    expect(titles.some((t) => /Second Wind/.test(t)), 'the EP is not listed').toBe(true);
+    expect(titles.some((t) => /single/i.test(t)), 'the single is not listed').toBe(true);
     geek.dom.window.close();
-
-    // ── the person page, simple mode ─────────────────────────────────────
-    const lq = await boot({
-      'peer-sandbox-who-v2': JSON.stringify('u_v'),
-      'peer-sandbox-mode-v1': JSON.stringify('liquid'),
-      // The one-time migration forces geek mode on a browser that has never
-      // been here before, so a test asking for simple mode has to look like a
-      // browser that has already been migrated. Without this the assertions
-      // below run against the geek view and fail for the wrong reason.
-      'peer-sandbox-geek-default-v1': '1',
-      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'peers' }),
-    }, serve);
-    expect(lq.errors, 'the peers list threw: ' + lq.errors.join(' | ')).toEqual([]);
-    const melRow = [...lq.root!.querySelectorAll('.lq-name')].find((n) => /Mel/.test(n.textContent || ''));
-    expect(melRow, 'Mel is not in the peers list').toBeTruthy();
-    (melRow as HTMLElement).click();
-    await new Promise((r) => setTimeout(r, 500));
-    expect(lq.errors, 'opening a person threw: ' + lq.errors.join(' | ')).toEqual([]);
-    expect(lq.root!.textContent, 'the simple mode still has no page for another person')
-      .toMatch(/2 releases carrying audio/);
-    expect(lq.root!.querySelectorAll('.album-art').length, 'no cover on the person page')
-      .toBeGreaterThan(0);
-    expect(lq.root!.textContent).toContain('what they published');
-    lq.dom.window.close();
   }, 40000);
 
   it('hangs each release’s own sleeve over its own tracks', async () => {
@@ -382,24 +362,35 @@ describe('the built page is an application, not just valid JavaScript', () => {
       return Promise.reject(new Error('offline'));
     };
 
+    // feedMode 'new' so the album card is findable by append order rather
+    // than by whatever L1 happens to rank first over two posts by one author.
     const { dom, errors, root } = await boot({
       'peer-sandbox-who-v2': JSON.stringify('u_v'),
-      'peer-sandbox-mode-v1': JSON.stringify('liquid'),
-      'peer-sandbox-geek-default-v1': '1',
-      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'peers' }),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', feedMode: 'new' }),
     }, serve);
     expect(errors, errors.join(' | ')).toEqual([]);
-    const mel = [...root!.querySelectorAll('.lq-name')].find((n) => /Mel/.test(n.textContent || ''));
-    (mel as HTMLElement).click();
+    const card = [...root!.querySelectorAll('.post')]
+      .find((c) => /Later Single/.test(c.textContent || ''));
+    expect(card, 'no release card in the feed').toBeTruthy();
+    const profBtn = [...card!.querySelectorAll('button')].find((b) => b.textContent === 'Profile');
+    expect(profBtn, 'no way into a profile from a post card').toBeTruthy();
+    (profBtn as HTMLElement).click();
     await new Promise((r) => setTimeout(r, 500));
+    expect(errors, 'opening a person threw: ' + errors.join(' | ')).toEqual([]);
 
-    const player = root!.querySelector('.audio-wrap.playlist')!;
+    // The drawer is appended to #overlay, which is OUTSIDE #root — reading
+    // this from `root` returns null and fails as a bare TypeError.
+    const drawer = dom.window.document.querySelector('.drawer');
+    expect(drawer, 'no profile drawer').not.toBeNull();
+    const player = drawer!.querySelector('.audio-wrap.playlist')!;
     const art = () => (player.querySelector('.album-art') as HTMLImageElement).getAttribute('src');
     const title = () => (player.querySelector('.album-title') as HTMLElement).textContent;
     const rows = player.querySelectorAll('.track-row');
     expect(rows.length).toBe(3);
 
-    // Newest first: the single, then the EP's two tracks.
+    // Newest first: the single, then the EP's two tracks. Advance the tape by
+    // clicking a TRACK row — clicking a release row clears the overlay and
+    // jumps, which would destroy the drawer this player lives in.
     expect(art()).toBe('archive/media/' + NEW_ART);
     expect(title()).toBe('Later Single');
     // ...and the numbering is per release, not per catalogue.

@@ -2656,7 +2656,7 @@ function rankFeed(st, E, viewer, sort, limit) {
 
 // The document an agent GETs to learn the whole API without prior knowledge.
 const API_DOC = {
-  name: 'Peer Network bot API',
+  name: 'Ender Net bot API',
   version: 'v1',
   what: 'A social network whose feed, standing and economy are replayable mathematics rather than engagement heuristics. This API gives bots the derived state directly, so you never have to replay the protocol yourself.',
   howItWorks: {
