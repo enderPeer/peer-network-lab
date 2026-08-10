@@ -5580,7 +5580,25 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       actions.insertBefore(copy, actions.firstChild);
       var from = null;
       try { from = await mmConnectBtc(); } catch (e) { /* declined or absent */ }
-      if (!from) { say('Send the amount above to that address from any wallet, then reload — the host credits it once it is confirmed.'); return; }
+      // MetaMask did not answer here. That is usually not a missing wallet:
+      // its multichain content script matches http origins, so the extension
+      // is reachable from the operator's own machine and not from this page
+      // when it is served over https from Pages.
+      //
+      // So hand off rather than give up. The local burn page runs on loopback,
+      // gets the same MetaMask that is missing here, and is handed the handle,
+      // the PIN and the amount so it can start the moment it opens: one click
+      // from here, one signature there, and the claim files itself.
+      var local = 'http://127.0.0.1:8899/burn.html?auto=1&id=' + encodeURIComponent(who)
+        + '&sats=' + encodeURIComponent(String(parseInt(amt.value, 10) || 2000))
+        + (pins[who] ? '&pin=' + encodeURIComponent(pins[who]) : '');
+      var openLocal = h('button', { class: 'btn small primary', text: 'One-click burn (opens locally) \u2192', onclick: function () {
+        window.open(local, '_blank', 'noopener');
+      } });
+      actions.insertBefore(openLocal, actions.firstChild);
+      say('MetaMask cannot sign from this page \u2014 the extension only reaches http origins, and this one is https. The button above opens the same burn on your own machine, already filled in, where the wallet can sign it.');
+      say('If nothing opens, the local server is not running. Start it with:  node chain-l2/serve-deploy.mjs');
+      say('Or send the amount above to that address from any wallet \u2014 the host credits it once it confirms, whoever sent it.');
       var send = h('button', { class: 'btn small primary', text: 'Send with MetaMask', onclick: async function () {
         send.disabled = true;
         var sats = parseInt(amt.value, 10);
