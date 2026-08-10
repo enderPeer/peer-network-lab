@@ -58,30 +58,25 @@ weighting rewarded freshness over commitment, exactly backwards. Measured:
 active users. Weight now comes from burn the account acquired, so those twenty
 registrations capture **0.0%**. There is a test.
 
-**Not fixed, because it cannot be here: identity is cheap.** If the puppets
-*also* burn, they weigh again — measured at **59.6%** for twenty puppets. This
-is not a defect in the port; it is what poolsite's λ does. λ has diminishing
-returns *per account*, so splitting one stake across many accounts beats
-concentrating it. In poolsite, burn cost real money, which is what made that
-acceptable. Here `burn` is a faucet, so the cost is a registration.
+**Fixed, and here is how.** The sybil hole this section used to describe was
+real and measured: twenty puppets took **59.6%** of an epoch, because λ has
+diminishing returns *per account*, so splitting a stake beat concentrating it —
+and the stake itself was free, since `burn` was a faucet and the true cost of
+weight was the cost of registering.
 
-Three things follow, and none of them are hidden:
+Both halves are gone. Weight is now **linear in satoshis destroyed**, so twenty
+accounts sharing a stake weigh exactly what one account holding it weighs; the
+split is worth precisely nothing, and there is a test that splits a stake twenty
+ways and gets the same number back. And the stake is real: reserve comes from
+bitcoin burned at an address with no key, verified against two independent
+explorers before it is recorded. In poolsite, burn cost real money, which is
+what made λ acceptable. Here burn costs real money again — so the whole
+argument closes.
 
-- On this test network, PEER distribution is **farmable by anyone willing to
-  register accounts**. It is play money, and it is labelled play money.
-- The defence that does work is the one already in the protocol: **pair
-  damping** limits what any single account can push toward any single creator,
-  so an attacker needs breadth, not repetition.
-- The structural fix, if this economy ever needed to be sybil-resistant, is to
-  make weight **linear in committed value rather than saturating per identity**
-  — then splitting a stake across twenty accounts weighs exactly what holding
-  it in one weighs. That is a different economy from poolsite's, so it is not
-  what was ported; it is written down here so the choice is visible.
+The commitment gate is gone with it. There is no α̂ threshold to sit under any
+more; there is zero and there is more than zero.
 
-**None of this touches standing.** Every number above is about who receives
-minted play money. Nobody's reputation moved, because no balance can reach it.
-
-### It applies retroactively, and that is deliberate
+## It applies retroactively, and that is deliberate
 
 Replay is a pure function of the whole log, so the rule reads engagement that
 already happened. On the live network this credited 275,000 PEER across the 55
@@ -100,28 +95,34 @@ For that to hold, authorship is recorded as **structure**, separately from the
 payload: the Publish edge already names the author publicly, so deleting the
 text cannot take the authorship with it.
 
-## tBTC — and why there is no real bitcoin here
+## tBTC — retired, and why it existed at all
 
-`tBTC` is a **test asset with a bitcoin-shaped name**. One claim of 0.01 per
-account, ever. It is backed by nothing, bridged to nothing, and redeemable for
-nothing.
+`tBTC` was a **test asset with a bitcoin-shaped name**: one free claim of 0.01
+per account, backed by nothing, bridged to nothing, redeemable for nothing. It
+is retired. Nothing mints it, no supply of it exists, and the claim is refused.
 
-Real BTC cannot live in this network, and the honest thing is to say so in the
-symbol rather than in a footnote. This host holds **no private keys** — that is
-a deliberate property established when paid placements were built, and it is
-what makes the operator's own bitcoin address safe to publish. A network that
-custodied real coin would need exactly the thing this codebase refuses to have.
+It is worth saying why it went, because the reasoning is the whole point of this
+network. A symbol that looks like bitcoin and costs nothing teaches people that
+value here is decorative — and once the economy actually became real, keeping a
+free asset beside it would have meant the fake one bought more participation
+than the real one.
 
-So tBTC is the trading pair you start from: it behaves like a scarce asset in
-the pools without pretending to be one outside them.
+**Real bitcoin does live here now, and it lives here by being destroyed.** You
+burn it at a P2WSH output committing to `OP_RETURN`, a script no witness can
+ever satisfy. This host still holds **no private keys** — that property was
+established when paid placements were built and has never been broken. A burn
+needs no custody by construction: nobody can spend what was sent, including the
+operator, including the network.
 
 ## Fun assets
 
 `assetCreate` mints your own symbol, 3–8 characters, full supply to you. It is
 worth exactly what a pool says it is worth and not one satoshi more. Pair it
-against PEER, against tBTC, or against someone else's joke.
+against PEER or against someone else's joke.
 
-Reserved symbols (`PEER`, `tBTC`) cannot be shadowed.
+Reserved symbols (`PEER`, `tBTC`) cannot be shadowed — tBTC stays reserved
+precisely because it is retired, so nobody can mint a new asset wearing the
+name of the old fiction.
 
 ## Pools
 

@@ -12,7 +12,7 @@ shipped early, scoped honestly in
 
 ```bash
 npm install
-npm test               # 340 tests, 20 suites: spec vectors, replay, host, chain, election
+npm test               # 314 tests, 20 suites: spec vectors, replay, host, chain, election
 npm run dev            # protocol lab → http://localhost:5199 (or Vite's chosen port)
 npm run build:social   # assemble the social app + PWA assets
 node server.mjs        # shared-network host → http://localhost:5210

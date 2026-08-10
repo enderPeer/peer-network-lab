@@ -22,7 +22,7 @@ replay.
 | Writer election | [webapp/chain/election.mjs](webapp/chain/election.mjs), [reconcile.mjs](webapp/chain/reconcile.mjs), [merge.mjs](webapp/chain/merge.mjs) | The writer is an elected office anyone can stand for: longest sealed chain wins, liveness rotates it, a stale primary quarantines itself, and a partition heals by deterministic rebase — no fork is forever. See [webapp/DECENTRALIZATION.md](webapp/DECENTRALIZATION.md) |
 | Always-on jobs | [.github/workflows/](.github/workflows) | Scheduled work on GitHub's machines, assuming no machine of ours is on: liveness repoints the address book every 15 minutes, the archive re-pulls and re-verifies the record every 6 hours, and the beacon resident attests the chain |
 | Residents & bots | [BOTS.md](BOTS.md) | Who lives here besides people — a local model, a cloud routine, a CI verifier — the contract they hold themselves to, and the open door (fork the repo + one secret) to add your own for free |
-| Test suite | [webapp/tests/](webapp/tests) | 340 tests: Appendix F verification vectors, the replay and host suites that guard deletion, revision, id stability and every refusal, the chain suite (determinism, tamper evidence, redaction neutrality), and the election/reconcile suites (who holds the pen, and how a fork heals) |
+| Test suite | [webapp/tests/](webapp/tests) | 314 tests: Appendix F verification vectors, the replay and host suites that guard deletion, revision, id stability and every refusal, the chain suite (determinism, tamper evidence, redaction neutrality), and the election/reconcile suites (who holds the pen, and how a fork heals) |
 | Protocol lab | [webapp/](webapp) (`npm run dev`) | Engineer-facing explorer: reference graph, tensor inspector, feed, standing solve, gates |
 | Social sandbox | [webapp/social/](webapp/social) (`npm run build:social`) | The tester-facing social app — published online (see below) |
 | Coverage audit | [docs/COVERAGE.md](docs/COVERAGE.md) | Independent audit of the implementation against every spec section |
@@ -69,15 +69,26 @@ produced it, threads, an event cursor, and verbs to write.
 file. Bots pay the same θ per act as anyone, which is why one that posts
 constantly talks itself out of reach.
 
-**PEER — the epoch token:** [webapp/TOKEN.md](webapp/TOKEN.md). The poolsite
-economy ([enderPeer/poolsite](https://github.com/enderPeer/poolsite)) ported onto
-the epoch clock: 5000 PEER minted at every epoch close, distributed to creators
-by the engagement their work drew, damped per fan and gated on the same
-commitment rate that gates writing. Users open constant-product liquidity pools
-(PEER/tBTC to start, or any pair including their own minted assets). **Tokens
-are value, never standing** — no balance enters any score, and a token
-millionaire outranks nobody. tBTC is sandbox value with a bitcoin-shaped name:
-the host holds no keys, so real coin cannot live here and the symbol says so.
+**Proof of burn — the only way in:** reserve, the thing every act is debited
+from, comes from destroying real bitcoin and from nowhere else. The address is a
+P2WSH output committing to `OP_RETURN`, a script that can never be satisfied —
+not "nobody knows the key" but *there is no key*, which anyone can verify
+without trusting this project. A claim is recorded only after the host checks
+the transaction against two independent public block explorers that must agree,
+and the txid goes into the log so any reader can check the chain instead of
+believing the host. Registering grants exactly the θ it costs, so an account
+opens at zero: existing here is free, speaking is not.
+
+**PEER — the epoch token:** [webapp/TOKEN.md](webapp/TOKEN.md). 5000 PEER
+minted at every epoch close, distributed to creators by the engagement their
+work drew, damped per fan, and weighted **linearly in satoshis destroyed** — so
+a stake split across twenty puppets weighs exactly what one account holding it
+weighs. PEER is a real ERC-20 on Base
+([0x5d63786095d09210011fd382c0710a7a1bc90e6f](https://basescan.org/address/0x5d63786095d09210011fd382c0710a7a1bc90e6f)),
+with no owner, no mint function and no pause — the supply is fixed at
+18,250,000 and nobody, including its deployer, can add to it. **Tokens are
+value, never standing**: no balance enters any score, and a token millionaire
+outranks nobody.
 
 **Operator panel:** `/admin` on a host with `PEER_OPERATOR_TOKEN` set — key
 metrics, traffic, refusal breakdown, an address watcher with bans, and the
@@ -110,10 +121,11 @@ https://claude.ai/code/artifact/b196455b-b5a5-4b08-9dac-fd03b499e440).
 
 ## The protocol in five sentences
 
-1. **Burn is the only source.** Actors acquire reserve by burning value at
-   Layer 0; each accepted act debits θ = 0.0528066 and increments the act
-   count N, so an actor's *commitment rate* burn/N falls with every act and
-   rises only by burning more.
+1. **Burn is the only source, and the burn is real.** Reserve comes from
+   bitcoin destroyed at an address with no key, proven by a txid anyone can
+   check; each accepted act debits θ = 0.0528066 and increments the act count
+   N, so an actor's *commitment rate* burn/N falls with every act and rises
+   only by burning more.
 2. **Standing is a transported mediant.** Positive person-vouches compile
    into a row-stochastic allocation; each actor's standing is the
    balance/count mediant of the (burn, N) pairs transported to it — vouching
@@ -234,5 +246,5 @@ ToRuleThemAll/
     ├── chain/                 (epoch chain: build, verify — and election,
     │                           reconcile, merge: the writer as an office)
     ├── tools/                 (liveness check, archive sync, beacon, stress)
-    └── tests/                 (20 suites, 340 tests + registry.json)
+    └── tests/                 (20 suites, 314 tests + registry.json)
 ```

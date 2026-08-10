@@ -5390,14 +5390,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.reserve, 2) }), 'reserve'),
         h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(st.l0.floor(), 3) }), 'floor φ')),
       h('div', { class: 'lq-actions' },
-        h('button', { class: 'lq-pill hot', onclick: function () {
-          if (w.live < 1) { toast('No credits to burn — deposit reserve first; it mints at the next cycle.'); return; }
-          pushAct({ t: 'burnL0', id: who, x: 1 }, function () { toast('Burned 1 credit — destroyed forever, attested at the settled floor. Energy up.'); });
-        } }, icon('bolt'), 'Burn 1 credit → energy'),
-        h('button', { class: 'lq-pill', onclick: function () {
-          if (w.reserve < 5) { toast('Not enough reserve.'); return; }
-          pushAct({ t: 'deposit', id: who, amt: 5 }, function () { toast('5 reserve escrowed — your receipt units mint at the next cycle boundary.'); });
-        } }, icon('bolt'), 'Deposit 5 reserve'),
+        h('button', { class: 'lq-pill hot', onclick: function () { burnDialog(); } },
+          icon('bolt'), 'Burn bitcoin \u2192 energy'),
         h('button', { class: 'lq-pill', text: 'Switch identity', onclick: function () { who = null; save(); render(); } }),
         h('button', { class: 'lq-pill', text: st.pinHash[who] ? 'Change PIN' : 'Set a PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
         h('button', { class: 'lq-pill', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
@@ -8203,35 +8197,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           h('span', { text: 'live' }), h('b', { class: 'num', text: fmt(w.live, 3) }),
           h('span', { text: 'time-locked' }), h('b', { class: 'num', text: fmt(w.tlock, 3) }),
           h('span', { text: 'attestation A' }), h('b', { class: 'num', text: fmt(w.attest, 3) })),
-        h('div', { class: 'mini-form' }, amtD,
-          h('button', { class: 'btn small primary', text: 'Deposit → escrow', onclick: function () {
-            var x = num(amtD, 5);
-            if (w.reserve < x) { toast('Not enough external reserve.'); return; }
-            pushAct({ t: 'deposit', id: who, amt: x }, function () { toast('Escrowed. Mints at the next cycle boundary: (1−f)·ζ live + (1−f)·(1−ζ) time-locked to you, fee to the operator.'); });
-          } })),
-        h('div', { class: 'mini-form' }, amtB,
-          h('button', { class: 'btn small primary', text: 'Burn live → attestation', onclick: function () {
-            var x = num(amtB, 1);
-            if (w.live < x) { toast('Not enough live units.'); return; }
-            pushAct({ t: 'burnL0', id: who, x: x }, function () { toast('Destroyed forever. Attestation credited at the settled floor — this is your Layer-1 burn value.'); });
-          } })),
-        h('div', { class: 'mini-form' }, amtR,
-          h('button', { class: 'btn small', text: 'Redeem live → reserve', onclick: function () {
-            var x = num(amtR, 1);
-            if (w.live < x) { toast('Not enough live units.'); return; }
-            pushAct({ t: 'redeem', id: who, x: x }, function () { toast('Redeemed at the floor — exits value, never lowers φ.'); });
-          } })),
-        h('div', { class: 'mini-form' }, amtT, peerSel,
-          h('button', { class: 'btn small', text: 'Send live units', onclick: function () {
-            var x = num(amtT, 1);
-            if (!peerSel.value) { toast('No peer to send to.'); return; }
-            if (w.live < x) { toast('Not enough live units.'); return; }
-            pushAct({ t: 'transferL0', from: who, to: peerSel.value, x: x, cls: 'live' }, function () { toast('Transferred — class-internal, touches no Ω, φ, or A.'); });
-          } })),
-        h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close L0 cycle ' + l0.cycle + ' (process escrow, settle floor)', onclick: function () {
-          pushAct({ t: 'closeCycle' }, function () { toast('Cycle boundary: escrow minted at the pre-issuance floor, settlement committed.'); });
-        } }),
-        h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Two decoupled clocks: L0 cycles are not L1 epochs. Deposits queue to the cycle boundary; burns and redemptions are immediate.' })));
+        h('p', { style: 'margin-top:10px', text: 'These controls are gone. Deposit, burn-to-attestation, redeem, transfer and close-cycle each submit an act the host now refuses, so every one of them could only ever have produced an error.' }),
+        h('p', { class: 'smallnote', text: 'The arithmetic above was correct and the reserve behind it was imaginary: nobody had ever deposited anything, so a full-reserve ledger was keeping exact books over nothing. What replaced it is smaller and true \u2014 reserve comes from bitcoin destroyed at an address with no key, and the proof is a transaction id anyone can check against the Bitcoin chain without asking this host. There is no floor to defend and no escrow to settle, because nothing is owed to anyone.' }),
+        h('div', { class: 'row', style: 'margin-top:10px' },
+          h('button', { class: 'btn small primary', text: 'Burn bitcoin \u2192', onclick: function () { burnDialog(); } })),
+        h('p', { class: 'smallnote', style: 'margin-top:8px', text: 'Acts already in the record still replay \u2014 history is not rewritten \u2014 but nothing new enters here.' })));
 
     
       // ── The PEER token and its pools ─────────────────────────────────────────
