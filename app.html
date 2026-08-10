@@ -5561,8 +5561,19 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     box.appendChild(h('div', { class: 'smallnote', style: 'margin-top:6px',
       text: 'Reserve is what every act is debited from, and the only way to get it is to destroy bitcoin at an address with no key. Nobody receives it — not the operator, not the network. That is what makes it cost something.' }));
     var amt = h('input', { type: 'text', value: '2000', style: 'width:110px', inputmode: 'numeric' });
+    // Satoshi counts are unreadable at a glance - 2000 and 20000 look alike,
+    // and the difference is a factor of ten in real money. The bitcoin figure
+    // is shown beside the field and updated on every keystroke, so nobody
+    // signs an amount they misread by a zero.
+    var inBtc = h('span', { class: 'smallnote mono' });
+    var showBtc = function () {
+      var n = parseInt(amt.value, 10);
+      inBtc.textContent = (n > 0) ? ('= ' + (n / 1e8).toFixed(8) + ' BTC') : '';
+    };
+    amt.addEventListener('input', showBtc);
+    showBtc();
     var row = h('div', { class: 'row', style: 'margin-top:10px; align-items:center' },
-      h('span', { class: 'smallnote', text: 'satoshi' }), amt);
+      h('span', { class: 'smallnote', text: 'satoshi' }), amt, inBtc);
     box.appendChild(row);
     var addrLine = h('div', { class: 'smallnote mono', style: 'margin-top:8px; word-break:break-all' });
     box.appendChild(addrLine);
