@@ -3692,7 +3692,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('p', { class: 'lede', text: 'Share what you love. Back the people you believe in. Watch trust move like energy.' }),
         h('div', { class: 'join' },
           name, pin,
-          h('button', { class: 'lq-pill hot', style: 'justify-content:center; padding:11px', text: 'Join — it costs a spark of energy', onclick: join })),
+          h('button', { class: 'lq-pill hot', style: 'justify-content:center; padding:11px', text: 'Join — free, then burn bitcoin to speak', onclick: join })),
         h('p', { class: 'lq-note', style: 'margin-top:18px', text: 'Already registered? Log back in:' }),
         h('div', { class: 'join', style: 'flex-direction:row; justify-content:center' },
           loginInput,
@@ -5464,8 +5464,13 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.g.edges.length) }), 'edges'),
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(actsN) }), 'acts recorded'),
         h('span', { class: 'stat' }, h('b', { class: 'num', text: String(st.epochNow) }), 'epoch')),
+      // Said BEFORE the button, not after the first refused act. An account
+      // opens at zero now, so somebody who registers and immediately tries to
+      // post learns the price by being refused - which is the worst moment to
+      // find out, and exactly how the old faucet hid what it was doing.
+      h('p', { class: 'smallnote', style: 'margin-top:18px', text: 'Registering is free and grants nothing: an account opens at zero. Speaking is what costs, and the only way to pay is to destroy bitcoin at an address with no key - your wallet can do it from inside the app, in one step, once you are in.' }),
       h('div', { class: 'join' }, input, pinInput,
-        h('button', { class: 'btn primary', text: 'Create account · burn 1.00 reserve', onclick: join })),
+        h('button', { class: 'btn primary', text: 'Create account', onclick: join })),
       h('div', { class: 'join', style: 'margin-top:12px' }, loginInput,
         h('button', { class: 'btn', text: 'Log in', onclick: function () { loginWithHandle(loginInput.value, st); } })),
       h('div', {}, h('p', { class: 'smallnote', style: 'margin-top:22px', text: 'or step into a known peer:' }), residents),
