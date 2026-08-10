@@ -62,6 +62,17 @@ $btcFile = Join-Path $logDir 'btc-address.txt'
 if (Test-Path $btcFile) { $env:PEER_BTC_ADDRESS = (Get-Content $btcFile -Raw).Trim() }
 Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `
   -RedirectStandardOutput (Join-Path $logDir 'host.log') -RedirectStandardError (Join-Path $logDir 'host.err.log')
+
+# The burn page, on loopback. MetaMask's multichain content script reaches
+# http origins, so the one-click signing flow only works from here - not from
+# the published https site. Started beside the host so the in-app hand-off
+# link is never dead. Idempotent: if 8899 already answers, nothing happens.
+$burnUp = $false
+try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8899/burn.html' -UseBasicParsing -TimeoutSec 2; $burnUp = ($r.StatusCode -eq 200) } catch { }
+if (-not $burnUp) {
+  Start-Process -FilePath 'node' -ArgumentList (Join-Path $here 'chain-l2\serve-deploy.mjs') -WorkingDirectory $here -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $logDir 'burnpage.log') -RedirectStandardError (Join-Path $logDir 'burnpage.err.log')
+}
 Start-Sleep -Seconds 2
 
 $cfLog = Join-Path $logDir 'tunnel.log'

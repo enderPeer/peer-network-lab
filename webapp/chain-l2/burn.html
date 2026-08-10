@@ -257,6 +257,28 @@ async function watch() {
   }, 30000);
 }
 
+// Everything the app already knows is handed over in the URL, so nobody
+// retypes a handle they just registered or an amount they just chose.
+// ?id=&pin=&sats=&auto=1 fills the form and presses the button.
+//
+// The PIN travels in a URL to 127.0.0.1 and nowhere else: this page is
+// served by the operator's own machine, over loopback, and the address bar
+// is the only place it appears. It is stripped from the bar immediately
+// below so it does not linger in history or in a screenshot.
+(function () {
+  var q = new URLSearchParams(location.search);
+  var id = q.get('id'), pin = q.get('pin'), sats = q.get('sats');
+  if (id) document.getElementById('who').value = id;
+  if (pin) document.getElementById('pin').value = pin;
+  if (sats) document.getElementById('sats').value = sats;
+  if (pin || id) {
+    try { history.replaceState(null, '', location.pathname); } catch (e) { /* file: origin */ }
+  }
+  if (q.get('auto') === '1' && id) {
+    // A tick, so the button's own handler is bound before it is pressed.
+    setTimeout(function () { document.getElementById('go').click(); }, 50);
+  }
+})();
 document.getElementById('go').onclick = async function () {
   var who = document.getElementById('who').value.trim();
   var sats = parseInt(document.getElementById('sats').value, 10);
