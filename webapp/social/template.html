@@ -317,6 +317,35 @@ body[data-standalone='1'] .shell, body[data-standalone='1'] .lq-shell {
 @keyframes livepulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
 .stream-video { display: block; width: 100%; max-height: 60vh; background: #000; border-radius: 10px; margin: 8px 0; }
 .view-chip { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; white-space: nowrap; cursor: help; }
+/* ── The term layer ───────────────────────────────────────────────────────
+   A word on screen that can say what it means. The dotted rule is the ONLY
+   signal: the token keeps its own size, weight and family, because these sit
+   inside ledger rows and gate chips whose columns would jump every time a
+   word became explainable. */
+.term { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0;
+  cursor: help; text-decoration: underline dotted var(--line-2); text-underline-offset: 3px;
+  text-decoration-thickness: 1px; text-align: inherit; letter-spacing: inherit; text-transform: inherit; }
+.term:hover, .term:focus-visible, .term.open { color: var(--ember); text-decoration-color: var(--ember); outline: none; }
+.termpop { position: fixed; z-index: 40; width: min(300px, calc(100vw - 24px)); background: var(--card);
+  color: var(--ink); border: 1px solid var(--line-2); border-radius: 2px; box-shadow: var(--shadow);
+  padding: 11px 13px; font-family: var(--body); }
+.termpop .t { font-family: var(--display); text-transform: uppercase; letter-spacing: 0.12em; font-size: 10.5px;
+  font-weight: 700; color: var(--ember); margin: 0 0 5px; }
+.termpop .one { font-size: 14px; line-height: 1.45; margin: 0 0 6px; }
+.termpop .more { font-size: 12.5px; line-height: 1.55; color: var(--muted); margin: 0 0 9px; }
+/* The info window: the guide, opened at the thing that was asked about. */
+.infowin { position: fixed; z-index: 31; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 28px)); max-height: min(86vh, 900px); overflow-y: auto;
+  background: var(--paper); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+.infowin-head { position: sticky; top: 0; z-index: 1; background: var(--paper); border-bottom: 1px solid var(--line);
+  padding: 11px 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.infowin-head h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: 0.1em;
+  font-size: 12.5px; margin: 0; color: var(--muted); }
+.infowin .guide { border: 0; box-shadow: none; background: transparent; margin: 0; }
+.infowin details[open] > summary { color: var(--ember); }
+@media (max-width: 700px) {
+  .infowin { width: 100vw; max-height: 100%; height: 100%; top: 0; left: 0; transform: none; }
+}
 body[data-mode='liquid'] .view-chip { color: var(--lq-muted, #888); }
 .lock-warn { border-color: var(--ember); }
 .lock-warn b { color: var(--ember); }
@@ -922,7 +951,9 @@ button, .btn, .lq-pill { touch-action: manipulation; }
   var netTarget = null; // network tab: whose reach we are explaining
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
-  // Geek is the default for everyone now, new accounts included. Simple mode
+  // There is one mode. It was two, and the simple one hid the mathematics
+  // without explaining it — which left the numbers unexplained in the only
+  // view that showed them. The terms explain themselves now instead.
   // was the front door and it does not carry the newer surfaces — Live has no
   // tab there at all, which is why testers on several devices reported the
   // stream tab simply missing.
@@ -1096,14 +1127,18 @@ button, .btn, .lq-pill { touch-action: manipulation; }
    * synchronous and invisible; if not, it asks once and then continues the
    * caller's work. Nothing the caller was doing is discarded.
    */
-  function withUnlock(then) {
+  // `onCancel`, when given, is called if the unlock is refused or fails. A
+  // caller that only wants its work run keeps passing one argument and nothing
+  // changes for it; a caller waiting on a promise needs to hear that the
+  // continuation is never coming, or it waits forever.
+  function withUnlock(then, onCancel) {
     if (!sessionLocked()) { then(); return; }
     // Everything waiting on this one dialog is held and replayed together. The
     // first version dropped every caller after the first and claimed in a
     // comment that they queued; two reactions clicked in quick succession lost
     // the second silently.
-    if (unlockQueue) { unlockQueue.push(then); return; }
-    unlockQueue = [then];
+    if (unlockQueue) { unlockQueue.push({ then: then, cancel: onCancel }); return; }
+    unlockQueue = [{ then: then, cancel: onCancel }];
     var id = who, hash = lastPinHash[who];
     var label = (function () { try { return replay().handles[id] || id; } catch (e) { return id; } })();
 
@@ -1112,11 +1147,14 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       unlockQueue = null;
       if (!ok) {
         if (q.length > 1) toast(q.length + ' pending actions were dropped — nothing was recorded.');
+        // Tell whoever asked to be told. Dropping a continuation is fine for a
+        // click; it is not fine for something awaiting an answer.
+        q.forEach(function (e) { try { if (e.cancel) e.cancel(); } catch (err) {} });
         render();
         return;
       }
       render();
-      q.forEach(function (fn) { try { fn(); } catch (e) {} });
+      q.forEach(function (e) { try { e.then(); } catch (err) {} });
     }
 
     function ask(retry) {
@@ -1991,44 +2029,272 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     setTimeout(function () { t.remove(); }, 4600);
   }
 
-  // ── DOM helpers ──
-  var SVG_NS = 'http://www.w3.org/2000/svg';
-  function h(tag, attrs) {
-    var n = document.createElement(tag);
-    if (attrs) for (var k in attrs) {
-      if (k === 'class') n.className = attrs[k];
-      else if (k === 'text') n.textContent = attrs[k];
-      else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), attrs[k]);
-      else n.setAttribute(k, attrs[k]);
-    }
-    for (var i = 2; i < arguments.length; i++) {
-      var c = arguments[i];
-      if (c == null) continue;
-      n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
-    }
-    return n;
-  }
-  function sv(tag, attrs) {
-    var n = document.createElementNS(SVG_NS, tag);
-    if (attrs) for (var k in attrs) n.setAttribute(k, attrs[k]);
-    return n;
-  }
-  function icon(name) {
-    var paths = {
-      heart: 'M12 21s-7.5-4.9-10-9.5C.6 8.2 2.6 4.5 6.2 4.5c2 0 3.6 1.1 4.4 2.7.8-1.6 2.4-2.7 4.4-2.7 3.6 0 5.6 3.7 4.2 7-2.5 4.6-10 9.5-10 9.5z',
-      bubble: 'M4 5h16c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2H9l-5 4V7c0-1.1.9-2 2-2z',
-      star: 'M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z',
-      tag: 'M3 12l9-9h7c.6 0 1 .4 1 1v7l-9 9c-.4.4-1 .4-1.4 0L3 13.4c-.4-.4-.4-1 0-1.4zM16 8a1.5 1.5 0 1 0 .1 0z',
-      bolt: 'M13 2L4 14h6l-1 8 9-12h-6l1-8z',
-      feed: 'M4 5h16v3H4zM4 10.5h16v3H4zM4 16h10v3H4z',
-      peers: 'M8 11a3.5 3.5 0 1 0-.1 0zM16.5 11.5a3 3 0 1 0-.1 0zM2 20c0-3 2.7-5 6-5s6 2 6 5zM14.5 20c.2-2.3 1.7-4 4-4 2 0 3.5 1.6 3.5 4z',
-      you: 'M12 11a4 4 0 1 0-.1 0zM4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5z',
-    };
-    var s = sv('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': 'true' });
-    s.appendChild(sv('path', { d: paths[name] || '' }));
-    return s;
-  }
   function fmt(v, d) { return Number(v).toFixed(d == null ? 3 : d); }
+
+  /* ── The term layer ─────────────────────────────────────────────────────
+   *
+   * The app had exactly one explanation of itself — guideTab — and it was
+   * folded shut at the bottom of the Profile tab, underneath your own posts.
+   * So every number on screen (reduced x*, W2b door, ‖T‖F, amp) went
+   * unexplained in the place it was actually read, and the one thing that did
+   * explain it was four clicks away behind a tab nobody opens first.
+   *
+   * TERMS is the fix, and it is deliberately DATA rather than prose sprinkled
+   * through twenty render functions: one entry per piece of jargon, holding
+   * the plain name, the one-line answer, the fuller paragraph, and which
+   * guide section explains it properly. term(key) wraps any token so it
+   * carries all four — hover on a mouse, tap on a phone, keyboard-focus for
+   * anyone driving it that way, with the guide one click on from there.
+   *
+   * Two rules for anything added here. The one-liner must be answerable
+   * without knowing another term, and `sect` must name a section that
+   * actually exists in guideTab — infoWin says so out loud when it does not,
+   * because a help link that silently opens the wrong page is worse than no
+   * help link, and this codebase has shipped that bug before (see jump()).
+   */
+  var TERMS = {
+    reserve: {
+      t: 'reserve',
+      one: 'Credit you can spend — the only thing here that buys the right to act.',
+      more: 'It is bitcoin you destroyed at an address with no key. Every act takes θ = ' + fmt(THETA, 4) + ' out of it, and nothing puts it back except burning more. Burned is burned: that is what makes talk cost something.',
+      sect: 'Your identity card (right rail)',
+    },
+    acts: {
+      t: 'acts N',
+      one: 'How many times you have ever acted — posts, comments, reactions, vouches, all of it.',
+      more: 'It only ever goes up. It is the denominator of your rate, which is why acting constantly costs you twice: once in reserve, once in dilution.',
+      sect: 'Your identity card (right rail)',
+    },
+    rate: {
+      t: 'rate',
+      one: 'Your commitment rate: reserve ÷ acts. It falls when you talk and rises only when you burn.',
+      more: 'This is the only quantity standing can be transported from. Vouching routes your rate to someone else — if yours is lower than theirs, your vouch pulls them DOWN. Sincerity is priced.',
+      sect: 'Vouching and standing: the mediant',
+    },
+    x: {
+      t: 'reduced x*',
+      one: 'Your standing, measured in ν units — what other people routed to you.',
+      more: 'Nothing you do to yourself can create it: there is no way to farm standing here. Two gates read this number, the wall (' + fmt(SAFE_FLOOR, 3) + ') and the door (' + PART_FLOOR + ').',
+      sect: 'Vouching and standing: the mediant',
+    },
+    standing: {
+      t: 'standing',
+      one: 'What the network has routed to you, in absolute terms — x* × ν.',
+      more: 'It is transported, never minted. It amplifies how far your posts travel, and it is the one thing the token economy is walled off from: no balance anywhere buys a point of it.',
+      sect: 'Vouching and standing: the mediant',
+    },
+    affordable: {
+      t: 'acts affordable',
+      one: 'How many more acts your reserve covers before you run out.',
+      more: 'reserve ÷ θ. At zero you cannot post, comment, react or vouch until you burn more — the app refuses the act rather than letting you find out afterwards.',
+      sect: 'Your identity card (right rail)',
+    },
+    theta: {
+      t: 'θ — the price of an act',
+      one: 'Every accepted act debits θ = ' + fmt(THETA, 4) + ' from your reserve.',
+      more: 'One flat price for everything: a post, a comment, a reaction and a vouch all cost the same. There is no way to buy a cheaper one.',
+      sect: 'Acting: post, react, review, tag',
+    },
+    nu: {
+      t: 'ν — the numéraire',
+      one: 'The unit standing is measured against: x* = standing ÷ ν, with ν = ' + NU + '.',
+      more: 'It exists so the two gates can be stated as plain numbers instead of moving targets.',
+      sect: 'Glossary',
+    },
+    w1: {
+      t: 'W1 — solvent',
+      one: 'You can afford to act: your reserve is at least θ.',
+      more: 'The first gate, and the cheapest to fail. Below it every act is refused at the composer rather than accepted and undone later.',
+      sect: 'Your identity card (right rail)',
+    },
+    wall: {
+      t: 'W2a — the wall',
+      one: 'The floor you must stay above to keep writing: x* ≥ ' + fmt(SAFE_FLOOR, 3) + '.',
+      more: 'It is checked per person, and again on every writer when an epoch closes. Falling through it does not delete you — it stops you writing until standing comes back.',
+      sect: 'Epochs: stamping the record',
+    },
+    door: {
+      t: 'W2b — the door',
+      one: 'What the whole epoch has to clear on average: act-weighted mean x* ≥ ' + PART_FLOOR + '.',
+      more: 'A collective gate, not a personal one. It is the network asking whether this chapter of the record was written by people with any standing at all.',
+      sect: 'Epochs: stamping the record',
+    },
+    epoch: {
+      t: 'epoch',
+      one: 'A chapter of the record. Closing one stamps every writer with their final standing.',
+      more: 'Closing also checks the wall and the door, advances self-edge tenure, and writes a certificate into Economy → Record. Anyone replaying the log computes the same certificate.',
+      sect: 'Epochs: stamping the record',
+    },
+    S: {
+      t: 'S — the score',
+      one: 'Why this post is in front of you, and how strongly.',
+      more: 'S is computed from YOUR position in the graph, so two people see genuinely different feeds from the same public log — and either can recompute the other. Nothing about it is secret; the parts are shown right next to it.',
+      sect: 'The feed: why it shows what it shows',
+    },
+    W: {
+      t: 'W — path weight',
+      one: 'How strongly the graph connects you to this, over at most 4 hops.',
+      more: 'The best damped path from you to the content, found by a signed double-cover search. A fresh account reaches nothing, which is why new posts sit under “beyond your horizon” until you act.',
+      sect: 'The feed: why it shows what it shows',
+    },
+    amp: {
+      t: 'amp — the creator amplifier',
+      one: 'The writer\u2019s standing, as a multiplier: 1 + standing ÷ ν.',
+      more: 'Standing widens reach but cannot conjure a path: amp multiplies W, and anything times zero is zero. Someone you are not connected to does not reach you no matter how well regarded they are.',
+      sect: 'The feed: why it shows what it shows',
+    },
+    tnorm: {
+      t: '‖T‖ — what the piece carries',
+      one: 'The folded stance the network holds toward this content.',
+      more: 'Reactions, reviews and objections fold into a tensor on the content itself; this is its norm. It is about the post, not the person.',
+      sect: 'The feed: why it shows what it shows',
+    },
+    cogra: {
+      t: 'CoGra — the Layer-2 ranking',
+      one: 'Scores a post by how many SEPARATE people carry it to you, with no standing in the sum.',
+      more: 'Paths must be node-disjoint, so one loud voice cannot count twice, and popularity buys nothing. If a post reaches you through exactly one person the app says so — that is a structural warning, not a recommendation.',
+      sect: 'The CoGra ranking (Layer-2)',
+    },
+    disjoint: {
+      t: 'disjoint paths',
+      one: 'Separate routes to you that share no person in the middle.',
+      more: 'One path means one person is the whole reason you are seeing this. Independent confirmation is exactly what a second disjoint path is.',
+      sect: 'The CoGra ranking (Layer-2)',
+    },
+    horizon: {
+      t: 'your horizon',
+      one: 'How far the graph reaches from you — 4 hops. Beyond it, things exist but do not rank.',
+      more: 'A new account starts with an empty feed because it has no position yet, and we would rather show that honestly than fake a feed. Reacting to a single post is what opens it.',
+      sect: 'The feed: why it shows what it shows',
+    },
+    append: {
+      t: 'append order',
+      one: 'The log exactly as written, newest first — the authoritative order.',
+      more: 'Every other order on this list is a view ON this one. Nothing is hidden by ranking: what changes is the sequence, never the set.',
+      sect: 'The left rail: search, order, filters',
+    },
+  };
+
+  var termPop = null, termTimer = null, termOwner = null;
+  function closeTermPop() {
+    if (termTimer) { clearTimeout(termTimer); termTimer = null; }
+    if (termPop) { termPop.remove(); termPop = null; }
+    if (termOwner) { termOwner.classList.remove('open'); termOwner = null; }
+  }
+  function openTermPop(anchor, key) {
+    var d = TERMS[key];
+    if (!d || !anchor.isConnected) return;
+    closeTermPop();
+    var pop = h('div', { class: 'termpop', role: 'tooltip' },
+      h('p', { class: 't', text: d.t }),
+      h('p', { class: 'one', text: d.one }),
+      d.more ? h('p', { class: 'more', text: d.more }) : null,
+      d.sect ? h('button', { class: 'btn small ghost', text: 'The guide on this →',
+        onclick: function () { var to = d.sect; closeTermPop(); infoWin(to); } }) : null);
+    // Reading the popover must not dismiss it, and leaving it must.
+    pop.addEventListener('mouseenter', function () { if (termTimer) { clearTimeout(termTimer); termTimer = null; } });
+    pop.addEventListener('mouseleave', function () { termTimer = setTimeout(closeTermPop, 220); });
+    pop.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    document.body.appendChild(pop);
+    termPop = pop; termOwner = anchor;
+    anchor.classList.add('open');
+    // Placed after it is in the DOM, because it has no measurable size before
+    // that. Below the word unless that falls off the bottom, then above.
+    var r = anchor.getBoundingClientRect();
+    var w = pop.offsetWidth, ht = pop.offsetHeight;
+    var left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - w - 8));
+    var top = r.bottom + 8;
+    if (top + ht > window.innerHeight - 8) top = r.top - ht - 8;
+    // Last clamp, unconditional: the two branches above both assume the word
+    // itself is on screen. A term scrolled out from under a pinned popover is
+    // not, and without this the explanation lands somewhere nobody can read.
+    top = Math.max(8, Math.min(top, window.innerHeight - ht - 8));
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+  /**
+   * A word on screen that can say what it means.
+   *
+   * `label` defaults to the term's own name, so term('reserve') renders the
+   * word "reserve"; pass one where the surface says it differently — 'W2a
+   * wall' on a gate chip, '‖T‖' inside a formula.
+   *
+   * The native title is the fallback for anyone whose popover never opens,
+   * and it is REMOVED while the popover is up: two tooltips saying the same
+   * thing on top of each other is worse than either alone.
+   */
+  function term(key, label) {
+    var d = TERMS[key] || { t: key, one: '' };
+    var b = h('button', { type: 'button', class: 'term',
+      text: label == null ? d.t : label, title: d.t + ' — ' + d.one });
+    function show() { b.removeAttribute('title'); openTermPop(b, key); }
+    function hide() { termTimer = setTimeout(function () { closeTermPop(); b.setAttribute('title', d.t + ' — ' + d.one); }, 220); }
+    b.addEventListener('mouseenter', function () {
+      if (termTimer) { clearTimeout(termTimer); termTimer = null; }
+      termTimer = setTimeout(show, 240);
+    });
+    b.addEventListener('mouseleave', hide);
+    b.addEventListener('click', function (ev) {
+      // A tap must not also fire the post card underneath it.
+      ev.preventDefault(); ev.stopPropagation();
+      if (termOwner === b) { closeTermPop(); return; }
+      show();
+    });
+    // Keyboard focus only. A plain 'focus' listener would fire on the mousedown
+    // of a tap, open the popover, and then the click above would immediately
+    // close it again — which on a phone reads as the word doing nothing at all.
+    b.addEventListener('focus', function () {
+      try { if (b.matches(':focus-visible')) show(); } catch (e) {}
+    });
+    b.addEventListener('blur', hide);
+    return b;
+  }
+  document.addEventListener('click', function () { closeTermPop(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeTermPop(); });
+  window.addEventListener('resize', closeTermPop);
+  window.addEventListener('scroll', closeTermPop, true);
+
+  /**
+   * The guide, in a window, opened at the thing that was asked about.
+   *
+   * The words are NOT duplicated: this renders the same guideTab() everything
+   * else does and then opens the one <details> whose summary matches, so
+   * there is still exactly one set of sentences to maintain. A name that no
+   * longer matches says so rather than opening the guide at the top and
+   * looking like it worked.
+   */
+  function infoWin(sectTitle) {
+    var overlay = document.getElementById('overlay');
+    overlay.innerHTML = '';
+    function close() { overlay.innerHTML = ''; }
+    var guide = guideTab(replay());
+    var win = h('div', { class: 'infowin', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'The guide' },
+      h('div', { class: 'infowin-head' },
+        h('h3', { text: sectTitle || 'The guide' }),
+        h('button', { class: 'btn small ghost', text: 'close ✕', onclick: close })),
+      h('div', { style: 'padding:4px 14px 20px' }, guide));
+    overlay.appendChild(h('div', { class: 'scrim', onclick: close }));
+    overlay.appendChild(win);
+    if (sectTitle) {
+      var all = guide.querySelectorAll('details'), found = null, i;
+      for (i = 0; i < all.length; i++) {
+        var sum = all[i].querySelector('summary');
+        if (sum && sum.textContent === sectTitle) { found = all[i]; break; }
+      }
+      if (!found) {
+        toast('The guide no longer has a section called “' + sectTitle + '” — opening it at the top.');
+      } else {
+        for (i = 0; i < all.length; i++) all[i].removeAttribute('open');
+        found.setAttribute('open', '');
+        setTimeout(function () {
+          var fr = found.getBoundingClientRect(), wr = win.getBoundingClientRect();
+          win.scrollTop += (fr.top - wr.top) - 54;
+        }, 0);
+      }
+    }
+    var first = win.querySelector('button');
+    if (first) first.focus();
+  }
   function slider(label, val, cls) {
     var input = h('input', { type: 'range', min: '-1', max: '1', step: '0.05', value: String(val) });
     var out = h('output', { text: fmt(val, 2) });
@@ -3498,6 +3764,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       || (ae.tagName === 'INPUT' && (ae.type === 'text' || ae.type === 'password' || ae.type === 'search')))) return false;
     if (document.querySelector('.pin-dialog')) return false;
     return !(document.querySelector('.drawer')
+      || document.querySelector('.infowin')
       || document.querySelector('.mini-form:not(.persistent)')
       || document.querySelector('.lq-sheet:not(.persistent)'));
   }
@@ -3667,98 +3934,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     // end it. The bar above follows into both modes now, but the identity
     // exits still need saying out loud.
     mode = m; save(); render();
-  }
-
-  // ═══ LIQUID FRONTEND ═══
-  function renderLiquidHero(st) {
-    var name = h('input', { class: 'lq-input', placeholder: 'Pick a handle', maxlength: '16' });
-    var pin = h('input', { class: 'lq-input', type: 'password', placeholder: 'PIN to secure it (optional, 4+ chars)', maxlength: '24', autocomplete: 'off' });
-    function join() { registerIdentity(name.value.trim(), pin.value, st); }
-    name.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
-    pin.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') join(); });
-    var loginInput = h('input', { class: 'lq-input', placeholder: 'Your handle', maxlength: '16' });
-    loginInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') loginWithHandle(loginInput.value, st); });
-    var residents = h('div', { class: 'residents', style: 'margin-top:16px' });
-    var known = recentUsers(st, 6).concat(['alice', 'bob', 'carol', 'dave']);
-    known.forEach(function (id) {
-      residents.appendChild(h('button', { class: 'lq-pill', onclick: function () { switchTo(id, st); } },
-        avatar(id, 'lq-ava xs'), st.handles[id] + (st.pinHash[id] ? ' 🔒' : '')));
-    });
-    var heroOb = outboxBanner();
-    var wrap = h('div', { class: 'lq-shell' },
-      heroOb || h('span'),
-      h('div', { class: 'lq-glass lq-hero' },
-        h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-        h('p', { class: 'lede', text: 'Share what you love. Back the people you believe in. Watch trust move like energy.' }),
-        h('div', { class: 'join' },
-          name, pin,
-          h('button', { class: 'lq-pill hot', style: 'justify-content:center; padding:11px', text: 'Join — free, then burn bitcoin to speak', onclick: join })),
-        h('p', { class: 'lq-note', style: 'margin-top:18px', text: 'Already registered? Log back in:' }),
-        h('div', { class: 'join', style: 'flex-direction:row; justify-content:center' },
-          loginInput,
-          h('button', { class: 'lq-pill', style: 'flex:none', text: 'Log in', onclick: function () { loginWithHandle(loginInput.value, st); } })),
-        h('p', { class: 'lq-note', text: 'or tap a known peer:' }),
-        residents,
-        h('p', { class: 'lq-note' },
-          (REMOTE ? 'One shared test network — everything you do is public. ' : 'Private sandbox in this browser. ') +
-          'No email, no tracking. A PIN is the only thing protecting a handle, so pick one you don’t use anywhere else.'),
-        h('button', { class: 'lq-pill', style: 'margin-top:14px', text: 'Geek mode', onclick: function () { setMode('geek'); } })));
-    root.appendChild(wrap);
-  }
-
-  function lqEnergyBar(me) {
-    var pct = Math.min(100, me.burnBal * 25);
-    return h('span', { class: 'lq-energy' }, icon('bolt'),
-      h('span', { class: 'bar' }, h('i', { style: 'width:' + pct + '%' })),
-      h('span', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) }));
-  }
-
-  function renderLiquid(st) {
-    var me = st.ledgerById[who];
-    var wrap = h('div', { class: 'lq-shell' });
-
-    wrap.appendChild(h('div', { class: 'lq-glass lq-head' },
-      h('h1', { class: 'wordmark' }, 'Pe', h('em', {}, 'e'), 'r'),
-      lqEnergyBar(me),
-      (function () {
-        var b = avatar(who, 'lq-ava');
-        b.title = 'You';
-        b.addEventListener('click', function () { lqView = 'you'; render(); });
-        b.style.cursor = 'pointer';
-        return b;
-      })()));
-
-    var lqLock = lockBanner(st, true);
-    if (lqLock) wrap.appendChild(h('div', { class: 'lq-glass lq-card' }, lqLock));
-
-    // The outbox exists in both modes because posting does; a queue that can
-    // only be seen from the geek shell is a queue simple-mode users cannot
-    // discard, inspect, or even know about.
-    var lqOb = outboxBanner();
-    if (lqOb) wrap.appendChild(lqOb);
-
-    if (lqView === 'feed') wrap.appendChild(lqFeed(st));
-    else if (lqView === 'peers') wrap.appendChild(lqPeers(st));
-    else if (lqView === 'chats') wrap.appendChild(lqChats(st));
-    else if (lqView === 'alerts') wrap.appendChild(lqAlerts(st));
-    else if (lqView === 'person' && lqPersonId && lqPersonId !== who) wrap.appendChild(lqPerson(st, lqPersonId));
-    else wrap.appendChild(lqYou(st));
-
-    var notifs = notificationsFor(st, who);
-    var fresh = unseenCount(notifs);
-    function navBtn(key, label, ic, badge) {
-      var b = h('button', { class: lqView === key ? 'on' : '', onclick: function () { lqView = key; render(); } }, icon(ic), label);
-      if (badge > 0) b.appendChild(h('span', { class: 'nbadge', text: badge > 9 ? '9+' : String(badge) }));
-      return b;
-    }
-    wrap.appendChild(h('nav', { class: 'lq-glass lq-nav' },
-      navBtn('feed', 'Feed', 'feed'), navBtn('peers', 'Peers', 'peers'),
-      navBtn('chats', 'Chats', 'bubble'), navBtn('alerts', 'Alerts', 'bolt', fresh),
-      // The KEY stays 'you'. It is written into LQ_VIEWS, the restore, the
-      // dispatcher and the header avatar, and renaming it in one place is
-      // exactly how the guide ended up with two buttons that opened the feed.
-      navBtn('you', 'Profile', 'you')));
-    root.appendChild(wrap);
   }
 
   // ── Voice calls: negotiated through the host, carried peer-to-peer ────────
@@ -4597,199 +4772,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
 
   var chatPeer = null; // open thread in the chats view
 
-  function lqChats(st) {
-    var box = h('div', {});
-    var threads = dmThreads(st, who);
-    if (chatPeer && (!st.ledgerById[chatPeer] || st.ledgerById[chatPeer].deleted)) chatPeer = null;
-    if (!chatPeer) {
-      var card = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Chats' }));
-      var peers = Object.keys(threads);
-      peers.sort(function (a, b) {
-        return threads[b][threads[b].length - 1].idx - threads[a][threads[a].length - 1].idx;
-      });
-      if (!peers.length) card.appendChild(h('p', { class: 'lq-note', text: 'No conversations yet — open one from Peers, or start below.' }));
-      peers.forEach(function (p) {
-        var last = threads[p][threads[p].length - 1];
-        var row = h('div', { class: 'lq-peer', style: 'cursor:pointer' },
-          avatar(p, 'lq-ava s'),
-          h('div', { class: 'grow' },
-            h('div', { class: 'lq-name', text: st.handles[p] || p }),
-            h('div', { class: 'lq-sub', text: last.call ? callLabel(last.call) : (last.from === who ? 'you: ' : '') + last.text.slice(0, 44) })));
-        row.addEventListener('click', function () { chatPeer = p; render(); });
-        card.appendChild(row);
-      });
-      var startSel = h('select', { class: 'lq-input', style: 'width:auto; flex:1' });
-      st.ledgers.forEach(function (l) {
-        if (l.id !== who && !l.deleted) startSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
-      });
-      card.appendChild(h('div', { class: 'lq-sheet' }, startSel,
-        h('button', { class: 'lq-pill hot', text: 'Open chat', onclick: function () { chatPeer = startSel.value; render(); } })));
-      card.appendChild(h('p', { class: 'lq-note', style: 'margin-top:10px', text: 'Honest note: this is a test network — messages are Send acts in the public record, not private. Encryption is a later phase.' }));
-      box.appendChild(card);
-      return box;
-    }
-    var thread = threads[chatPeer] || [];
-    var card2 = h('div', { class: 'lq-glass lq-card' },
-      h('div', { style: 'display:flex; align-items:center; gap:10px' },
-        h('button', { class: 'lq-pill', text: '← Chats', onclick: function () { chatPeer = null; render(); } }),
-        avatar(chatPeer, 'lq-ava s'),
-        h('span', { class: 'lq-name', text: st.handles[chatPeer] || chatPeer }),
-        h('button', { class: 'lq-pill hot', text: '☎ Call', style: 'margin-left:auto',
-          onclick: function () { startCall(chatPeer); } })));
-    var tEl = h('div', { class: 'lq-thread' });
-    if (!thread.length) tEl.appendChild(h('p', { class: 'lq-note', text: 'Say hello — every message is a priced act.' }));
-    thread.forEach(function (m) {
-      if (m.call) {
-        tEl.appendChild(h('div', { class: 'chat-call', text: (m.from === who ? '' : st.handles[m.from] + ' · ') + callLabel(m.call) }));
-        return;
-      }
-      tEl.appendChild(h('div', { class: 'lq-msg' + (m.from === who ? ' mine' : '') },
-        h('span', { class: 'm-meta', text: (m.from === who ? 'you' : st.handles[m.from] || m.from) + ' · #' + m.idx }),
-        m.text));
-    });
-    card2.appendChild(tEl);
-    var input = h('input', { class: 'lq-input', type: 'text', placeholder: 'Message…', maxlength: '500' });
-    function send() {
-      var t = input.value.trim();
-      if (!t) return;
-      tryAct(who, { t: 'dm', from: who, to: chatPeer, text: t }, null);
-      input.value = '';
-    }
-    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') send(); });
-    card2.appendChild(h('div', { class: 'lq-sheet' }, input,
-      h('button', { class: 'lq-pill hot', text: 'Send', onclick: send })));
-    box.appendChild(card2);
-    setTimeout(function () { tEl.scrollTop = tEl.scrollHeight; }, 30);
-    return box;
-  }
-
-  function lqAlerts(st) {
-    var notifs = notificationsFor(st, who);
-    var box = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Alerts' }));
-    if (!notifs.length) box.appendChild(h('p', { class: 'lq-note', text: 'Quiet so far. Post something — reactions, backings, mentions, quotes, and messages land here.' }));
-    notifs.forEach(function (n) {
-      var row = h('div', { class: 'lq-alert' + (n.idx > seenMark ? ' fresh' : '') },
-        avatar(n.who, 'lq-ava xs'),
-        h('div', {},
-          h('b', { text: st.handles[n.who] || n.who }), ' ',
-          h('span', { class: 'a-verb', text: NOTIF_VERB[n.kind] || n.kind }),
-          n.text ? h('div', { class: 'lq-sub', text: '“' + n.text.slice(0, 60) + '”' }) : null));
-      if (n.kind === 'dm' || n.kind === 'call') {
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function () { chatPeer = n.who; lqView = 'chats'; render(); });
-      } else if (n.target && resolvePost(st, n.target)) {
-        row.style.cursor = 'pointer';
-        row.appendChild(h('span', { class: 'jump-hint', text: '↗' }));
-        row.addEventListener('click', function () { jumpTo(st, n.target); });
-      }
-      box.appendChild(row);
-    });
-    markSeen(notifs);
-    return box;
-  }
-
-  function lqFeed(st) {
-    var box = h('div', {});
-    var focusedLq = focusCard(st, true);
-    if (focusedLq) box.appendChild(focusedLq);
-    var text = h('textarea', { class: 'lq-input', placeholder: 'Share something… (@name mentions, each reference costs a spark)' });
-    var fileIn = h('input', { type: 'file', multiple: '', accept: 'image/*,video/*,audio/*,.pdf,.txt,.md,.csv,.json,.zip,.heic,.heif,.mov,.m4a', style: 'display:none' });
-    var chips = h('div', { class: 'lq-actions', style: 'margin-top:8px' });
-    composeChipHost = chips;
-    redrawComposeChips();
-    var TEXT_MAX = 1000;
-    var counter = h('span', { class: 'charcount' });
-    function updateCount() {
-      var n = text.value.length;
-      counter.textContent = n + ' / ' + TEXT_MAX;
-      counter.className = 'charcount' + (n > TEXT_MAX ? ' over' : n > TEXT_MAX * 0.9 ? ' near' : '');
-    }
-    text.addEventListener('input', updateCount);
-    updateCount();
-    fileIn.addEventListener('change', function () {
-      handleMediaPicks(fileIn.files);
-      fileIn.value = '';
-    });
-    box.appendChild(h('div', { class: 'lq-glass lq-card' },
-      text, counter, chips,
-      h('div', { class: 'lq-actions' },
-        h('button', { class: 'lq-pill hot', onclick: function () {
-          var t = text.value.trim();
-          if (composeBusy) { toast('Still uploading — give it a moment.'); return; }
-          if (!t && !composeMedia.length) { toast('Write something first.'); return; }
-          if (t.length > TEXT_MAX) { toast('Too long by ' + (t.length - TEXT_MAX) + ' — the limit is ' + TEXT_MAX + ' characters.'); return; }
-          var act = { t: 'post', author: who, text: t || '·', a: 0.8 };
-          if (composeQuote) act.ref = composeQuote;
-          // A copy: once this array is in an act it belongs to the record, and
-          // the composer keeps mutating its own.
-          if (composeMedia.length) act.media = composeMedia.slice();
-          // Cleared only once the host has taken it. Clearing here used to be
-          // synchronous, so a refusal — an entry over the cap, a byte total
-          // over the ceiling — destroyed the caption and every upload with it.
-          tryAct(who, act, 'Shared. Every post costs a spark of energy.', function () {
-            clearCompose();
-            text.value = ''; updateCount();
-            redrawComposeChips();
-          });
-        } }, icon('bolt'), 'Share'),
-        h('button', { class: 'lq-pill', onclick: function () { fileIn.click(); } }, icon('tag'), 'Media'),
-        fileIn),
-      h('div', { class: 'lq-actions', style: 'margin-top:10px' },
-        h('button', { class: 'lq-pill' + (lqSort === 'foryou' ? ' hot' : ''), text: 'For you', onclick: function () { lqSort = 'foryou'; feedLimit = 30; render(); } }),
-        h('button', { class: 'lq-pill' + (lqSort === 'new' ? ' hot' : ''), text: 'Newest', onclick: function () { lqSort = 'new'; feedLimit = 30; render(); } }))));
-
-    var shown = 0;
-    if (lqSort === 'new') {
-      var newest = [], newestAt = {};
-      st.g.edges.forEach(function (e) {
-        // One entry per node, at its newest Publish. A node now carries a
-        // Publish edge per revision, and listing edges showed a revised post
-        // once for every time it had been revised.
-        if (e.family !== 'Publish' || !st.payloads[e.tgt]) return;
-        if (newestAt[e.tgt] === undefined || e.appendIndex > newestAt[e.tgt]) {
-          newestAt[e.tgt] = e.appendIndex;
-        }
-      });
-      for (var nid in newestAt) newest.push({ node: st.g.nodes.get(nid), idx: newestAt[nid] });
-      newest.sort(function (a, b) { return b.idx - a.idx; });
-      newest.slice(0, feedLimit).forEach(function (r) { box.appendChild(lqPost(st, r.node, null)); });
-      shown = Math.min(newest.length, feedLimit);
-      if (newest.length > feedLimit) box.appendChild(lqMore(newest.length - feedLimit));
-      if (!newest.length) box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'lq-note', text: 'Nothing here yet — be the first to share.' })));
-      return box;
-    }
-
-    var scores = cograFeed(st, who);
-    // §9.2 friend-fresh reordering: fresh posts from directly-backed authors first.
-    var fresh = [], rest = [];
-    scores.forEach(function (s) { (isFriendFresh(st, who, s.node.id) ? fresh : rest).push(s); });
-    var ranked = fresh.concat(rest);
-    ranked.slice(0, feedLimit).forEach(function (s) { box.appendChild(lqPost(st, s.node, s)); });
-    shown = Math.min(ranked.length, feedLimit);
-
-    var seen = {};
-    ranked.forEach(function (s) { seen[s.node.id] = 1; });
-    var horizon = [];
-    st.g.nodes.forEach(function (n) {
-      if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
-    });
-    if (horizon.length && shown < feedLimit) {
-      box.appendChild(h('p', { class: 'lq-note', style: 'text-align:center; margin:18px 0 4px', text: '· new to you — react to pull them into your feed ·' }));
-      horizon.slice(0, feedLimit - shown).forEach(function (n) { box.appendChild(lqPost(st, n, null)); });
-    }
-    var total = ranked.length + horizon.length;
-    if (total > feedLimit) box.appendChild(lqMore(total - feedLimit));
-    if (!total) {
-      box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'lq-note', text: 'Nothing here yet — be the first to share.' })));
-    }
-    return box;
-  }
-
-  function lqMore(remaining) {
-    return h('div', { style: 'text-align:center; margin:14px 0' },
-      h('button', { class: 'lq-pill', text: 'Show more (' + remaining + ')', onclick: function () { feedLimit += 30; render(); } }));
-  }
-
   // Kind detection by MIME first, file extension as fallback (mobile browsers
   // often deliver an empty or exotic f.type — .mov, .heic, .m4a …).
   var EXT_MIME = {
@@ -5032,113 +5014,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     }).catch(function (e) { toast('“' + f.name + '”: ' + String(e.message || e)); giveUp(); });
   }
 
-  function lqPost(st, n, score) {
-    var author = st.creators[n.id];
-    var tags = tagsOf(st, n.id);
-    var sub = null;
-    if (score) {
-      sub = score.S >= 0
-        ? 'for you · ' + score.paths.length + ' path' + (score.paths.length === 1 ? '' : 's')
-        : 'your network leans against this';
-    }
-    var card = h('div', { class: 'lq-glass lq-card', 'data-cid': n.id },
-      h('div', { style: 'display:flex; align-items:center; gap:10px' },
-        avatar(author, 'lq-ava s'),
-        h('div', {},
-          h('div', { class: 'lq-name', text: st.handles[author] || '—' }),
-          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, author), 2),
-            (st.postMeta[n.id] && st.postMeta[n.id].edited) ? ' · edited' : ''),
-          viewChip(n.id)),
-        sub ? h('span', { class: 'lq-sub', style: 'margin-left:auto', text: sub }) : null),
-      h.apply(null, ['div', { class: 'lq-body' }].concat(richText(st, st.payloads[n.id] || ''))));
-    mediaBlock(st.mediaMeta[n.id]).forEach(function (el) { card.appendChild(el); });
-    var keepRow = offlineRow(st, n.id);
-    if (keepRow) card.appendChild(keepRow);
-    // A gathering, in the simple mode. It had NO door at all here: an event
-    // was a plain post with no time, no place, no price and no way in, so
-    // half the network could read about a gathering and not attend it. The
-    // panel is the same one the geek card draws — the same Join, the same
-    // fee, the same invite — and it is guarded the same way, because a
-    // deleted event keeps its entry in the map and would otherwise sell
-    // tickets to a gathering whose address had been redacted.
-    var lqEv = (st.events && st.events[n.id] && st.payloads[n.id] !== undefined) ? st.events[n.id] : null;
-    if (lqEv) card.appendChild(eventPanel(st, n.id, lqEv));
-    var lqLive = liveEntryFor(n.id);
-    if (lqLive && st.postMeta[n.id] && st.postMeta[n.id].stream) {
-      card.appendChild(h('div', { class: 'lq-actions' },
-        h('button', { class: 'lq-pill hot', onclick: function () {
-          liveOpen = true;
-          watchStart({ author: lqLive.author, cid: n.id });
-        } }, icon('bolt'), 'Watch · on air')));
-    }
-    var refs = refsOf(st, n.id);
-    if (refs.quotes.length) {
-      var q = refs.quotes[0];
-      var qGone = st.payloads[q] === undefined;
-      card.appendChild(h('div', { class: 'quote-embed' + (qGone ? ' gone' : ''), onclick: function () { if (!qGone) toast('Quoted post by ' + (st.handles[st.creators[q]] || '—') + '.'); } },
-        h('div', { class: 'q-head' }, '↪ ', h('b', {}, qGone ? '[deleted]' : (st.handles[st.creators[q]] || '—'))),
-        h('div', { class: 'q-text', text: qGone ? 'This post was deleted. The reference stays in the record.' : (st.payloads[q] || '').slice(0, 140) })));
-    }
-    if (refs.mentions.length || tags.length) {
-      var tr = h('div', { class: 'lq-tagrow' });
-      refs.mentions.forEach(function (mid) { tr.appendChild(h('span', { class: 'mention-chip', text: '@' + (st.handles[mid] || mid) })); });
-      tags.forEach(function (t) { tr.appendChild(h('span', { class: 'lq-tag', text: t })); });
-      card.appendChild(tr);
-    }
-
-    var comments = commentsOf(st, n.id);
-    if (comments.length) {
-      card.appendChild(commentTree(st, comments, 0, true));
-    }
-
-    var open = null;
-    function toggle(builder) {
-      if (open) { open.remove(); open = null; return; }
-      open = builder();
-      card.appendChild(open);
-    }
-    var actions = h('div', { class: 'lq-actions' });
-    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
-      tryAct(who, { t: 'opinion', author: who, target: n.id, p: 0.8, r: 0.8 }, 'Loved it — you’re now connected to this post.');
-    } }, icon('heart'), 'React'));
-    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
-      toggle(function () {
-        var txt = h('textarea', { class: 'lq-input', placeholder: 'Your comment…' });
-        return h('div', { class: 'lq-sheet' }, txt,
-          h('button', { class: 'lq-pill hot', onclick: function () {
-            if (!txt.value.trim()) { toast('Write your comment first.'); return; }
-            tryAct(who, { t: 'review', author: who, target: n.id, e: 0.7, f: 0.8, text: txt.value.trim() }, 'Comment published.');
-          } }, icon('bubble'), 'Comment'));
-      });
-    } }, icon('bubble'), String(comments.length || '')), ' ');
-    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
-      toggle(function () {
-        var name = h('input', { class: 'lq-input', style: 'width:150px', type: 'text', placeholder: 'tag', maxlength: '20' });
-        return h('div', { class: 'lq-sheet' }, name,
-          h('button', { class: 'lq-pill hot', onclick: function () {
-            var nm = (name.value || '').trim().replace(/^#/, '');
-            if (!nm) { toast('Name the tag first.'); return; }
-            tryAct(who, { t: 'tag', author: who, target: n.id, name: nm, r: 0.8, c: 0.8 }, 'Tagged #' + nm + '.');
-          } }, icon('tag'), 'Tag'));
-      });
-    } }, icon('tag'), 'Tag'));
-    actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
-      composeQuote = n.id;
-      lqView = 'feed'; lqSort = lqSort; render();
-      toast('Quoting — write your post and share. The reference is a priced act of its own.');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } }, icon('bubble'), 'Quote'));
-    if (author && author !== who) {
-      actions.appendChild(h('button', { class: 'lq-pill', onclick: function () {
-        toggle(function () { return lqEndorseSheet(st, author); });
-      } }, icon('star'), 'Back ' + (st.handles[author] || '')));
-    }
-    var ownCtlL = ownPostControls(st, n.id, toggle, false);
-    if (ownCtlL) actions.appendChild(ownCtlL);
-    card.appendChild(actions);
-    return card;
-  }
-
   // ── Own-post controls: edit inside the 5-minute window, delete any time ──
   // The server is the arbiter (its clock stamps ts, its validate enforces the
   // window and authorship); these buttons only show what will be accepted.
@@ -5259,178 +5134,6 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     return box;
   }
 
-  function lqEndorseSheet(st, target) {
-    var s = slider('strength', 0.7, 'lq-range');
-    return h('div', { class: 'lq-sheet' },
-      h('span', { class: 'lq-note', text: 'Backing someone lends them your credibility — it moves your own weight to them.' }),
-      vouchEffect(st, who, target),
-      s.row,
-      h('button', { class: 'lq-pill hot', onclick: function () {
-        var v = Math.max(0.05, s.value());
-        tryAct(who, { t: 'opinion', author: who, target: 'prof_' + target, p: v, r: v },
-          'You backed ' + (st.handles[target] || 'them') + '. Watch their credibility.');
-      } }, icon('star'), 'Back them'));
-  }
-
-  /**
-   * Somebody else's page, in the simple mode — which had none at all.
-   *
-   * renderLiquid dispatched feed / peers / chats / alerts and fell through to
-   * lqYou, so every route led either to a list or to your own wallet. The one
-   * person-shaped surface in the app was the geek drawer, and that is painted
-   * from the geek palette: reusing it here would have dropped a grey panel
-   * into a glass page.
-   *
-   * It calls the same songsOf() and audioPlaylist() the drawer calls, so there
-   * is one implementation of the music and one set of bugs in it.
-   */
-  function lqPerson(st, id) {
-    var box = h('div', {});
-    var l = st.ledgerById[id];
-    if (!l) { lqView = 'peers'; return lqPeers(st); }
-    var prof = (st.profiles && st.profiles[id]) || null;
-    var head = h('div', { class: 'lq-glass lq-card' },
-      h('button', { class: 'lq-pill', text: '← Peers', onclick: function () { lqView = 'peers'; render(); } }),
-      h('div', { class: 'lq-peer', style: 'margin-top:10px' },
-        avatar(id, 'lq-ava'),
-        h('div', { class: 'grow' },
-          h('div', { class: 'lq-name' }, st.handles[id] || id, st.pinHash[id] ? ' \ud83d\udd12' : ''),
-          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, id), 3)))));
-    if (prof && prof.bio) head.appendChild(h('p', { style: 'margin-top:8px' }, prof.bio));
-    if (prof && prof.link) {
-      head.appendChild(h('p', { style: 'margin-top:4px' },
-        h('a', { href: prof.link, target: '_blank', rel: 'noopener noreferrer nofollow', text: prof.link })));
-    }
-    head.appendChild(h('div', { class: 'lq-actions', style: 'margin-top:10px' },
-      h('button', { class: 'lq-pill', onclick: function () { chatPeer = id; lqView = 'chats'; render(); } }, icon('bubble'), 'Chat'),
-      followBtn(st, id)));
-    box.appendChild(head);
-
-    var music = musicSection(st, id, true);
-    if (music) box.appendChild(music);
-
-    // Their posts, newest first — the same card the feed draws, so reacting
-    // here is the same priced act it is anywhere else.
-    var theirs = Object.keys(st.payloads).filter(function (cid) {
-      var meta = st.postMeta[cid];
-      return st.creators[cid] === id && meta && !meta.comment && st.g.nodes.get(cid);
-    }).sort(function (a, b) { return st.postMeta[b].idx - st.postMeta[a].idx; }).slice(0, 20);
-    if (theirs.length) {
-      box.appendChild(h('div', { class: 'lq-glass lq-card' }, h('p', { class: 'eyebrow', text: 'what they published' })));
-      theirs.forEach(function (cid) {
-        var node = st.g.nodes.get(cid);
-        box.appendChild(lqPost(st, node, null));
-      });
-    } else {
-      box.appendChild(h('div', { class: 'lq-glass lq-card' },
-        h('p', { class: 'lq-note', text: 'Nothing on the record from this handle yet — which is not the same as nothing ever: a post that was taken down leaves no trace here by design.' })));
-    }
-    return box;
-  }
-
-  function lqPeers(st) {
-    var box = h('div', { class: 'lq-glass lq-card' }, h('h2', { text: 'Peers' }));
-    st.ledgers.slice().sort(function (a, b) { return credibility(st, b.id) - credibility(st, a.id); }).forEach(function (l) {
-      if (l.deleted) return;
-      var row = h('div', { class: 'lq-peer' },
-        avatar(l.id, 'lq-ava s'),
-        h('div', { class: 'grow' },
-          h('div', { class: 'lq-name' }, st.handles[l.id] + (l.id === who ? ' (you)' : ''), ' ', deltaChip(l.id, st)),
-          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, l.id), 3),
-            st.pinHash[l.id] ? h('span', { class: 'lq-sub', text: ' · secured' }) : null)));
-      if (l.id !== who) {
-        var open = null;
-        // The name opens their page. There was no way to reach one from here:
-        // the row offered a chat and an endorsement and nothing that said who
-        // this person is or what they have made.
-        row.querySelector('.lq-name').style.cursor = 'pointer';
-        row.querySelector('.lq-name').addEventListener('click', function () {
-          lqPersonId = l.id; lqView = 'person'; render();
-        });
-        row.appendChild(h('button', { class: 'lq-pill', onclick: function () { chatPeer = l.id; lqView = 'chats'; render(); } }, icon('bubble'), ''));
-        row.appendChild(h('button', { class: 'lq-pill', onclick: function () {
-          if (open) { open.remove(); open = null; return; }
-          open = lqEndorseSheet(st, l.id);
-          box.insertBefore(open, row.nextSibling);
-        } }, icon('star'), 'Back'));
-      }
-      box.appendChild(row);
-    });
-    box.appendChild(h('p', { class: 'lq-note', style: 'margin-top:10px', text: 'Credibility isn’t likes — it’s the commitment of the people backing you, weighted by how much they’ve put in themselves.' }));
-    return box;
-  }
-
-  /**
-   * Your own page in the simple mode. It was an account-and-wallet screen: it
-   * knew your balances and nothing about what you had made or what you were
-   * going to. It carries the same three sections the geek Profile tab does,
-   * built from the same functions — the events lanes, the music, the guide —
-   * so there is one implementation of each and one set of bugs in it.
-   */
-  function lqYou(st) {
-    var me = st.ledgerById[who];
-    var w = st.l0.bal(who);
-    var box = h('div', {});
-    var warn = wallBanner(st, who, true);
-    if (warn) box.appendChild(h('div', { class: 'lq-glass lq-card' }, warn));
-    box.appendChild(h('div', { class: 'lq-glass lq-card' },
-      h('div', { style: 'display:flex; align-items:center; gap:12px' },
-        avatar(who, 'lq-ava'),
-        h('div', {},
-          h('div', { class: 'lq-name', style: 'font-size:17px', text: st.handles[who] }),
-          h('span', { class: 'lq-cred' }, icon('star'), fmt(credibility(st, who), 4),
-            st.pinHash[who] ? h('span', { class: 'lq-sub', text: ' · PIN-secured' }) : null))),
-      h('div', { class: 'lq-stat-row' },
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(me.burnBal, 2) }), 'energy'),
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: String(me.actCount) }), 'actions'),
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) }), 'actions left')),
-      h('div', { class: 'lq-stat-row' },
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.live, 2) }), 'credits'),
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.tlock, 2) }), 'locked'),
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(w.reserve, 2) }), 'reserve'),
-        h('span', { class: 'lq-stat' }, h('b', { class: 'num', text: fmt(st.l0.floor(), 3) }), 'floor φ')),
-      h('div', { class: 'lq-actions' },
-        h('button', { class: 'lq-pill hot', onclick: function () { burnDialog(); } },
-          icon('bolt'), 'Burn bitcoin \u2192 energy'),
-        h('button', { class: 'lq-pill', text: 'Switch identity', onclick: function () { who = null; save(); render(); } }),
-        h('button', { class: 'lq-pill', text: st.pinHash[who] ? 'Change PIN' : 'Set a PIN', onclick: function () { setPinFlow(st, !!st.pinHash[who]); } }),
-        h('button', { class: 'lq-pill', text: 'Delete account', onclick: function () { deleteAccountFlow(st); } })),
-      h('p', { class: 'lq-note', text: 'Energy is real destruction: you deposit reserve, receive receipt credits at the cycle mint, and burning a credit destroys it forever — that irreversible loss is what your influence is made of. Geek mode → Economy shows the full machinery.' })));
-    // The lane bar in a glass card, the cards themselves loose beneath it —
-    // an lq-card inside an lq-card is a box in a box.
-    var lqEvents = eventLanes(st, true);
-    var lqEvHead = lqEvents.firstChild;
-    lqEvents.removeChild(lqEvHead);
-    box.appendChild(h('div', { class: 'lq-glass lq-card' }, lqEvHead));
-    box.appendChild(lqEvents);
-
-    var lqMusic = musicSection(st, who, true);
-    if (lqMusic) box.appendChild(lqMusic);
-
-    var mine = Object.keys(st.payloads).filter(function (cid) {
-      var meta = st.postMeta[cid];
-      return st.creators[cid] === who && meta && !meta.comment && st.g.nodes.get(cid);
-    }).sort(function (a, b) { return st.postMeta[b].idx - st.postMeta[a].idx; });
-    if (mine.length) {
-      box.appendChild(h('div', { class: 'lq-glass lq-card' },
-        h('p', { class: 'eyebrow', text: 'what you published · ' + mine.length })));
-      mine.slice(0, 20).forEach(function (cid) {
-        box.appendChild(lqPost(st, st.g.nodes.get(cid), null));
-      });
-    }
-
-    // The guide, in the simple mode too — the same one, closed.
-    var lqGuide = h('details', {}, h('summary', { class: 'eyebrow', style: 'cursor:pointer', text: 'the guide — how any of this works' }));
-    lqGuide.appendChild(guideTab(st));
-    box.appendChild(h('div', { class: 'lq-glass lq-card' }, lqGuide));
-
-    box.appendChild(h('div', { class: 'lq-glass lq-card' },
-      h('h2', { text: 'Under the hood' }),
-      h('p', { class: 'lq-note', text: 'This whole app runs a formally specified protocol — every number you see is replayable mathematics. The geek view exposes the machinery: tensors on every edge, the trust-transport solve, epoch gates, the live network graph.' }),
-      h('button', { class: 'lq-pill', style: 'margin-top:8px', text: 'Open geek mode', onclick: function () { setMode('geek'); } })));
-    return box;
-  }
-
   // ═══ GEEK FRONTEND (the Layer-1 lab) ═══
   function renderOnboard(st) {
     var input = h('input', { placeholder: 'pick a handle', maxlength: '16' });
@@ -5529,7 +5232,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var say = function (t, cls) { log.appendChild(h('div', { class: cls || 'smallnote', text: t })); };
     box.appendChild(h('b', { text: 'Burn bitcoin to get reserve' }));
     box.appendChild(h('div', { class: 'smallnote', style: 'margin-top:6px',
-      text: 'Reserve is what every act is debited from, and the only way to get it is to destroy bitcoin at an address with no key. Nobody receives it — not the operator, not the network. That is what makes it cost something.' }));
+      text: 'Reserve is what every act is debited from, and the only way to get it is to destroy bitcoin at an address with no key. Nobody receives it — not the operator, not the network. That is what makes it cost something. Once you have started a burn you can close this: the host watches the address and credits it when it confirms.' }));
     var amt = h('input', { type: 'text', value: '2000', style: 'width:110px', inputmode: 'numeric' });
     // Satoshi counts are unreadable at a glance - 2000 and 20000 look alike,
     // and the difference is a factor of ten in real money. The bitcoin figure
@@ -5548,9 +5251,75 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var addrLine = h('div', { class: 'smallnote mono', style: 'margin-top:8px; word-break:break-all' });
     box.appendChild(addrLine);
     var actions = h('div', { class: 'row', style: 'margin-top:10px' });
-    box.appendChild(actions); box.appendChild(log);
+    var orphans = h('div', { style: 'margin-top:10px' });
+    box.appendChild(actions); box.appendChild(orphans); box.appendChild(log);
     actions.appendChild(h('button', { class: 'btn small', text: 'Close', onclick: function () { box.remove(); } }));
     document.body.appendChild(box);
+
+    // Tell the host which burn is ours BEFORE the wallet signs anything. This
+    // is what makes the rest of it optional: the host watches the address and
+    // credits the transaction when it confirms, so closing this panel, this
+    // tab or this laptop costs nothing. It used to cost the whole burn — the
+    // claim was filed by a timer on this page, and a page that is gone files
+    // nothing while the bitcoin stays destroyed.
+    // Through withUnlock, because the PIN lives in sessionStorage and is gone
+    // after a browser restart while the handle is not. Without it, pressing
+    // "this one is mine" on a burn you really made would answer "wrong or
+    // missing PIN" and leave the burn sitting there — a locked session is the
+    // normal state the morning after, which is exactly when somebody comes
+    // back to collect a burn from the night before.
+    function fileIntent(body, then) {
+      return new Promise(function (resolve) {
+        withUnlock(function () {
+          var b = { id: who, auth: pins[who] || '' };
+          for (var k in body) if (Object.prototype.hasOwnProperty.call(body, k)) b[k] = body[k];
+          fetch(API + '/api/burn/intent', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(b) })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (x) {
+              if (!x.ok) { say('the host will not watch for this: ' + (x.d.error || 'refused'), 'bad'); resolve(null); return; }
+              if (x.d.credited) { say('RECORDED — ' + x.d.credited.sats + ' sat, credited to you.', 'ok'); pollRemote(); }
+              else say('The host is watching the address for this burn. It is credited when the transaction confirms, whether or not this page is open.', 'ok');
+              if (then) then(x.d);
+              resolve(x.d);
+            })
+            .catch(function () { say('could not reach the host to register the burn', 'bad'); resolve(null); });
+        }, function () {
+          say('Not registered — the session is still locked, so nothing here can prove the burn is yours.', 'bad');
+          resolve(null);
+        });
+      });
+    }
+
+    // Burns the chain has and the log has not. Every one of these is somebody
+    // who destroyed real money and got nothing, which is the failure this
+    // whole panel now exists to make impossible — so it is shown at the top,
+    // not buried, and one press is enough to end it. The burns of strangers
+    // are here too: the address is public and so is its history. Pressing
+    // "this one is mine" on one of them is a lie the log would carry with the
+    // txid attached, so it is a lie anybody can check.
+    function showOrphans() {
+      fetch(API + '/api/burn/pending', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (p) {
+          orphans.textContent = '';
+          if (!p || !p.unclaimed || !p.unclaimed.length) return;
+          orphans.appendChild(h('div', { class: 'smallnote', style: 'margin-bottom:6px',
+            text: 'Burns on this address that the network has not recorded — if one is yours, take it:' }));
+          p.unclaimed.forEach(function (t) {
+            var row = h('div', { class: 'row', style: 'align-items:center; gap:8px; margin-top:4px' });
+            row.appendChild(h('span', { class: 'smallnote mono',
+              text: t.sats + ' sat (' + (t.sats / 1e8).toFixed(8) + ' BTC) · ' + t.txid.slice(0, 12) + '…'
+                + (t.confirmed ? '' : ' · unconfirmed') }));
+            row.appendChild(h('button', { class: 'btn small', text: 'This one is mine', onclick: function () {
+              fileIntent({ txid: t.txid }, function () { showOrphans(); });
+            } }));
+            row.appendChild(h('a', { class: 'smallnote', target: '_blank', rel: 'noopener',
+              href: 'https://mempool.space/tx/' + t.txid, text: 'check it' }));
+            orphans.appendChild(row);
+          });
+        }).catch(function () { /* an older host with no watcher; nothing to show */ });
+    }
 
     fetch(API + '/api/burn', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(async function (info) {
       if (!info || !info.accepting) { say('This host is not accepting burns.', 'bad'); return; }
@@ -5559,6 +5328,7 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         navigator.clipboard.writeText(info.address); say('address copied');
       } });
       actions.insertBefore(copy, actions.firstChild);
+      showOrphans();
       var from = null;
       try { from = await mmConnectBtc(); } catch (e) { /* declined or absent */ }
       // MetaMask did not answer here. That is usually not a missing wallet:
@@ -5570,45 +5340,83 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       // gets the same MetaMask that is missing here, and is handed the handle,
       // the PIN and the amount so it can start the moment it opens: one click
       // from here, one signature there, and the claim files itself.
-      var local = 'http://127.0.0.1:8899/burn.html?auto=1&id=' + encodeURIComponent(who)
-        + '&sats=' + encodeURIComponent(String(parseInt(amt.value, 10) || 2000))
-        + (pins[who] ? '&pin=' + encodeURIComponent(pins[who]) : '');
+      // Both paths used to be built unconditionally, and the last line then
+      // read `from.slice(...)` on a null. So a machine without the extension
+      // was offered a "Send with MetaMask" button that could not work, and
+      // the TypeError fell into the outer catch and printed "could not reach
+      // the host" \u2014 an error about the network, on a page whose network was
+      // fine. Ask first, then offer exactly one of them.
+      if (!from) buildHandoff(); else buildWallet();
+
+      function buildHandoff() {
       var openLocal = h('button', { class: 'btn small primary', text: 'One-click burn (opens locally) \u2192', onclick: function () {
-        window.open(local, '_blank', 'noopener');
+        var sats = parseInt(amt.value, 10) || 2000;
+        // The intent goes in first, from THIS page, where the PIN already is.
+        // Then the amount is spoken for whichever way the coins actually
+        // leave: the local page, a phone wallet, a hand-typed address.
+        fileIntent({ sats: sats });
+        window.open('http://127.0.0.1:8899/burn.html?auto=1&id=' + encodeURIComponent(who)
+          + '&sats=' + encodeURIComponent(String(sats))
+          + (pins[who] ? '&pin=' + encodeURIComponent(pins[who]) : ''), '_blank', 'noopener');
       } });
       actions.insertBefore(openLocal, actions.firstChild);
-      say('MetaMask cannot sign from this page \u2014 the extension only reaches http origins, and this one is https. The button above opens the same burn on your own machine, already filled in, where the wallet can sign it.');
+      // Why the wallet is not here, said accurately for this page rather than
+      // for the one case it used to assume.
+      say(location.protocol === 'https:'
+        ? 'MetaMask cannot sign from this page \u2014 the extension only reaches http origins, and this one is https. The button above opens the same burn on your own machine, already filled in, where the wallet can sign it.'
+        : 'No wallet answered on this page. The button above opens the same burn on your own machine, already filled in, where an extension can sign it.');
       say('If nothing opens, the local server is not running. Start it with:  node chain-l2/serve-deploy.mjs');
-      say('Or send the amount above to that address from any wallet \u2014 the host credits it once it confirms, whoever sent it.');
+      say('Or send the amount above to that address from any wallet. Press the button first either way: it tells the host to expect that amount, and the host credits it when it confirms without anything staying open here.');
+      }
+
+      function buildWallet() {
       var send = h('button', { class: 'btn small primary', text: 'Send with MetaMask', onclick: async function () {
         send.disabled = true;
         var sats = parseInt(amt.value, 10);
         if (!(sats > 0)) { say('amount must be a positive number of satoshi', 'bad'); send.disabled = false; return; }
+        // Before the signature, not after it. Between "send" and "sent" is
+        // exactly where a wallet can hang, a page can be closed and a burn
+        // can go missing; the host is told what to expect while nothing has
+        // happened yet, and an intent that never matches expires by itself.
+        var filed = await fileIntent({ sats: sats, from: from });
+        // A locked session can file neither an intent nor a claim, so a burn
+        // sent from one is money destroyed that nothing can attribute. Refuse
+        // to start it rather than let the wallet succeed and the network never
+        // hear about it.
+        if (sessionLocked()) { send.disabled = false; return; }
         say('MetaMask will ask you to confirm — check the address before approving.');
         try {
           var res = await mmRpc('wallet_invokeMethod', { scope: BTC_SCOPE, request: { method: 'sendTransfer', params: {
             account: { address: from }, recipients: [{ address: info.address, amount: String(sats) }] } } }, 300000);
           var txid = res && res.txid;
           say('sent: ' + txid, 'ok');
-          say('Waiting for confirmations, then the network records it. You can close this.');
-          // Retry the claim until the host stops saying it is unconfirmed.
-          var tries = 0;
-          var iv = setInterval(function () {
-            tries++;
-            if (tries > 120) { clearInterval(iv); return; }
-            fetch(API + '/api/burn/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: who, txid: txid, auth: pins[who] || '' }) })
-              .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-              .then(function (x) {
-                if (x.ok) { clearInterval(iv); say('RECORDED — ' + x.d.sats + ' sat, credited to you.', 'ok'); pollRemote(); }
-                else if (!/not confirmed/.test(x.d.error || '')) { clearInterval(iv); say(x.d.error || 'refused', 'bad'); }
-              }).catch(function () { /* keep waiting */ });
-          }, 30000);
+          // Naming the transaction is better than describing it, so the exact
+          // txid replaces the amount-and-wallet guess now that there is one.
+          if (txid) filed = (await fileIntent({ txid: txid, sats: sats, from: from })) || filed;
+          // Said only when it is true. The reassurance used to be printed
+          // unconditionally, so a refused filing — a locked session, a host
+          // that had not been restarted — ended with "you can close this
+          // page" over a burn nothing was watching for. The bitcoin is gone
+          // by this point; the one thing left that can save it is the person
+          // reading this line not closing the tab.
+          if (filed) say('Recorded when it confirms — you can close this page, the host does the rest.');
+          else {
+            say('NOT registered — do NOT close this page. The bitcoin is destroyed and no host is watching for it.', 'bad');
+            if (txid) {
+              say('txid: ' + txid + ' — keep it. Anything that can file it later still works.');
+              actions.insertBefore(h('button', { class: 'btn small primary', text: 'Register this burn again', onclick: function () {
+                fileIntent({ txid: txid, sats: sats, from: from });
+              } }), actions.firstChild);
+            }
+          }
         } catch (e) { say('not sent: ' + (e.message || e), 'bad'); send.disabled = false; }
       } });
       actions.insertBefore(send, actions.firstChild);
       say('MetaMask can send from ' + from.slice(0, 10) + '…' + from.slice(-6), 'ok');
-    }).catch(function () { say('could not reach the host', 'bad'); });
+      }
+      // Named, not guessed at. The old wording blamed the host for whatever
+      // went wrong in here, including the bug directly above it.
+    }).catch(function (e) { say('the burn panel failed: ' + ((e && e.message) || e), 'bad'); });
   }
   function renderGeek(st) {
     var me = st.ledgerById[who];
@@ -5653,6 +5461,11 @@ button, .btn, .lq-pill { touch-action: manipulation; }
           return b;
         })()),
       h('div', { class: 'switcher' },
+        // The guide used to be reachable only by opening the Profile tab,
+        // scrolling past your own posts and unfolding a <details>. It is the
+        // only thing on the page that explains the page.
+        h('button', { class: 'btn small', text: '? guide', title: 'What every number on this screen means',
+          onclick: function () { infoWin(null); } }),
         h('button', { class: 'btn small', text: '✨ simple mode', onclick: function () { setMode('liquid'); } }),
         sel,
         h('button', { class: 'btn small ghost', text: '+ account', onclick: function () { who = null; save(); render(); } }))));
@@ -5683,7 +5496,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       //  phones — CSS shows exactly one of the two copies per breakpoint)
       h('div', { class: 'geek-center' }, center),
       h('div', { class: 'rail rail-right' }, idCard(st, me, myX, rate), railPane(st))));
-    shell.appendChild(h('p', { class: 'footer-note', text: 'Peer sandbox · chartered constants θ ' + fmt(THETA, 4) + ' · ν ' + NU + ' · wall ' + fmt(SAFE_FLOOR, 3) + ' · door ' + PART_FLOOR + ' · depth 4' }));
+    shell.appendChild(h('p', { class: 'footer-note' }, 'Peer sandbox · chartered constants ',
+      term('theta', 'θ'), ' ' + fmt(THETA, 4) + ' · ', term('nu', 'ν'), ' ' + NU + ' · ',
+      term('wall', 'wall'), ' ' + fmt(SAFE_FLOOR, 3) + ' · ', term('door', 'door'), ' ' + PART_FLOOR + ' · ',
+      term('horizon', 'depth'), ' 4'));
     root.appendChild(shell);
   }
 
@@ -5757,17 +5573,17 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       wallBanner(st, who),
       h('div', { class: 'who' }, avatar(who),
         h('div', {}, h('div', { class: 'handle', text: st.handles[who] + (st.pinHash[who] ? ' 🔒' : '') }),
-          h('span', { class: 'standing-chip', text: 'standing ' + fmt(NU * myX, 4) }), ' ', deltaChip(who, st))),
+          h('span', { class: 'standing-chip' }, term('standing', 'standing'), ' ' + fmt(NU * myX, 4)), ' ', deltaChip(who, st))),
       h('div', { class: 'gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
       h('dl', { class: 'ledger' },
-        h('dt', { text: 'reserve' }), h('dd', { class: 'num', text: fmt(me.burnBal, 3) }),
-        h('dt', { text: 'acts N' }), h('dd', { class: 'num', text: String(me.actCount) }),
-        h('dt', { text: 'rate burn/N' }), h('dd', { class: 'num', text: fmt(rate, 3) }),
-        h('dt', { text: 'reduced x*' }), h('dd', { class: 'num', text: fmt(myX, 3) }),
-        h('dt', { text: 'acts affordable' }), h('dd', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) })),
+        h('dt', {}, term('reserve')), h('dd', { class: 'num', text: fmt(me.burnBal, 3) }),
+        h('dt', {}, term('acts')), h('dd', { class: 'num', text: String(me.actCount) }),
+        h('dt', {}, term('rate', 'rate burn/N')), h('dd', { class: 'num', text: fmt(rate, 3) }),
+        h('dt', {}, term('x')), h('dd', { class: 'num', text: fmt(myX, 3) }),
+        h('dt', {}, term('affordable')), h('dd', { class: 'num', text: String(Math.floor(me.burnBal / THETA)) })),
       h('div', { style: 'margin-top:8px' },
-        h('span', { class: 'gate ' + (wallPass ? 'pass' : 'fail'), text: 'W2a wall' }),
-        h('span', { class: 'gate ' + (me.burnBal >= THETA ? 'pass' : 'fail'), text: 'W1 solvent' })),
+        h('span', { class: 'gate ' + (wallPass ? 'pass' : 'fail') }, term('wall', 'W2a wall')),
+        h('span', { class: 'gate ' + (me.burnBal >= THETA ? 'pass' : 'fail') }, term('w1', 'W1 solvent'))),
       h('div', { style: 'margin-top:10px' },
         h('button', { class: 'btn small primary', text: 'Burn bitcoin \u2192', onclick: function () { burnDialog(); } }),
         // Burn stays here — it is needed on every screen, mid-sentence, when a
@@ -5775,7 +5591,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
         // Profile tab now; two copies of Delete account is one too many.
         h('button', { class: 'btn small', text: '\u2699 Settings', onclick: function () { settingsDrawer(); } }),
         h('button', { class: 'btn small ghost', text: 'Profile →', onclick: function () { tab = 'profile'; saveView(); render(); } })),
-      h('p', { class: 'smallnote', text: 'Every act costs θ and raises N — acting dilutes your rate. Endorsements transport rates; nothing mints standing.' }));
+      h('p', { class: 'smallnote' }, 'Every act costs ', term('theta', 'θ'), ' and raises N — acting dilutes your ',
+        term('rate'), '. Endorsements transport rates; nothing mints ', term('standing'), '.'));
   }
 
   /**
@@ -6837,8 +6654,8 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     if (f.newest) {
       card.appendChild(h('div', { class: 'mech', text: 'append #' + n.id.slice(1) + ' — chronological view, unranked' }));
     } else if (f.cogra) {
-      var mech = h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.cogra.S, 4) }),
-        '  =  Σ over ' + f.cogra.paths.length + ' disjoint path' + (f.cogra.paths.length === 1 ? '' : 's'));
+      var mech = h('div', { class: 'mech' }, term('cogra', 'S'), ' ', h('b', { text: fmt(f.cogra.S, 4) }),
+        '  =  Σ over ' + f.cogra.paths.length + ' ', term('disjoint', 'disjoint path' + (f.cogra.paths.length === 1 ? '' : 's')));
       card.appendChild(mech);
       f.cogra.paths.forEach(function (p) {
         card.appendChild(h('div', { class: 'mech', style: 'margin-top:2px' },
@@ -6847,9 +6664,10 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       });
     } else {
       card.appendChild(f.relevance > 0
-        ? h('div', { class: 'mech' }, 'S ', h('b', { text: fmt(f.relevance, 3) }),
-            '  =  W ' + fmt(f.bfsWeight, 3) + ' · amp ' + fmt(f.amplifier, 2) + ' · ‖T‖ ' + fmt(f.contentNorm, 2))
-        : h('div', { class: 'mech', text: 'no BFS path from you yet — act to connect' }));
+        ? h('div', { class: 'mech' }, term('S', 'S'), ' ', h('b', { text: fmt(f.relevance, 3) }),
+            '  =  ', term('W', 'W'), ' ' + fmt(f.bfsWeight, 3) + ' · ', term('amp', 'amp'), ' ' + fmt(f.amplifier, 2) + ' · ',
+            term('tnorm', '‖T‖'), ' ' + fmt(f.contentNorm, 2))
+        : h('div', { class: 'mech' }, 'no path from you yet — act to connect, or read about ', term('horizon', 'your horizon')));
     }
     if (f.relevance > 0) card.appendChild(h('div', { class: 'rankbar' }, h('i', { style: 'width:' + Math.max(3, (100 * Math.abs(f.relevance)) / maxRel) + '%' })));
 
@@ -8560,11 +8378,16 @@ button, .btn, .lq-pill { touch-action: manipulation; }
       ['backed', 'Most backed', 'by reactions — commitment spent, not attention'],
     ];
     var card = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'Sorting' }));
+    // No term() inside the option rows: each row is itself a <button>, and a
+    // button inside a button is invalid and stops responding to clicks. One
+    // link out, underneath, instead.
     MODES.forEach(function (m) {
       card.appendChild(h('button', { class: 'rail-opt' + (feedMode === m[0] ? ' on' : ''), 'aria-pressed': feedMode === m[0] ? 'true' : 'false',
         onclick: function () { feedMode = m[0]; feedLimit = 30; saveView(); render(); } },
         h('b', { text: m[1] }), h('span', { class: 'smallnote', text: m[2] })));
     });
+    card.appendChild(h('button', { class: 'btn small ghost', style: 'margin-top:8px',
+      text: 'What these orders mean →', onclick: function () { infoWin('The left rail: search, order, filters'); } }));
     return card;
   }
 
@@ -8708,12 +8531,12 @@ button, .btn, .lq-pill { touch-action: manipulation; }
     var dActs = Object.keys(st.deltaActs).reduce(function (s, k) { return s + st.deltaActs[k]; }, 0);
     var gates = E.evaluateGates(st.ledgers, st.solved.x, st.dmap);
     return h('div', { class: 'card' },
-      h('h2', { text: 'Epoch ' + st.epochNow }),
+      h('h2', {}, term('epoch', 'Epoch'), ' ' + st.epochNow),
       h('p', { class: 'smallnote' }, dActs + ' act' + (dActs === 1 ? '' : 's') + ' pending · projected stamp ',
-        h('span', { class: 'num', text: dActs ? fmt(gates.epochStamp, 3) : '—' }), ' vs door ' + PART_FLOOR),
+        h('span', { class: 'num', text: dActs ? fmt(gates.epochStamp, 3) : '—' }), ' vs ', term('door', 'door'), ' ' + PART_FLOOR),
       h('div', {},
-        h('span', { class: 'gate ' + (gates.w2bPass ? 'pass' : 'fail'), text: 'W2b door' }),
-        h('span', { class: 'gate ' + (gates.w2a.every(function (x) { return x.pass; }) ? 'pass' : 'fail'), text: 'W2a wall' })),
+        h('span', { class: 'gate ' + (gates.w2bPass ? 'pass' : 'fail') }, term('door', 'W2b door')),
+        h('span', { class: 'gate ' + (gates.w2a.every(function (x) { return x.pass; }) ? 'pass' : 'fail') }, term('wall', 'W2a wall'))),
       h('button', { class: 'btn', style: 'margin-top:8px', text: 'Close epoch ' + st.epochNow, onclick: function () {
         var stNow = replay();
         Object.keys(stNow.xById).forEach(function (id) { prevX[id] = stNow.xById[id]; });

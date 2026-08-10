@@ -1408,6 +1408,16 @@ if (BURN_ADDRESS_RAW) {
 // How many confirmations before a burn counts. Unconfirmed transactions can
 // be replaced; a burn that could be un-burned is not a burn.
 const BURN_MIN_CONF = Math.max(1, Number(process.env.PEER_BURN_MIN_CONF) || 2);
+// The two explorers, as configuration. They were hard-coded, which meant the
+// verification path could only ever be exercised against the real internet —
+// so the one piece of code that decides whether money was destroyed was the
+// one piece no test could reach.
+// De-duplicated, because the check below counts sources and a list that says
+// the same explorer twice would satisfy "two independent explorers agree" by
+// agreeing with itself.
+const BURN_EXPLORERS = [...new Set((process.env.PEER_BURN_EXPLORERS
+  ?? 'https://blockstream.info/api,https://mempool.space/api')
+  .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean))];
 
 /**
  * Verify that a transaction really destroyed value, by asking two independent
@@ -1423,10 +1433,10 @@ const BURN_MIN_CONF = Math.max(1, Number(process.env.PEER_BURN_MIN_CONF) || 2);
  * against their own node.
  */
 async function verifyBurnTx(txid) {
-  const sources = [
-    'https://blockstream.info/api/tx/' + txid,
-    'https://mempool.space/api/tx/' + txid,
-  ];
+  if (BURN_EXPLORERS.length < 2) {
+    return { ok: false, why: 'this host has fewer than two block explorers configured, and one explorer is not a check — nothing was recorded' };
+  }
+  const sources = BURN_EXPLORERS.map((b) => b + '/tx/' + txid);
   const seen = [];
   for (const u of sources) {
     let r;
@@ -1460,7 +1470,363 @@ async function verifyBurnTx(txid) {
   if (!seen[0].confirmed || !seen[1].confirmed) {
     return { ok: false, why: 'that transaction is not confirmed yet — an unconfirmed burn can still be replaced, so it does not count until it is mined' };
   }
+  // Depth, not merely "mined". /api/burn has always announced two
+  // confirmations and this function only ever checked for one, so the number
+  // in the documentation was a wish. A one-deep block is exactly the block a
+  // reorg takes back, which is the whole reason the threshold exists.
+  if (BURN_MIN_CONF > 1) {
+    // Which block, settled the same way as what it paid: by agreement. The
+    // first version read the height from source 0 alone and skipped the check
+    // entirely when that field was missing — so one explorer, or one absent
+    // field, could hand back the depth threshold that two explorers exist to
+    // make unfalsifiable.
+    if (!seen[0].height || !seen[1].height) {
+      return { ok: false, why: 'an explorer called that transaction confirmed without saying which block it is in — refusing to count confirmations on that' };
+    }
+    if (seen[0].height !== seen[1].height) {
+      return { ok: false, why: 'the explorers disagree about which block that transaction is in — refusing to record it' };
+    }
+    const tip = await chainTip();
+    if (tip == null) {
+      return { ok: false, why: 'could not read the chain tip to count confirmations — try again shortly' };
+    }
+    const depth = tip - seen[0].height + 1;
+    if (depth < BURN_MIN_CONF) {
+      return { ok: false, why: 'that transaction is ' + depth + ' block' + (depth === 1 ? '' : 's')
+        + ' deep and this host waits for ' + BURN_MIN_CONF + ' — a burn that a reorg could take back is not a burn yet' };
+    }
+  }
   return { ok: true, sats: seen[0].sats, height: seen[0].height };
+}
+
+/**
+ * The current block height — the LOWEST that at least two explorers report.
+ *
+ * Taking the first answer would have left the depth threshold resting on one
+ * source: a tip inflated by ten blocks makes a one-deep burn look buried, and
+ * the whole point of counting confirmations is that it cannot be talked into
+ * a wrong answer by one party. The minimum is the conservative direction — a
+ * lagging explorer can only ever make this host wait longer.
+ */
+async function chainTip() {
+  const heights = [];
+  for (const b of BURN_EXPLORERS) {
+    try {
+      const r = await fetch(b + '/blocks/tip/height', { signal: AbortSignal.timeout(15_000) });
+      if (!r.ok) continue;
+      const n = Number((await r.text()).trim());
+      if (Number.isFinite(n) && n > 0) heights.push(n);
+    } catch { /* try the next one */ }
+  }
+  return heights.length >= 2 ? Math.min(...heights) : null;
+}
+
+// ── The watcher ────────────────────────────────────────────────────────────
+//
+// Burning was two steps and only the first one was real. The coins left the
+// wallet the moment the wallet signed; the reserve appeared only if a browser
+// tab stayed open long enough to poll for confirmations and file the claim.
+// Close the laptop, lose the tunnel, sign from MetaMask's own screen — the
+// bitcoin was destroyed and the network never heard about it. Two real burns
+// sat on the address unclaimed for four days, which is how this got written.
+//
+// So the host watches the address itself. What it cannot do is guess WHOSE a
+// payment is: an output pays a script, not a handle, and there is nothing in
+// a Bitcoin transaction that says "ender". That is what an intent is for —
+// the handle says, with its PIN, "a burn of N satoshi, from this address, is
+// mine", and the watcher credits the matching transaction whenever it lands,
+// with nobody watching. An intent is filed BEFORE the send by the app, or
+// afterwards for a burn already on the chain; both work, because the intent
+// is a statement about a payment, not a permission to make one.
+//
+// What the watcher will never do is credit a transaction that matches no
+// intent. Four of the six burns at that address were made by strangers before
+// this network existed. They stay exactly where they are.
+const INTENTS = resolve(DATA_DIR, 'burn-intents.json');
+// How far back an intent may reach for a burn already on the chain. A week
+// covers "I sent it, then the tab died, then it was the weekend".
+const BURN_LOOKBACK_MS = Math.max(1, Number(process.env.PEER_BURN_LOOKBACK_HOURS) || 168) * 3600_000;
+// How long an unmatched intent stays open. Without a limit, an intent for
+// 2000 sat filed today would silently adopt an unrelated 2000-sat burn made
+// next month.
+const BURN_INTENT_TTL_MS = Math.max(1, Number(process.env.PEER_BURN_INTENT_TTL_HOURS) || 48) * 3600_000;
+const BURN_WATCH_MS = Math.max(15_000, Number(process.env.PEER_BURN_WATCH_INTERVAL) || 90_000);
+
+let intents = [];
+try { intents = JSON.parse(readFileSync(INTENTS, 'utf8')); } catch { intents = []; }
+if (!Array.isArray(intents)) intents = [];
+function saveIntents() {
+  try { writeFileSync(INTENTS, JSON.stringify(intents, null, 2), 'utf8'); }
+  catch (e) { console.error('[burn] could not persist burn-intents.json: ' + e.message); }
+}
+/**
+ * Does this handle exist?
+ *
+ * Through the replay when the engine bundle is loaded, and through the log
+ * itself when it is not. The burn doors used to ask `engineMod && replayMod`
+ * and skip the question entirely when the answer was no — which is every
+ * request before something else has warmed the engine. A burn credited to a
+ * handle nobody registered is a burn nobody can ever spend.
+ */
+function handleExists(id) {
+  if (engineMod && replayMod) {
+    if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
+    if (stateCache.len !== acts.length || !stateCache.st) {
+      stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
+    }
+    return !!stateCache.st.ledgerById[id];
+  }
+  // isRegistered, not a hand-rolled scan for a register act: the four seed
+  // actors exist through acts[0] = {t:'seedWorld'} and have no register act of
+  // their own, so a scan refuses their burns while the replay accepts them —
+  // the same door answering differently depending on whether the engine
+  // bundle happened to be warm.
+  return isRegistered(id);
+}
+
+/** Every txid already in the log. The log is the authority on what is paid. */
+function claimedTxids() {
+  const s = new Set();
+  for (const a of acts) if (a && a.t === 'btcBurn' && a.txid) s.add(a.txid);
+  return s;
+}
+
+/**
+ * Every transaction that has paid the dead address, with the addresses that
+ * paid it — the one fact that ties a burn to a wallet the sender controls.
+ *
+ * One explorer is enough HERE, because this only proposes candidates:
+ * verifyBurnTx re-checks the winner against both before a satoshi is
+ * credited. A lying explorer can therefore waste a request and nothing else.
+ */
+const burnTxCache = { at: 0, list: null, inflight: null };
+const BURN_TX_CACHE_MS = Math.max(0, Number(process.env.PEER_BURN_TX_CACHE_MS ?? 20_000));
+
+/**
+ * The candidate list for READERS. GET /api/burn/pending is public and calls
+ * this on every request, so without a memo one anonymous caller in a loop
+ * turns this host into a request amplifier pointed at somebody else's
+ * explorer — and that explorer's rate limit, once hit, stops burns being
+ * credited for everyone. In-flight requests are coalesced too, or a burst
+ * arriving in the same second all miss the cache together.
+ *
+ * The watcher does NOT read this. Showing somebody a list that is twenty
+ * seconds old costs nothing; deciding who owns a burn from one is a different
+ * thing entirely, and the tick pays for a fresh answer every time.
+ */
+async function burnAddressTxs() {
+  const now = Date.now();
+  if (burnTxCache.list && now - burnTxCache.at < BURN_TX_CACHE_MS) return burnTxCache.list;
+  if (burnTxCache.inflight) return burnTxCache.inflight;
+  burnTxCache.inflight = burnAddressTxsFresh().then((list) => {
+    if (list) { burnTxCache.list = list; burnTxCache.at = Date.now(); }
+    burnTxCache.inflight = null;
+    return list;
+  }, (e) => { burnTxCache.inflight = null; throw e; });
+  return burnTxCache.inflight;
+}
+
+async function burnAddressTxsFresh() {
+  for (const b of BURN_EXPLORERS) {
+    let txs;
+    try {
+      const r = await fetch(b + '/address/' + BURN_ADDRESS + '/txs', { signal: AbortSignal.timeout(15_000) });
+      if (!r.ok) continue;
+      txs = await r.json();
+    } catch { continue; }
+    if (!Array.isArray(txs)) continue;
+    return txs.map((t) => {
+      let sats = 0;
+      for (const o of (t.vout || [])) {
+        if (o && o.scriptpubkey_address === BURN_ADDRESS) sats += Number(o.value) || 0;
+      }
+      const from = [];
+      for (const i of (t.vin || [])) {
+        const a = i && i.prevout && i.prevout.scriptpubkey_address;
+        if (a) from.push(a);
+      }
+      return {
+        txid: String(t.txid || ''),
+        sats,
+        from,
+        confirmed: !!(t.status && t.status.confirmed),
+        // Seconds, as the explorers report it. Unconfirmed transactions have
+        // no block time; they are not candidates yet anyway.
+        time: (t.status && t.status.block_time ? Number(t.status.block_time) : 0) * 1000,
+      };
+    }).filter((t) => /^[a-f0-9]{64}$/.test(t.txid) && t.sats > 0);
+  }
+  return null;
+}
+
+/**
+ * Which intent owns which transaction. Pure, and separated from the fetching
+ * for one reason: this is the part that can be wrong in a way that credits
+ * the wrong person, so it is the part a test has to be able to reach without
+ * the internet.
+ *
+ * The thing worth understanding here: EVERY fact an intent can state is
+ * public once the burn is on the chain. The txid, the amount and the paying
+ * wallet are all readable by anyone with a block explorer — and this host
+ * publishes them itself at /api/burn/pending. So specificity alone cannot
+ * decide who a burn belongs to: a bystander can name a txid exactly, and the
+ * first version let them outrank the person who had described their own burn
+ * before making it.
+ *
+ * What a bystander cannot do is say it FIRST. An intent filed before the
+ * transaction was in a block was written by somebody who knew what was coming,
+ * and that is the only evidence here that copying cannot manufacture. So it
+ * dominates: foreknowledge first, specificity second.
+ *
+ *   SPECIFICITY (what the transaction confirms about what the intent said)
+ *     3  the wallet AND the amount, both named in advance and both right
+ *     2  the transaction named by txid · or the wallet with no amount claimed
+ *        · or the amount with no wallet claimed
+ *     1  the wallet is right and the amount named with it is not — last
+ *        resort, for a transaction nothing else describes
+ *   FOREKNOWLEDGE
+ *     +10 the intent predates the block this transaction is in
+ *
+ * A pair matching none of these is not a match. Every burn already in the log
+ * is out of the running, and one transaction can satisfy only one intent.
+ *
+ * A burn already confirmed before anyone spoke for it is therefore first-come
+ * among equals — which is exactly what POST /api/burn/claim has always been,
+ * and is stated plainly at /api/burn/pending rather than dressed up.
+ */
+function matchBurns(open, candidates, claimed) {
+  const pairs = [];
+  for (const it of open) {
+    for (const tx of candidates) {
+      if (claimed.has(tx.txid) || !tx.confirmed) continue;
+      let spec = 0;
+      if (it.wantTxid) {
+        // Naming the transaction says WHICH burn, never WHOSE. No window is
+        // applied — a txid is unambiguous — but it ranks with the other
+        // single facts, not above them.
+        if (it.wantTxid === tx.txid) spec = 2;
+      } else {
+        if (tx.time < it.ts - BURN_LOOKBACK_MS || tx.time > it.ts + BURN_INTENT_TTL_MS) continue;
+        const byFrom = !!it.from && tx.from.includes(it.from);
+        const byAmt = !!it.sats && tx.sats === it.sats;
+        // The both-named case used to fall to 0 when only the amount matched,
+        // so naming your wallet as well as your amount could score BELOW
+        // naming the amount alone — more evidence making a match strictly
+        // worse. It falls back to the amount-only rank instead.
+        if (it.from && it.sats) spec = (byFrom && byAmt) ? 3 : (byAmt ? 2 : (byFrom ? 1 : 0));
+        else if (it.from) spec = byFrom ? 2 : 0;
+        else if (it.sats) spec = byAmt ? 2 : 0;
+      }
+      if (!spec) continue;
+      // Filed before the block that carries the transaction. tx.time is the
+      // block time, so this is generous by up to an hour on the honest side
+      // and cannot be back-dated on the dishonest one: the intent's timestamp
+      // is written by this host, not by the caller.
+      const ahead = tx.time > 0 && it.ts < tx.time;
+      pairs.push({ intent: it, tx, score: spec + (ahead ? 10 : 0), spec, ahead });
+    }
+  }
+  // Best evidence first, everywhere at once — not oldest-intent-first. Greedy
+  // by age credited the right person for the wrong reason: an intent naming a
+  // wallet would swallow ANY burn from that wallet, including one a later
+  // intent named to the satoshi. Sorting globally means the exact match wins
+  // and the vague one keeps waiting for the burn it actually described.
+  // Ties: earlier transaction, then older intent — never explorer order.
+  // The last tie-break is what makes an already-confirmed burn first-come.
+  pairs.sort((a, b) => b.score - a.score || a.tx.time - b.tx.time || a.intent.ts - b.intent.ts);
+  const out = [], usedTx = new Set(claimed), usedIntent = new Set();
+  for (const p of pairs) {
+    if (usedTx.has(p.tx.txid) || usedIntent.has(p.intent)) continue;
+    usedTx.add(p.tx.txid); usedIntent.add(p.intent);
+    out.push(p);
+  }
+  return out;
+}
+
+const burnWatch = { last: 0, lastError: null, credited: 0, running: false };
+
+/**
+ * One tick. Nothing here is trusted: the candidate comes from an address
+ * listing, but the credit goes through verifyBurnTx exactly as a hand-filed
+ * claim does — two explorers, agreement, confirmations.
+ */
+async function burnTick() {
+  if (!BURN_ADDRESS || burnWatch.running) return;
+  // A mirror does not write acts, and a primary in quarantine has not yet
+  // established that it is the writer. Either one minting burns would be a
+  // second writer, which is the fork this whole design exists to prevent.
+  if (isMirror() || role.quarantine) return;
+  const now = Date.now();
+  // Expire before matching, so a dead intent cannot adopt a fresh burn. A
+  // satisfied one is kept a week — long enough to answer "what happened to my
+  // burn", short of growing forever. Nothing depends on it after that: the
+  // log, not this file, is what stops a transaction being credited twice.
+  const before = intents.length;
+  intents = intents.filter((i) => (i.txid
+    ? now - (i.creditedAt || i.ts) < 7 * 86_400_000
+    : now - i.ts < BURN_INTENT_TTL_MS));
+  if (intents.length !== before) saveIntents();
+  const open = intents.filter((i) => !i.txid);
+  if (!open.length) { burnWatch.last = now; return; }
+  burnWatch.running = true;
+  try {
+    const candidates = await burnAddressTxsFresh();
+    if (!candidates) { burnWatch.lastError = 'no explorer answered'; return; }
+    const claimed = claimedTxids();
+    for (const m of matchBurns(open, candidates, claimed)) {
+      const v = await verifyBurnTx(m.tx.txid);
+      // Not an error: an unconfirmed or too-shallow burn simply is not ready.
+      // The intent stays open and the next tick asks again.
+      if (!v.ok) continue;
+      // The role is re-checked HERE, for the same reason the log is: this tick
+      // passed the guard at the top before spending tens of seconds on the
+      // network, and the role changes during exactly that kind of window — an
+      // election can demote this host, and boot quarantine is imposed while
+      // the first tick is already running. Minting either way is a second
+      // writer, which is the one failure the whole design exists to prevent.
+      if (isMirror() || role.quarantine) return;
+      // Checked once more against the log, immediately before writing: a
+      // hand-filed claim may have landed while this tick was on the network.
+      if (claimedTxids().has(m.tx.txid)) { m.intent.txid = m.tx.txid; m.intent.note = 'already claimed'; saveIntents(); continue; }
+      mintInternal({ t: 'btcBurn', id: m.intent.id, txid: m.tx.txid, sats: v.sats, addr: BURN_ADDRESS, ts: Date.now() });
+      m.intent.txid = m.tx.txid;
+      m.intent.sats = v.sats;
+      m.intent.creditedAt = Date.now();
+      m.intent.by = (m.spec === 3 ? 'sending address and amount'
+        : (m.spec === 2 ? (m.intent.wantTxid ? 'txid' : (m.intent.from ? 'sending address' : 'amount'))
+          : 'sending address, for a different amount than the one named'))
+        + (m.ahead ? ', declared in advance' : '');
+      burnWatch.credited++;
+      // One burn gets described more than once by design: the panel files the
+      // amount before the send, the local page files it again when it opens,
+      // and the wallet files the txid afterwards. Exactly one of those can be
+      // credited — and the survivors then describe a transaction that is
+      // already paid, so they sit open waiting to adopt the NEXT burn of that
+      // size, which belongs to somebody else. That is not hypothetical: it
+      // was reproduced, and it credited one handle's burn to another. Retire
+      // the siblings with the burn they described. Only this handle's own —
+      // another handle's intent is not this one's to close — and only those
+      // that contradict nothing about the transaction just paid.
+      for (const other of intents) {
+        if (other === m.intent || other.txid || other.id !== m.intent.id) continue;
+        if (other.wantTxid && other.wantTxid !== m.tx.txid) continue;
+        if (other.sats && other.sats !== v.sats) continue;
+        if (other.from && !m.tx.from.includes(other.from)) continue;
+        if (!other.wantTxid && !other.sats && !other.from) continue;
+        other.txid = m.tx.txid;
+        other.creditedAt = Date.now();
+        other.note = 'described the same burn; credited once, under another intent';
+      }
+      saveIntents();
+      console.log('[burn] credited ' + v.sats + ' sat to ' + m.intent.id + ' — ' + m.tx.txid + ' (matched by ' + m.intent.by + ')');
+    }
+    burnWatch.lastError = null;
+  } catch (e) {
+    burnWatch.lastError = String(e && e.message ? e.message : e).slice(0, 200);
+  } finally {
+    burnWatch.running = false;
+    burnWatch.last = Date.now();
+  }
 }
 
 // Contact addresses live beside the log, never in it. server-data/ is
@@ -2329,6 +2695,8 @@ const API_DOC = {
     // and a door nobody can find pays nobody. Sixty epochs had minted zero.
     { method: 'GET', path: '/api/burn', purpose: 'proof of burn: the dead address to send to, how many confirmations count, and what it does and does not buy. Destroying bitcoin at a provably unspendable output is the only thing that earns weight in the PEER distribution — the faucet buys energy to act, never a share of the mint.' },
     { method: 'POST', path: '/api/burn/claim', purpose: 'bind a burn you already made to your handle. The host checks the txid against two independent public block explorers, which must agree, and requires confirmations — then records it with the txid, so any reader can check the chain instead of believing this host.', body: { id: 'your handle id', txid: '64 hex characters', auth: 'your PIN' } },
+    { method: 'POST', path: '/api/burn/intent', purpose: 'the same thing without holding a connection open. Say which burn is yours — by amount, by sending address, or both — and the host watches the address and credits the transaction when it confirms, whether or not you are still connected. Works before the send and afterwards, for a burn already on the chain. This is the reliable path: a claim needs you to be there at the moment it confirms, an intent does not.', body: { id: 'your handle id', auth: 'your PIN', txid: 'the transaction, if you already have it — the exact match, and it needs nothing else', sats: 'the amount you sent', from: 'the address you sent from — the strongest match short of a txid' } },
+    { method: 'GET', path: '/api/burn/pending', purpose: 'what the watcher can see: intents still waiting, and every transaction the chain shows at the dead address that this log has not recorded. Nothing here is credited to anyone until an intent or a claim names it.' },
     { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
     { method: 'POST', path: '/api/v1/gathering', purpose: 'host something: a time, a place, a fee, a cap — any of them optional', body: { text: 'what it is', at: 'unix ms, optional', place: 'string, optional', fee: 'number, optional', currency: 'symbol, default PEER', cap: 'number, optional' } },
@@ -2494,6 +2862,27 @@ function pageDoc() {
   const gz = gzipSync(Buffer.from(html), { level: 9 });
   pageCache = { key, html, gz, etag: '"' + createHash('sha256').update(html).digest('hex').slice(0, 16) + '"' };
   return pageCache;
+}
+
+/**
+ * A request body, as an object, or null.
+ *
+ * `null`, `7` and `"hello"` are all valid JSON documents and none of them has
+ * fields. Every door in this file parsed a body and then read a field off it
+ * immediately, so four bytes — the word `null` — threw a TypeError inside a
+ * request handler and took the whole host down with it, from anywhere, with
+ * no account and no PIN. Verified against the live host, which died.
+ *
+ * A throw is fatal either way here: in a sync handler it is an uncaught
+ * exception, in an async one an unhandled rejection, and this process
+ * installs no handler for either — deliberately, because a host in an unknown
+ * state should die rather than keep writing to the log. So the parse has to
+ * be the thing that cannot produce a surprise.
+ */
+function parseBody(body) {
+  let v;
+  try { v = JSON.parse(body); } catch { return null; }
+  return (v && typeof v === 'object') ? v : null;
 }
 
 function readBody(req, cap) {
@@ -3286,17 +3675,13 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', async () => {
       let b;
-      try { b = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      b = parseBody(body);
+      if (!b) { json(res, 400, { error: 'invalid JSON: expected an object' }); return; }
       const id = String(b.id || '').slice(0, 24);
       const txid = String(b.txid || '').trim().toLowerCase();
       if (!/^[a-f0-9]{64}$/.test(txid)) { json(res, 400, { code: 'BAD_TXID', error: 'a Bitcoin txid is 64 hex characters' }); return; }
-      if (engineMod && replayMod) {
-        if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
-        if (stateCache.len !== acts.length || !stateCache.st) {
-          stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
-        }
-        if (!stateCache.st.ledgerById[id]) { json(res, 404, { code: 'NO_SUCH_HANDLE', error: 'no such handle: ' + id }); return; }
-      }
+      await ensureEngine();
+      if (!handleExists(id)) { json(res, 404, { code: 'NO_SUCH_HANDLE', error: 'no such handle: ' + id }); return; }
       // The PIN, exactly as every other act by a secured handle needs it —
       // otherwise a stranger could bind a burn they watched on the chain to
       // an account that is not theirs.
@@ -3312,6 +3697,21 @@ const server = createServer((req, res) => {
       }
       const v = await verifyBurnTx(txid);
       if (!v.ok) { json(res, 400, { code: 'BURN_UNVERIFIED', error: v.why }); return; }
+      // Asked again, immediately before the write, with nothing awaited in
+      // between — which is what makes it decisive on a single thread. The
+      // check further up only saves an explorer round trip; verifyBurnTx
+      // spends seconds on the network, and the watcher is now a second minter
+      // that can put this very txid in the log during that window. The
+      // watcher has always re-checked here; this door did not, and the two
+      // together could credit one burn twice, to two different handles.
+      if (claimedTxids().has(txid)) {
+        json(res, 409, { code: 'BURN_ALREADY_CLAIMED',
+          error: 'that transaction was recorded while this claim was being checked' });
+        return;
+      }
+      // The role, for the same reason: mirrorRefuse ran before the network
+      // wait, and an election can demote this host during it.
+      if (isMirror() || role.quarantine) { mirrorRefuse(res); return; }
       // Minted here rather than through applyAct: `validate` refuses btcBurn
       // at every door on purpose, so that a client cannot declare its own
       // burn. This is the one place allowed to write one, and only after
@@ -3320,6 +3720,140 @@ const server = createServer((req, res) => {
       json(res, 200, { ok: true, sats: v.sats, txid, address: BURN_ADDRESS, blockHeight: v.height,
         note: 'recorded. The coins are gone — this address has no key and never had one. Anyone can check this txid against the chain.' });
     });
+    return;
+  }
+  // Say in advance — or afterwards — which burn is yours, and stop watching.
+  //
+  // This is the door that makes closing the tab safe. It writes nothing to
+  // the log and grants nothing: an intent is a statement, and the watcher
+  // still puts the transaction through the same two-explorer verification a
+  // hand-filed claim goes through before a satoshi is credited.
+  if (req.method === 'POST' && url.pathname === '/api/burn/intent') {
+    if (!actLimiter(ip)) { json(res, 429, { error: 'slow down', code: 'RATE_LIMIT' }); return; }
+    if (mirrorRefuse(res)) return;
+    if (!BURN_ADDRESS) {
+      json(res, 404, { code: 'BURN_OFF', error: 'proof of burn is not switched on for this host',
+        why: 'no burn address is configured, so there is nothing to watch for.' });
+      return;
+    }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', async () => {
+      let b;
+      b = parseBody(body);
+      if (!b) { json(res, 400, { error: 'invalid JSON: expected an object' }); return; }
+      await ensureEngine();
+      const id = String(b.id || '').slice(0, 24);
+      const sats = Math.floor(Number(b.sats) || 0);
+      const fromRaw = String(b.from || '').trim();
+      // bech32 is case-insensitive and a BIP-173 QR payload is uppercase, but
+      // every explorer reports scriptpubkey_address in lower case — so an
+      // uppercase address passes its checksum, is stored verbatim, and then
+      // never equals anything for as long as the intent lives. The owner is
+      // told the host is watching, and it is watching for a string that
+      // cannot occur. base58 IS case-sensitive, so only bech32 may be folded.
+      const from = /^(bc1|tb1)/i.test(fromRaw) ? fromRaw.toLowerCase() : fromRaw;
+      const wantTxid = String(b.txid || '').trim().toLowerCase();
+      if (wantTxid && !/^[a-f0-9]{64}$/.test(wantTxid)) {
+        json(res, 400, { code: 'BAD_TXID', error: 'a Bitcoin txid is 64 hex characters' });
+        return;
+      }
+      if (from && !validBtcAddress(from)) {
+        json(res, 400, { code: 'BAD_ADDRESS', error: 'that sending address fails its own checksum' });
+        return;
+      }
+      // One of the three, or the intent describes every burn ever made and
+      // would adopt a stranger's.
+      if (!wantTxid && !from && !(sats > 0)) {
+        json(res, 400, { code: 'BURN_INTENT_VAGUE',
+          error: 'an intent needs the txid, the amount in satoshi, the sending address, or some combination — otherwise it matches anybody\'s burn' });
+        return;
+      }
+      if (!handleExists(id)) { json(res, 404, { code: 'NO_SUCH_HANDLE', error: 'no such handle: ' + id }); return; }
+      // The same PIN as the claim it replaces. Anything less and an intent
+      // would be a way to be credited for other people's burns while they
+      // were still in the mempool.
+      const aerr = authError({ t: 'btcBurn', id, auth: typeof b.auth === 'string' ? b.auth : '' });
+      if (aerr) { json(res, 401, { code: 'PIN_REQUIRED', error: aerr }); return; }
+      // authError waves through a handle that has no PIN at all — there is
+      // nothing to check against — which would let anyone file intents FOR
+      // somebody else's unsecured handle: filling their quota, and taking
+      // credit into an account they do not control. A handle that money is
+      // going to be credited into has to be one somebody can prove they own,
+      // the same rule contact addresses already follow.
+      if (!pinIndex.has(id)) {
+        json(res, 401, { code: 'PIN_REQUIRED',
+          error: 'set a PIN on this handle before burning into it — without one, nothing distinguishes you from anyone else naming it' });
+        return;
+      }
+      const now = Date.now();
+      const mine = intents.filter((i) => i.id === id && !i.txid && now - i.ts < BURN_INTENT_TTL_MS);
+      if (mine.length >= 20) {
+        json(res, 429, { code: 'TOO_MANY_INTENTS',
+          error: 'you already have 20 burns pending — they expire on their own, or one of them is not coming' });
+        return;
+      }
+      // Filing the same description twice is not worth a refusal — the log
+      // already refuses to credit one burn twice — but stacking duplicates
+      // leaves dead intents behind, and a dead intent is one that adopts
+      // somebody else's next burn of the same size. Reuse the pending one.
+      let it = intents.find((i) => !i.txid && i.id === id
+        && (i.wantTxid || '') === wantTxid
+        && (i.from || '') === (from || '')
+        && (i.sats || 0) === (sats > 0 ? sats : 0));
+      // Keeping the ORIGINAL timestamp, not refreshing it. When the intent
+      // was first filed is evidence — it is what says this was described
+      // before the burn was on the chain — and re-stating the same thing
+      // should never cost the person who said it first their place.
+      if (!it) {
+        it = { id, sats: sats > 0 ? sats : 0, from: from || '', wantTxid: wantTxid || '', ts: now, txid: null };
+        intents.push(it);
+      }
+      saveIntents();
+      // Ask straight away rather than at the next tick: for a burn that is
+      // already confirmed on the chain, the credit lands inside this request
+      // and the answer below can already say so.
+      burnTick().then(() => {
+        json(res, 200, {
+          ok: true, watching: true, address: BURN_ADDRESS,
+          credited: it.txid ? { txid: it.txid, sats: it.sats, matchedBy: it.by || null } : null,
+          note: it.txid
+            ? 'that burn is on the chain and is now recorded — the reserve is yours.'
+            : 'the host is watching the address. When the transaction confirms it is credited to ' + id
+              + ' with nothing open on your side. You can close this.',
+          expiresInHours: Math.round(BURN_INTENT_TTL_MS / 3600_000),
+        });
+      });
+    });
+    return;
+  }
+  // What the watcher can see. Open intents carry no PIN and never did — this
+  // is the same list the host matches against, published so nobody has to
+  // trust a spinner. Unmatched burns are listed too: a burn nobody has
+  // claimed is a fact about a public address, and hiding it would only hide
+  // it from the person who made it.
+  if (req.method === 'GET' && url.pathname === '/api/burn/pending') {
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down', code: 'RATE_LIMIT' }); return; }
+    if (!BURN_ADDRESS) { json(res, 404, { code: 'BURN_OFF', error: 'proof of burn is not switched on for this host' }); return; }
+    const now = Date.now();
+    const open = intents.filter((i) => !i.txid && now - i.ts < BURN_INTENT_TTL_MS)
+      .map((i) => ({ id: i.id, sats: i.sats || null, from: i.from || null, txid: i.wantTxid || null, ts: i.ts }));
+    burnAddressTxs().then((txs) => {
+      const claimed = claimedTxids();
+      const unclaimed = (txs || []).filter((t) => !claimed.has(t.txid))
+        .map((t) => ({ txid: t.txid, sats: t.sats, confirmed: t.confirmed, time: t.time, from: t.from }));
+      json(res, 200, {
+        address: BURN_ADDRESS,
+        watching: open.length,
+        open,
+        unclaimed,
+        lastTick: burnWatch.last || null,
+        lastError: burnWatch.lastError,
+        creditedSinceStart: burnWatch.credited,
+        note: 'An unclaimed transaction is one the chain shows and this log does not. It is credited to whoever files an intent or a claim for it — POST /api/burn/intent {id, auth, txid|sats|from} — and to nobody otherwise.',
+        howItIsDecided: 'An intent filed BEFORE the block carrying the transaction outranks anything filed after it, because everything else an intent can state — the txid, the amount, the paying wallet — is public here and on any explorer, and only saying it first cannot be copied. Among intents filed after the fact this is first-come, exactly as POST /api/burn/claim has always been. If a burn of yours is listed here, claim it now rather than later.',
+      });
+    }).catch(() => json(res, 502, { code: 'EXPLORER_UNREACHABLE', error: 'could not read the address from any explorer' }));
     return;
   }
   // The token as it exists on the chain, not as this host wishes it existed.
@@ -3345,8 +3879,9 @@ const server = createServer((req, res) => {
       accepting: !!BURN_ADDRESS,
       address: BURN_ADDRESS || null,
       minConfirmations: BURN_MIN_CONF,
+      watching: !!BURN_ADDRESS,
       whatThisIs: BURN_ADDRESS
-        ? 'Send from your own wallet to this address and the coins are destroyed — it is a P2WSH output committing to the script OP_RETURN, which can never be satisfied, so no key exists and none ever did. Then POST /api/burn/claim {id, txid, auth} and the host verifies your transaction against two independent public explorers before recording it. What you get is weight in the PEER distribution, which is play money on a test network. You are not buying anything and nothing is redeemable.'
+        ? 'Send from your own wallet to this address and the coins are destroyed — it is a P2WSH output committing to the script OP_RETURN, which can never be satisfied, so no key exists and none ever did. Tell the host it is yours with POST /api/burn/intent {id, auth, sats, from} — before or after you send — and it watches the address and credits you when the transaction confirms, with nothing left open on your side. POST /api/burn/claim {id, txid, auth} still works if you have the txid in hand. Either way the host verifies against two independent public explorers before recording anything. What you get is weight in the PEER distribution, which is play money on a test network. You are not buying anything and nothing is redeemable.'
         : 'Proof of burn is not switched on for this host.',
       verifyItYourself: BURN_ADDRESS
         ? 'sha256 of the single byte 0x6a is the witness program; address = bech32(hrp "bc", version 0, that hash).'
@@ -3361,7 +3896,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > MAX_ACT_BYTES * 2) req.destroy(); });
     req.on('end', () => {
       let act;
-      try { act = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      act = parseBody(body);
+      if (!act) { json(res, 400, { error: 'invalid JSON: expected an object' }); return; }
       // Client's known log length: reply with just the tail it is missing.
       const since = Math.max(0, Number(act.since ?? 0) || 0);
       delete act.since;
@@ -3383,7 +3919,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > SIGNAL_PAYLOAD_MAX * 2) req.destroy(); });
     req.on('end', () => {
       let msg;
-      try { msg = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      msg = parseBody(body);
+      if (!msg) { json(res, 400, { error: 'invalid JSON: expected an object' }); return; }
       const idOk = (v) => typeof v === 'string' && v.length > 0 && v.length <= 24;
       const now = Date.now();
       const sweep = (box) => box.filter((s) => now - s.ts < (s.kind === 'ring' ? SIGNAL_RING_TTL : SIGNAL_TTL));
@@ -3484,7 +4021,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       let m;
-      try { m = JSON.parse(body); } catch { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON' }); return; }
+      m = parseBody(body);
+      if (!m) { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON: expected an object' }); return; }
       const as = typeof m.as === 'string' ? m.as : '';
       if (!as || as.length > 24) { json(res, 400, { code: 'BAD_REQUEST', error: 'bad handle' }); return; }
       // authError lets a handle with no PIN through, which is right for a post
@@ -3531,7 +4069,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       let m;
-      try { m = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      m = parseBody(body);
+      if (!m) { json(res, 400, { error: 'invalid JSON: expected an object' }); return; }
       const id = typeof m.as === 'string' ? m.as : '';
       if (!id || id.length > 24) { json(res, 400, { error: 'bad handle' }); return; }
       const aerr = authError({ t: 'dm', from: id, auth: typeof m.auth === 'string' ? m.auth : '' });
@@ -3558,7 +4097,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       let m;
-      try { m = JSON.parse(body); } catch { json(res, 400, { error: 'invalid JSON' }); return; }
+      m = parseBody(body);
+      if (!m) { json(res, 400, { error: 'invalid JSON: expected an object' }); return; }
       const ids = Array.isArray(m.ids) ? m.ids.slice(0, 60) : [];
       // Only count ids that name real, readable content. Without this any
       // caller could inflate a counter for c9999999 and litter the map with
@@ -3690,7 +4230,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       let m;
-      try { m = JSON.parse(body); } catch { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON' }); return; }
+      m = parseBody(body);
+      if (!m) { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON: expected an object' }); return; }
       const as = typeof m.as === 'string' ? m.as : '';
       const code = typeof m.code === 'string' ? m.code : '';
       // The same limiter a wrong PIN spends. A recovery code is long, but the
@@ -3733,7 +4274,8 @@ const server = createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       let m;
-      try { m = JSON.parse(body); } catch { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON' }); return; }
+      m = parseBody(body);
+      if (!m) { json(res, 400, { code: 'BAD_REQUEST', error: 'invalid JSON: expected an object' }); return; }
       const as = typeof m.as === 'string' ? m.as : '';
       const email = typeof m.email === 'string' ? m.email.trim() : '';
       if (!as || !pinIndex.has(as)) {
@@ -4092,5 +4634,22 @@ server.listen(PORT, () => {
     }
     electionTickSafe();
     setInterval(electionTickSafe, ELECTION_INTERVAL);
+  }
+  // The burn watcher, started AFTER the quarantine flag is set and not before.
+  // It ticks whether or not anybody is looking at a page, which is the entire
+  // point of it — and it does nothing until some handle has filed an intent,
+  // so a host with no pending burns makes no network requests.
+  //
+  // The order of these two blocks is load-bearing. Started first, the boot
+  // tick read `role.quarantine` while it was still false and went on to mint
+  // during precisely the window the quarantine exists to cover: a restarted
+  // federated primary writing before it has established that it is still the
+  // writer. That is the two-writer fork, arriving through the one door that
+  // writes to the log without a request.
+  if (BURN_ADDRESS) {
+    console.log(`[burn] watching ${BURN_ADDRESS} every ${Math.round(BURN_WATCH_MS / 1000)}s`
+      + ` — ${intents.filter((i) => !i.txid).length} intent(s) pending`);
+    burnTick();
+    setInterval(burnTick, BURN_WATCH_MS).unref?.();
   }
 });

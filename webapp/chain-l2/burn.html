@@ -21,7 +21,7 @@
   a{color:var(--ember)}
 </style></head><body><main>
 <h1>Burn bitcoin, earn standing</h1>
-<p class="sub">You send. Everything after that is automatic: this page watches the chain, waits for confirmations, and files the claim with the network for you.</p>
+<p class="sub">You send. Everything after that is automatic: the host is told to expect your burn before a satoshi moves, and it watches the chain, waits for confirmations and records it — whether or not this page is still open. Close it whenever you like.</p>
 
 <div class="card">
   <div class="row">
@@ -203,6 +203,32 @@ async function resolveId(typed) {
   return hit ? hit.id : want;
 }
 
+/**
+ * Tell the host to expect this burn, so that closing this page cannot lose
+ * it. An older host without the watcher answers 404 and nothing is lost —
+ * the page keeps doing it the way it always did.
+ */
+async function handOver(what) {
+  var body = { id: await resolveId(document.getElementById('who').value), auth: document.getElementById('pin').value };
+  for (var k in what) if (Object.prototype.hasOwnProperty.call(what, k)) body[k] = what[k];
+  try {
+    var r = await fetch(HOST + '/api/burn/intent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    var d = await r.json().catch(function () { return {}; });
+    if (r.ok && d.credited) { log('already on the chain — RECORDED · ' + d.credited.sats + ' sat', 'ok'); return true; }
+    if (r.ok) { log('the host is watching for this burn — you can close this page once you have sent it', 'ok'); return true; }
+    // A 404 with no code is a host that has no such route — an older build,
+    // and nothing is lost because this page still watches on its own. A 404
+    // WITH a code is the host refusing this specific request: NO_SUCH_HANDLE
+    // is the mistyped handle that used to be discovered only after the coins
+    // were gone. Saying both the same way hid the one that matters.
+    if (d && d.code) log('the host refused to watch for it: ' + (d.error || d.code), 'bad');
+    else if (r.status !== 404) log('the host will not watch for it: ' + (d.error || r.status), 'muted');
+  } catch (e) { /* the page still watches on its own */ }
+  return false;
+}
+
 async function claim(txid) {
   step(4, 'on');
   var body = { id: await resolveId(document.getElementById('who').value), txid: txid, auth: document.getElementById('pin').value };
@@ -316,6 +342,13 @@ document.getElementById('go').onclick = async function () {
   log('snapshotting what already paid this address, so your transaction is told apart from everyone else’s…');
   await snapshot();
   step(2, 'on');
+  // Hand the watch to the host before doing any of it ourselves. This page
+  // does the same job better while it is open — it knows the txid the moment
+  // the wallet returns one — but it is a page, and pages get closed. The
+  // intent is what survives that: the host holds the amount and the handle,
+  // matches the transaction when it confirms, and credits it with nothing
+  // open anywhere. Everything below is now a nicety.
+  await handOver({ sats: sats });
   timer = setInterval(watch, 15000);
   watch();
 
@@ -341,6 +374,9 @@ document.getElementById('go').onclick = async function () {
       // leaving somebody wondering whether their money went anywhere.
       log('sent: ' + txid, 'ok');
       seen[txid] = false;                     // make sure the watcher adopts it
+      // And the host is told the exact transaction, which beats the amount it
+      // was given a moment ago. From here the page is optional.
+      await handOver({ txid: txid, sats: sats, from: from });
       step(1, 'done');
     } catch (e) {
       log('not sent: ' + (e.message || e), 'bad');
