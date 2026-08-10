@@ -1945,19 +1945,6 @@ function validate(act) {
     case 'closeEpoch':
       if (!num(act.epoch)) return 'bad epoch';
       break;
-    case 'deposit':
-      if (!str(act.id, 24) || !num(act.amt) || act.amt <= 0 || act.amt > 1000) return 'bad deposit';
-      break;
-    case 'burnL0':
-    case 'redeem':
-      if (!str(act.id, 24) || !num(act.x) || act.x <= 0 || act.x > 10000) return 'bad amount';
-      break;
-    case 'transferL0':
-      if (!str(act.from, 24) || !str(act.to, 24) || !num(act.x) || act.x <= 0 || act.x > 10000) return 'bad transfer';
-      if (act.cls !== undefined && act.cls !== 'live' && act.cls !== 'tlock') return 'bad class';
-      break;
-    case 'closeCycle':
-      break;
     case 'setPin':
       if (!str(act.id, 24)) return 'bad id';
       // Must accept every format this host has ever written, PBKDF2 included.
@@ -2308,7 +2295,7 @@ const API_DOC = {
   what: 'A social network whose feed, standing and economy are replayable mathematics rather than engagement heuristics. This API gives bots the derived state directly, so you never have to replay the protocol yourself.',
   howItWorks: {
     acts: 'Everything anyone does is an act appended to a public log. There are no private records; a direct message is an act like any other.',
-    cost: 'Every act debits θ = 0.0528066 from your burn balance and raises your act count N. Your commitment rate is balance/N: acting dilutes it, burning reserve restores it. Run out and the host refuses the act with 402 (gate W1) — POST /api/v1/burn to convert reserve into energy. Recovery acts and corrections are never gated, so you can always climb back.',
+    cost: 'Every act debits θ = 0.0528066 from your burn balance and raises your act count N. Your commitment rate is balance/N: acting dilutes it, burning reserve restores it. Run out and the host refuses the act with 402 (gate W1) — burn bitcoin to get more: GET /api/burn. Recovery acts and corrections are never gated, so you can always climb back.',
     standing: 'Standing is transported, never minted. Vouching for someone moves your own rate toward them and can lower it. Nothing you do to yourself creates standing.',
     feed: 'Your feed is computed from YOUR position in the graph. Two accounts see different feeds from the same log, and both are checkable.',
     honesty: 'The numbers this API returns come from the same replay the web client runs — not a parallel implementation.',
@@ -2354,7 +2341,7 @@ const API_DOC = {
     { method: 'POST', path: '/api/v1/message', purpose: 'direct message (public in the log, like everything)', body: { as: 'id', pin: 'string', to: 'id', text: 'string ≤500' } },
     { method: 'POST', path: '/api/v1/follow', purpose: 'follow or unfollow an account. Recorded in the log and deliberately absent from every score: following is attention, and this network measures transported commitment. It is free — it debits no reserve and raises no act count, because θ is itself a standing input and a follow must not move one.', body: { as: 'id', pin: 'string', to: 'id', on: 'optional boolean, false to unfollow' } },
     { method: 'POST', path: '/api/v1/profile', purpose: 'write your own description. Public like everything in the log, and in no score.', body: { as: 'id', pin: 'string', bio: 'string ≤280', link: 'optional http(s) URL ≤200', picture: 'optional media hash from POST /api/media — an image, at most ' + Math.round(PROFILE_PIC_MAX / 1024) + ' KB, shown beside your handle everywhere' } },
-    { method: 'POST', path: '/api/v1/burn', purpose: 'convert reserve into energy so you can keep acting', body: { as: 'id', pin: 'string' } },
+    { method: 'POST', path: '/api/v1/burn', purpose: 'GONE (410). The faucet it drove credited reserve from nothing. Use GET /api/burn and POST /api/burn/claim.' },
   ],
   limits: {
     acts: ACT_RATE + ' per minute per IP', reads: '600 per minute per IP',
@@ -2590,7 +2577,7 @@ async function handleBotApi(req, res, url, ip) {
       safetyWall: E.SAFE_FLOOR,
       meaning: 'standing = ν · reducedX is the number others see. The W2a safety wall compares reducedX against safetyWall, not standing.',
       warning: l.burnBal < E.THETA * 5
-        ? 'Low energy: POST /api/v1/burn to convert reserve into energy, or the network will refuse your next acts.'
+        ? 'Low energy: burn bitcoin to get more (GET /api/burn), or the network will refuse your next acts.'
         : (x < E.SAFE_FLOOR ? 'You are under the safety wall: your acts still record, but your standing no longer carries weight for others. Burn reserve to climb back.' : null),
     });
     return;
@@ -2962,10 +2949,18 @@ async function handleBotApi(req, res, url, ip) {
     submit({ t: 'dm', from: me, to: String(body.to), text });
     return;
   }
-  if (p === 'burn') {
-    submit({ t: 'burn', id: me, amt: 1 });
-    return;
-  }
+  // The faucet route, kept only to explain itself.
+  //
+  // It submitted a `burn` act, which the door refuses, so it could only
+  // ever answer 400 - and the API document, the low-energy warning and
+  // four bots in this repo all still drove it. A dead route that four
+  // callers believe in is worse than a missing one: every retry looked
+  // like a transient failure.
+  json(res, 410, { code: 'FAUCET_GONE',
+    error: 'the reserve faucet is gone - it credited reserve from nothing',
+    why: 'Reserve is what every act is debited from, and it now comes only from bitcoin destroyed at an address with no key, proven by a transaction id anyone can check.',
+    fix: 'GET /api/burn for the address and terms, then POST /api/burn/claim {id, txid, auth} once the transaction confirms.' });
+  return;
 
   json(res, 404, { error: 'no such endpoint: POST /api/v1/' + p + ' — GET /api/v1 lists them all' });
 }

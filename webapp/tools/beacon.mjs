@@ -114,8 +114,12 @@ async function main() {
     if (DRY) { console.log('[dry-run] would ' + describe); acted.push('(dry) ' + describe); return { ok: true, dry: true }; }
     let r = await http('POST', base + path, body);
     if (r.status === 402) { // out of energy: burn once, retry once
-      await http('POST', base + '/api/v1/burn', { as: body.as, pin: body.pin });
-      r = await http('POST', base + path, body);
+      // The faucet is gone: reserve comes from destroyed bitcoin now, and no
+      // endpoint can mint it on request. Out of energy is a real stop for a
+      // bot - somebody has to burn for it - so say so instead of retrying a
+      // route that answers 410.
+      console.error('out of energy: this handle needs a bitcoin burn (GET /api/burn) before it can act again');
+      return { ok: false, status: 402, needsBurn: true };
     }
     if (r.status === 401 || r.status === 403) pinRejected = true;
     if (r.status === 429) { console.log('rate-limited on ' + kind + ' — stopping for this run'); return { ok: false, stop: true }; }

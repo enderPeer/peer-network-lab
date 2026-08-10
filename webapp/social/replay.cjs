@@ -166,7 +166,7 @@ function replayUncached(acts) {
   var profiles = {};    // id -> { bio, link, pic, idx }     // cid -> {idx, ts, edited} for the edit/delete UI
   // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
   // every attestation increment feeds the actor's residual burn balance.
-  var l0 = new E.AttestationLedger({ E0: 100, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
+  var l0 = new E.AttestationLedger({ E0: 0, zeta: 0.5, fee: 0.5, maturityCycle: 10 });
   function l0safe(fn) { try { return fn(); } catch (e) { return null; } }
 
   // `handles` keeps the REAL handle — mention slugs resolve against it and
@@ -611,25 +611,49 @@ function replayUncached(acts) {
       for (var rsym in tokenBal) tokenBal[rsym] = {};
       if (!payloadGone) chron.push({ who: a.id || null, line: 'the token ledger was reset to zero at epoch ' + certsSoFar + ' — free-minted balances stop here' });
     } else if (a.t === 'deposit') {
-      if (l0safe(function () { l0.deposit(a.id, a.amt); return true; }) && !payloadGone) {
-        chron.push({ who: a.id, line: 'deposited ' + a.amt.toFixed(2) + ' reserve → escrow (mints at the next cycle boundary)' });
-      }
+      // Layer 0 is retired. This branch used to apply deposits,
+      // attestations and redemptions against a reserve nobody had funded,
+      // and credited burnBal - a second, unpriced source of the energy
+      // every act is debited from, sitting beside the bitcoin burn.
+      //
+      // Refused HERE and not only at the host door, because this file is
+      // what a foreign or hand-edited log passes through: mirrors, the
+      // published archive and every browser replay a log this host did
+      // not author. A rule enforced only at one door is not a rule.
+      // Acts already in a log still parse; they simply do nothing.
     } else if (a.t === 'burnL0') {
-      var dA = l0safe(function () { return l0.burn(a.id, a.x); });
-      if (dA != null && ledgerById[a.id]) {
-        ledgerById[a.id].burnBal += dA; // the L1 seam: attestation is burn_val
-        earnedBurn[a.id] = (earnedBurn[a.id] || 0) + dA;
-        if (!payloadGone) chron.push({ who: a.id, line: 'burned ' + a.x.toFixed(2) + ' live units → attestation +' + dA.toFixed(3) + ' at settled floor φ ' + l0.settledFloor.toFixed(3) });
-      }
+      // Layer 0 is retired. This branch used to apply deposits,
+      // attestations and redemptions against a reserve nobody had funded,
+      // and credited burnBal - a second, unpriced source of the energy
+      // every act is debited from, sitting beside the bitcoin burn.
+      //
+      // Refused HERE and not only at the host door, because this file is
+      // what a foreign or hand-edited log passes through: mirrors, the
+      // published archive and every browser replay a log this host did
+      // not author. A rule enforced only at one door is not a rule.
+      // Acts already in a log still parse; they simply do nothing.
     } else if (a.t === 'redeem') {
-      var pay = l0safe(function () { return l0.redeem(a.id, a.x); });
-      if (pay != null && !payloadGone) {
-        chron.push({ who: a.id, line: 'redeemed ' + a.x.toFixed(2) + ' live units → ' + pay.toFixed(3) + ' reserve (floor-preserving)' });
-      }
+      // Layer 0 is retired. This branch used to apply deposits,
+      // attestations and redemptions against a reserve nobody had funded,
+      // and credited burnBal - a second, unpriced source of the energy
+      // every act is debited from, sitting beside the bitcoin burn.
+      //
+      // Refused HERE and not only at the host door, because this file is
+      // what a foreign or hand-edited log passes through: mirrors, the
+      // published archive and every browser replay a log this host did
+      // not author. A rule enforced only at one door is not a rule.
+      // Acts already in a log still parse; they simply do nothing.
     } else if (a.t === 'transferL0') {
-      if (l0safe(function () { l0.transfer(a.from, a.to, a.x, a.cls === 'tlock' ? 'tlock' : 'live'); return true; }) && !payloadGone) {
-        chron.push({ who: a.from, line: 'sent ' + a.x.toFixed(2) + ' ' + (a.cls === 'tlock' ? 'time-locked' : 'live') + ' units to ' + dispName(a.to), refs: [{ label: dispName(a.to), id: a.to }] });
-      }
+      // Layer 0 is retired. This branch used to apply deposits,
+      // attestations and redemptions against a reserve nobody had funded,
+      // and credited burnBal - a second, unpriced source of the energy
+      // every act is debited from, sitting beside the bitcoin burn.
+      //
+      // Refused HERE and not only at the host door, because this file is
+      // what a foreign or hand-edited log passes through: mirrors, the
+      // published archive and every browser replay a log this host did
+      // not author. A rule enforced only at one door is not a rule.
+      // Acts already in a log still parse; they simply do nothing.
     } else if (a.t === 'setPin') {
       if (ledgerById[a.id] && a.pinHash) {
         pinHash[a.id] = a.pinHash; // newest wins — add or change
@@ -662,8 +686,16 @@ function replayUncached(acts) {
         if (!payloadGone) dms.push({ from: a.from, to: a.to, text: a.text, idx: i });
       }
     } else if (a.t === 'closeCycle') {
-      var cyc = l0.closeCycle();
-      chron.push({ who: null, line: 'L0 cycle ' + l0.cycle + ' processed · minted ' + cyc.minted.toFixed(2) + ' receipt units · settled floor φ ' + cyc.floor.toFixed(4) + (l0.cycle === 10 ? ' · maturity conversion: all time-locked units are now live' : '') });
+      // Layer 0 is retired. This branch used to apply deposits,
+      // attestations and redemptions against a reserve nobody had funded,
+      // and credited burnBal - a second, unpriced source of the energy
+      // every act is debited from, sitting beside the bitcoin burn.
+      //
+      // Refused HERE and not only at the host door, because this file is
+      // what a foreign or hand-edited log passes through: mirrors, the
+      // published archive and every browser replay a log this host did
+      // not author. A rule enforced only at one door is not a rule.
+      // Acts already in a log still parse; they simply do nothing.
     } else if (a.t === 'stream') {
       if (!known(a.author)) continue;
       // A stream is a Publish like any other: it mints a Content node, costs

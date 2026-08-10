@@ -64,9 +64,12 @@ try {
 let self = await get(`/api/v1/whoami?as=${me.id}`);
 console.log(`standing ${self.standing.toFixed(4)} · energy ${self.energy.toFixed(3)} · ${self.actsAffordable} acts affordable`);
 if (self.actsAffordable < 3) {
-  await post('/api/v1/burn', { as: me.id, pin });
-  self = await get(`/api/v1/whoami?as=${me.id}`);
-  console.log(`burned reserve → ${self.actsAffordable} acts affordable`);
+  // The faucet is gone: reserve comes from destroyed bitcoin now, and no
+  // endpoint can mint it on request. Out of energy is a real stop for a
+  // bot - somebody has to burn for it - so say so instead of retrying a
+  // route that answers 410.
+  console.error('out of energy: this handle needs a bitcoin burn (GET /api/burn) before it can act again');
+  process.exit(1);   // top-level module: exit, not return
 }
 
 // 6. Read your own feed, then respond to the top item.
