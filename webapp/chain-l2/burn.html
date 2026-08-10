@@ -27,7 +27,7 @@
   <div class="row">
     <div><label>Your handle</label><input id="who" placeholder="u_fable" style="width:190px"></div>
     <div><label>PIN</label><input id="pin" type="password" placeholder="••••" style="width:130px"></div>
-    <div><label>Amount (sat)</label><input id="sats" value="2000" style="width:130px"></div>
+    <div><label>Amount (sat)</label><input id="sats" value="2000" style="width:130px"><div id="inbtc" class="muted mono" style="font-size:12px;margin-top:4px"></div></div>
   </div>
   <p class="muted" style="font-size:13px;margin:12px 0 0">
     The PIN is your network credential, sent only to your own host to file the claim. It is never stored and never touches Bitcoin.
@@ -279,6 +279,15 @@ async function watch() {
     setTimeout(function () { document.getElementById('go').click(); }, 50);
   }
 })();
+// The same amount in bitcoin, updated as it is typed. A satoshi figure is
+// easy to misread by a factor of ten, and this is the last screen before a
+// signature that cannot be undone.
+function showBtc() {
+  var n = parseInt(document.getElementById('sats').value, 10);
+  document.getElementById('inbtc').textContent = (n > 0) ? ('= ' + (n / 1e8).toFixed(8) + ' BTC') : '';
+}
+document.getElementById('sats').addEventListener('input', showBtc);
+showBtc();
 document.getElementById('go').onclick = async function () {
   var who = document.getElementById('who').value.trim();
   var sats = parseInt(document.getElementById('sats').value, 10);
