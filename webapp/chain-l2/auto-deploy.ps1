@@ -11,11 +11,13 @@
 #
 # The four files it writes - server-data\token-address.txt,
 # pools-address.txt, pools-from-block.txt and btc-token-address.txt - are
-# exactly the four that start-host.ps1, watchdog.ps1 and serve-public.ps1 all
-# read on startup, and that is the only reason this script is allowed to
-# write anything. A file only one launcher reads would configure the host
-# until the next watchdog restart and then quietly stop, which is worse than
-# never having worked.
+# four of the entries in webapp\load-config.ps1, the one list every launcher
+# dot-sources, and that is the only reason this script is allowed to write
+# anything. A file only one launcher reads would configure the host until
+# the next watchdog restart and then quietly stop, which is worse than never
+# having worked - and that was not hypothetical: the list used to be pasted
+# into each launcher, and setup-host.ps1, the promotion command, had none of
+# it.
 #
 #   powershell -ExecutionPolicy Bypass -File .\chain-l2\auto-deploy.ps1
 #

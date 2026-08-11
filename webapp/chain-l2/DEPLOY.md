@@ -174,10 +174,18 @@ Use <https://app.uniswap.org> connected to Base:
 These are **files**, not a shell you have to remember to export in. Each
 lives in `webapp/server-data/` (gitignored — nothing here reaches the repo),
 holds one value and nothing else, and is read into an environment variable
-at startup by all three launchers — `start-host.ps1`, `watchdog.ps1` and
-`serve-public.ps1`. All three read the same four files, which is the point:
-a watchdog restart at some hour nobody is watching cannot silently
-unconfigure the on-chain surface.
+at startup by `load-config.ps1`, which every launcher dot-sources —
+`start-host.ps1`, `watchdog.ps1`, `serve-public.ps1` and `setup-host.ps1`.
+That single list is the point: a watchdog restart at some hour nobody is
+watching cannot silently unconfigure the on-chain surface.
+
+This guarantee used to be written here and be false. The list was pasted
+into each launcher by hand, and `setup-host.ps1` — the fresh-machine setup
+and the command `HOSTING.md` gives for both planned and emergency
+**promotion** — had none of it, so a promoted host came up with the admin
+panel, passkeys, proof of burn and every on-chain address off, looking
+perfectly healthy. If you add a launcher, dot-source `load-config.ps1`;
+do not copy the list.
 
 | file in `server-data/` | environment variable | what goes in it |
 |---|---|---|

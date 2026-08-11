@@ -28,45 +28,10 @@ $role = [ordered]@{
 [System.IO.File]::WriteAllText((Join-Path $logDir 'role.json'), ($role | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
 if ($MirrorOf) { Write-Output "role: read-only MIRROR of $MirrorOf" } else { Write-Output 'role: PRIMARY (accepts writes)' }
 
-# The operator token lives in a file in the (gitignored) data directory, not in
-# this script and not in a checked-in config. Every place that starts the host
-# reads it from there, so a watchdog restart does not silently drop the admin
-# panel - and there is no path by which the token reaches the repository.
-$tokFile = Join-Path $logDir 'operator-token.txt'
-if (Test-Path $tokFile) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tokFile -Raw).Trim() }
-# The payment address for adverts, like the operator token: a file in the
-# (gitignored) data directory rather than a checked-in config, so a restart
-# keeps adverts running and no path exists by which it reaches the repository.
-# It is checksum-validated by the host at boot; a bad one turns adverts off.
-# Passkeys are bound to an origin. Behind the tunnel that is the public
-# hostname, not localhost, and a wrong value makes every passkey silently
-# unusable - so it is read from a file rather than guessed.
-$rpFile = Join-Path $logDir 'rp-origin.txt'
-if (Test-Path $rpFile) {
-  $rp = (Get-Content $rpFile -Raw).Trim()
-  $env:PEER_RP_ORIGIN = $rp
-  $env:PEER_RP_ID = ($rp -replace '^https?://', '' -replace '/.*$', '')
-}
-# The dead address proof-of-burn verifies against. A file like the rest, so
-# a watchdog restart cannot silently switch proof of burn off.
-# The PEER token on Base, and the asset it is paired against. Files like the
-# rest of server-data, so a watchdog restart cannot silently unconfigure the
-# on-chain surface. An address baked into source is one nobody verified.
-$tokFile2 = Join-Path $logDir 'token-address.txt'
-if (Test-Path $tokFile2) { $env:PEER_TOKEN_ADDR = (Get-Content $tokFile2 -Raw).Trim() }
-$btcTok = Join-Path $logDir 'btc-token-address.txt'
-if (Test-Path $btcTok) { $env:PEER_BTC_ADDR = (Get-Content $btcTok -Raw).Trim() }
-$poolsF = Join-Path $logDir 'pools-address.txt'
-if (Test-Path $poolsF) { $env:PEER_POOLS_ADDR = (Get-Content $poolsF -Raw).Trim() }
-# The block the factory was deployed in. Without it the pool scan asks every
-# public RPC for the whole chain's logs, which most refuse outright - so the
-# pool list comes back empty on a factory that is working perfectly.
-$poolsBlk = Join-Path $logDir 'pools-from-block.txt'
-if (Test-Path $poolsBlk) { $env:PEER_POOLS_FROM_BLOCK = (Get-Content $poolsBlk -Raw).Trim() }
-$burnFile = Join-Path $logDir 'burn-address.txt'
-if (Test-Path $burnFile) { $env:PEER_BURN_ADDRESS = (Get-Content $burnFile -Raw).Trim() }
-$btcFile = Join-Path $logDir 'btc-address.txt'
-if (Test-Path $btcFile) { $env:PEER_BTC_ADDRESS = (Get-Content $btcFile -Raw).Trim() }
+# Every file-backed setting, from the one list all four launchers share.
+# They live in server-data\ (gitignored) rather than in this script, so no
+# path exists by which a token or an address reaches the repository.
+. (Join-Path $here 'load-config.ps1') -DataDir $logDir
 Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' -WorkingDirectory $here -WindowStyle Hidden `
   -RedirectStandardOutput (Join-Path $logDir 'host.log') -RedirectStandardError (Join-Path $logDir 'host.err.log')
 

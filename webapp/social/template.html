@@ -8703,7 +8703,13 @@ button, .btn { touch-action: manipulation; }
             // must never blur: an empty factory invites the first deposit, an
             // unreadable one is a host to fix first. So the invitation is
             // printed only when the scan actually came back empty.
-            if (!scanError) listBox.appendChild(h('p', { class: 'smallnote', text: 'The factory is live and empty. The first pool is opened below \u2014 its starting ratio IS its starting price.' }));
+            if (!scanError) {
+              var known = Number(np.total || 0);
+              listBox.appendChild(known === 0
+                ? h('p', { class: 'smallnote', text: 'The factory is live and empty. The first pool is opened below \u2014 its starting ratio IS its starting price.' })
+                : h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px',
+                    text: 'This factory holds ' + known + ' pool' + (known === 1 ? '' : 's') + ' that this host has not read yet \u2014 it is still walking the log. That is a list which has not arrived, not an empty factory. Do not open a \u201cfirst\u201d pool here: its ratio would be priced against pools you cannot see.' }));
+            }
             drawScanState(listBox, scanError ? null : 0);
             return;
           }

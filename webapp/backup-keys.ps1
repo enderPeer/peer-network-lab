@@ -32,6 +32,19 @@ $items = @(
   @{ n = 'chain\producer.pem';                         p = (Join-Path $data 'chain\producer.pem');                         req = $true;  why = 'future epoch blocks are signed by a different producer' },
   @{ n = 'operator-token.txt';                         p = (Join-Path $data 'operator-token.txt');                         req = $false; why = 'the /admin panel answers 404 until a new token is set' },
   @{ n = 'btc-address.txt';                            p = (Join-Path $data 'btc-address.txt');                            req = $false; why = 'adverts stop being accepted until re-set' },
+  # The deployment on Base. Not keys - these are public, and every one of
+  # them can be read back off a block explorer by someone who knows what
+  # they are looking for. They are here because this script promises to
+  # gather what the project "cannot regenerate", and while the addresses
+  # survive, KNOWING WHICH ONES ARE YOURS does not: a rebuilt host with an
+  # empty server-data has no way to tell its own factory from any other,
+  # and pools-from-block is not derivable at all once the deploy receipt is
+  # gone. Losing them does not lose the coins; it loses the pool list, and
+  # an operator who then re-deploys has split their own liquidity in two.
+  @{ n = 'token-address.txt';                          p = (Join-Path $data 'token-address.txt');                          req = $false; why = 'the on-chain PEER token is no longer reported by this host' },
+  @{ n = 'btc-token-address.txt';                      p = (Join-Path $data 'btc-token-address.txt');                      req = $false; why = 'the asset PEER is paired against has to be set again' },
+  @{ n = 'pools-address.txt';                          p = (Join-Path $data 'pools-address.txt');                          req = $false; why = 'the pools factory is unknown to this host - every named pool disappears from the app' },
+  @{ n = 'pools-from-block.txt';                       p = (Join-Path $data 'pools-from-block.txt');                       req = $false; why = 'the pool scan restarts from block 0 and takes many refreshes to catch up' },
   @{ n = 'agent\.env';                                 p = (Join-Path $repo 'agent\.env');                                 req = $false; why = 'the resident bot cannot sign in as itself' },
   @{ n = 'role.json';                                  p = (Join-Path $data 'role.json');                                  req = $false; why = 'the host role has to be set by hand' }
 )

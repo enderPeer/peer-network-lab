@@ -15,35 +15,8 @@ Get-CimInstance Win32_Process |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 3
 
-# Same files serve-public.ps1 and watchdog.ps1 read. Kept in step with them by
-# hand, which is a real hazard: a setting one script loads and another forgets
-# changes behaviour silently on the next restart.
-$tok = Join-Path $logDir 'operator-token.txt'
-if (Test-Path $tok) { $env:PEER_OPERATOR_TOKEN = (Get-Content $tok -Raw).Trim() }
-# The PEER token on Base, and the asset it is paired against. Files like the
-# rest of server-data, so a watchdog restart cannot silently unconfigure the
-# on-chain surface. An address baked into source is one nobody verified.
-$tokFile2 = Join-Path $logDir 'token-address.txt'
-if (Test-Path $tokFile2) { $env:PEER_TOKEN_ADDR = (Get-Content $tokFile2 -Raw).Trim() }
-$btcTok = Join-Path $logDir 'btc-token-address.txt'
-if (Test-Path $btcTok) { $env:PEER_BTC_ADDR = (Get-Content $btcTok -Raw).Trim() }
-$poolsF = Join-Path $logDir 'pools-address.txt'
-if (Test-Path $poolsF) { $env:PEER_POOLS_ADDR = (Get-Content $poolsF -Raw).Trim() }
-# The block the factory was deployed in. Without it the pool scan asks every
-# public RPC for the whole chain's logs, which most refuse outright - so the
-# pool list comes back empty on a factory that is working perfectly.
-$poolsBlk = Join-Path $logDir 'pools-from-block.txt'
-if (Test-Path $poolsBlk) { $env:PEER_POOLS_FROM_BLOCK = (Get-Content $poolsBlk -Raw).Trim() }
-$burn = Join-Path $logDir 'burn-address.txt'
-if (Test-Path $burn) { $env:PEER_BURN_ADDRESS = (Get-Content $burn -Raw).Trim() }
-$btc = Join-Path $logDir 'btc-address.txt'
-if (Test-Path $btc) { $env:PEER_BTC_ADDRESS = (Get-Content $btc -Raw).Trim() }
-$rp = Join-Path $logDir 'rp-origin.txt'
-if (Test-Path $rp) {
-  $o = (Get-Content $rp -Raw).Trim()
-  $env:PEER_RP_ORIGIN = $o
-  $env:PEER_RP_ID = ($o -replace '^https?://', '' -replace '/.*$', '')
-}
+# Every file-backed setting, from the one list all four launchers share.
+. (Join-Path $here 'load-config.ps1') -DataDir $logDir
 
 Start-Process -FilePath 'node' -ArgumentList 'server.mjs', '5210' `
   -WorkingDirectory $here -WindowStyle Hidden `

@@ -1,0 +1,64 @@
+# Every file-backed setting, loaded into the environment. One copy.
+#
+# Dot-source it, so the assignments land in the caller's scope:
+#
+#   . (Join-Path $here 'load-config.ps1') -DataDir $logDir
+#
+# WHY THIS FILE EXISTS. This block used to be pasted into each script that
+# starts the host, and start-host.ps1 said so out loud: "kept in step with
+# them by hand, which is a real hazard: a setting one script loads and
+# another forgets changes behaviour silently on the next restart." That was
+# not hypothetical. setup-host.ps1 - the script HOSTING.md gives as START
+# HERE for a fresh machine, and as the promotion command in both "Swap the
+# roles" and "Emergency promotion" - started the host with NONE of these
+# set. server.mjs never reads these .txt files itself; they exist only to
+# become environment variables, so on that path the operator token, the
+# passkey origin, proof of burn and the whole on-chain surface were off,
+# on a host that looked completely healthy.
+#
+# A promotion is exactly when nobody is watching closely, so that was the
+# worst possible path for it to be missing from. Now there is one list, and
+# a new launcher that forgets to dot-source this cannot quietly half-work:
+# it fails the same way for every setting at once, which is noticeable.
+#
+# Nothing here is secret to the repository - every value lives in
+# server-data\, which is gitignored, and an address baked into source is one
+# nobody verified.
+#
+# ASCII-only on purpose - Windows PowerShell 5.1 misparses BOM-less UTF-8.
+param(
+  [Parameter(Mandatory = $true)][string]$DataDir
+)
+
+# name -> environment variable. Read as raw text and trimmed, because a
+# trailing newline in an address is not an address.
+$peerConfigFiles = @(
+  @{ f = 'operator-token.txt';    v = 'PEER_OPERATOR_TOKEN' },
+  @{ f = 'token-address.txt';     v = 'PEER_TOKEN_ADDR' },
+  @{ f = 'btc-token-address.txt'; v = 'PEER_BTC_ADDR' },
+  @{ f = 'pools-address.txt';     v = 'PEER_POOLS_ADDR' },
+  # The block the pools factory was deployed in. Without it the log scan
+  # walks from block 0 - it still finishes and never claims to be complete
+  # while it is behind, but it takes many refreshes to get there.
+  @{ f = 'pools-from-block.txt';  v = 'PEER_POOLS_FROM_BLOCK' },
+  @{ f = 'burn-address.txt';      v = 'PEER_BURN_ADDRESS' },
+  @{ f = 'btc-address.txt';       v = 'PEER_BTC_ADDRESS' }
+)
+
+foreach ($c in $peerConfigFiles) {
+  $p = Join-Path $DataDir $c.f
+  if (Test-Path $p) {
+    Set-Item -Path ('Env:' + $c.v) -Value ((Get-Content $p -Raw).Trim())
+  }
+}
+
+# Passkeys are bound to an origin. Behind the tunnel that is the public
+# hostname, not localhost, and a wrong value makes every passkey silently
+# unusable - so it is read from a file rather than guessed. The id is the
+# host part of the origin, derived here so the two cannot disagree.
+$rpFile = Join-Path $DataDir 'rp-origin.txt'
+if (Test-Path $rpFile) {
+  $rp = (Get-Content $rpFile -Raw).Trim()
+  $env:PEER_RP_ORIGIN = $rp
+  $env:PEER_RP_ID = ($rp -replace '^https?://', '' -replace '/.*$', '')
+}

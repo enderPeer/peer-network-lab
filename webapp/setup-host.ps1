@@ -91,6 +91,13 @@ if ($MirrorOf -and (Test-Path $logFile)) {
 
 # ---- 4. start --------------------------------------------------------------
 Write-Output '5. Starting host'
+# Every file-backed setting, from the one list all four launchers share.
+# This script used to start the host bare, which mattered most here of all
+# places: HOSTING.md makes it the fresh-machine START HERE and the command
+# for both planned and emergency promotion, so the host that came up during
+# a promotion was the one with the admin panel, passkeys, proof of burn and
+# the on-chain surface all silently off - while looking perfectly healthy.
+. (Join-Path $here 'load-config.ps1') -DataDir $logDir
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
   Where-Object { $_.CommandLine -match 'server\.mjs' } |
   ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -Confirm:$false } catch {} }
