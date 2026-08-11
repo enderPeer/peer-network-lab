@@ -18,3 +18,4 @@
 {"t":"btcBurn","id":"u_ender","txid":"3dd162e2f598283459846d5dfa3706edc74a425baf4075f6d415ce7f6bc802d7","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786362997873}
 {"t":"btcBurn","id":"u_ender","txid":"f81da507b840e8e0f0a6cfd109dacffd2e9144125cb45d0bcbd75fed57b8e751","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786364749858}
 {"t":"btcBurn","id":"u_egoplayer","txid":"6bfe85583de095f9217c390a9c46cf536c0ddab925d465a64c6ff96d43abd60b","sats":2000,"addr":"bc1qrz05qq6tu7senu06nzgkdrhr4dsyn7pd8rrghec0t9h2ktsc27msqvznj2","ts":1786364750230}
+{"t":"register","id":"u_pabz","handle":"pabz","seed":1,"epoch":2,"pinHash":"pbkdf2$210000$eedd99f42c0f5ba8d6f3b916e00dfc49$915a98fea303a7ee643f8760ba2e49fcf54686e88ec9218410c67ca21c2801b5","ts":1786393649028}
