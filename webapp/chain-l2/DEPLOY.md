@@ -67,6 +67,40 @@ the pool, and — same as the token — no owner, no fee switch, nothing
 privileged. One deployment holds every pool; anyone can open a named pool
 afterwards by calling it.
 
+### A pool name is a label, not a namespace
+
+Names are claimed **per creator**. Your pool called `main` and a stranger's
+pool called `main` are two different pools, and both are allowed. Nothing
+in the contract arbitrates between them, because arbitrating names would
+mean somebody holding the power to arbitrate, and this contract has no
+privileged anybody.
+
+That is a deliberate choice over the obvious one. A global first-come
+namespace on a chain with a public mempool is a gift to whoever pays the
+higher priority fee: they read the name out of your pending `createPool`,
+land theirs first, and your honest transaction reverts on a name that now
+belongs — permanently, with no reclaim path — to a pool holding dust. The
+attack costs a fee and buys a word. Per-creator claiming makes it buy
+nothing.
+
+The consequence is worth stating plainly, to yourself as much as to anyone
+reading a pool list: **a name confers no trust, no seniority and no
+provenance.** What identifies a pool is its numeric id. What tells you
+whose it is, is the `creator` address that `poolInfo` returns beside the
+reserves. Judge a pool by its reserves and its creator; a list that shows
+a bare name without saying whose pool it is, is a list you cannot safely
+act on. Within one creator a name is still claimed forever, even after the
+pool is drained — reusing your own dead name would let a pool people point
+at quietly change referent.
+
+Every call that moves value carries the caller's own guards: a minimum on
+what must come back, and, on `swap` and `addLiquidity`, a deadline past
+which the signed transaction is void. The contract has no oracle and wants
+none — those numbers are how a caller states what they will accept, and
+they are the only price protection there is.
+
+### Deploying it
+
 Same discipline as §1: the fresh account, wallet on Base.
 
 1. In Remix, create `PeerPools.sol`, paste the contents of
@@ -75,10 +109,29 @@ Same discipline as §1: the fresh account, wallet on Base.
 2. Compiler **0.8.24**, optimizer **on**, 200 runs — identical settings.
 3. Constructor takes two addresses: `peer_` is **your token address from
    §1**, `btc_` is cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`.
-4. Deploy, confirm, and **copy the factory address**.
+4. Deploy, confirm, and **copy the factory address — and the block number it
+   landed in.** Both, together. The block is on the deployment transaction on
+   any explorer, and the one-click page prints it beside the address; §4
+   explains what it is for. Recording it now costs nothing and finding it
+   later is a chore.
 
 (The one-click page covers this step too: `node chain-l2/serve-deploy.mjs`,
-open <http://127.0.0.1:8899/>, second card sequence.)
+open <http://127.0.0.1:8899/>, cards 4 and 5 — the cbBTC address is
+prefilled there, the PEER address is the one you paste in from §1. The page
+embeds the compiled bytecode and fetches nothing; rebuild it with `node
+chain-l2/build-deploy-page.js` any time `PeerPools.sol` changes, or you
+will deploy the previous contract. `chain-l2/auto-deploy.ps1` runs that
+whole sitting end to end, including §4 below.)
+
+**Check the fingerprint before you sign.** Card 5 prints the SHA-256 of the
+factory bytecode that page will deploy, and `auto-deploy.ps1` refuses to open
+a page whose fingerprint is not the one `chain-l2/PeerPools.build.json`
+produces. This is not paranoia about attackers — it is about copies. A stale
+`deploy.html`, from a git worktree or an old checkout, serving on the same
+port embeds a *previous* immutable contract, and deploying it is irreversible,
+silent, and leaves the app calling functions that contract does not have. If
+you opened the page by hand rather than through the script, compare that line
+against what `node chain-l2/build-deploy-page.js` prints.
 
 Verify before going further:
 
@@ -89,6 +142,11 @@ curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
 
 `0xf525cb68` is `poolCount()` — a fresh factory answers a 32-byte zero. If
 it returns `0x`, nothing is deployed at that address — stop and check.
+
+Zero is the right answer and not a failure: deploying the factory creates no
+pool and moves no coin. The first pool is a `createPool` from a wallet, in
+the app's Pools tab, and it is that call — not this one — that hands over
+real PEER and real cbBTC.
 
 ## 3. The Uniswap alternative (~$0.20)
 
@@ -113,21 +171,74 @@ Use <https://app.uniswap.org> connected to Base:
 
 ## 4. Point the network at it
 
-In `webapp/server-data/` (gitignored — nothing here reaches the repo), set
-the host's environment and restart:
+These are **files**, not a shell you have to remember to export in. Each
+lives in `webapp/server-data/` (gitignored — nothing here reaches the repo),
+holds one value and nothing else, and is read into an environment variable
+at startup by all three launchers — `start-host.ps1`, `watchdog.ps1` and
+`serve-public.ps1`. All three read the same four files, which is the point:
+a watchdog restart at some hour nobody is watching cannot silently
+unconfigure the on-chain surface.
 
-```bash
-PEER_TOKEN_ADDR=0xYourPeerToken
-PEER_BTC_ADDR=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
-PEER_POOLS_ADDR=0xYourPoolsFactory
-PEER_POOL_ADDR=0xYourUniswapPool   # only if you took the §3 alternative
-```
+| file in `server-data/` | environment variable | what goes in it |
+|---|---|---|
+| `token-address.txt` | `PEER_TOKEN_ADDR` | your PEER token from §1 |
+| `btc-token-address.txt` | `PEER_BTC_ADDR` | cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` |
+| `pools-address.txt` | `PEER_POOLS_ADDR` | your pools factory from §2 |
+| `pools-from-block.txt` | `PEER_POOLS_FROM_BLOCK` | the block §2 deployed in |
+
+Then restart the host: `.\start-host.ps1`. Or let
+`chain-l2/auto-deploy.ps1` write all four and restart for you — it is the
+same four files, typed once.
+
+That last one is worth getting right even though the host no longer breaks
+without it. The host finds pools by asking the RPC for the factory's
+`PoolCreated` logs, and public endpoints cap how wide one such query may be —
+Base's answers 9,999 blocks and refuses 10,000. The reader walks the range in
+windows under that cap, remembers how far it got in
+`server-data/pools-scan.json`, and continues on the next refresh, so with no
+starting block it starts at block 0 and simply takes a while: `namedPools.scan`
+reports `windows`, `complete` and how many blocks of history are still
+unwalked while it catches up. Setting the deployment block turns that backfill
+from hours into one query.
+
+Err **low**, never high. Too low costs a little scanning; too high silently
+hides every pool opened before it. The reader reports `total` — the
+factory's own `poolCount` — beside `discovered`, the number the log scan
+actually saw, precisely so that gap is visible rather than something you
+have to suspect. If those two disagree, this file is the first thing to
+check.
+
+Changing it afterwards is safe and costs one backfill: `pools-scan.json` is
+keyed to the chain, the factory and this block, so a value that moved throws
+the remembered scan away rather than reporting a range it never walked. The
+file is a cache in every direction — delete it and the next refresh rebuilds
+it from the chain.
+
+The §3 Uniswap pool is the exception, and it is worth knowing before you
+rely on it: **`PEER_POOL_ADDR` has no file behind it.** Exported by hand it
+works, until the watchdog restarts the host without that environment and the
+Uniswap reading goes quiet with nothing to say why. If you take the §3
+alternative and mean to keep it, give it a file of its own beside the others
+in all three launchers rather than trusting a shell to outlive a reboot.
+
+Two more the reader honours, both with working defaults and neither needing
+a file: `PEER_L2_RPC` (Base mainnet) and `PEER_L2_CHAIN_ID` (8453). The
+authoritative list is the header comment of `chain-l2/onchain.mjs` — these
+are only the ones an operator normally sets.
 
 Then `GET /api/token/onchain` reports live supply, reserves, any account's
 balance and — with `PEER_POOLS_ADDR` set — every named pool with its
-reserves, and refuses to report anything if the RPC answers for the wrong
-chain. Unset, the endpoint returns 404 and says why — a token address baked
-into source is one nobody verified.
+reserves and its creator, and refuses to report anything if the RPC answers
+for the wrong chain. Unset, the endpoint returns 404 and says why — a token
+address baked into source is one nobody verified. Readings are cached for
+30 seconds, so a pool you just opened can take that long to appear.
+
+Read the `tokens` field the first time. It is the pair the factory names in
+its own immutables, and if it disagrees with what you configured, a
+`mismatch` key says so instead of quietly scaling amounts by the wrong
+decimals. That is the shape of a factory deployed over the wrong PEER
+address — a mistake worth catching while the pools are still empty, because
+it cannot be corrected afterwards, only abandoned.
 
 ## What to expect, plainly
 
@@ -137,6 +248,15 @@ the price is whatever the last trade left behind, and the first real trade
 against a thin pool will move it enormously. Seed only what you are content
 to lose — you called this a doability trial, and that is the right frame.
 
+Expect duplicates, too. Nothing stops a second person opening a pool with
+the same name as yours, at whatever price they like, and nothing should.
+Thin lookalike pools beside a real one are the ordinary condition of a
+permissionless list, not a sign something broke. The host orders that list
+by BTC reserve, deepest first, and says so in `rankedBy` — because depth is
+the one thing about a pool that cannot be faked cheaply, and because
+somebody has to choose an order. Depth is not endorsement: it says a trade
+can be filled there, nothing about who opened it or why.
+
 ## What stays impossible, and why that is correct
 
 Nobody can mint more PEER, including you: there is no mint function. Nobody
@@ -144,3 +264,12 @@ can pause transfers or seize a balance. That is what makes the supply figure
 worth reading — and it is also why the deploying key matters so much. If it
 leaks, whoever has it holds whatever that account holds. Fresh account, paper
 backup, nothing else on it.
+
+The factory has no owner either, and that cuts both ways. Once it is
+deployed there is no upgrade, no pause, no admin call, and no way for you or
+anyone to correct a pool opened at a silly ratio or under a confusing name —
+the only remedies are the ordinary ones anybody has: trade against it, add
+liquidity, or leave it alone. Deploying is the last moment anything about
+that contract can change. That is the same property that makes it worth
+trusting with other people's coins, and it is why this runbook asks you to
+read `PeerPools.sol` rather than take the summary above on trust.

@@ -123,6 +123,75 @@ describe('the built page is an application, not just valid JavaScript', () => {
     bad.dom.window.close();
   }, 30000);
 
+  it('draws a bet: its pool, its jury, and a settled one', async () => {
+    // The archive path is the only way to hand the built page an arbitrary
+    // log, which is what a market needs: four accounts, an asset to stake,
+    // and bets in every state a reader can meet one in.
+    const day = 24 * 60 * 60 * 1000;
+    const who = ['ann', 'ben', 'cal', 'dee'];
+    const acts: Record<string, unknown>[] = [];
+    who.forEach((n, i) => {
+      acts.push({ t: 'register', id: 'u_' + n, handle: n, seed: 1, epoch: 0 });
+      acts.push({ t: 'btcBurn', id: 'u_' + n, sats: 30000, addr: 'bc1qdead',
+        txid: String(i + 1).repeat(64).slice(0, 64) });
+    });
+    acts.push({ t: 'assetCreate', author: 'u_ann', sym: 'CHIP', name: 'table stakes', supply: 1000 });
+    for (const n of who.slice(1)) acts.push({ t: 'tokenSend', author: 'u_ann', sym: 'CHIP', to: 'u_' + n, amt: 200 });
+    // c1: open, with money on it and an elected jury of one
+    acts.push({ t: 'market', author: 'u_ann', text: 'will it rain on the parade?',
+      opts: ['rain', 'shine'], cur: 'CHIP', at: Date.now() + day, seats: 1, bond: 5, feeBp: 200,
+      mods: ['u_cal'] });
+    acts.push({ t: 'bet', author: 'u_ben', cid: 'c1', opt: 0, amt: 50 });
+    acts.push({ t: 'modStand', author: 'u_cal', cid: 'c1', on: true });
+    acts.push({ t: 'modVote', author: 'u_ben', cid: 'c1', for: ['u_cal'] });
+    // c2: certified and paid out
+    acts.push({ t: 'market', author: 'u_ann', text: 'did the ferry sail?',
+      opts: ['yes', 'no'], cur: 'CHIP', at: Date.now() + day, seats: 1, bond: 5, feeBp: 200 });
+    acts.push({ t: 'bet', author: 'u_ben', cid: 'c2', opt: 1, amt: 20 });
+    acts.push({ t: 'modStand', author: 'u_dee', cid: 'c2', on: true });
+    acts.push({ t: 'attest', author: 'u_dee', cid: 'c2', opt: 1 });
+
+    const body = acts.map((a) => JSON.stringify(a)).map((line) => line + '\n').join('');
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: Date.now() }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_ben'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'feed', lqView: 'feed' }),
+    }, serve);
+    expect(errors, 'a bet card threw: ' + errors.join(' | ')).toEqual([]);
+    const text = root!.textContent ?? '';
+    expect(text, 'the open bet did not draw').toMatch(/will it rain on the parade\?/);
+    expect(text, 'no pool on the card').toMatch(/pool50.000000 CHIP/);
+    expect(text, 'the jury is not on the card').toMatch(/seat\(s\)/);
+    expect(text, 'the reader cannot see their own position').toMatch(/your position/i);
+    expect(text, 'a settled bet does not say so').toMatch(/Certified as .no./);
+    expect(text, 'the payout is not shown').toMatch(/you were paid/i);
+    // The wall is stated on every card, because this is the screen where
+    // somebody is most likely to assume money is buying them something else.
+    expect(text).toMatch(/no part of this bet appends an edge/i);
+
+    // …and the composer can ask one.
+    const kindBtn = Array.from(root!.querySelectorAll('.uline button'))
+      .find((b) => (b.textContent ?? '').trim() === 'Bet');
+    expect(kindBtn, 'no Bet kind in the composer').toBeTruthy();
+    (kindBtn as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(errors, 'the bet composer threw: ' + errors.join(' | ')).toEqual([]);
+    const placeholders = Array.from(root!.querySelectorAll('input'))
+      .map((i) => (i as HTMLInputElement).placeholder);
+    expect(placeholders, 'no answer fields').toContain('answer 1');
+    expect(placeholders).toContain('bond per seat');
+    dom.window.close();
+  }, 30000);
+
   it('draws every economy sub-tab without throwing', async () => {
     // The economy screen holds four unrelated jobs now. Each is a place the
     // app can go blank on its own.

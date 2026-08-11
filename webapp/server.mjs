@@ -41,10 +41,27 @@ const ACT_KINDS = new Set(['register', 'burn', 'btcBurn', 'resetTokens', 'post',
   'btcClaim', 'assetCreate', 'tokenSend', 'poolCreate', 'poolAdd', 'poolRemove', 'poolSwap',
   'setKey', 'advert', 'adStop',
   'follow', 'profile', 'setRecovery',
-  'event', 'invite', 'rsvp']);
+  'event', 'invite', 'rsvp',
+  // Prender Markets. `market` mints content like a post; the rest move value
+  // against it and mint nothing. See MARKETS.md.
+  'market', 'bet', 'modStand', 'modVote', 'attest', 'marketVoid']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
+// How long a jury has to certify a bet once its answer became knowable. After
+// this, anyone may call time and every stake goes back.
+//
+// Enforced HERE, because it is a wall-clock rule and the replay must never
+// consult one — but the NUMBER comes from the replay, which publishes it so
+// the screen can draw the same deadline the door will enforce. The fallback
+// covers the window before the engine has finished loading.
+const MKT_RESOLVE_FALLBACK = 7 * 24 * 60 * 60 * 1000;
+function marketResolveMs(st) {
+  return (st && st.marketLimits && st.marketLimits.resolveMs) || MKT_RESOLVE_FALLBACK;
+}
+// The furthest ahead a bet may close. A question that settles in 2140 is a way
+// to hold other people's money indefinitely, not a market.
+const MKT_MAX_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 
 mkdirSync(DATA_DIR, { recursive: true });
 
@@ -253,6 +270,18 @@ ACT_FIELDS.poolAdd = ['t', 'author', 'pool', 'amtA', 'amtB'];
 ACT_FIELDS.poolRemove = ['t', 'author', 'pool', 'shares'];
 ACT_FIELDS.poolSwap = ['t', 'author', 'pool', 'sell', 'amt', 'minOut'];
 ACT_FIELDS.deleteAccount = ['t', 'id'];
+// ── Prender Markets ─────────────────────────────────────────────────────────
+// `opts` MUST be listed, and so must every one of bond/feeBp/seats/cur, for
+// the reason fee/cur/cap are listed on an event: sanitize is a hard whitelist,
+// so a field left out is deleted in silence and the act is accepted 200 — the
+// author would be told their bet was published and the thing on screen would
+// be a different bet from the one they wrote.
+ACT_FIELDS.market = ['t', 'author', 'text', 'opts', 'cur', 'at', 'seats', 'bond', 'feeBp', 'mods'];
+ACT_FIELDS.bet = ['t', 'author', 'cid', 'opt', 'amt'];
+ACT_FIELDS.modStand = ['t', 'author', 'cid', 'on'];
+ACT_FIELDS.modVote = ['t', 'author', 'cid', 'for'];
+ACT_FIELDS.attest = ['t', 'author', 'cid', 'opt'];
+ACT_FIELDS.marketVoid = ['t', 'author', 'cid'];
 
 // ── Deletion in an append-only log ──────────────────────────────────────────
 // Content ids are minted by a replay counter, and later acts reference them
@@ -309,6 +338,11 @@ function redactPostAct(orig, idx) {
   // named time. Blanking only the text would leave that behind after a delete
   // that promised to remove it.
   if (orig.place !== undefined) orig.place = '';
+  // A bet's answers are payload and go with the question. The COUNT is
+  // structure and stays: stakes name an answer by number, and an escrow that
+  // forgot how many answers it had could not pay itself out. Blanking in
+  // place, never splicing.
+  if (Array.isArray(orig.opts)) orig.opts = orig.opts.map(() => '');
   orig.redacted = true;
 }
 
@@ -1352,7 +1386,7 @@ const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount']);
  *  an established one. */
 // 'event' belongs here: a handle whose only acts are events has spoken, and
 // without this a stranger could still claim it as though it never had.
-const SUBSTANTIVE = new Set(['post', 'review', 'opinion', 'tag', 'dm', 'stream', 'call', 'event']);
+const SUBSTANTIVE = new Set(['post', 'review', 'opinion', 'tag', 'dm', 'stream', 'call', 'event', 'market']);
 function hasHistory(id) {
   for (const a of acts) {
     if (SUBSTANTIVE.has(a.t) && (a.author === id || a.from === id)) return true;
@@ -1972,6 +2006,10 @@ const REFUSAL_CODES = [
   [/approve advert .* before marking it paid/i, 'AD_NOT_APPROVED'],
   [/url must be a plain/i, 'BAD_URL'],
   [/engine still loading/i, 'ENGINE_LOADING'],
+  [/betting on this closed|jury for this bet was settled|still open — a jury certifies|jury has until/i, 'MARKET_CLOSED'],
+  [/no bet is running|no such bet/i, 'NO_MARKET'],
+  [/already resolved|was voided/i, 'MARKET_SETTLED'],
+  [/holds no seat|already certified|cannot back an answer|does not hold a position|cannot also certify/i, 'NOT_YOURS'],
 ];
 function classify(message) {
   const m = String(message ?? '');
@@ -2304,6 +2342,88 @@ function validate(act) {
       }
       break;
     }
+    // ── Prender Markets ───────────────────────────────────────────────────
+    //
+    // Two kinds of check live here and only here, because neither belongs in
+    // a replay: the WALL CLOCK (betting closes, then the jury certifies, then
+    // anyone may call time) and DELETION (a bet whose question was redacted
+    // takes no new money). Everything about who may do what and whether the
+    // arithmetic works is asked of marketActError — the same function the
+    // replay applies with — so the host cannot accept what the replay skips.
+    case 'market': {
+      if (!str(act.author, 24) || !str(act.text, 280)) return 'bad bet';
+      if (!Array.isArray(act.opts)) return 'a bet needs its answers as a list';
+      for (const o of act.opts) {
+        if (!str(o, 60)) return 'every answer needs text, at most 60 characters';
+      }
+      if (new Set(act.opts.map((o) => o.trim().toLowerCase())).size !== act.opts.length) {
+        return 'two answers on this bet say the same thing — stakes name an answer, so they have to be distinguishable';
+      }
+      // A closing time is not optional. Without one there is no moment the
+      // answer becomes knowable, which means no moment betting is unfair
+      // after — somebody who already knows could back a certainty.
+      if (!num(act.at) || act.at <= Date.now()) return 'a bet needs a closing time in the future';
+      if (act.at > Date.now() + MKT_MAX_AHEAD_MS) return 'a bet closes within a year — beyond that it is a way to hold other people\'s money, not a question';
+      if (Array.isArray(act.mods)) {
+        if (act.mods.length > 8) return 'name at most eight people to moderate';
+        for (const mid of act.mods) {
+          if (!str(mid, 24)) return 'bad nomination';
+          if (!isRegistered(mid)) return 'no such handle: ' + String(mid).slice(0, 40);
+        }
+      } else if (act.mods !== undefined) return 'bad nominations';
+      return marketDoor(act, { author: act.author, opts: act.opts, cur: act.cur,
+        seats: act.seats, bond: act.bond, feeBp: act.feeBp });
+    }
+    case 'bet':
+    case 'modStand':
+    case 'modVote':
+    case 'attest':
+    case 'marketVoid': {
+      if (!str(act.author, 24) || !str(act.cid, 40)) return 'bad ' + act.t;
+      if (unknownTarget(act.cid)) return unknownTarget(act.cid);
+      if (act.t === 'bet' && !num(act.amt)) return 'a stake must be a number';
+      if ((act.t === 'bet' || act.t === 'attest') && !num(act.opt)) return 'that act does not name an answer';
+      if (act.t === 'modStand' && act.on !== undefined && typeof act.on !== 'boolean') return 'bad modStand';
+      if (act.t === 'modVote') {
+        if (!Array.isArray(act.for)) return 'a ballot is a list of handles';
+        for (const cid of act.for) if (!str(cid, 24)) return 'bad ballot';
+      }
+      // Authorisation before arithmetic, exactly as a paid RSVP does it: a
+      // stake and a bond both spend a balance, and authError waves an
+      // unsecured handle through for ordinary acts. Asked ahead of the balance
+      // check so probing a stranger's handle tells you it needs a PIN rather
+      // than telling you what it holds.
+      if ((act.t === 'bet' || (act.t === 'modStand' && act.on !== false)) && !pinIndex.has(act.author)) {
+        return 'staking on a bet needs a PIN on this handle — without one, anyone could spend its balance in your name';
+      }
+      const st = freshState();
+      if (!st) return 'engine still loading — try again in a moment';
+      const m = st.markets && st.markets[act.cid];
+      if (!m) return 'no bet is running on ' + act.cid;
+      const closed = m.at > 0 && m.at <= Date.now();
+      if (act.t === 'bet' || act.t === 'modStand' || act.t === 'modVote') {
+        // Everything that shapes the answer stops at the same instant. If
+        // ballots were still counted afterwards, whoever now KNOWS the answer
+        // could seat a jury to certify it.
+        if (closed) {
+          return act.t === 'bet'
+            ? 'betting on this closed at ' + new Date(m.at).toLocaleString() + ' — the answer is knowable now'
+            : 'the jury for this bet was settled when betting closed';
+        }
+        if (st.payloads[act.cid] === undefined) {
+          return 'that bet was deleted — no new money goes in. What is already staked still settles.';
+        }
+      }
+      if (act.t === 'attest' && !closed) {
+        return 'this bet is still open — a jury certifies after betting closes, not before';
+      }
+      if (act.t === 'marketVoid' && Date.now() < m.at + marketResolveMs(st)) {
+        return 'the jury has until ' + new Date(m.at + marketResolveMs(st)).toLocaleString()
+          + ' to certify this bet; time can be called after that';
+      }
+      return marketDoor(act, { author: act.author, cid: act.cid, opt: act.opt, amt: act.amt,
+        on: act.on, for: act.for });
+    }
     case 'tag':
       if (!str(act.author, 24) || !str(act.target, 40) || !str(act.name, 20) || !inR(act.r) || !inR(act.c)) return 'bad tag';
       if (unknownTarget(act.target)) return unknownTarget(act.target);
@@ -2349,7 +2469,13 @@ function validate(act) {
       // 'event' is here because an event act carries a place: where a named
       // person will physically be, at a named time. A delete that could not
       // reach it would leave that standing after the account was gone.
-      if (!orig || (orig.t !== 'post' && orig.t !== 'event')) return 'delete target is not a post or an event';
+      // 'market' is here so an author can take down a question they should
+      // not have asked. It redacts the question and the answers; it does NOT
+      // touch the escrow, and the jury can still certify — money already
+      // staked has to be able to find its way home.
+      if (!orig || (orig.t !== 'post' && orig.t !== 'event' && orig.t !== 'market')) {
+        return 'delete target is not a post, an event or a bet';
+      }
       if (orig.author !== act.author) return 'only the author can delete a post';
       if (orig.redacted) return 'already deleted';
       break;
@@ -2542,12 +2668,40 @@ function solvency(actorId) {
 // the next one. Fails OPEN like the solvency gate: a missing build must never
 // silence the network.
 function contentExists(id) {
-  if (!engineMod || !replayMod) return true;
+  const st = freshState();
+  return st ? st.g.nodes.has(id) : true;
+}
+
+/**
+ * The world as the replay sees it right now, or null while the engine is
+ * still loading. Every door check that needs state goes through here, so the
+ * cache is refreshed in exactly one place rather than in each caller's own
+ * copy of the same four lines.
+ */
+function freshState() {
+  if (!engineMod || !replayMod) return null;
   if (!stateCache.R) stateCache.R = replayMod.create(engineMod);
   if (stateCache.len !== acts.length || !stateCache.st) {
     stateCache = { len: acts.length, st: stateCache.R.replay(acts), R: stateCache.R };
   }
-  return stateCache.st.g.nodes.has(id);
+  return stateCache.st;
+}
+
+/**
+ * Ask the replay's own rulebook whether a market act applies, and hand back
+ * its sentence unchanged.
+ *
+ * This is the whole reason the host cannot drift from the record: balances,
+ * eligibility, seats and the arithmetic of a stake are decided by
+ * marketActError, which is the function the replay itself applies with. The
+ * host adds exactly two things on top — the clock and deletion — and both are
+ * things a pure replay must never know about.
+ */
+function marketDoor(act, probe) {
+  const st = freshState();
+  if (!st) return 'engine still loading — try again in a moment';
+  if (!st.marketActError) return 'this host is running a replay with no markets in it';
+  return st.marketActError({ t: act.t, ...probe }) || null;
 }
 
 // Only ids that claim to be minted content are checked. `prof_<id>` targets a
@@ -2688,8 +2842,9 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/alerts?as=ID', purpose: 'what happened to you: reactions, comments, mentions, quotes, messages, calls' },
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
     { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
-    { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them' },
+    { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them — this is the in-log AMM; the real on-chain named pools, when a factory is configured, are under namedPools at GET /api/token/onchain' },
     { method: 'GET', path: '/api/v1/gatherings?past=1', purpose: 'the calendar: what is happening, when, where, the fee, and how many are going. Upcoming only unless past=1. NOTE the name — /api/v1/events is the act stream, this is the thing people turn up to.' },
+    { method: 'GET', path: '/api/v1/markets?all=1', purpose: 'Prender Markets: every open bet with its answers, what is staked on each, the elected jury, the bond, the fee and the deadlines. Settled ones too with all=1. Read the content id from here — never derive it. Stakes and juries touch no standing.' },
     // Undiscoverable until now, which made it useless: proof of burn is the
     // ONLY source of weight in the PEER distribution since the faucet closed,
     // and a door nobody can find pays nobody. Sixty epochs had minted zero.
@@ -2741,7 +2896,11 @@ const API_DOC = {
 // author could mint a Content node the host would refuse them as a post and
 // drive their balance negative. That is precisely the defect this set was
 // introduced to close, left open on one act kind.
-const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'event', 'stream']);
+const W1_GATED = new Set(['post', 'opinion', 'review', 'tag', 'dm', 'call', 'event', 'stream',
+  // A bet mints a Content node exactly as a post does, so it is gated
+  // exactly as a post is. Leaving it out would be the same defect this set
+  // was introduced to close, reopened on one act kind.
+  'market']);
 
 /**
  * The single write door, wrapped so telemetry cannot drift from reality:
@@ -2835,7 +2994,7 @@ function applyActInner(act, auth, ip) {
     deletedIds.add(act.id);
     for (let ai = 1; ai < acts.length; ai++) {
       const a = acts[ai];
-      if ((a.t === 'post' || a.t === 'event') && a.author === act.id && !a.redacted) redactPostAct(a, ai);
+      if ((a.t === 'post' || a.t === 'event' || a.t === 'market') && a.author === act.id && !a.redacted) redactPostAct(a, ai);
       // ONLY what this account authored. Blanking a message because it was
       // addressed to the leaver destroyed the counterparty's own record — their
       // words, erased by someone else's decision. The payload controller is the
@@ -3111,6 +3270,54 @@ async function handleBotApi(req, res, url, ip) {
         totalShares: pl.totalShares, swaps: pl.swaps,
       })),
       how: 'Constant-product pools, 0.3% fee to liquidity providers. Acts: poolCreate {symA,symB,amtA,amtB}, poolAdd {pool,amtA,amtB}, poolRemove {pool,shares}, poolSwap {pool,sell,amt,minOut?} — via POST /api/act, each costing θ like any act.',
+    });
+    return;
+  }
+  // Every bet, drawn from st.markets — the same map the interface reads, so a
+  // bot and a person can never be shown different odds, a different jury, or a
+  // different answer. The seats come from the replay's own election function
+  // rather than from a second count that could disagree with it.
+  if (req.method === 'GET' && p === 'markets') {
+    const now = Date.now();
+    const open = q.get('all') !== '1';
+    const rows = Object.entries(st.markets || {}).map(([cid, m]) => {
+      const seats = st.marketSeats(m);
+      return {
+        id: cid,
+        by: m.by, handle: nameOf(st, m.by),
+        text: st.payloads[cid] ?? null,        // null once the question is redacted
+        answers: m.opts.map((label, i) => ({
+          n: i, label: label || null,
+          staked: m.totals[i],
+          // The only "odds" this network will state: a share of the pool. It
+          // is not a probability and it is not a price — it is what fraction
+          // of the money is on this answer right now.
+          shareOfPool: m.pool > 0 ? m.totals[i] / m.pool : 0,
+        })),
+        currency: m.cur, pool: m.pool, feeBp: m.feeBp, bond: m.bond, seats: m.seats,
+        closesAt: m.at || null,
+        juryDeadline: m.at ? m.at + marketResolveMs(st) : null,
+        betting: m.state === 'open' && !!m.at && m.at > now,
+        state: m.state,
+        outcome: m.outcome >= 0 ? m.outcome : null,
+        nominated: m.nominees,
+        standing: Object.keys(m.cands).map((id) => ({
+          id, handle: nameOf(st, id), bond: m.cands[id],
+          votes: seats.weight[id] || 0, seated: seats.seated.indexOf(id) >= 0,
+          certified: m.attests[id] === undefined ? null : m.attests[id],
+        })).sort((a, b) => b.votes - a.votes),
+        struck: m.struck, paid: m.paid, refunded: m.refunded, earned: m.earned,
+      };
+    }).filter((m) => (open ? m.state === 'open' : true))
+      .sort((a, b) => (a.closesAt ?? Infinity) - (b.closesAt ?? Infinity));
+    json(res, 200, {
+      markets: rows, now,
+      how: 'Ask one with POST /api/act {t:"market", text, opts:[2..7], cur, at, seats:1|3|5, bond, feeBp, mods?}. '
+        + 'Back one with {t:"bet", cid, opt, amt}. Stand for a seat with {t:"modStand", cid, on}, elect with '
+        + '{t:"modVote", cid, for:[ids]}, certify with {t:"attest", cid, opt} (opt -1 = void), and after the jury '
+        + 'deadline anyone may {t:"marketVoid", cid}. Every one costs θ like any act.',
+      note: 'Stakes and bonds are value and touch no standing: no market act appends an edge, compiles a vouch, '
+        + 'or enters an epoch certificate. Ballots are weighed by satoshis the voter proved they destroyed.',
     });
     return;
   }
@@ -3491,6 +3698,23 @@ function adminBans() {
   return [...banned.entries()].map(([ip, b]) => ({ ip, until: b.until, reason: b.reason }));
 }
 
+// /api/token/onchain answers from this cache for 30 seconds. Every open tab
+// renders the token panel, every render used to be a full round of eth_calls
+// to a public RPC, and the chain does not change fast enough to justify
+// asking mainnet.base.org the same questions once per tab per render. The
+// per-account balance lookup (?of=) deliberately stays outside the cache:
+// it is one cheap call, and a cached balance would show one viewer's wallet
+// to everyone who asked within the same 30 seconds.
+//
+// `inFlight` is the other half of that, and the half a cache is usually
+// missing. A cold cache with twenty tabs arriving at once used to start
+// twenty full rounds — a pool scan each, dozens of calls apiece — because
+// every one of them checked the cache before any of them had filled it.
+// The refresh is one promise now: the first caller starts it, everyone else
+// waits on the same one, and the endpoint's load stops depending on how
+// many people opened the page in the same second.
+let onchainCache = { at: 0, value: null, inFlight: null };
+
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const ip = clientIp(req);
@@ -3860,6 +4084,12 @@ const server = createServer((req, res) => {
   // Read-only by construction: chain-l2/onchain.mjs contains no signing code
   // and accepts no key, so this door cannot move value however it is called.
   if (req.method === 'GET' && url.pathname === '/api/token/onchain') {
+    // The same read limiter every other GET on this router spends. The 30s
+    // cache below covers the pool scan, but ?of= deliberately sits OUTSIDE
+    // it — one uncached eth_call per request, aimed at a public RPC on
+    // someone else's rate limit — so an unlimited door here lets one client
+    // spend the host's endpoint quota walking a list of addresses.
+    if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests', code: 'RATE_LIMIT' }); return; }
     import('./chain-l2/onchain.mjs').then(async (m) => {
       if (!m.L2_ON) {
         json(res, 404, { code: 'ONCHAIN_OFF', deployed: false,
@@ -3868,9 +4098,37 @@ const server = createServer((req, res) => {
         return;
       }
       const q = url.searchParams.get('of');
-      const state = await m.tokenState();
-      if (q) state.account = await m.balanceOf(q);
-      json(res, 200, { deployed: true, ...state });
+      const now = Date.now();
+      let state = onchainCache.value;
+      if (!state || now - onchainCache.at >= 30_000) {
+        if (!onchainCache.inFlight) {
+          const p = m.tokenState();
+          onchainCache.inFlight = p;
+          p.then(
+            (v) => { onchainCache = { at: Date.now(), value: v, inFlight: null }; },
+            // A failed refresh must not wedge the door shut: clear the slot
+            // so the next request tries again, and let every waiter see the
+            // same error (the 502 below).
+            () => { onchainCache.inFlight = null; },
+          );
+        }
+        state = await onchainCache.inFlight;
+      }
+      // Compose onto a fresh object, never onto the cached one: attaching
+      // an account balance to the shared state would hand it to every other
+      // viewer for the rest of the cache window.
+      const out = { deployed: true, ...state };
+      if (q) {
+        // If the state above is a refusal — the RPC answered for a chain
+        // this host does not claim — then a balance read from that same
+        // endpoint does not become trustworthy by sitting in a different
+        // field. This body used to say both at once: "refusing to report
+        // its numbers" and, underneath, a number. Say it once.
+        out.account = state && state.chainIdMatches === false
+          ? { read: false, error: 'not read — ' + state.error }
+          : await m.balanceOf(q);
+      }
+      json(res, 200, out);
     }).catch((e) => json(res, 502, { code: 'L2_UNREACHABLE', error: 'could not read the chain: ' + String(e.message).slice(0, 120) }));
     return;
   }
@@ -4615,6 +4873,12 @@ server.on('error', (e) => {
 server.listen(PORT, () => {
   console.log(`peer host on http://localhost:${PORT} — ${acts.length} act(s) loaded`
     + (role.mirrorOf ? ` — read-only mirror of ${role.mirrorOf}` : ''));
+  // Warm the engine now rather than on the first request that happens to need
+  // it. Several door checks — a paid RSVP, every market act — consult the
+  // replay, and a sync validator cannot await a lazy import, so until this
+  // landed the first person through the door after a restart was told 'engine
+  // still loading' and had to guess that trying again would work.
+  ensureEngine().catch(() => { /* engineErr already carries the reason */ });
   // The role can change while the process runs, so the sync loop always
   // ticks and asks the CURRENT role — a promoted mirror stops pulling, a
   // demoted primary starts, no restart in between.

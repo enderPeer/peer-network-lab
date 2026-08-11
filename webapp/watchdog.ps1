@@ -55,6 +55,13 @@ while ($true) {
     if (Test-Path $tokFile2) { $env:PEER_TOKEN_ADDR = (Get-Content $tokFile2 -Raw).Trim() }
     $btcTok = Join-Path $logDir 'btc-token-address.txt'
     if (Test-Path $btcTok) { $env:PEER_BTC_ADDR = (Get-Content $btcTok -Raw).Trim() }
+    $poolsF = Join-Path $logDir 'pools-address.txt'
+    if (Test-Path $poolsF) { $env:PEER_POOLS_ADDR = (Get-Content $poolsF -Raw).Trim() }
+    # The block the factory was deployed in. Without it the pool scan asks every
+    # public RPC for the whole chain's logs, which most refuse outright - so the
+    # pool list comes back empty on a factory that is working perfectly.
+    $poolsBlk = Join-Path $logDir 'pools-from-block.txt'
+    if (Test-Path $poolsBlk) { $env:PEER_POOLS_FROM_BLOCK = (Get-Content $poolsBlk -Raw).Trim() }
     $burnFile = Join-Path $logDir 'burn-address.txt'
     if (Test-Path $burnFile) { $env:PEER_BURN_ADDRESS = (Get-Content $burnFile -Raw).Trim() }
     $btcFile = Join-Path $logDir 'btc-address.txt'

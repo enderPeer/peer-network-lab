@@ -179,6 +179,13 @@ in. The distribution was always replayable; now it is also *attributable*: a
 host that later showed you different numbers for a closed epoch would be
 contradicting its own signature, and `node chain/verify.mjs` says so.
 
+## Betting on an answer
+
+The other thing a balance can do here is take a side. A **bet** is a post with
+two to seven answers, a parimutuel pool, and a jury the community elects and
+bonds — and it obeys this same wall from both directions: no stake moves a
+standing, and no standing weighs a jury ballot. See [MARKETS.md](MARKETS.md).
+
 ## What this is not
 
 A test network's play money. There is no exchange, no bridge, no custody, no

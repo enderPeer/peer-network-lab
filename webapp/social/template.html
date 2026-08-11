@@ -715,6 +715,22 @@ button, .btn { touch-action: manipulation; }
   // quietly opening the feed ever since — fixed in this pass.
   var GEEK_TABS = ['feed', 'chat', 'alerts', 'econ', 'profile'];
   var econView = 'wallet';   // + 'net'  — the graph lives here now
+  // The connected Base wallet address, module-level so it survives the
+  // re-render that follows every act. An address is public information;
+  // no key is ever in this variable — or anywhere else in this file.
+  //
+  // The three below it are cache that is only true WHILE that connection is.
+  // l2Tokens holds the two token addresses read off the pools factory, which
+  // are meaningless on any other chain; l2Redraw is the hook the on-chain
+  // card installs so the wallet's own events can reach the screen; l2Watching
+  // stops those event handlers stacking up one per visit to the tab. When the
+  // wallet changes network or account they are dropped together, because an
+  // address left on screen after the wallet moved on is a lie the page is
+  // telling for free.
+  var l2Wallet = null;
+  var l2Tokens = null;
+  var l2Redraw = null;
+  var l2Watching = false;
   var alertView = 'inbound'; // | 'record'
   var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags'
 
@@ -727,11 +743,18 @@ button, .btn { touch-action: manipulation; }
   var chatQuery = '', chatScope = 'mine', chatOpen = null;
   var eventView = 'soon';   // 'soon' | 'mine' | 'invited' | 'past'
   var feedFile = 'all';     // 'all' | 'image' | 'video' | 'audio' | 'file' | 'text'
-  var feedKind = 'any';     // 'any' | 'post' | 'event' | 'stream' | 'onair'
+  var feedKind = 'any';     // 'any' | 'post' | 'market' | 'event' | 'stream' | 'onair'
   // The composer is rebuilt on every render, and a poll can fire at any
   // moment — measured, a single pollLive call wiped a fully filled six-field
   // event form. The draft therefore lives out here, not in the DOM.
-  var draft = { kind: 'post', text: '', at: '', place: '', fee: '', cur: 'PEER', cap: '', camera: true };
+  var draft = { kind: 'post', text: '', at: '', place: '', fee: '', cur: 'PEER', cap: '', camera: true,
+    // A bet in progress. Answers are kept as a list because their ORDER is
+    // what a stake names — every wager records an index, so reordering the
+    // list after publication would repoint money at a different answer.
+    mOpts: ['', ''], mSeats: 3, mBond: '', mFee: '2', mCur: 'PEER', mMods: [] };
+  // Which answer the stake box is pointed at, per bet. Lives out here
+  // because render() rebuilds the card wholesale.
+  var mktPick = {};
   // (econView is declared with the tab list above.)
   // When every host is down, the app can still read a published snapshot of
   // the log from the same static hosting that serves this page. archiveInfo
@@ -815,7 +838,7 @@ button, .btn { touch-action: manipulation; }
       if (GEEK_TABS.indexOf(v0.tab) >= 0) tab = v0.tab;
       if (['l1', 'cogra', 'new', 'follow', 'old', 'talked', 'backed'].indexOf(v0.feedMode) >= 0) feedMode = v0.feedMode;
       if (['all', 'image', 'video', 'audio', 'file', 'text'].indexOf(v0.feedFile) >= 0) feedFile = v0.feedFile;
-      if (['any', 'post', 'event', 'stream', 'onair'].indexOf(v0.feedKind) >= 0) feedKind = v0.feedKind;
+      if (['any', 'post', 'market', 'event', 'stream', 'onair'].indexOf(v0.feedKind) >= 0) feedKind = v0.feedKind;
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
@@ -5635,11 +5658,20 @@ button, .btn { touch-action: manipulation; }
     // Show the ceiling before it is hit — finding it by trial cost a tester
     // several real acts, and every one of them burned θ.
     var TEXT_MAX = 1000;
+    // Declared HERE, above the counter that reads it: the first updateCount()
+    // runs while this composer is being assembled, and a `var` further down
+    // the function is hoisted as a name with no value.
+    var CEIL = { post: TEXT_MAX, event: 280, stream: 200, market: 280 };
     var counter = h('span', { class: 'charcount' });
     function updateCount() {
+      // Against the ceiling for the KIND being written, not always the note's.
+      // A gathering takes 280 and a bet takes 280, and both used to be counted
+      // against 1000 — so the composer said 320 / 1000 in green and the door
+      // refused it, after the θ had been spent finding out.
+      var lim = CEIL[draft.kind] || TEXT_MAX;
       var n = text.value.length;
-      counter.textContent = n + ' / ' + TEXT_MAX;
-      counter.className = 'charcount' + (n > TEXT_MAX ? ' over' : n > TEXT_MAX * 0.9 ? ' near' : '');
+      counter.textContent = n + ' / ' + lim;
+      counter.className = 'charcount' + (n > lim ? ' over' : n > lim * 0.9 ? ' near' : '');
     }
     text.addEventListener('input', updateCount);
     updateCount();
@@ -5654,15 +5686,17 @@ button, .btn { touch-action: manipulation; }
     // travelled.
     text.value = draft.text;
     text.addEventListener('input', function () { draft.text = text.value; });
-    var KINDS = [['post', 'Note'], ['event', 'Gathering'], ['stream', 'Broadcast']];
-    var CEIL = { post: TEXT_MAX, event: 280, stream: 200 };
+    var KINDS = [['post', 'Note'], ['event', 'Gathering'], ['stream', 'Broadcast'], ['market', 'Bet']];
     var kindBar = h('div', { class: 'uline' });
     KINDS.forEach(function (k) {
       kindBar.appendChild(h('button', { class: draft.kind === k[0] ? 'on' : '', text: k[1], onclick: function () {
         draft.kind = k[0];
         // Clear what the new kind cannot carry, rather than leaving it to be
         // dropped at the door.
-        if (k[0] !== 'event') { draft.at = ''; draft.place = ''; draft.fee = ''; draft.cap = ''; }
+        if (k[0] !== 'event') { draft.place = ''; draft.fee = ''; draft.cap = ''; }
+        // `at` is shared: a gathering and a bet both need a moment, and
+        // retyping it when switching between them helps nobody.
+        if (k[0] !== 'event' && k[0] !== 'market') { draft.at = ''; }
         if (k[0] !== 'post') { clearCompose(); }
         render();
       } }));
@@ -5698,13 +5732,23 @@ button, .btn { touch-action: manipulation; }
       var n = parseFloat(raw);
       return isFinite(n) && n > 0 ? n : NaN;
     }
+    /** The same lesson, for the numbers on a bet: a comma is a decimal point
+     *  on most of the keyboards this is used from, and a browser that calls
+     *  '0,5' invalid reports it as the empty string. */
+    function readDecimal(v) {
+      var raw = String(v == null ? '' : v).trim().replace(',', '.');
+      if (!raw) return NaN;
+      var n = parseFloat(raw);
+      return isFinite(n) ? n : NaN;
+    }
 
     var cost = (function () {
       if (draft.kind !== 'post') return 1;
       var probe = { t: 'post', author: who, text: text.value, ref: composeQuote };
       try { return actCost(probe, st); } catch (e) { return 1; }
     })();
-    var verb = draft.kind === 'event' ? 'Announce' : draft.kind === 'stream' ? 'Go live' : 'Publish';
+    var verb = draft.kind === 'event' ? 'Announce' : draft.kind === 'stream' ? 'Go live'
+      : draft.kind === 'market' ? 'Ask' : 'Publish';
 
     var composer = h('div', { class: 'card composer' },
       h('p', { class: 'eyebrow', text: 'publish' }), kindBar, text, counter, chips);
@@ -5717,6 +5761,82 @@ button, .btn { touch-action: manipulation; }
       composer.appendChild(h('div', { class: 'mini-form persistent' },
         h('label', { class: 'smallnote' }, camBox, ' camera'),
         h('span', { class: 'smallnote', text: 'Your video goes to the host once and the host sends it on, so your upload is the same for one viewer or a hundred.' })));
+    }
+    if (draft.kind === 'market') {
+      // ── The answers ──────────────────────────────────────────────────────
+      //
+      // Two at least, seven at most, and every one of them written out before
+      // anybody stakes anything. A stake records the answer's NUMBER, so the
+      // list cannot be edited afterwards — which is why the summary below
+      // reads the whole thing back before it is published.
+      var ansBox = h('div', { class: 'mini-form persistent', style: 'flex-wrap:wrap' });
+      draft.mOpts.forEach(function (val, oi) {
+        var inp = h('input', { type: 'text', maxlength: '60', value: val,
+          placeholder: 'answer ' + (oi + 1), style: 'flex:1 1 150px; min-width:0' });
+        inp.addEventListener('input', function () { draft.mOpts[oi] = inp.value; });
+        var row = h('span', { style: 'display:flex; gap:4px; flex:1 1 180px; min-width:0' }, inp);
+        if (draft.mOpts.length > MKT_MIN) {
+          row.appendChild(h('button', { class: 'btn ghost small', text: 'x',
+            title: 'remove this answer',
+            onclick: function () { draft.mOpts.splice(oi, 1); render(); } }));
+        }
+        ansBox.appendChild(row);
+      });
+      composer.appendChild(ansBox);
+      var addRow = h('div', { class: 'mini-form persistent' });
+      if (draft.mOpts.length < MKT_MAX) {
+        addRow.appendChild(h('button', { class: 'btn small', text: '+ answer',
+          onclick: function () { draft.mOpts.push(''); render(); } }));
+      }
+      addRow.appendChild(h('span', { class: 'smallnote',
+        text: draft.mOpts.length + ' of ' + MKT_MAX + ' answers' }));
+      composer.appendChild(addRow);
+
+      // ── When it closes, and what it is played in ─────────────────────────
+      var mkCur = h('select', {});
+      Object.keys((st.tokens && st.tokens.meta) || { PEER: 1 }).forEach(function (sym) {
+        if (sym === 'tBTC') return;   // retired: a price in a currency nobody can obtain
+        mkCur.appendChild(h('option', { value: sym, text: sym }));
+      });
+      mkCur.value = draft.mCur;
+      mkCur.addEventListener('change', function () { draft.mCur = mkCur.value; });
+      var mkBond = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'bond per seat',
+        value: draft.mBond, style: 'width:140px' });
+      var mkFee = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'fee %',
+        value: draft.mFee, style: 'width:80px' });
+      [[mkBond, 'mBond'], [mkFee, 'mFee']].forEach(function (p) {
+        p[0].addEventListener('input', function () { draft[p[1]] = p[0].value; });
+      });
+      composer.appendChild(h('div', { class: 'mini-form persistent' },
+        evAt, mkCur, mkBond, mkFee));
+
+      // ── The jury ─────────────────────────────────────────────────────────
+      var seatBar = h('div', { class: 'uline' });
+      [1, 3, 5].forEach(function (n) {
+        seatBar.appendChild(h('button', { class: draft.mSeats === n ? 'on' : '',
+          text: n + (n === 1 ? ' seat' : ' seats'),
+          onclick: function () { draft.mSeats = n; render(); } }));
+      });
+      composer.appendChild(seatBar);
+
+      var nomSel = h('select', {});
+      nomSel.appendChild(h('option', { value: '', text: 'nominate a moderator' }));
+      st.ledgers.forEach(function (l) {
+        if (l.id === who || l.deleted || draft.mMods.indexOf(l.id) >= 0) return;
+        nomSel.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+      });
+      var nomRow = h('div', { class: 'mini-form persistent' }, nomSel,
+        h('button', { class: 'btn small', text: '+ nominate', onclick: function () {
+          if (!nomSel.value || draft.mMods.length >= 8) return;
+          draft.mMods.push(nomSel.value); render();
+        } }));
+      draft.mMods.forEach(function (mid, ni) {
+        nomRow.appendChild(h('button', { class: 'btn ghost small',
+          text: (st.handles[mid] || mid) + ' x', title: 'withdraw this nomination',
+          onclick: function () { draft.mMods.splice(ni, 1); render(); } }));
+      });
+      composer.appendChild(nomRow);
+      composer.appendChild(h('p', { class: 'smallnote', text: 'A nomination is an invitation and nothing more: whoever you name still has to post the bond and win the vote, and so does anybody else who stands. The community elects the jury, weighed by satoshis each voter proved they destroyed — not by standing, and not by what anyone has staked here. You take half the fee and may not hold a position on your own question; the jury takes the other half and forfeits the bond for certifying against the verdict.' }));
     }
     var row = h('div', { class: 'row' });
     if (draft.kind === 'post') {
@@ -5759,6 +5879,41 @@ button, .btn { touch-action: manipulation; }
         // this element being destroyed on the next repaint costs nothing.
         broadcastStart(t, draft.camera);
         draft.text = ''; text.value = '';
+        return;
+      }
+
+      if (draft.kind === 'market') {
+        var answers = draft.mOpts.map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+        if (answers.length < MKT_MIN) { toast('A bet needs at least two answers people can take sides on.'); return; }
+        if (answers.length > MKT_MAX) { toast('A bet takes at most ' + MKT_MAX + ' answers.'); return; }
+        var seenAns = {};
+        for (var ai2 = 0; ai2 < answers.length; ai2++) {
+          var keyA = answers[ai2].toLowerCase();
+          if (seenAns[keyA]) { toast('Two answers say the same thing. A stake names an answer, so they have to be told apart.'); return; }
+          seenAns[keyA] = 1;
+        }
+        var when2 = draft.at ? new Date(draft.at).getTime() : 0;
+        if (!(when2 > Date.now())) { toast('A bet needs a closing time in the future — the moment after which the answer is knowable and betting would be unfair.'); return; }
+        var bond2 = readDecimal(draft.mBond);
+        if (!(bond2 > 0)) { toast('Set the bond a moderator has to post. It is the only thing a corrupt certification can cost them.'); return; }
+        var pct2 = readDecimal(draft.mFee);
+        if (isNaN(pct2) || pct2 < 0 || pct2 > 5) { toast('The resolution fee is between 0 and 5 per cent of the pool.'); return; }
+        var summary2 = 'Ask this bet?\n\n'
+          + '· ' + t + '\n'
+          + '· answers: ' + answers.join(' / ') + '\n'
+          + '· betting closes: ' + new Date(when2).toLocaleString() + '\n'
+          + '· staked in: ' + draft.mCur + '\n'
+          + '· jury: ' + draft.mSeats + ' seat(s), bond ' + bond2 + ' ' + draft.mCur + '\n'
+          + '· fee: ' + pct2 + '% of the pool, half to you and half to the jury\n\n'
+          + 'The answers and the closing time cannot be edited afterwards. You may not stake on your own bet.';
+        if (!window.confirm(summary2)) return;
+        tryAct(who, {
+          t: 'market', author: who, text: t, opts: answers, cur: draft.mCur,
+          at: when2, seats: draft.mSeats, bond: bond2,
+          feeBp: Math.round(pct2 * 100), mods: draft.mMods.slice(),
+        }, 'Bet asked. It is content like any post — people can react and comment — and the pool it carries touches no standing, yours or anyone’s.');
+        draft.text = ''; draft.at = ''; draft.mOpts = ['', '']; draft.mBond = ''; draft.mMods = [];
+        text.value = '';
         return;
       }
 
@@ -5919,8 +6074,9 @@ button, .btn { touch-action: manipulation; }
         var meta = st.postMeta[f2.node.id] || {};
         if (feedKind === 'event') return !!meta.event;
         if (feedKind === 'stream') return !!meta.stream;
+        if (feedKind === 'market') return !!meta.market;
         if (feedKind === 'onair') return !!liveEntryFor(f2.node.id);
-        return !meta.event && !meta.stream;      // 'post'
+        return !meta.event && !meta.stream && !meta.market;      // 'post'
       });
     }
 
@@ -6207,6 +6363,227 @@ button, .btn { touch-action: manipulation; }
    * vouching — is the ordinary machinery, because an event mints a content
    * node exactly as a post does. That is the whole integration.
    */
+  // Two and seven, in one place. The replay is the authority and publishes
+  // them; these are the fallback for an archive replay that predates markets.
+  var MKT_MIN = 2, MKT_MAX = 7;
+  /**
+   * A bet, on its card: the pool, the jury, and every door the reader may
+   * walk through.
+   *
+   * Three rules are visible rather than explained, because a prediction market
+   * is exactly the kind of thing people lose money to when the rules live in a
+   * document: what each answer is holding, who is certifying and what they
+   * have bonded, and the fact that none of it moves anybody's standing.
+   *
+   * Every button asks marketActError — the host's own rulebook — before it
+   * claims anything happened. In the private sandbox nothing validates an act
+   * at all, so a button that skipped this would cheerfully report a stake from
+   * an account with no balance.
+   */
+  function marketPanel(st, cid, m) {
+    var now = Date.now();
+    var betting = m.state === 'open' && m.at > now;
+    var seats = st.marketSeats ? st.marketSeats(m) : { seated: [], weight: {}, order: [] };
+    var iStand = m.cands[who] !== undefined;
+    var iSit = seats.seated.indexOf(who) >= 0;
+    var myStake = m.byBettor[who] || 0;
+    // From the replay's published limits, not a second copy of the number:
+    // the host enforces this window, and a card that drew a different one
+    // would offer a door the door refuses.
+    var window7 = (st.marketLimits && st.marketLimits.resolveMs) || 7 * 24 * 60 * 60 * 1000;
+    var deadline = m.at ? m.at + window7 : 0;
+    var box = h('div', { class: 'card', style: 'margin:8px 0; background:var(--card-2)' },
+      h('p', { class: 'eyebrow', text: m.state === 'resolved' ? 'bet · settled'
+        : m.state === 'void' ? 'bet · voided'
+        : betting ? 'bet · open' : 'bet · with the jury' }));
+
+    box.appendChild(h('div', { class: 'kv' }, h('span', { text: (m.at > now) ? 'betting closes' : 'betting closed' }),
+      h('span', { class: 'num', text: m.at ? new Date(m.at).toLocaleString() : 'not stated' })));
+    box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'pool' }),
+      h('span', { class: 'num', text: fmt(m.pool, 6) + ' ' + m.cur })));
+
+    // ── The answers ────────────────────────────────────────────────────────
+    var pickSel = h('select', {});
+    for (var i = 0; i < m.n; i++) {
+      (function (oi) {
+        var label = m.opts[oi] || '[removed]';
+        var share = m.pool > 0 ? m.totals[oi] / m.pool : 0;
+        var won = m.state === 'resolved' && m.outcome === oi;
+        var row = h('div', { class: 'kv', style: won ? 'font-weight:700' : '' },
+          h('span', {}, h('span', { text: label }),
+            won ? h('span', { class: 'gate pass', style: 'margin-left:6px', text: 'certified' }) : null,
+            (m.stakes[oi] && m.stakes[oi][who])
+              ? h('span', { class: 'kindtag', style: 'margin-left:6px', text: 'yours ' + fmt(m.stakes[oi][who], 6) })
+              : null),
+          h('span', { class: 'num', text: fmt(m.totals[oi], 6) + ' ' + m.cur
+            + (m.pool > 0 ? ' · ' + Math.round(share * 100) + '%' : '') }));
+        box.appendChild(row);
+        // The bar is the share of the POOL, and it is labelled as that and
+        // never as a probability. What fraction of the money sits on an answer
+        // is a fact about this bet; what is likely to happen is not.
+        if (m.pool > 0) {
+          box.appendChild(h('div', { class: 'rankbar' }, h('i', { style: 'width:' + Math.max(2, share * 100) + '%' })));
+        }
+        pickSel.appendChild(h('option', { value: String(oi), text: label }));
+      }(i));
+    }
+    if (m.pool > 0 && m.state === 'open') {
+      box.appendChild(h('p', { class: 'smallnote', text: 'The percentages are the share of the pool sitting on each answer, not a probability and not a price. Whoever backs the certified answer splits the whole pool in proportion to what they staked.' }));
+    }
+
+    // ── Backing one ────────────────────────────────────────────────────────
+    if (betting && who) {
+      pickSel.value = String(mktPick[cid] || 0);
+      pickSel.addEventListener('change', function () { mktPick[cid] = Number(pickSel.value); });
+      var amt = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'stake', style: 'width:120px' });
+      var why0 = st.marketActError && st.marketActError({ t: 'bet', author: who, cid: cid, opt: 0, amt: 1e-9 });
+      if (why0 && /author of a bet|moderator cannot back/.test(why0)) {
+        box.appendChild(h('p', { class: 'smallnote', text: why0 }));
+      } else {
+        box.appendChild(h('div', { class: 'mini-form' }, pickSel, amt,
+          h('button', { class: 'btn small primary', text: 'Back it', onclick: function () {
+            var v = readDecimalAt(amt.value);
+            if (!(v > 0)) { toast('Say how much. A stake is a number, and it leaves your balance the moment this lands.'); return; }
+            var opt = Number(pickSel.value) || 0;
+            var why = st.marketActError && st.marketActError({ t: 'bet', author: who, cid: cid, opt: opt, amt: v });
+            if (why) { toast(why); return; }
+            tryAct(who, { t: 'bet', author: who, cid: cid, opt: opt, amt: v },
+              'Staked. It is held by the bet until the jury certifies an answer, and it moves no standing — not yours, not anybody’s.');
+          } })));
+      }
+    }
+    if (myStake > 0) {
+      box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'your position' }),
+        h('span', { class: 'num', text: fmt(myStake, 6) + ' ' + m.cur })));
+    }
+
+    // ── The jury ───────────────────────────────────────────────────────────
+    box.appendChild(h('p', { class: 'eyebrow', style: 'margin-top:10px', text: 'jury · ' + m.seats
+      + ' seat(s) · bond ' + fmt(m.bond, 6) + ' ' + m.cur + ' · fee ' + (m.feeBp / 100) + '%' }));
+    if (m.nominees.length) {
+      box.appendChild(h('p', { class: 'smallnote', text: 'Nominated by the author: '
+        + m.nominees.map(function (id) { return st.handles[id] || id; }).join(', ')
+        + '. A nomination is an invitation; the seats are elected.' }));
+    }
+    var standing = Object.keys(m.cands).sort(function (a, b) {
+      return (seats.weight[b] || 0) - (seats.weight[a] || 0);
+    });
+    if (!standing.length) {
+      box.appendChild(h('p', { class: 'smallnote', text: 'Nobody is standing yet. Until somebody does, and the community elects them, this bet has no way to be certified.' }));
+    }
+    var ballotBoxes = {};
+    standing.forEach(function (id) {
+      var sat = seats.seated.indexOf(id) >= 0;
+      var said = m.attests[id];
+      var line = h('div', { class: 'kv' },
+        h('span', {}, avatar(id, 'avatar s'), ' ', h('b', { text: st.handles[id] || id }),
+          sat ? h('span', { class: 'gate pass', style: 'margin-left:6px', text: 'seated' }) : null,
+          m.struck[id] ? h('span', { class: 'gate fail', style: 'margin-left:6px', text: 'bond struck' }) : null,
+          said !== undefined
+            ? h('span', { class: 'kindtag', style: 'margin-left:6px',
+                text: 'certified: ' + (said === -1 ? 'no answer' : (m.opts[said] || 'answer ' + (said + 1))) })
+            : null),
+        h('span', { class: 'num', text: (seats.weight[id] || 0) + ' sat' }));
+      box.appendChild(line);
+      if (m.state === 'open' && betting && who && who !== id) {
+        var cb = h('input', { type: 'checkbox' });
+        ballotBoxes[id] = cb;
+        line.firstChild.insertBefore(cb, line.firstChild.firstChild);
+      }
+    });
+
+    var jrow = h('div', { class: 'mini-form' });
+    if (m.state === 'open' && betting && who) {
+      if (Object.keys(ballotBoxes).length) {
+        jrow.appendChild(h('button', { class: 'btn small', text: 'Vote', title: 'Approval voting: name up to ' + m.seats + '. Your ballot weighs the satoshis you have proved you destroyed, and a later ballot replaces this one.', onclick: function () {
+          var picked = [];
+          for (var id2 in ballotBoxes) if (ballotBoxes[id2].checked) picked.push(id2);
+          var why = st.marketActError && st.marketActError({ t: 'modVote', author: who, cid: cid, for: picked });
+          if (why) { toast(why); return; }
+          tryAct(who, { t: 'modVote', author: who, cid: cid, for: picked },
+            picked.length ? 'Ballot cast. It replaces any earlier one, and it can be replaced again until betting closes.' : 'Ballot withdrawn.');
+        } }));
+      }
+      if (iStand) {
+        jrow.appendChild(h('button', { class: 'btn small', text: 'Stand down · bond back', onclick: function () {
+          tryAct(who, { t: 'modStand', author: who, cid: cid, on: false }, 'Stood down. The bond is back in full.');
+        } }));
+      } else {
+        var standWhy = st.marketActError && st.marketActError({ t: 'modStand', author: who, cid: cid, on: true });
+        // The two refusals nothing the reader does can lift: they are the
+        // author, or they hold a position. Say it once, and offer no door.
+        if (standWhy && /cannot also certify|hold a position/.test(standWhy)) {
+          box.appendChild(h('p', { class: 'smallnote', text: standWhy }));
+          standWhy = 'shown';
+        } else jrow.appendChild(h('button', { class: 'btn small', text: 'Stand · bond ' + fmt(m.bond, 6) + ' ' + m.cur,
+          title: standWhy || 'The bond is forfeit if you certify an answer the jury does not reach, or if you take a seat and never certify at all.',
+          onclick: function () {
+            if (standWhy) { toast(standWhy); return; }
+            tryAct(who, { t: 'modStand', author: who, cid: cid, on: true },
+              'Standing. The bond is posted — it comes back unless you certify against the jury, or take a seat and stay silent past the deadline.');
+          } }));
+      }
+    }
+    // ── Certifying ─────────────────────────────────────────────────────────
+    if (m.state === 'open' && !betting && iSit && m.attests[who] === undefined) {
+      var certSel = h('select', {});
+      for (var ci = 0; ci < m.n; ci++) certSel.appendChild(h('option', { value: String(ci), text: m.opts[ci] || 'answer ' + (ci + 1) }));
+      certSel.appendChild(h('option', { value: '-1', text: 'no answer — void it' }));
+      jrow.appendChild(certSel);
+      jrow.appendChild(h('button', { class: 'btn small primary', text: 'Certify', onclick: function () {
+        var opt = Number(certSel.value);
+        if (!window.confirm('Certify “' + (opt === -1 ? 'no answer' : (m.opts[opt] || 'answer ' + (opt + 1))) + '”?\n\n'
+          + 'This is final. If the jury reaches a different answer, your bond of ' + m.bond + ' ' + m.cur
+          + ' is forfeit to the people who backed the answer it reached.')) return;
+        var why = st.marketActError && st.marketActError({ t: 'attest', author: who, cid: cid, opt: opt });
+        if (why) { toast(why); return; }
+        tryAct(who, { t: 'attest', author: who, cid: cid, opt: opt },
+          'Certified. A strict majority of the seated jury settles the bet the moment it agrees.');
+      } }));
+    }
+    if (m.state === 'open' && !betting && deadline && now > deadline) {
+      jrow.appendChild(h('button', { class: 'btn small danger', text: 'Call time',
+        title: 'The jury had its window and did not settle this. Every stake goes back in full; the seats that never certified forfeit their bonds to the people whose money was held.',
+        onclick: function () {
+          tryAct(who, { t: 'marketVoid', author: who, cid: cid },
+            'Time called. Every stake goes back in full and no fee is taken.');
+        } }));
+    }
+    if (jrow.childNodes.length) box.appendChild(jrow);
+
+    // ── Afterwards ─────────────────────────────────────────────────────────
+    if (m.state === 'resolved') {
+      box.appendChild(h('p', { class: 'smallnote', text: 'Certified as “'
+        + (m.opts[m.outcome] || 'answer ' + (m.outcome + 1)) + '” by ' + m.honest.length + ' of '
+        + m.jury.length + ' seat(s). Fee paid: ' + fmt(m.feePaid, 6) + ' ' + m.cur
+        + (m.slashedTotal > 0 ? '. Bonds struck: ' + fmt(m.slashedTotal, 6) + ' ' + m.cur + ', paid to whoever backed the certified answer.' : '.') }));
+      if (m.paid[who]) {
+        box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'you were paid' }),
+          h('span', { class: 'num', text: fmt(m.paid[who], 6) + ' ' + m.cur })));
+      }
+      if (m.earned[who]) {
+        box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'your fee share' }),
+          h('span', { class: 'num', text: fmt(m.earned[who], 6) + ' ' + m.cur })));
+      }
+    } else if (m.state === 'void') {
+      box.appendChild(h('p', { class: 'smallnote', text: 'Voided — every stake went back in full and no fee was taken'
+        + (m.slashedTotal > 0 ? ', and ' + fmt(m.slashedTotal, 6) + ' ' + m.cur + ' of bonds was struck from seats that never certified and shared out across the stakes.' : '.') }));
+    } else if (!betting) {
+      box.appendChild(h('p', { class: 'smallnote', text: 'Betting is closed and the jury is certifying. If it has not agreed by '
+        + (deadline ? new Date(deadline).toLocaleString() : 'the deadline') + ', anyone can call time and every stake goes back in full.' }));
+    }
+    box.appendChild(h('p', { class: 'smallnote', text: 'Stakes and bonds are value. No part of this bet appends an edge, compiles a vouch or enters an epoch certificate — being right about the future buys nothing here but money. Reactions and comments on the question itself are ordinary priced acts and do count, exactly as on any post.' }));
+    return box;
+  }
+
+  /** A stake a person actually typed, comma decimals included. */
+  function readDecimalAt(v) {
+    var raw = String(v == null ? '' : v).trim().replace(',', '.');
+    if (!raw) return NaN;
+    var n = parseFloat(raw);
+    return isFinite(n) ? n : NaN;
+  }
+
   function eventPanel(st, cid, ev) {
     var going = (st.eventGoing && st.eventGoing[cid]) || {};
     var invited = (st.eventInvites && st.eventInvites[cid]) || {};
@@ -6433,8 +6810,10 @@ button, .btn { touch-action: manipulation; }
         (function () {
           var meta = st.postMeta[n.id] || {};
           var ev0 = st.events && st.events[n.id];
-          var kind = meta.event ? 'event' : meta.stream ? 'stream' : 'post';
+          var mk0 = st.markets && st.markets[n.id];
+          var kind = meta.market ? 'bet' : meta.event ? 'event' : meta.stream ? 'stream' : 'post';
           if (ev0 && ev0.fee > 0) kind += ' · ' + fmt(ev0.fee, 6) + ' ' + ev0.cur;
+          if (mk0) kind += ' · ' + fmt(mk0.pool, 6) + ' ' + mk0.cur + (mk0.state === 'open' ? '' : ' · ' + mk0.state);
           return h('span', { class: 'kindtag' + (meta.event ? ' k-event' : meta.stream ? ' k-stream' : ''), text: kind });
         })(),
         (st.postMeta[n.id] && st.postMeta[n.id].edited) ? h('span', { class: 'kindtag', text: 'edited' }) : null,
@@ -6459,6 +6838,12 @@ button, .btn { touch-action: manipulation; }
     // host of an event whose text, title and address had all been removed.
     var evm = (st.events && st.events[n.id] && st.payloads[n.id] !== undefined) ? st.events[n.id] : null;
     if (evm) card.appendChild(eventPanel(st, n.id, evm));
+    // A deleted bet keeps its record — money is escrowed against it and has to
+    // be able to find its way home — but its question and its answer labels
+    // are gone. The panel stays: a reader with a stake in it still needs to
+    // see the jury and the settlement, and every label reads '[removed]'.
+    var mkm = (st.markets && st.markets[n.id]) ? st.markets[n.id] : null;
+    if (mkm) card.appendChild(marketPanel(st, n.id, mkm));
     var liveNow = liveEntryFor(n.id);
     if (liveNow && st.postMeta[n.id] && st.postMeta[n.id].stream) {
       card.appendChild(h('div', { class: 'mini-form' },
@@ -7649,12 +8034,1026 @@ button, .btn { touch-action: manipulation; }
     }
 
     if (econView === 'pools') {
+      // ── pools on Base — the ones that are real ──
+      // This card sits above the sandbox because it is the one that costs
+      // and pays actual money: the PEER ERC-20 against cbBTC — bitcoin held
+      // in Coinbase custody and issued as a token on Base. The pools below
+      // it settle inside this log and nowhere else; a swap here moves value
+      // that exists whether or not this page does.
+      //
+      // The division of labour is strict, and worth stating. The HOST only
+      // reads: /api/token/onchain comes from chain-l2/onchain.mjs, which
+      // contains no signing code and accepts no key. The WALLET only signs:
+      // every write below is encoded by hand in this file — a 4-byte
+      // selector plus 32-byte words, no ABI library — and handed to
+      // window.ethereum for the user to approve or refuse. The page never
+      // sees a key, so there is nothing here worth stealing.
+      var ocCard = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('h2', { text: 'Pools \u2014 PEER / BTC on Base' }),
+        h('p', { class: 'smallnote', text: 'These pools settle on the real chain: the PEER token against cbBTC \u2014 bitcoin custodied by Coinbase and issued as an ERC-20 on Base. The sandbox pools below settle only in this log; everything in this card is actual money.' }));
+      var ocBody = h('div', {});
+      ocCard.appendChild(ocBody);
+      wrap.appendChild(ocCard);
+
+      // Hardcoded 4-byte selectors, each with the signature it hashes from —
+      // the same policy as chain-l2/onchain.mjs: no keccak library in the
+      // page. The pool ones match PeerPools.build.json's methodIdentifiers;
+      // recompute any of them with `cast sig '<signature>'` if you do not
+      // want to take them on trust, which you should not.
+      //
+      // A selector is keccak of the name and the INPUT types, so the three
+      // functions that grew a guard parameter grew new selectors with them:
+      // swap, addLiquidity and removeLiquidity are NOT the four-argument ones
+      // this card first shipped against. Sending an old selector to the new
+      // contract does not misbehave subtly — it reaches no function at all —
+      // but the signature beside each one is the only thing that says which
+      // is which, so read them together.
+      var OC_SEL = {
+        createPool: '0xb3a2199d',      // createPool(bytes32,uint256,uint256)
+        addLiquidity: '0xa360501c',    // addLiquidity(uint256,uint256,uint256,uint256,uint256)
+        removeLiquidity: '0xf88bf15a', // removeLiquidity(uint256,uint256,uint256,uint256)
+        swap: '0x0b719a65',            // swap(uint256,bool,uint256,uint256,uint256)
+        sharesOf: '0xe78307ca',        // sharesOf(uint256,address)
+        // The two READ selectors this card grew. poolInfo is how a pool the
+        // host's scan never reached can still be opened here by its id — the
+        // reader's own note promises exactly that, and a promise with no door
+        // is worse than no promise. balanceOf is how a wallet that cannot
+        // cover a trade finds out before it signs an approval for one. Both
+        // are copied from the table in chain-l2/onchain.mjs, which took them
+        // from the compiler's own methodIdentifiers rather than from memory.
+        poolInfo: '0x1526fe27',        // poolInfo(uint256)
+        balanceOf: '0x70a08231',       // balanceOf(address)
+        taken: '0xd174c832',           // taken(address,bytes32)
+        minLiq: '0x5731bb0a',          // MIN_LIQ()
+        peer: '0x11cda415',            // peer()
+        btc: '0xa28d57d8',             // btc()
+        approve: '0x095ea7b3',         // approve(address,uint256)
+        allowance: '0xdd62ed3e'        // allowance(address,address)
+      };
+      var OC_CHAIN = '0x2105'; // Base mainnet, 8453
+
+      // One 32-byte ABI word from a BigInt (a bool is just 0n or 1n), one
+      // from an address. This plus the selectors above is the whole encoder
+      // this card needs.
+      function ocWord(v) { return BigInt(v).toString(16).padStart(64, '0'); }
+      function ocAddr(a) { return String(a).toLowerCase().replace(/^0x/, '').padStart(64, '0'); }
+      // A wallet's error can be a paragraph of JSON-RPC, so it is cut — but
+      // the cut is now visible. A silent slice at 140 turns a sentence into a
+      // fragment that ends mid-clause, and the sentences this card composes
+      // itself get read back to somebody deciding what to press.
+      function ocErr(e) {
+        var t = String((e && e.message) || e);
+        return t.length > 140 ? t.slice(0, 139) + '…' : t;
+      }
+      // An address as a human can carry it in their head, or '' if the thing
+      // handed over is not an address. Empty rather than a shortened piece of
+      // garbage: half an address on screen would read as provenance.
+      function ocShort(a) {
+        var t = String(a == null ? '' : a);
+        return /^0x[0-9a-fA-F]{40}$/.test(t) ? t.slice(0, 6) + '\u2026' + t.slice(-4) : '';
+      }
+
+      // A bytes32 name as text: UTF-8 bytes up to the first NUL. This is
+      // chain-l2/onchain.mjs's bytes32Name transcribed rather than
+      // reinvented, so a pool read here by id renders under exactly the same
+      // name the list gives it — two spellings of one pool would be a worse
+      // bug than no lookup at all. Nothing is stripped, for the same reason:
+      // the name on screen is the name on chain. It reaches the page only
+      // through textContent, so bytes chosen by a stranger stay text.
+      function ocName(hexWord) {
+        var bytes = [];
+        for (var i = 0; i + 2 <= hexWord.length && i < 64; i += 2) {
+          var b = parseInt(hexWord.slice(i, i + 2), 16);
+          if (!b) break;
+          bytes.push(b);
+        }
+        return new TextDecoder().decode(new Uint8Array(bytes));
+      }
+
+      // A 32-byte answer as a BigInt, or a refusal in a plain sentence. An
+      // eth_call that reaches an address holding no code answers '0x' —
+      // EMPTY, not zero — and the difference is the whole failure this card
+      // was capable of: on the wrong network the allowance read comes back
+      // empty, reading it as 0 makes the page approve into the void, and the
+      // data-carrying call that follows returns status 0x1 because a call to
+      // a codeless address always does. Nothing here turns "no answer" into a
+      // number.
+      function ocUint(res, what) {
+        var body = String(res == null ? '' : res).replace(/^0x/, '');
+        // Kept short on purpose: this sentence is read back through ocErr,
+        // and one that overruns its cut arrives as a fragment.
+        if (body.length < 64) throw new Error(what + ' answered nothing \u2014 that call reached no contract. Check the wallet is on Base.');
+        return BigInt('0x' + body.slice(0, 64));
+      }
+
+      // The 2% slippage guard, in raw units, with a floor. Percentages die on
+      // small integers: 98/100 of three sats is two, of one sat is ZERO, and
+      // a minimum of zero is not a loose guard but no guard at all. cbBTC
+      // carries 8 decimals, so quotes of a few raw units are ordinary here,
+      // not a corner case — and they are exactly the trades a sandwich costs
+      // least to steal. The floor never lets a nonzero expected amount go out
+      // with a zero minimum; where that makes the trade all-or-nothing the
+      // quote line says so rather than letting the user find out on chain.
+      function ocGuard(expected) {
+        if (expected <= 0n) return 0n;
+        var m = expected * 98n / 100n;
+        return m < 1n ? 1n : m;
+      }
+
+      // Integer square root, rounding down — PeerPools._sqrt transcribed line
+      // for line, including its small-input branch, so the pre-check below
+      // refuses exactly what the contract refuses and nothing else. Written
+      // out rather than paraphrased on purpose: the tidier Newton loop most
+      // people reach for returns 2 for an input of 2, where this contract
+      // returns 1, and a pre-check that disagrees with the contract about
+      // anything is worse than no pre-check. BigInt throughout because
+      // Math.sqrt stops being exact at 2^53 and the product of an
+      // 18-decimal and an 8-decimal amount starts well past it.
+      function ocSqrt(y) {
+        if (y > 3n) {
+          var z = y, x = y / 2n + 1n;
+          while (x < z) { z = x; x = (y / x + x) / 2n; }
+          return z;
+        }
+        return y === 0n ? 0n : 1n;
+      }
+
+      // Where a half-finished sequence actually left somebody, and in WHICH
+      // of five states each leg of it stopped. Approving a token and then
+      // refusing the next signature does not undo the approval: it landed, it
+      // cost gas, and it still stands.
+      //
+      // The first version of this ledger recorded only the legs that
+      // CONFIRMED, and that left the two failures where money actually moved
+      // both saying "nothing else was signed":
+      //
+      //   · a leg that was broadcast and whose receipt was never observed —
+      //     the poll gave up after four minutes, and the transaction may be
+      //     in the mempool right now;
+      //   · a leg that reverted on chain, which costs the gas whatever it
+      //     does with the coins.
+      //
+      // Telling somebody nothing happened while their transaction is pending
+      // is how the same trade gets signed, and paid for, twice. So every leg
+      // is opened before the wallet is asked and carries its own state:
+      //
+      //   attempted — opened; nothing broadcast yet
+      //   rejected  — no hash ever came back, so nothing went out
+      //   sent      — broadcast, no receipt seen: UNKNOWN, which is not failed
+      //   reverted  — mined and refused: coins stayed, gas did not
+      //   confirmed — mined and accepted
+      //
+      // An unknown is never collapsed into "nothing happened", and a leg in
+      // `sent` keeps its hash on screen, because looking that hash up is the
+      // only thing that can settle it.
+      function ocLedger() {
+        var legs = [];
+        function inState(st) { return legs.filter(function (l) { return l.state === st; }); }
+        function clauses(st) {
+          return inState(st).map(function (l) { return l.what + (l.tx ? ' \u2014 ' + l.tx : ''); }).join('; ');
+        }
+        return {
+          open: function (what) {
+            var leg = { what: what || 'that step', state: 'attempted', tx: null };
+            legs.push(leg);
+            return leg;
+          },
+          sentence: function (headline, e) {
+            var parts = [headline + ': ' + ocErr(e)];
+            // Worst-known first: an unknown outranks a plain failure, because
+            // it is the one the reader has to act on.
+            if (inState('sent').length) parts.push('SENT AND NOT CONFIRMED, so this may still land and must not be treated as undone: ' + clauses('sent') + '. Look that hash up on basescan.org before pressing anything again \u2014 pressing again can pay for the same thing twice.');
+            if (inState('reverted').length) parts.push('Refused by the chain, which costs the gas and moves no coins: ' + clauses('reverted') + '.');
+            if (inState('confirmed').length) parts.push('Landed and still stands: ' + clauses('confirmed') + '. An approval that stands is not asked for twice \u2014 your wallet reuses it.');
+            if (parts.length === 1) parts.push('Nothing was broadcast, so nothing of yours moved and no gas was spent.');
+            return parts.join(' ');
+          }
+        };
+      }
+
+      // Decimal text -> raw BigInt at `dec` decimals, or null. NEVER
+      // parseFloat for an amount that will be signed: a double carries 53
+      // bits, a token amount carries 256, and the difference is somebody's
+      // money. The fraction is truncated rather than rounded — pulling a
+      // hair less than typed is a non-event; pulling more would be theft.
+      function ocUnits(sIn, dec) {
+        var t = String(sIn == null ? '' : sIn).trim();
+        if (t === '' || t === '.' || !/^\d*(\.\d*)?$/.test(t)) return null;
+        var dot = t.split('.');
+        var frac = (dot[1] || '').slice(0, dec);
+        while (frac.length < dec) frac += '0';
+        var v = BigInt((dot[0] || '0') + frac);
+        return v > 0n ? v : null;
+      }
+      // Raw -> a number for the screen. Precision dies here by design, so
+      // nothing computed from this ever goes into a transaction.
+      function ocFmt(raw, dec) {
+        var n = Number(raw) / Math.pow(10, dec);
+        if (!isFinite(n)) return '?';
+        if (n === 0) return '0';
+        return n >= 0.001 ? String(Math.round(n * 1e6) / 1e6) : n.toExponential(3);
+      }
+      // The UniswapV2 integer quote, exactly as the contract computes it and
+      // as replay.cjs mirrors it for the sandbox (eff = amt * 0.997): fee on
+      // the way in, integer division, the 0.3% staying in the pool. Run in
+      // BigInt so the number on this screen is the number the chain would
+      // produce against the same reserves — not a float that agrees with the
+      // contract until the amounts get interesting.
+      function ocQuote(amtIn, resIn, resOut) {
+        var fee = amtIn * 997n;
+        var den = resIn * 1000n + fee;
+        return den === 0n ? 0n : (resOut * fee) / den;
+      }
+
+      function ocEth(method, params) { return window.ethereum.request({ method: method, params: params || [] }); }
+
+      // The wallet is not a thing this page can hold still. A user can switch
+      // network or account in MetaMask at any moment, including while this
+      // card sits open, and a chain verified at connect time says nothing
+      // about the chain a minute later. So the wallet's own event channel is
+      // the authority: on either change everything learned under the old
+      // connection is dropped — the address, and the token addresses read off
+      // a factory that only exists on Base — and the row redraws to what is
+      // true now. Registered once per page rather than once per render, or a
+      // second visit to this tab would install a second handler.
+      if (window.ethereum && window.ethereum.on && !l2Watching) {
+        l2Watching = true;
+        var ocForget = function (why) {
+          var had = l2Wallet;
+          l2Wallet = null;
+          l2Tokens = null;
+          if (had) toast(why);
+          if (l2Redraw) l2Redraw();
+        };
+        window.ethereum.on('chainChanged', function () { ocForget('The wallet left Base. Nothing here signs until it is back on Base and connected again.'); });
+        window.ethereum.on('accountsChanged', function () { ocForget('The wallet switched accounts. Connect again \u2014 the address shown here is only ever the one that connected.'); });
+      }
+
+      // A deadline is a second on the CHAIN's clock, so it is read off the
+      // chain rather than off this computer: a browser an hour slow would
+      // sign deadlines already expired (every trade reverts, gas each time)
+      // and one an hour fast would sign a protection that does not begin for
+      // an hour. Ten minutes is the window — long enough for somebody to walk
+      // away from a wallet prompt, short enough that a transaction held back
+      // by a builder and replayed later is void rather than merely late. If
+      // the block will not answer, this machine's clock stands in; that is a
+      // worse clock, and this comment is the disclosure.
+      async function ocDeadline() {
+        var secs = Math.floor(Date.now() / 1000);
+        try {
+          var blk = await ocEth('eth_getBlockByNumber', ['latest', false]);
+          if (blk && blk.timestamp) secs = Number(BigInt(blk.timestamp));
+        } catch (e) { /* the local clock stands in */ }
+        return BigInt(secs + 600);
+      }
+
+      // Connecting is its own deliberate press, deploy-page style: the list
+      // is readable without a wallet, and the address shown afterwards is
+      // the wallet's current answer, never something remembered for it.
+      async function ocConnect() {
+        if (!window.ethereum) return null;
+        var accs = await ocEth('eth_requestAccounts');
+        if (!accs || !accs[0]) return null;
+        var chain = await ocEth('eth_chainId');
+        if (chain !== OC_CHAIN) {
+          // The wrong network is the failure that looks most like success —
+          // same shapes, different chain — so nothing proceeds until the
+          // wallet itself confirms Base.
+          try { await ocEth('wallet_switchEthereumChain', [{ chainId: OC_CHAIN }]); }
+          catch (e) { toast('That wallet is not on Base and would not switch. Switch it by hand, then connect again.'); return null; }
+          // Ask again rather than believing the switch. That call resolving
+          // means the wallet accepted the request, not that the network
+          // moved — and this is the one question where accepting a promise
+          // instead of an answer puts a signature on the wrong chain.
+          chain = await ocEth('eth_chainId');
+          if (chain !== OC_CHAIN) { toast('The wallet still answers for chain ' + chain + ', not Base. Nothing here will sign until it does.'); return null; }
+        }
+        l2Wallet = String(accs[0]).toLowerCase();
+        return l2Wallet;
+      }
+
+      // Wait for the receipt the way deploy.html does: poll. A plain
+      // provider has no push channel, and two seconds of latency on a
+      // confirmation nobody is racing costs nothing.
+      //
+      // The chain is re-asked here, at the last moment before anything is
+      // signed, and named in the transaction itself. l2Wallet outlives the
+      // check made at connect time on purpose — it has to survive the
+      // re-render after every act — so between connecting and pressing, a
+      // user can move MetaMask to another network and this page would never
+      // hear about it. On the wrong chain the factory address holds no code:
+      // an approve is signed to nothing, the call that follows returns status
+      // 0x1 (which is what ANY data-carrying call to a codeless address
+      // returns), and the card congratulates a trade that never existed, with
+      // real gas burned twice. Two cheap defences, both here: ask eth_chainId
+      // again, and put chainId in the params so the wallet refuses a mismatch
+      // itself rather than trusting this page to have asked.
+      // `led` and `what` are how this send reaches the sentence a failure
+      // further down the sequence prints. The leg is opened BEFORE the wallet
+      // is asked, so a press that dies at any point still has a record of
+      // where it died — a leg written only on success is exactly the ledger
+      // that reported "nothing was signed" over a pending transaction.
+      async function ocSend(to, data, label, led, what) {
+        var leg = (led || ocLedger()).open(what || label);
+        var chain = await ocEth('eth_chainId');
+        if (chain !== OC_CHAIN) {
+          l2Wallet = null;
+          l2Tokens = null;
+          if (l2Redraw) l2Redraw();
+          leg.state = 'rejected';
+          throw new Error('the wallet is on chain ' + chain + ', not Base (' + OC_CHAIN + ') \u2014 nothing was signed. Put it back on Base and connect again.');
+        }
+        toast(label + ' \u2014 approve it in the wallet.');
+        var tx;
+        try {
+          tx = await ocEth('eth_sendTransaction', [{ from: l2Wallet, to: to, data: data, chainId: OC_CHAIN }]);
+        } catch (e) {
+          // No hash came back, so nothing left the wallet. This is the one
+          // branch where "nothing happened" is a true sentence.
+          leg.state = 'rejected';
+          throw e;
+        }
+        leg.tx = tx;
+        // Broadcast. From here on the honest state is `sent` — not failed,
+        // not done — and it stays that way until a receipt says otherwise.
+        leg.state = 'sent';
+        var rc = null;
+        for (var i = 0; i < 120 && !rc; i++) {
+          await new Promise(function (res) { setTimeout(res, 2000); });
+          // A provider that throws mid-poll throws out of here with the leg
+          // still in `sent`, which is the truth: the transaction went out and
+          // this page stopped being able to watch it.
+          rc = await ocEth('eth_getTransactionReceipt', [tx]);
+        }
+        // Both messages below leave the hash to the ledger, which prints it
+        // once, beside the state that makes it worth looking up.
+        if (!rc) throw new Error('not mined after four minutes \u2014 it may still be waiting in the mempool');
+        if (rc.status !== '0x1') { leg.state = 'reverted'; throw new Error('reverted on chain \u2014 the coins stayed where they were, the gas did not'); }
+        leg.state = 'confirmed';
+        return rc;
+      }
+
+      // Allowance first, approve only if short — and approve the exact
+      // amount rather than infinity: one more signature per trade, one
+      // fewer standing permission over the user's coins. This network takes
+      // that trade every time.
+      //
+      // The read is no longer wrapped in a swallow. An allowance that cannot
+      // be read is not an allowance of zero — it is a call that hit nothing,
+      // and the only safe move is to stop rather than to approve. When it
+      // does sign, it hands back the clause the ledger needs, so a refusal
+      // further down the sequence can say that this approval stands.
+      async function ocAllow(token, spender, need, symbol, dec, led) {
+        var have = ocUint(await ocEth('eth_call', [{ to: token, data: OC_SEL.allowance + ocAddr(l2Wallet) + ocAddr(spender) }, 'latest']), 'the ' + symbol + ' allowance');
+        if (have >= need) return;
+        // The clause travels with the send now rather than being handed back
+        // afterwards, so an approval that is broadcast and never confirmed is
+        // recorded too \u2014 the old shape could only report the ones that
+        // finished, which is precisely the case that did not need reporting.
+        await ocSend(token, OC_SEL.approve + ocAddr(spender) + ocWord(need), 'Approving ' + symbol, led,
+          'your approval of ' + ocFmt(need, dec) + ' ' + symbol + ' to the pools contract');
+      }
+
+      // Can this wallet even pay? A free eth_call, asked before the first
+      // signature on every path that pulls a token. An approval signed by a
+      // wallet that cannot cover the trade costs real gas and buys nothing:
+      // the pull reverts a moment later, and a standing permission over coins
+      // the user does not have is left behind. createPool already spends two
+      // free reads to make its knowable refusals free; this is the third, and
+      // it belongs to swapping and depositing just as much.
+      //
+      // It is a snapshot and not a guarantee \u2014 a balance can move between
+      // this read and the pull, and the contract stays the authority on that.
+      // All it can do is turn a failure somebody paid for into one they did
+      // not.
+      async function ocHave(token, need, symbol, dec) {
+        var have = ocUint(await ocEth('eth_call', [{ to: token, data: OC_SEL.balanceOf + ocAddr(l2Wallet) }, 'latest']), 'your ' + symbol + ' balance');
+        if (have >= need) return;
+        throw new Error('that wallet holds ' + ocFmt(have, dec) + ' ' + symbol + ' and this needs ' + ocFmt(need, dec) + ' \u2014 nothing was signed');
+      }
+
+      // Which two tokens get approved? Asked of the factory itself, not
+      // taken from this host's env: peer() and btc() are immutables the
+      // factory was deployed with, and an approve aimed anywhere else is a
+      // wasted signature.
+      //
+      // The cache lives at module level so a chainChanged can empty it: an
+      // address read off a factory on Base is not an address anywhere else.
+      // And a word that is not there is not an address — slicing the last 40
+      // characters off '0x' yields something that LOOKS addressable, and an
+      // approve aimed at it is a signature spent on nothing.
+      // The cache is keyed on the factory that answered it. It used to be
+      // keyed on nothing, which made it true of "some factory, once": a tab
+      // left open while the operator repointed PEER_POOLS_ADDR would go on
+      // approving the OLD factory's tokens \u2014 to the NEW factory's address,
+      // over coins the new one never pulls, one signature and one standing
+      // permission spent on nothing. The address is normalised because a
+      // checksummed and a lowercase spelling of one address must not read as
+      // two.
+      async function ocGetTokens(factory) {
+        var key = String(factory || '').toLowerCase();
+        if (l2Tokens && l2Tokens.factory === key) return l2Tokens;
+        var pw = await ocEth('eth_call', [{ to: factory, data: OC_SEL.peer }, 'latest']);
+        var bw = await ocEth('eth_call', [{ to: factory, data: OC_SEL.btc }, 'latest']);
+        var pa = ocUint(pw, 'the factory\u2019s peer() address'), ba = ocUint(bw, 'the factory\u2019s btc() address');
+        if (pa === 0n || ba === 0n || pa >> 160n !== 0n || ba >> 160n !== 0n) throw new Error('that factory did not answer with two token addresses \u2014 nothing was signed');
+        l2Tokens = { factory: key, peer: '0x' + pa.toString(16).padStart(40, '0'), btc: '0x' + ba.toString(16).padStart(40, '0') };
+        return l2Tokens;
+      }
+
+      // Both refusals createPool can hand back are knowable for FREE, and
+      // both are asked before the first approval is signed. An approval that
+      // lands ahead of a revert costs gas and leaves a standing permission
+      // over somebody's coins; an eth_call and a square root cost neither.
+      //
+      // MIN_LIQ is read from the deployed factory rather than pasted from
+      // PeerPools.sol. The constant in the source is 1000, but the number
+      // that matters is the one the contract about to take the money answers
+      // with; a page that hardcodes it is pre-checking a different contract
+      // than it is paying.
+      // Keyed on the factory for the same reason ocGetTokens is: MIN_LIQ is
+      // a number one deployment answers with, and pre-checking a deposit
+      // against a different contract's floor is a pre-check that agrees with
+      // nothing. Two factories can legitimately lock different amounts.
+      var ocMin = null;
+      async function ocMinLiq(factory) {
+        var key = String(factory || '').toLowerCase();
+        if (!ocMin || ocMin.factory !== key) {
+          ocMin = { factory: key, value: ocUint(await ocEth('eth_call', [{ to: factory, data: OC_SEL.minLiq }, 'latest']), 'the factory\u2019s MIN_LIQ') };
+        }
+        return ocMin.value;
+      }
+
+      // taken(creator, name) — the name-claim mapping's own getter. It asks
+      // about THIS wallet only, which is the whole design: the name you
+      // cannot have is one you already used, never one a stranger used.
+      async function ocTaken(factory, who, hexName) {
+        return ocUint(await ocEth('eth_call', [{ to: factory, data: OC_SEL.taken + ocAddr(who) + hexName }, 'latest']), 'the name claim') !== 0n;
+      }
+
+      // One fetch per render of this tab. The host caches the answer for 30
+      // seconds, so flipping between tabs cannot become load on the public
+      // Base RPC.
+      function ocLoad() {
+        fetch(API + '/api/token/onchain', { cache: 'no-store' })
+          .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+          .then(function (x) { ocRender(x.status, x.d); })
+          .catch(function () {
+            ocBody.innerHTML = '';
+            ocBody.appendChild(h('p', { class: 'smallnote', text: 'Could not reach this host to ask about the chain. The sandbox below still works; it never leaves this log.' }));
+          });
+      }
+
+      // The host answers /api/token/onchain from a 30-second cache, so the
+      // reload fired the instant a transaction lands usually redraws the very
+      // snapshot that was taken before it: same numbers, and a card that
+      // looks like it did not notice. The old toast promised the card would
+      // follow and nothing in the code made it. So: read now (the cache may
+      // be about to turn over anyway) and once more after the window has
+      // certainly rolled, and say the half-minute out loud. The second read
+      // is skipped if the card has since been navigated away from — nobody's
+      // tab should keep polling a page they left.
+      var OC_LAG = 'This card catches up when the host\u2019s 30-second read of the chain rolls over, about half a minute from now.';
+      function ocRefresh() {
+        ocLoad();
+        setTimeout(function () { if (ocBody.isConnected) ocLoad(); }, 31000);
+      }
+
+      function ocRender(status, d) {
+        ocBody.innerHTML = '';
+        // Branch honestly. "Switched off", "misconfigured", "unreachable"
+        // and "empty" are four different sentences, and blurring them is
+        // how a wrong-chain RPC gets read as an empty pool. Where the
+        // endpoint sent its own error sentence, it is shown verbatim —
+        // never replaced with an invented zero.
+        if (status === 404 || !d || d.code === 'ONCHAIN_OFF') {
+          ocBody.appendChild(h('p', { class: 'smallnote', text: 'Off. The operator has not pointed this host at a deployment \u2014 PEER_TOKEN_ADDR is unset, and an address baked into source is one nobody verified. chain-l2/DEPLOY.md is the recipe.' }));
+          return;
+        }
+        if (d.error) {
+          ocBody.appendChild(h('p', { class: 'smallnote', text: d.error }));
+          return;
+        }
+        if (!d.namedPools) {
+          ocBody.appendChild(h('p', { class: 'smallnote', text: 'The token is deployed, but the pools factory is not configured (PEER_POOLS_ADDR is unset) \u2014 so there is nothing here to trade in yet.' }));
+          return;
+        }
+        var np = d.namedPools;
+        // One field, np.error, carries two failures that deserve opposite
+        // treatment, and telling them apart is the difference between a card
+        // that degrades and a card that disappears:
+        //
+        //   · the address answered poolCount() but the POOL SCAN failed. The
+        //     scan is the fragile part — most public RPCs refuse a getLogs
+        //     range this wide — and NOTHING else on this card is derived from
+        //     it. Collapsing the whole card here meant that the moment the
+        //     scan broke, a user could not open a pool either, on a form that
+        //     never touched the scan. So it degrades: the endpoint's own
+        //     sentence goes where the list would be, and everything that
+        //     speaks to Base directly keeps working.
+        //
+        //   · nothing at that address answered poolCount() at all. Then there
+        //     is no factory: no decimals to scale an amount by, and nothing
+        //     for a create to create in. That one still collapses, and says
+        //     which of the two it is.
+        //
+        // The test is whether the factory answered anything before the scan.
+        // A host that later reports its scan under new names still trips it,
+        // because tokens/total/decimals are read off the factory itself.
+        var answered = np.total != null || np.tokens != null || np.pools != null ||
+          np.peerDecimals != null || np.btcDecimals != null || np.scan != null;
+        if (np.error && !answered) {
+          // The factory address is set but did not answer like a factory.
+          // That is the endpoint's own sentence too, and "unreadable" must
+          // not be dressed up as "empty" — an empty factory invites a
+          // deposit; an unreadable one is a misconfiguration to fix first.
+          ocBody.appendChild(h('p', { class: 'smallnote', text: np.error }));
+          return;
+        }
+        // Held, not returned on. drawPools prints it in place of the list.
+        var scanError = np.error || null;
+        var factory = np.factory;
+        var pdec = np.peerDecimals == null ? 18 : Number(np.peerDecimals);
+        var bdec = np.btcDecimals == null ? 8 : Number(np.btcDecimals);
+
+        // The factory names its own two tokens and the reader checks them
+        // against the ones this host was configured with. Where they
+        // disagree, that sentence is the endpoint's own and it goes FIRST,
+        // before the wallet row: it means the pools below are over coins the
+        // operator did not mean to serve. Nothing is hidden and nothing is
+        // disabled — this page cannot know which of the two addresses is the
+        // wrong one, and the trades are perfectly real either way — but
+        // nobody should approve a token here without having read it.
+        if (np.mismatch && np.mismatch.error) {
+          ocBody.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text: np.mismatch.error }));
+        } else if (np.tokensNote) {
+          ocBody.appendChild(h('p', { class: 'smallnote', text: np.tokensNote }));
+        }
+
+        var walletRow = h('div', { class: 'mini-form persistent' });
+        ocBody.appendChild(walletRow);
+        function drawWallet() {
+          walletRow.innerHTML = '';
+          if (l2Wallet) {
+            // .num is the stylesheet's monospace face (var(--mono), tabular
+            // figures); .mono was never a rule in this file, so the address
+            // used to render in the body font like ordinary prose.
+            walletRow.appendChild(h('span', { class: 'smallnote num', text: (ocShort(l2Wallet) || l2Wallet) + ' \u00b7 Base' }));
+          } else if (window.ethereum) {
+            walletRow.appendChild(h('button', { class: 'btn small', text: 'Connect wallet', onclick: function () {
+              ocConnect().then(function (a) { if (a) { drawWallet(); drawPools(); } })
+                .catch(function (e) { toast('Connect failed: ' + ocErr(e)); });
+            } }));
+            walletRow.appendChild(h('span', { class: 'smallnote', text: 'Prices are public; only signing needs the wallet. It signs, this page never sees a key.' }));
+          } else {
+            walletRow.appendChild(h('span', { class: 'smallnote', text: 'No wallet detected \u2014 the list stays readable, but swapping, adding or opening a pool needs one on Base.' }));
+          }
+        }
+
+        // A name here is a LABEL and never an identifier. PeerPools claims
+        // names per creator on purpose — a global namespace on a public
+        // mempool just sells the word "main" to whoever pays the higher
+        // priority fee — and the deliberate consequence is that two different
+        // people can both have a pool called "main". So this list refuses to
+        // present a name as canonical: it ranks by BTC depth, which is the
+        // one property of a pool nobody can simply type in; it names the
+        // creator of every row; it marks a name more than one pool is using;
+        // and every call any button sends is keyed by id, which is the only
+        // part of a pool that is unique.
+        var listBox = h('div', {});
+        ocBody.appendChild(listBox);
+
+        // Everything the reader says about its own reading gets said again
+        // here, in its words rather than this page's summary of them. The
+        // reader knows things about its scan that this card cannot: how many
+        // windows it walked, how many an endpoint refused, how far behind the
+        // backfill still is, how many pools it saw but had no reads left for.
+        //
+        // OC_SAID is the set of keys this card already has a sentence for.
+        // Anything else the reader reports is a host NEWER than this page —
+        // and it is printed under the reader's own key name rather than
+        // dropped, because the alternative is a page that silently hides the
+        // one counter that would have explained a short list. Objects are
+        // skipped; only scalars are safe to render as a name and a value.
+        var OC_SAID = {
+          factory: 1, error: 1, tokens: 1, tokensNote: 1, mismatch: 1, peerDecimals: 1,
+          btcDecimals: 1, fromBlock: 1, fromBlockIgnored: 1, discoveredBy: 1, rankedBy: 1,
+          pools: 1, discovered: 1, returned: 1, total: 1, skipped: 1, unread: 1,
+          truncated: 1, note: 1, scan: 1, count: 1
+        };
+        function ocExtras(o, known) {
+          var bits = [];
+          Object.keys(o || {}).forEach(function (k) {
+            if (known && known[k]) return;
+            var v = o[k], t = typeof v;
+            if (t === 'string') { if (v) bits.push(k + ' \u2014 ' + v.slice(0, 240)); }
+            else if (t === 'number' || t === 'boolean') bits.push(k + ': ' + v);
+          });
+          return bits;
+        }
+        // `shown` is how many rows this card is about to draw, or null when
+        // it is drawing none because the scan failed. The counted sentence is
+        // only a fallback: where the reader wrote its own note, that is what
+        // appears, because it is the one that knows why.
+        function drawScanState(box, shown) {
+          var total = np.total == null ? (np.count == null ? null : Number(np.count)) : Number(np.total);
+          var seen = np.returned == null ? shown : Number(np.returned);
+          var skipped = Array.isArray(np.skipped) ? np.skipped.length : Number(np.skipped || 0);
+          var unread = Number(np.unread || 0);
+          if (np.note) {
+            box.appendChild(h('p', { class: 'smallnote', text: np.note }));
+          } else if (seen != null && (np.truncated || (total != null && total > seen))) {
+            box.appendChild(h('p', { class: 'smallnote', text: 'Showing ' + seen + ' of ' + total + ' pools on this factory \u2014 the rest exist on chain and are simply not in this list. Any of them can still be reached below by its id.' + (skipped ? ' ' + skipped + ' would not decode.' : '') + (unread ? ' ' + unread + ' were seen but not read this round.' : '') }));
+          } else if (seen != null && skipped > 0) {
+            box.appendChild(h('p', { class: 'smallnote', text: skipped + ' pool' + (skipped === 1 ? '' : 's') + ' on this factory would not decode and ' + (skipped === 1 ? 'was' : 'were') + ' skipped \u2014 what is here is the rest, not all of it.' }));
+          }
+          var said = [];
+          if (np.scan && typeof np.scan === 'object') said = said.concat(ocExtras(np.scan, null));
+          said = said.concat(ocExtras(np, OC_SAID));
+          if (said.length) box.appendChild(h('p', { class: 'smallnote', text: 'This host also reported, in its own names: ' + said.slice(0, 16).join(' \u00b7 ') + '.' }));
+        }
+
+        // How many pools ON THIS PAGE carry one pool's name — the honest
+        // scope of the shared-name warning, and the number the row prints.
+        // It counts the list this card was given and nothing else; a factory
+        // the scan only half reached can hold a third pool of the same name
+        // that nobody here can see.
+        function ocSharing(p) {
+          var k = String(p.nameRaw || p.name || ''), n = 0, listed = false;
+          (np.pools || []).forEach(function (q) {
+            if (String(q.nameRaw || q.name || '') === k) n++;
+            if (String(q.id) === String(p.id)) listed = true;
+          });
+          return listed ? n : n + 1;
+        }
+
+        function drawPools() {
+          listBox.innerHTML = '';
+          // The scan failed, the card did not. Its sentence goes where the
+          // list would be, and everything below it \u2014 the wallet row, the id
+          // lookup, opening a pool \u2014 goes on working, because none of them
+          // read a log.
+          if (scanError) {
+            listBox.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text: 'The pool list could not be read: ' + scanError }));
+            listBox.appendChild(h('p', { class: 'smallnote', text: 'That is this host\u2019s scan of the pool log, and only that. The wallet row, opening a pool and looking a pool up by its id all ask Base directly, so they are unaffected \u2014 what is missing here is the list, not the pools.' }));
+          }
+          var list = (np.pools || []).slice();
+          if (!list.length) {
+            // "Empty" and "could not be read" are the two sentences this card
+            // must never blur: an empty factory invites the first deposit, an
+            // unreadable one is a host to fix first. So the invitation is
+            // printed only when the scan actually came back empty.
+            if (!scanError) listBox.appendChild(h('p', { class: 'smallnote', text: 'The factory is live and empty. The first pool is opened below \u2014 its starting ratio IS its starting price.' }));
+            drawScanState(listBox, scanError ? null : 0);
+            return;
+          }
+          // Deepest BTC reserve first. The reader ranks the same way; this
+          // sorts again rather than trusting the order it arrived in, because
+          // an order that silently depends on a host being current is one
+          // that quietly puts a dust pool at the top of somebody's screen.
+          list.sort(function (a, b) {
+            var A = BigInt(a.resBtcRaw || '0'), B = BigInt(b.resBtcRaw || '0');
+            if (A !== B) return A > B ? -1 : 1;
+            return Number(a.id) - Number(b.id);
+          });
+          // How many pools in THIS list wear each name, keyed by the raw
+          // bytes32 where the host sends it: two names that render alike but
+          // differ by a byte are still two names, and the raw word is what
+          // the chain actually holds. A null-prototype object because the
+          // keys are somebody else's chosen text — a pool named __proto__
+          // must count as a pool, not reach into this page's object model.
+          var byName = Object.create(null);
+          list.forEach(function (p) {
+            var k = String(p.nameRaw || p.name || '');
+            byName[k] = (byName[k] || 0) + 1;
+          });
+          listBox.appendChild(h('p', { class: 'smallnote', text: 'Deepest BTC reserve first. A pool\u2019s name was chosen by whoever opened it and is claimed per creator \u2014 two different people can each have one called \u201cmain\u201d, and both are legitimate. A name carries no trust and no endorsement here: read the creator and the reserves, and note that the id beside it is what every button below actually sends. Where two pools ON THIS PAGE carry one name the row says so \u2014 but this page is all it can compare, so an unmarked name is not a proven unique one.' }));
+
+          // What this list is NOT, in the reader's own account of its scan:
+          // the windows it walked, the ones an endpoint refused, the pools it
+          // saw and had no reads left for. A partial list drawn as though it
+          // were the whole factory is exactly the omission that sends a
+          // deposit into the wrong pool.
+          drawScanState(listBox, list.length);
+
+          list.forEach(function (p) { listBox.appendChild(poolRow(p, byName[String(p.nameRaw || p.name || '')] || 1)); });
+        }
+
+        // `foundById` marks a row that was read from the chain a second ago
+        // by id rather than served by this host's scan \u2014 different
+        // provenance, so it says so rather than sitting in the list's voice.
+        function poolRow(p, sharing, foundById) {
+          var rp = BigInt(p.resPeerRaw || '0'), rb = BigInt(p.resBtcRaw || '0');
+          var ts = BigInt(p.totalSharesRaw || '0');
+          // Every sentence about this pool says its id, because the id is the
+          // identity; the name is only what it is called.
+          var label = (p.name ? '\u201c' + p.name + '\u201d' : 'the unnamed pool') + ' #' + p.id;
+          var box = h('div', {});
+          var kv = h('div', { class: 'kv' },
+            h('span', { text: (p.name || '(no name)') + ' \u00b7 #' + p.id }),
+            h('b', { class: 'num', text: ocFmt(rp, pdec) + ' PEER / ' + ocFmt(rb, bdec) + ' BTC' }));
+          if (rp > 0n && rb > 0n) {
+            // Display-only float; the raw integers above are the truth.
+            var px = (Number(rb) / Math.pow(10, bdec)) / (Number(rp) / Math.pow(10, pdec));
+            kv.appendChild(h('span', { text: 'price' }));
+            kv.appendChild(h('b', { class: 'num', text: '1 PEER = ' + (px >= 0.001 ? Math.round(px * 1e8) / 1e8 : px.toExponential(3)) + ' BTC' }));
+          }
+          box.appendChild(kv);
+          // Provenance on every row, not only the ambiguous ones: a creator
+          // shown only where there is a clash would make its absence read
+          // like a guarantee. Where the host reports no creator, that is what
+          // it says — an unknown opener is not a trustworthy one.
+          var who = ocShort(p.creator);
+          var prov = who ? 'opened by ' + who : 'opened by an address this host did not report';
+          if (foundById) prov += ' \u00b7 read from Base just now by its id, not from this host\u2019s scan';
+          // Only ever "on this page". The old wording said "in this list",
+          // which invited the reading that a name unmarked here is a name
+          // nobody else took \u2014 and where the scan reached part of the
+          // factory, that is a guarantee this card cannot make.
+          if (sharing > 1) prov += ' \u00b7 ' + sharing + ' of the pools on this page carry the name \u201c' + (p.name || '') + '\u201d \u2014 different pools, different creators, one word between them';
+          box.appendChild(h('p', { class: 'smallnote', text: prov }));
+
+          var sellSel = h('select', {}, h('option', { value: 'PEER', text: 'sell PEER' }), h('option', { value: 'BTC', text: 'sell BTC' }));
+          var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
+          var quote = h('span', { class: 'smallnote' });
+          function quoteNow() {
+            var sellPeer = sellSel.value === 'PEER';
+            var vin = ocUnits(amtIn.value, sellPeer ? pdec : bdec);
+            if (vin === null) return null;
+            var out = ocQuote(vin, sellPeer ? rp : rb, sellPeer ? rb : rp);
+            return { sellPeer: sellPeer, vin: vin, out: out, min: ocGuard(out), dec: sellPeer ? bdec : pdec, sym: sellPeer ? 'BTC' : 'PEER' };
+          }
+          function requote() {
+            var q = quoteNow();
+            if (!q) { quote.textContent = ''; return; }
+            if (q.out <= 0n) { quote.textContent = 'the pool cannot fill this'; return; }
+            var t = '\u2192 ' + ocFmt(q.out, q.dec) + ' ' + q.sym + ' (incl. 0.3% fee); it reverts below ' + ocFmt(q.min, q.dec) + ' ' + q.sym;
+            // Below about fifty raw units a percentage is not expressible at
+            // all: 2% of three sats is nothing an integer can hold. The guard
+            // is floored at one unit there, which makes the trade
+            // all-or-nothing, and saying so is the difference between a tight
+            // guard and a guard the user thinks they have.
+            if (q.out < 50n) t += ' \u2014 that output is only ' + q.out + ' raw units, too small to protect by percentage, so any move at all makes it revert. Trade more if you want room.';
+            quote.textContent = t;
+          }
+          amtIn.addEventListener('input', requote);
+          sellSel.addEventListener('change', requote);
+          box.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
+            h('button', { class: 'btn small primary', text: 'Swap on Base', onclick: function () {
+              var q = quoteNow();
+              if (!q) { toast('Say how much.'); return; }
+              if (q.out <= 0n) { toast('The pool cannot fill this.'); return; }
+              var led = ocLedger();
+              (async function () {
+                try {
+                  if (!l2Wallet && !(await ocConnect())) { toast('Trading needs a wallet on Base.'); return; }
+                  drawWallet();
+                  var toks = await ocGetTokens(factory);
+                  var sellTok = q.sellPeer ? toks.peer : toks.btc;
+                  var sellSym = q.sellPeer ? 'PEER' : 'cbBTC';
+                  var sellDec = q.sellPeer ? pdec : bdec;
+                  // Free, and asked first: a wallet that cannot cover the
+                  // trade used to find that out one approval too late, having
+                  // paid gas for a permission it could not use.
+                  await ocHave(sellTok, q.vin, sellSym, sellDec);
+                  await ocAllow(sellTok, factory, q.vin, sellSym, sellDec, led);
+                  // Two guards, both the caller's own. minOut is the 2% band
+                  // with a floor under it, so if the chain moved between this
+                  // quote and the fill the contract refuses rather than
+                  // filling at a price this screen never showed. deadline is
+                  // ten minutes on the chain's clock, so a transaction held
+                  // back and replayed later is void rather than merely late —
+                  // minOut says nothing about WHEN. These reserves may be up
+                  // to thirty seconds old, which can only make the trade
+                  // revert, never fill worse than the line above promised.
+                  var data = OC_SEL.swap + ocWord(p.id) + ocWord(q.sellPeer ? 1n : 0n) + ocWord(q.vin) + ocWord(q.min) + ocWord(await ocDeadline());
+                  await ocSend(factory, data, 'Swapping in ' + label, led, 'the swap of ' + ocFmt(q.vin, sellDec) + ' ' + sellSym + ' in ' + label);
+                  toast('Swapped in ' + label + '. ' + OC_LAG);
+                  ocRefresh();
+                } catch (e) { toast(led.sentence('The swap stopped', e)); }
+              })();
+            } }), quote));
+
+          var addP = h('input', { type: 'text', placeholder: 'PEER', style: 'width:90px', inputmode: 'decimal' });
+          var addB = h('input', { type: 'text', placeholder: 'cbBTC', style: 'width:90px', inputmode: 'decimal' });
+          var slot = h('span', {});
+          box.appendChild(h('div', { class: 'mini-form' }, addP, addB,
+            h('button', { class: 'btn small', text: 'Add liquidity', onclick: function () {
+              var vp = ocUnits(addP.value, pdec), vb = ocUnits(addB.value, bdec);
+              if (vp === null || vb === null) { toast('Both amounts, please.'); return; }
+              // What the pool would mint, computed the way the contract does:
+              // the smaller of the two offers measured in shares. Free
+              // arithmetic, and it catches the deposit too small to mint
+              // anything BEFORE it costs two approvals.
+              var expect = 0n;
+              if (ts > 0n && rp > 0n && rb > 0n) {
+                var byP = vp * ts / rp, byB = vb * ts / rb;
+                expect = byP < byB ? byP : byB;
+                if (expect <= 0n) { toast('That deposit is too small to mint a share in ' + label + ' \u2014 the contract would refuse it, so nothing was signed.'); return; }
+              }
+              var led = ocLedger();
+              (async function () {
+                try {
+                  if (!l2Wallet && !(await ocConnect())) { toast('Adding liquidity needs a wallet on Base.'); return; }
+                  drawWallet();
+                  var toks = await ocGetTokens(factory);
+                  // The allowance covers the full offer; the contract pulls
+                  // only the ratio-matched part of it, rounding in the
+                  // pool's favour. What the ratio is right now is the
+                  // chain's business, not this page's guess.
+                  // Both sides asked for free before either is approved:
+                  // approving PEER and then discovering the wallet has no
+                  // cbBTC leaves a paid-for permission and no deposit.
+                  await ocHave(toks.peer, vp, 'PEER', pdec);
+                  await ocHave(toks.btc, vb, 'cbBTC', bdec);
+                  await ocAllow(toks.peer, factory, vp, 'PEER', pdec, led);
+                  await ocAllow(toks.btc, factory, vb, 'cbBTC', bdec, led);
+                  // minShares is the sandwich guard: a swap landing just
+                  // ahead of this moves the ratio, which changes WHICH side
+                  // binds and can mint fewer shares for the same coins. 2%
+                  // under what these reserves say, floored — and a deadline,
+                  // for the same reason the swap has one.
+                  await ocSend(factory, OC_SEL.addLiquidity + ocWord(p.id) + ocWord(vp) + ocWord(vb) + ocWord(ocGuard(expect)) + ocWord(await ocDeadline()), 'Adding liquidity to ' + label, led, 'the deposit into ' + label);
+                  toast('Added to ' + label + ' \u2014 the proportional part of what you offered. ' + OC_LAG);
+                  ocRefresh();
+                } catch (e) { toast(led.sentence('The deposit stopped', e)); }
+              })();
+            } }), slot));
+          if (ts <= 0n) {
+            // No total-shares figure, nothing to compute a minimum from, and
+            // 0 means no guard — the contract says so and so does this row.
+            box.appendChild(h('p', { class: 'smallnote', text: 'This host did not report this pool\u2019s total shares, so an add here goes in with no minimum-shares guard: the ratio can move under you between pressing and mining.' }));
+          }
+
+          // The withdraw button appears only when the connected wallet
+          // actually holds shares in this pool — asked of the chain each
+          // render, never remembered. Shares are internal accounting inside
+          // the factory, not a token, so this is the only place they show.
+          if (l2Wallet && window.ethereum) {
+            ocEth('eth_call', [{ to: factory, data: OC_SEL.sharesOf + ocWord(p.id) + ocAddr(l2Wallet) }, 'latest'])
+              .then(function (res) {
+                var sh = 0n;
+                // Here an unreadable answer really does just mean no button:
+                // nothing is signed off this read, so the honest response to
+                // silence is to offer nothing rather than to raise.
+                try { sh = ocUint(res, 'your share balance'); } catch (e) { return; }
+                if (sh <= 0n) return;
+                slot.appendChild(h('button', { class: 'btn small', text: 'Withdraw all', onclick: function () {
+                  // The slice is proportional whatever happens, but WHAT it
+                  // is made of moves with the pool: a swap landing ahead of
+                  // this turns some of one side into the other, so a
+                  // withdrawal aimed at one coin can be sandwiched into the
+                  // other. Both minimums are 2% under what these reserves
+                  // say the slice is, floored so a tiny side still gets a
+                  // minimum. The reserves may be half a minute old, which can
+                  // only cause a revert, never a worse payout than shown.
+                  var expP = ts > 0n ? sh * rp / ts : 0n;
+                  var expB = ts > 0n ? sh * rb / ts : 0n;
+                  var led = ocLedger();
+                  (async function () {
+                    try {
+                      await ocSend(factory, OC_SEL.removeLiquidity + ocWord(p.id) + ocWord(sh) + ocWord(ocGuard(expP)) + ocWord(ocGuard(expB)), 'Withdrawing from ' + label, led, 'the withdrawal of your whole share of ' + label);
+                      toast('Withdrew from ' + label + ' \u2014 both sides, proportional to your shares. ' + OC_LAG);
+                      ocRefresh();
+                    } catch (e) { toast(led.sentence('The withdrawal stopped', e)); }
+                  })();
+                } }));
+              })
+              .catch(function () { /* a provider that refuses eth_call just means no button */ });
+          }
+          return box;
+        }
+
+        // ── find a pool by its id ──
+        // The list above is what this host's scan reached, and when that is
+        // less than the whole factory the reader says so in its own words —
+        // ending, quite correctly, that a pool missing from the list "is
+        // still perfectly usable by anyone who has its id". This is where
+        // that promise is kept. Until now the card made it and offered no
+        // way to act on it, which is worse than staying quiet: it told
+        // somebody their pool was reachable and then hid the door.
+        //
+        // poolInfo(uint256) is a free read and signs nothing. It goes through
+        // the WALLET's connection because a wallet is this page's only way to
+        // ask Base a direct question — the host's endpoint answers with its
+        // scan and nothing else, and this file will not reach for some third
+        // party's RPC on a user's behalf. Without a wallet the button says so
+        // rather than failing quietly.
+        //
+        // The row it draws is the same row the list draws, with the same
+        // buttons, keyed by the same id: a pool nobody can see is not a pool
+        // anybody should have to trade in blind.
+        var idIn = h('input', { type: 'text', placeholder: 'pool id', style: 'width:90px', inputmode: 'numeric' });
+        var idSlot = h('div', {});
+        ocBody.appendChild(h('p', { class: 'eyebrow', style: 'margin:10px 0 0', text: 'find a pool by id \u2014 including one this host never listed' }));
+        ocBody.appendChild(h('div', { class: 'mini-form persistent' }, idIn,
+          h('button', { class: 'btn small', text: 'Look it up', onclick: function () {
+            idSlot.innerHTML = '';
+            var t = String(idIn.value || '').trim();
+            if (!/^\d+$/.test(t)) { toast('A pool id is a whole number \u2014 the one printed beside every pool in the list.'); return; }
+            if (!window.ethereum) { toast('An id lookup asks Base directly, which needs a wallet. It signs nothing; this page has no other way to reach the chain.'); return; }
+            (async function () {
+              try {
+                var chain = await ocEth('eth_chainId');
+                if (chain !== OC_CHAIN) { toast('That wallet answers for chain ' + chain + ', not Base \u2014 an id read through it would be about a different chain entirely.'); return; }
+                var ret = await ocEth('eth_call', [{ to: factory, data: OC_SEL.poolInfo + ocWord(BigInt(t)) }, 'latest']);
+                var body = String(ret == null ? '' : ret).replace(/^0x/, '');
+                // Five static words: name, resPeer, resBtc, totalShares,
+                // creator. An id past the end of the factory reverts, which
+                // arrives here as an error or an empty answer \u2014 never as a
+                // pool full of zeroes, which is why nothing short is decoded.
+                if (body.length < 64 * 5) { toast('Nothing answered for pool #' + t + ' on this factory. An id that exists answers in five words; this answered in fewer.'); return; }
+                var p = {
+                  id: t,
+                  name: ocName(body.slice(0, 64)),
+                  nameRaw: '0x' + body.slice(0, 64),
+                  resPeerRaw: BigInt('0x' + body.slice(64, 128)).toString(),
+                  resBtcRaw: BigInt('0x' + body.slice(128, 192)).toString(),
+                  totalSharesRaw: BigInt('0x' + body.slice(192, 256)).toString(),
+                  creator: '0x' + body.slice(280, 320)
+                };
+                idSlot.appendChild(poolRow(p, ocSharing(p), true));
+              } catch (e) { toast('Could not read pool #' + t + ': ' + ocErr(e)); }
+            })();
+          } }),
+          h('span', { class: 'smallnote', text: window.ethereum ? 'A free read straight to Base \u2014 it signs nothing, and it works for ids this host\u2019s scan never reached.' : 'Needs a wallet: asking Base directly is the only way to reach a pool this host did not list.' })));
+        ocBody.appendChild(idSlot);
+
+        // ── open a pool ──
+        // The pair is preset: every pool this factory can make is PEER
+        // against cbBTC, fixed at its deployment. The name is the only
+        // choice, which is the point — one press, two amounts, a pool.
+        // Several pools of the same pair is deliberate; liquidity
+        // fragmentation was the accepted price of pools people can NAME.
+        //
+        // The name is yours alone in one direction only: you cannot reuse one
+        // of your own, and somebody else opening theirs under the same word
+        // takes nothing from you. That is what stops a watcher copying a name
+        // out of the mempool and paying a higher fee to steal it.
+        var cName = h('input', { type: 'text', placeholder: 'pool name', style: 'flex:1', maxlength: '32' });
+        var cPeer = h('input', { type: 'text', placeholder: 'PEER', style: 'width:90px', inputmode: 'decimal' });
+        var cBtc = h('input', { type: 'text', placeholder: 'cbBTC', style: 'width:90px', inputmode: 'decimal' });
+        ocBody.appendChild(h('p', { class: 'eyebrow', style: 'margin:10px 0 0', text: 'open a pool \u2014 PEER / cbBTC, named by you' }));
+        ocBody.appendChild(h('div', { class: 'mini-form persistent' }, cName, cPeer, cBtc,
+          h('button', { class: 'btn small primary', text: 'Open pool on Base', onclick: function () {
+            var nm = String(cName.value || '').trim();
+            if (!nm) { toast('A pool needs a name.'); return; }
+            var nb = new TextEncoder().encode(nm);
+            if (nb.length > 32) { toast('That name is ' + nb.length + ' bytes as UTF-8; 32 is all a bytes32 holds.'); return; }
+            var vp = ocUnits(cPeer.value, pdec), vb = ocUnits(cBtc.value, bdec);
+            if (vp === null || vb === null) { toast('Both starting amounts, please.'); return; }
+            // bytes32: the UTF-8 bytes hex-encoded, right-padded with NULs —
+            // the exact shape the host strips back off to show the name.
+            var hexName = '';
+            for (var i = 0; i < nb.length; i++) hexName += nb[i].toString(16).padStart(2, '0');
+            while (hexName.length < 64) hexName += '0';
+            var led = ocLedger();
+            (async function () {
+              try {
+                if (!l2Wallet && !(await ocConnect())) { toast('Opening a pool needs a wallet on Base.'); return; }
+                drawWallet();
+                // Both ways createPool can refuse, asked for free and asked
+                // FIRST. An approval that lands ahead of a revert costs gas
+                // and leaves a standing permission behind; a square root and
+                // one eth_call cost neither.
+                var s0 = ocSqrt(vp * vb);
+                var minLiq = await ocMinLiq(factory);
+                if (s0 <= minLiq) { toast('Too small to open: the opening shares are sqrt(PEER \u00d7 cbBTC) = ' + s0 + ' raw units and this factory locks ' + minLiq + ' of them forever, so an opener has to mint more than that. Nothing was signed.'); return; }
+                if (await ocTaken(factory, l2Wallet, hexName)) { toast('You already have a pool called \u201c' + nm + '\u201d \u2014 your own names are claimed once and never reused, even after a pool is drained. Pick another; nothing was signed.'); return; }
+                var toks = await ocGetTokens(factory);
+                // The third knowable refusal, and the one that was missing:
+                // MIN_LIQ and the name claim were already asked for free, but
+                // a wallet without the coins still paid for two approvals
+                // before the pull reverted.
+                await ocHave(toks.peer, vp, 'PEER', pdec);
+                await ocHave(toks.btc, vb, 'cbBTC', bdec);
+                await ocAllow(toks.peer, factory, vp, 'PEER', pdec, led);
+                await ocAllow(toks.btc, factory, vb, 'cbBTC', bdec, led);
+                await ocSend(factory, OC_SEL.createPool + hexName + ocWord(vp) + ocWord(vb), 'Opening \u201c' + nm + '\u201d', led, 'opening the pool \u201c' + nm + '\u201d');
+                toast('Opened \u201c' + nm + '\u201d on Base \u2014 the starting ratio IS the starting price. The name is yours, not the network\u2019s: somebody else may open one called the same thing. ' + OC_LAG);
+                ocRefresh();
+              } catch (e) { toast(led.sentence('Opening the pool stopped', e)); }
+            })();
+          } })));
+        ocBody.appendChild(h('p', { class: 'smallnote', text: 'The first 1000 raw share units of every pool are locked forever \u2014 the standard guard that stops the first depositor being robbed by rounding, and the reason an opening deposit has to mint more than that. A name is claimed per creator: you cannot reuse one of your own, and a stranger using the same word neither takes anything from you nor gains anything by it. The factory pulls amounts only after your wallet approves each token, and your wallet shows you every one before it signs.' }));
+
+        // The wallet's own events reach the screen through here. Assigned on
+        // every render so the handler always drives the card that is actually
+        // on screen, and never the one three renders ago.
+        l2Redraw = function () { drawWallet(); drawPools(); };
+        drawWallet();
+        drawPools();
+      }
+
+      ocBody.appendChild(h('p', { class: 'smallnote', text: 'Reading the chain\u2026' }));
+      ocLoad();
+
       // ── pools ──
       var pCard = h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'Liquidity pools' }),
         h('p', { class: 'smallnote', text: 'Constant product x·y=k, 0.3% of every swap stays in the pool — that is how providers earn. Prices are whatever the pool says; nothing here is advice, backing, or a promise.' }));
       var pids = Object.keys(myPools);
-      if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools yet. PEER trades on Base, against cbBTC — that pool is the real one. Anything opened here trades minted assets against each other and settles nothing outside this log.' }));
+      if (!pids.length) pCard.appendChild(h('p', { class: 'smallnote', text: 'No pools in this log yet. The real ones \u2014 PEER against cbBTC, settling on Base \u2014 are in the card above. Anything opened here trades minted assets against each other and settles nothing outside this log.' }));
       pids.forEach(function (pid) {
         var pl = myPools[pid];
         var mine = pl.shares[who] || 0;
@@ -8026,6 +9425,16 @@ button, .btn { touch-action: manipulation; }
         P(B('Redemption'), ' pays x·φ reserve back and never lowers the floor. ', B('Time-locked units'), ' exist only during bootstrapping and convert to live in one relabel at maturity (cycle 10). Capacity before deposits is bounded: A_max = E₀·ln(1/(1−ζ)).'),
         P('Try it in the ', B('Economy tab'), ': deposit, close a cycle, burn, watch φ ratchet. ', jump('open economy', 'econ'))),
 
+      sect('Prender Markets: betting on an answer', false,
+        P('A ', B('bet'), ' is a post. Ask a question, name two to seven answers, say what it is staked in and when betting closes, and the card carries a pool. It mints a Content node like any other post, so people react to it, comment under it and quote it exactly as they would a note \u2014 and those acts count for the epoch mint the same way.'),
+        P(B('Backing an answer'), ' moves your stake into escrow. There is no price and no counterparty: everyone who backs the certified answer splits the whole pool in proportion to what they staked, less the fee. The percentages on the card are the share of the money sitting on each answer \u2014 not a probability, and not a price.'),
+        P(B('The jury is elected, not appointed. '), 'Whoever asks may nominate people, but a nomination is only an invitation: to be certifiable you ', B('stand'), ' by posting the bond, and the community votes. A ballot names up to as many candidates as there are seats and weighs the ', B('satoshis that account has destroyed'), ' \u2014 never standing, and never what anybody has staked here. A later ballot replaces an earlier one, so a seat can be taken back until betting closes.'),
+        P(B('Then the bond does its work. '), 'Each seated moderator certifies one answer, finally. A strict majority settles the bet on the spot. A moderator who certified a different answer than the jury reached ', B('forfeits the bond'), ' \u2014 and it is paid to the people who backed the answer the jury did reach, because they are the ones a corrupt certification was aimed at. Half the fee goes to whoever asked the question; the other half is split among the moderators who called it right.'),
+        P(B('Nobody who can shape the answer may hold a position on it. '), 'The author is paid a fee whichever answer wins, so they cannot bet; a moderator cannot back an answer they may be asked to certify, and anybody already holding a position cannot stand.'),
+        P('If the jury never agrees, anyone can call time seven days after the close: every stake goes back in full, no fee is taken, and the seats that never certified forfeit their bonds to the people whose money they were sitting on.'),
+        P(B('None of it touches standing.'), ' No part of a bet appends an edge, compiles a vouch or enters an epoch certificate. Being right about the future buys money and nothing else \u2014 which is the same wall that keeps paid placements out of the ranking.'),
+        P('Ask one from the composer: ', K('Bet'), '. ', jump('open the feed', 'feed'))),
+
       sect('Reading the network graph', false,
         P('Nodes: ', B('circles'), ' are Actors, ', B('diamonds'), ' Profiles, ', B('rounded boxes'), ' artifacts (Content, Comments, Types, Items). Every edge is an act’s projection; ', B('stroke width'), ' is its damped weight.'),
         P('Colors: ', B('ember'), ' full-tier routing, ', B('gold'), ' half-tier (settlement/proposal families), ', B('grey'), ' marginal tier, ', B('red'), ' negative parity.'),
@@ -8233,7 +9642,7 @@ button, .btn { touch-action: manipulation; }
   function railFilterCard() {
     var card = h('div', { class: 'card' }, h('p', { class: 'eyebrow', text: 'Filters' }));
     card.appendChild(h('p', { class: 'smallnote', style: 'margin:0', text: 'Content form' }));
-    var whats = [['any', 'All kinds'], ['post', 'Notes'], ['event', 'Events'], ['stream', 'Broadcasts'], ['onair', 'Live now']];
+    var whats = [['any', 'All kinds'], ['post', 'Notes'], ['market', 'Bets'], ['event', 'Events'], ['stream', 'Broadcasts'], ['onair', 'Live now']];
     var wbar = h('div', { class: 'uline' });
     whats.forEach(function (k) {
       wbar.appendChild(h('button', { class: feedKind === k[0] ? 'on' : '', text: k[1],

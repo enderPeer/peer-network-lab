@@ -12,7 +12,7 @@ shipped early, scoped honestly in
 
 ```bash
 npm install
-npm test               # 314 tests, 20 suites: spec vectors, replay, host, chain, election
+npm test               # 451 tests, 25 suites: spec vectors, replay, host, chain, election, markets
 npm run dev            # protocol lab → http://localhost:5199 (or Vite's chosen port)
 npm run build:social   # assemble the social app + PWA assets
 node server.mjs        # shared-network host → http://localhost:5210
@@ -41,13 +41,16 @@ node chain/verify.mjs  # replay the chain: every root, every signature
   — the **one** shared replay, inlined into the page and imported by the host
 - `server.mjs` — the multi-user host: act log, refusals, mirrors, federation
   and the writer election. Runbook: [`HOSTING.md`](HOSTING.md)
+- the economy, all of it outside the reputation system by construction: the
+  PEER epoch token and its pools ([`TOKEN.md`](TOKEN.md)) and Prender Markets,
+  bets with an elected, bonded jury ([`MARKETS.md`](MARKETS.md))
 - `chain/` — the epoch chain (`build.mjs`, `verify.mjs`) and the writer's
   office (`election.mjs`, `reconcile.mjs`, `merge.mjs`):
   [`DECENTRALIZATION.md`](DECENTRALIZATION.md)
 - `tools/` — the off-machine jobs' working parts: liveness check, archive
   sync, the beacon resident ([`../BOTS.md`](../BOTS.md)), and a stress driver
 - `examples/bot.mjs` — a working bot in a single file
-- `tests/` — 20 suites; `registry.json` holds 505 numeric values
+- `tests/` — 25 suites; `registry.json` holds 505 numeric values
   extracted from the spec's embedded value registry
 
 ## Validation

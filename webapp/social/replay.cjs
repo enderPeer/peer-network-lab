@@ -313,6 +313,48 @@ function replayUncached(acts) {
   var tokEpochN = 0;
   var epochEngage = [];  // {actor, creator, base} since the last close
 
+  // ── Prender Markets ───────────────────────────────────────────────────────
+  //
+  // A bet is a POST. It mints a Content node through the same path a note, a
+  // gathering or a broadcast takes, so reactions, comments, quotes and tags
+  // land on it unchanged and the epoch mint sees it without knowing markets
+  // exist at all. What hangs off that node is a parimutuel pool and a jury.
+  //
+  // The whole shape in one paragraph. Whoever asks the question names two to
+  // seven answers, the asset stakes are denominated in, the bond a moderator
+  // must post, and a resolution fee capped at 5% — all of it visible on the
+  // card before anybody stakes a satoshi's worth. Anyone may back an answer;
+  // stakes leave their balance and sit in escrow. Anyone may STAND for a
+  // moderator seat by posting the bond, and the community elects the seats by
+  // approval vote. Seated moderators each certify one answer, and a strict
+  // majority resolves the market the moment it lands.
+  //
+  // Then value moves once, in one direction: backers of the resolved answer
+  // split the pool pro rata, a moderator who certified AGAINST the resolution
+  // forfeits their bond into that same pool, and the fee is split half to the
+  // question's author and half among the moderators who called it right.
+  //
+  // WHAT WEIGHS A VOTE, and why it is not standing. Seats are elected with
+  // satoshis the voter proved they destroyed — the same weight the epoch mint
+  // uses, and the only scarce thing here that cannot be bought back, borrowed,
+  // or split across puppets. Standing is deliberately not consulted. Money
+  // must never buy reputation, and reputation must never be the thing that
+  // decides who gets paid: the wall only holds if neither side crosses it.
+  //
+  // No market act appends an edge, compiles a vouch, or enters a certificate.
+  // Being right about the future is evidence of nothing, and this network says
+  // so in code rather than in a paragraph.
+  var MKT_MIN_OPTS = 2, MKT_MAX_OPTS = 7;
+  var MKT_FEE_MAX_BP = 500;                     // 5% of the pool, and no more
+  var MKT_SEATS = { 1: true, 3: true, 5: true }; // odd only: a majority must exist
+  // How long a jury has to certify once betting closes. NOTHING in this file
+  // applies it — a replay that consulted a clock would stop being a pure
+  // function of the log. It is published here because the host enforces it and
+  // the screen draws it, and two copies of one number drift: a card offering a
+  // 'call time' button the door then refuses is the interface lying.
+  var MKT_RESOLVE_MS = 7 * 24 * 60 * 60 * 1000;
+  var markets = {};      // cid -> the record built in the 'market' branch
+
   function round6(x) { return Math.round(x * 1e6) / 1e6; }
   function balOf(sym, id) { return (tokenBal[sym] && tokenBal[sym][id]) || 0; }
   function tokCredit(sym, id, amt) {
@@ -466,6 +508,292 @@ function replayUncached(acts) {
       return null;
     }
     return 'unknown token act';
+  }
+
+  /**
+   * Who holds the moderator seats, right now, according to the log.
+   *
+   * Approval voting: a ballot names up to `seats` candidates and the voter's
+   * whole weight backs each name. Weight is satoshis destroyed, so a stake
+   * split across twenty puppets weighs exactly what one account holding it
+   * weighs — the same argument that closed the sybil hole in the epoch mint.
+   *
+   * Ties break by bond, then by id. That is determinism, not merit: two
+   * honest observers replaying the same log must seat the same people or the
+   * network has two different answers to who may certify a bet.
+   *
+   * A candidate nobody voted for can still be seated when seats would
+   * otherwise sit empty — a small market nobody campaigned in should still be
+   * able to resolve — but a single vote outranks all of that silence.
+   *
+   * No clock appears here. The host refuses ballots after the closing time,
+   * which is where wall-clock judgments belong; this function only ever reads
+   * the votes that are actually in the log.
+   */
+  /**
+   * A stake, as this record can actually hold it: floored to the micro-token.
+   *
+   * FLOORED, never rounded. Rounding up would debit a balance for more than it
+   * holds by up to half a micro-token, and rounding at all in only one of the
+   * two places — the debit and the recorded stake — leaves escrow that no
+   * payout branch can hand back. The remainder simply stays in the balance.
+   */
+  function mktAmt(x) { return Math.floor(x * 1e6) / 1e6; }
+
+  function mktSeats(m) {
+    var w = {}, id;
+    for (id in m.cands) w[id] = 0;
+    for (var v in m.votes) {
+      var wt = burnedSats[v] || 0;
+      if (wt <= 0) continue;                    // no proven burn, no weight
+      var ballot = m.votes[v];
+      for (var k = 0; k < ballot.length; k++) {
+        if (w[ballot[k]] !== undefined) w[ballot[k]] += wt;
+      }
+    }
+    var order = Object.keys(m.cands).sort(function (x, y) {
+      if (w[y] !== w[x]) return w[y] - w[x];
+      if (m.cands[y] !== m.cands[x]) return m.cands[y] - m.cands[x];
+      return x < y ? -1 : 1;
+    });
+    return { order: order, weight: w, seated: order.slice(0, m.seats) };
+  }
+
+  /**
+   * Can this market act apply against the current state? One function, asked
+   * by the host before it accepts and by the replay before it applies — the
+   * same discipline tokenActError follows, for the same reason: a host that
+   * accepts what the replay skips has written a log that means one thing to
+   * it and another to everyone else.
+   *
+   * Every check here reads STRUCTURE, never payload. Deleting a bet redacts
+   * its question and blanks its answer labels but keeps the answer count, so
+   * nothing in this function can start refusing an act it once allowed —
+   * which would re-cut escrow that was settled months ago.
+   */
+  function marketActError(a) {
+    var who = a.author;
+    if (!ledgerById[who]) return 'unknown actor';
+    if (ledgerById[who].burnBal < THETA) return 'not enough energy';
+    if (a.t === 'market') {
+      var opts = Array.isArray(a.opts) ? a.opts : [];
+      if (opts.length < MKT_MIN_OPTS || opts.length > MKT_MAX_OPTS) {
+        return 'a bet needs between ' + MKT_MIN_OPTS + ' and ' + MKT_MAX_OPTS
+          + ' answers; this one names ' + opts.length;
+      }
+      if (!tokenMeta[a.cur]) return 'no such asset: ' + a.cur;
+      if (!MKT_SEATS[a.seats]) return 'a jury is 1, 3 or 5 seats — an even jury cannot reach a majority';
+      if (!(a.bond > 0) || a.bond > 1e9) return 'a seat needs a bond: it is the only thing a corrupt certification can cost';
+      if (!(a.feeBp >= 0) || a.feeBp > MKT_FEE_MAX_BP) {
+        return 'the resolution fee is at most ' + (MKT_FEE_MAX_BP / 100) + '% of the pool';
+      }
+      return null;
+    }
+    var m = markets[a.cid];
+    if (!m) return 'no such bet: ' + a.cid;
+    // Settled is settled. Every branch below moves value, and a market that
+    // has paid out has no value left to move.
+    if (m.state !== 'open') {
+      return m.state === 'void'
+        ? 'that bet was voided — the stakes went back and nothing more moves'
+        : 'that bet is already resolved — the pool has been paid out';
+    }
+    if (a.t === 'bet') {
+      // The two roles that can shape the answer are the two that may not hold
+      // a position on it. The author takes a fee whichever answer wins, and a
+      // moderator certifies; either of them betting turns a market into a
+      // machine for paying its own referee.
+      if (who === m.by) return 'the author of a bet does not hold a position on it — they are paid a fee whichever answer wins';
+      if (m.cands[who] !== undefined) return 'a moderator cannot back an answer they may be asked to certify';
+      if (!(a.opt >= 0) || a.opt >= m.n || Math.floor(a.opt) !== a.opt) return 'there is no answer ' + a.opt + ' on this bet';
+      // Against the QUANTIZED stake, which is what will actually be taken.
+      // Everything in this record is kept to the micro-token; a stake finer
+      // than that used to be debited in full and recorded rounded, and the
+      // difference is escrow that no payout branch could ever hand back.
+      var v = mktAmt(a.amt);
+      if (!(v > 0)) {
+        return a.amt > 0 ? 'the smallest stake this record can hold is 0.000001 ' + m.cur : 'a stake must be positive';
+      }
+      if (balOf(m.cur, who) < v) {
+        return 'balance is ' + round6(balOf(m.cur, who)) + ' ' + m.cur + ', tried to stake ' + a.amt;
+      }
+      return null;
+    }
+    if (a.t === 'modStand') {
+      if (a.on === false) {
+        if (m.cands[who] === undefined) return 'you are not standing in this bet';
+        return null;                            // stand down, bond returned in full
+      }
+      if (who === m.by) return 'the author of a bet cannot also certify it';
+      if (m.byBettor[who] !== undefined) return 'you hold a position on this bet, so you cannot certify it';
+      if (m.cands[who] !== undefined) return 'you are already standing, and the bond is already posted';
+      if (balOf(m.cur, who) < m.bond) {
+        return 'the bond is ' + fmtAmt(m.bond) + ' ' + m.cur + ' and you hold ' + fmtAmt(balOf(m.cur, who));
+      }
+      return null;
+    }
+    if (a.t === 'modVote') {
+      var ballot = Array.isArray(a.for) ? a.for : [];
+      if (ballot.length > m.seats) return 'this jury has ' + m.seats + ' seat(s); a ballot names at most that many';
+      for (var i = 0; i < ballot.length; i++) {
+        if (ballot[i] === who) return 'nobody votes themselves onto a jury';
+        if (ballot.indexOf(ballot[i]) !== i) return 'that ballot names the same candidate twice';
+        if (m.cands[ballot[i]] === undefined) return 'nobody by that name is standing in this bet';
+      }
+      if ((burnedSats[who] || 0) <= 0) {
+        return 'a vote weighs the satoshis you proved you destroyed, and this handle has destroyed none';
+      }
+      return null;
+    }
+    if (a.t === 'attest') {
+      if (mktSeats(m).seated.indexOf(who) < 0) return 'only a seated moderator certifies a bet, and this handle holds no seat';
+      if (m.attests[who] !== undefined) {
+        return 'you have already certified this bet — a certification is final, which is what makes the bond mean anything';
+      }
+      if (a.opt !== -1 && (!(a.opt >= 0) || a.opt >= m.n || Math.floor(a.opt) !== a.opt)) {
+        return 'there is no answer ' + a.opt + ' on this bet';
+      }
+      return null;
+    }
+    if (a.t === 'marketVoid') {
+      // The DEADLINE is checked at the host's door and nowhere else, exactly
+      // like an event that has already happened: a wall-clock comparison in
+      // here would be retroactive by construction, and a replay that changed
+      // its mind about a settled market as the day moved on would not be a
+      // pure function of the log. What this file guarantees is the part that
+      // matters for value: a void refunds every stake in full and pays no fee
+      // to anybody, so a host that voids early can cancel a market but can
+      // never take from one.
+      return null;
+    }
+    return 'unknown market act';
+  }
+
+  /**
+   * Settle a bet, once, forever.
+   *
+   * `outcome` is the answer index a majority certified, or −1 for a void. The
+   * arithmetic is deliberately dull: floor every division, hand the remainder
+   * to the author with the fee, and let no branch return a bond to a
+   * moderator it was taken from.
+   *
+   * Silence and dissent are not the same failure and are not priced the same,
+   * and WHICH of them costs the bond turns on one thing only: whether the
+   * deadline passed.
+   *
+   * While a jury is still sitting — `byDeadline` false, a verdict reached by
+   * agreement — a moderator who certified an answer the jury did not reach
+   * loses the bond. That is the striking this whole mechanism exists for. A
+   * moderator who has not certified yet keeps the bond and earns no fee:
+   * their colleagues simply got there first, and slowness is not corruption.
+   *
+   * Past the deadline — `byDeadline` true, nobody agreed with anybody — it is
+   * the other way round. Whoever certified did the job they bonded for and
+   * takes the bond home; the seats that never spoke are the reason the market
+   * failed, and they pay for it.
+   */
+  function mktSettle(m, outcome, byDeadline) {
+    var seated = mktSeats(m).seated, i;
+    var honest = [], guilty = [];
+    for (i = 0; i < seated.length; i++) {
+      var said = m.attests[seated[i]];
+      if (said === undefined) { if (byDeadline) guilty.push(seated[i]); continue; }
+      if (byDeadline) continue;                  // certified; the jury just never agreed
+      if (said === outcome) honest.push(seated[i]); else guilty.push(seated[i]);
+    }
+    // Bonds first. Everyone standing gets theirs back except the struck —
+    // including candidates the community never seated, who risked nothing and
+    // therefore lose nothing.
+    var slashed = 0, cands = Object.keys(m.cands).sort();
+    for (i = 0; i < cands.length; i++) {
+      if (guilty.indexOf(cands[i]) >= 0) {
+        slashed = round6(slashed + m.cands[cands[i]]);
+        m.struck[cands[i]] = m.cands[cands[i]];
+      } else {
+        tokCredit(m.cur, cands[i], m.cands[cands[i]]);
+      }
+    }
+    var fee = 0, dust = 0, j;
+    var winTotal = outcome >= 0 ? (m.totals[outcome] || 0) : 0;
+    if (winTotal > 0) {
+      // The pool, less the fee, plus every struck bond — the people a corrupt
+      // certification was aimed at are the people it is paid to.
+      fee = Math.floor(m.pool * m.feeBp / 10000 * 1e6) / 1e6;
+      var pot = round6(m.pool - fee + slashed), paid = 0;
+      var backers = Object.keys(m.stakes[outcome]).sort();
+      for (j = 0; j < backers.length; j++) {
+        var got = Math.floor(pot * m.stakes[outcome][backers[j]] / winTotal * 1e6) / 1e6;
+        if (got > 0) {
+          tokCredit(m.cur, backers[j], got);
+          m.paid[backers[j]] = got;
+          paid = round6(paid + got);
+        }
+      }
+      dust = round6(pot - paid);
+    } else {
+      // Either the market voided, or the answer that won had no backers at
+      // all. Nobody was right, so nobody is paid and NO FEE IS TAKEN: every
+      // stake goes back to whoever made it, to the micro-token.
+      for (i = 0; i < m.n; i++) {
+        var back = Object.keys(m.stakes[i]).sort();
+        for (j = 0; j < back.length; j++) {
+          tokCredit(m.cur, back[j], m.stakes[i][back[j]]);
+          m.refunded[back[j]] = round6((m.refunded[back[j]] || 0) + m.stakes[i][back[j]]);
+        }
+      }
+      // A struck bond never goes home. With stakes to compensate it is spread
+      // across every one of them pro rata; with no stakes at all there is
+      // nobody to compensate, and it falls to the author with the dust.
+      if (slashed > 0 && m.pool > 0) {
+        var comp = 0, all = Object.keys(m.byBettor).sort();
+        for (i = 0; i < all.length; i++) {
+          var share = Math.floor(slashed * m.byBettor[all[i]] / m.pool * 1e6) / 1e6;
+          if (share > 0) {
+            tokCredit(m.cur, all[i], share);
+            m.paid[all[i]] = round6((m.paid[all[i]] || 0) + share);
+            comp = round6(comp + share);
+          }
+        }
+        dust = round6(slashed - comp);
+      } else {
+        dust = slashed;
+      }
+    }
+    // Half the fee to the author, half split among the moderators who called
+    // it right. A jury that all stayed silent earns nothing and its half goes
+    // to the author too — the work is what is paid for, not the seat.
+    var modPot = Math.floor(fee / 2 * 1e6) / 1e6;
+    var toAuthor = round6(fee - modPot + dust);
+    if (honest.length && modPot > 0) {
+      var each = Math.floor(modPot / honest.length * 1e6) / 1e6;
+      for (i = 0; i < honest.length; i++) {
+        if (each > 0) { tokCredit(m.cur, honest[i], each); m.earned[honest[i]] = each; }
+      }
+      toAuthor = round6(toAuthor + (modPot - round6(each * honest.length)));
+    } else {
+      toAuthor = round6(toAuthor + modPot);
+    }
+    if (toAuthor > 0) {
+      tokCredit(m.cur, m.by, toAuthor);
+      m.earned[m.by] = round6((m.earned[m.by] || 0) + toAuthor);
+    }
+    m.state = outcome >= 0 ? 'resolved' : 'void';
+    m.outcome = outcome;
+    m.jury = seated; m.honest = honest; m.guilty = guilty;
+    m.feePaid = fee; m.slashedTotal = slashed;
+    return { fee: fee, slashed: slashed, honest: honest, guilty: guilty };
+  }
+
+  /** Has a strict majority of the seated jury said the same thing? */
+  function mktVerdict(m) {
+    var seated = mktSeats(m).seated, tally = {}, need = Math.floor(seated.length / 2) + 1;
+    for (var i = 0; i < seated.length; i++) {
+      var said = m.attests[seated[i]];
+      if (said === undefined) continue;
+      tally[said] = (tally[said] || 0) + 1;
+      if (tally[said] >= need) return said;
+    }
+    return null;
   }
 
   function weighHome(author, pd, pi) {
@@ -1138,6 +1466,145 @@ function replayUncached(acts) {
           if (!payloadGone) chron.push({ who: a.author, line: 'swapped ' + round6(a.amt) + ' ' + a.sell + ' → ' + round6(out) + ' ' + buySym + ' in ' + a.pool });
         }
       }
+    } else if (a.t === 'market') {
+      if (!known(a.author)) continue;
+      // The node is minted UNCONDITIONALLY once the author is known, exactly
+      // as an event or a stream is, and the market record is built only if
+      // the parameters hold up. Every later content id is measured from this
+      // counter, so nothing that could ever change its mind — a balance, a
+      // validation rule, a redaction — may decide whether it ticks. A
+      // malformed bet is therefore a post with no market attached to it,
+      // never a hole in the ids.
+      var mErr = marketActError({ t: 'market', author: a.author, opts: a.opts, cur: a.cur,
+        seats: a.seats, bond: a.bond, feeBp: a.feeBp });
+      counter++;
+      var mcid = 'c' + counter;
+      actContent[i] = mcid;
+      contentAuthor[mcid] = a.author;   // unconditional: a departure must not re-cut a closed epoch
+      if (payloadGone) mutedContent[mcid] = true;
+      g.addNode({ id: mcid, kind: 'Content', label: payloadGone ? '[deleted]' : 'Bet ' + counter });
+      g.append({ id: 'pub' + counter, family: 'Publish', src: a.author, tgt: mcid, pd: 0.8, pi: 1, epoch: certsSoFar });
+      debit(a.author); weighHome(a.author, 0.8, 1);
+      if (!mErr) {
+        // The labels are payload and go with a deletion; the COUNT is
+        // structure and stays, because stakes name an answer by number and
+        // an escrow that forgot how many answers it had could not pay out.
+        var mopts = [], mstakes = [], mtotals = [];
+        for (var mo = 0; mo < a.opts.length; mo++) {
+          mopts.push(payloadGone ? '' : String(a.opts[mo]).slice(0, 60));
+          mstakes.push({}); mtotals.push(0);
+        }
+        markets[mcid] = {
+          cid: mcid, by: a.author, cur: a.cur, n: mopts.length, opts: mopts,
+          at: typeof a.at === 'number' ? a.at : 0,
+          seats: a.seats, bond: round6(a.bond), feeBp: Math.floor(a.feeBp),
+          // Who the author asked. A nomination is an invitation and nothing
+          // more: it puts a name on the card, and that name still has to post
+          // the bond and win the vote like anybody else who stands.
+          nominees: (Array.isArray(a.mods) ? a.mods : []).filter(function (x) {
+            return ledgerById[x] && x !== a.author;
+          }).slice(0, 8),
+          stakes: mstakes, totals: mtotals, pool: 0, byBettor: {},
+          cands: {}, votes: {}, attests: {},
+          state: 'open', outcome: -1,
+          paid: {}, refunded: {}, struck: {}, earned: {},
+          jury: [], honest: [], guilty: [], feePaid: 0, slashedTotal: 0,
+          idx: i,
+        };
+      }
+      if (!payloadGone) {
+        creators[mcid] = a.author; payloads[mcid] = a.text;
+        postMeta[mcid] = { idx: i, ts: a.ts, edited: false, market: true };
+        chron.push({ who: a.author, line: 'asked a bet · ' + String(a.text).slice(0, 60)
+          + (mErr ? ' — no market opened: ' + mErr
+            : ' · ' + markets[mcid].n + ' answers · ' + markets[mcid].seats + '-seat jury · bond '
+              + fmtAmt(markets[mcid].bond) + ' ' + markets[mcid].cur), to: mcid });
+      }
+    } else if (a.t === 'bet') {
+      if (marketActError({ t: 'bet', author: a.author, cid: a.cid, opt: a.opt, amt: a.amt }) !== null) continue;
+      var bm = markets[a.cid];
+      // ONE quantity, debited and recorded. The two must be the same number or
+      // the escrow does not add up to what it will be asked to pay.
+      var stake = mktAmt(a.amt);
+      tokDebit(bm.cur, a.author, stake);
+      bm.stakes[a.opt][a.author] = round6((bm.stakes[a.opt][a.author] || 0) + stake);
+      bm.totals[a.opt] = round6(bm.totals[a.opt] + stake);
+      bm.pool = round6(bm.pool + stake);
+      bm.byBettor[a.author] = round6((bm.byBettor[a.author] || 0) + stake);
+      debit(a.author);
+      // Money is moving from this account toward the author of the bet, so
+      // engagement between them earns nothing for the rest of the epoch — the
+      // same rule an entry fee triggers, for the same reason: a payment must
+      // not be able to buy the reactions that mint PEER.
+      paidTo[a.author + '>' + bm.by] = true;
+      if (!payloadGone) {
+        chron.push({ who: a.author, line: 'staked ' + fmtAmt(a.amt) + ' ' + bm.cur + ' on “'
+          + (bm.opts[a.opt] || 'answer ' + (a.opt + 1)) + '” — escrowed, and in no score', to: a.cid });
+      }
+    } else if (a.t === 'modStand') {
+      if (marketActError({ t: 'modStand', author: a.author, cid: a.cid, on: a.on }) !== null) continue;
+      var sm = markets[a.cid];
+      debit(a.author);
+      if (a.on === false) {
+        var backBond = sm.cands[a.author];
+        delete sm.cands[a.author];
+        tokCredit(sm.cur, a.author, backBond);
+        // Ballots naming somebody who has stood down simply stop counting for
+        // them: mktSeats reads the candidate map, so nothing has to be
+        // rewritten and no vote already cast is silently re-pointed.
+        if (!payloadGone) {
+          chron.push({ who: a.author, line: 'stood down from a jury — bond returned in full', to: a.cid });
+        }
+      } else {
+        tokDebit(sm.cur, a.author, sm.bond);
+        sm.cands[a.author] = sm.bond;
+        if (!payloadGone) {
+          chron.push({ who: a.author, line: 'stood for a jury seat · bonded ' + fmtAmt(sm.bond) + ' ' + sm.cur
+            + ' — forfeit if they certify against the jury', to: a.cid });
+        }
+      }
+    } else if (a.t === 'modVote') {
+      if (marketActError({ t: 'modVote', author: a.author, cid: a.cid, for: a.for }) !== null) continue;
+      var vm = markets[a.cid];
+      // Latest ballot wins outright, and an empty one withdraws support. That
+      // is what makes a seat recallable: the community can move its weight to
+      // somebody else at any point the host is still taking ballots, without
+      // any separate machinery for throwing a moderator out.
+      vm.votes[a.author] = a.for.slice();
+      debit(a.author);
+      if (!payloadGone) {
+        chron.push({ who: a.author, line: a.for.length
+          ? 'voted for ' + a.for.map(dispName).join(', ') + ' on a jury · weight '
+            + (burnedSats[a.author] || 0) + ' sat destroyed'
+          : 'withdrew their jury ballot', to: a.cid });
+      }
+    } else if (a.t === 'attest') {
+      if (marketActError({ t: 'attest', author: a.author, cid: a.cid, opt: a.opt }) !== null) continue;
+      var am = markets[a.cid];
+      am.attests[a.author] = a.opt;
+      debit(a.author);
+      if (!payloadGone) {
+        chron.push({ who: a.author, line: 'certified “' + (a.opt === -1 ? 'no answer — void' : (am.opts[a.opt] || 'answer ' + (a.opt + 1)))
+          + '” on a bet · bond at risk until the jury agrees', to: a.cid });
+      }
+      // The verdict is reached by an ACT landing, never by a clock ticking:
+      // that is what keeps settlement a pure function of the log.
+      var verdict = mktVerdict(am);
+      if (verdict !== null) {
+        var out = mktSettle(am, verdict);
+        chron.push({ line: 'a bet resolved to “'
+          + (verdict === -1 ? 'no answer — void, every stake returned' : (am.opts[verdict] || 'answer ' + (verdict + 1)))
+          + '” · pool ' + fmtAmt(am.pool) + ' ' + am.cur
+          + ' · fee ' + fmtAmt(out.fee)
+          + (out.slashed > 0 ? ' · ' + out.guilty.length + ' bond(s) struck for ' + fmtAmt(out.slashed) : ''), to: a.cid });
+      }
+    } else if (a.t === 'marketVoid') {
+      if (marketActError({ t: 'marketVoid', author: a.author, cid: a.cid }) !== null) continue;
+      var zm = markets[a.cid];
+      debit(a.author);
+      var zout = mktSettle(zm, -1, true);
+      chron.push({ who: a.author, line: 'called time on a bet the jury never settled — every stake returned in full'
+        + (zout.slashed > 0 ? ', ' + zout.guilty.length + ' silent seat(s) struck for ' + fmtAmt(zout.slashed) : ''), to: a.cid });
     } else if (a.t === 'closeEpoch') {
       // The certificate for a closed epoch is a full standing solve, and it
       // used to run here, inside the loop — once per epoch, over every cell
@@ -1300,6 +1767,15 @@ function replayUncached(acts) {
     tokens: { bal: tokenBal, meta: tokenMeta, supply: tokenSupply, claimed: btcClaimed,
       dist: tokenDist, carry: tokenCarry, epochN: tokEpochN },
     pools: pools,
+    markets: markets,
+    // Exposed for the same reason tokenActError is: the screen asks the same
+    // question the host will ask, in the same words, before it claims anything
+    // happened. A button that says 'Staked.' at somebody the host is about to
+    // refuse is a lie the interface told on the network's behalf.
+    marketActError: marketActError,
+    marketSeats: mktSeats,
+    marketLimits: { minOpts: MKT_MIN_OPTS, maxOpts: MKT_MAX_OPTS, maxFeeBp: MKT_FEE_MAX_BP,
+      seats: [1, 3, 5], resolveMs: MKT_RESOLVE_MS },
     adverts: adverts,
     adPricePerDay: AD_PEER_PER_DAY,
     tokenActError: tokenActError,

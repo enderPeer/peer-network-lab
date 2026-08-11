@@ -1,8 +1,26 @@
 // ESM because webapp/package.json says "type": "module" — require() stopped
 // resolving here the day that landed, so this uses import like the rest.
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 const build = JSON.parse(fs.readFileSync('chain-l2/PeerToken.build.json', 'utf8'));
 const pools = JSON.parse(fs.readFileSync('chain-l2/PeerPools.build.json', 'utf8'));
+// One line that says WHICH factory this page deploys, for a person and for a
+// script. It is not a security property — anyone who can rewrite the page can
+// rewrite the tag too — it exists to catch the mistake that is actually
+// likely: an older copy of deploy.html, from a worktree or a stale checkout,
+// answering on port 8899 and embedding the PREVIOUS immutable contract. The
+// deployment signature cannot be undone, so "which contract is this?" has to
+// be answerable before signing rather than after.
+//
+// Trimmed and lowercased before hashing so that auto-deploy.ps1, computing the
+// same fingerprint from PeerPools.build.json in .NET, hashes the same bytes.
+// solc already emits lowercase hex with no surrounding space, so today that
+// normalisation changes nothing; it is there so the two sides cannot drift
+// apart if that ever stops being true. The bytecode itself is embedded
+// verbatim below — the fingerprint describes it, it does not rewrite it.
+const poolsFp = createHash('sha256')
+  .update(String(pools.bytecode).trim().toLowerCase(), 'ascii')
+  .digest('hex');
 // Constructor encodings, hardcoded, no library:
 //   PeerToken(uint256 wholeTokens)      -> one 32-byte word, hex, left-padded.
 //   PeerPools(address peer, address btc) -> two 32-byte words, the 20 address
@@ -11,6 +29,7 @@ const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <title>Deploy PEER — Peer Network</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="peerpools-build" content="sha256:${poolsFp}">
 <style>
   :root{--paper:#131110;--ink:#EFE7DB;--muted:#9C8E7E;--ember:#B84525;--ok:#3f7d4e;--line:#2a2622}
   body{background:var(--paper);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:28px 18px 80px}
@@ -73,6 +92,14 @@ const html = `<!doctype html>
     <b>Deploy</b>
     <div class="muted">One transaction on Base. Roughly $0.08 of gas — the factory is bigger than the token. MetaMask will show you the exact cost before anything happens.</div>
     <p><button id="goPools" disabled>Deploy PeerPools</button></p>
+    <div class="muted" style="font-size:13px">
+      Factory build fingerprint — SHA-256 of the PeerPools bytecode <i>this page</i> will deploy:
+      <div class="mono" style="margin:4px 0">${poolsFp}</div>
+      The same number comes out of <code>chain-l2/PeerPools.build.json</code>, and
+      <code>auto-deploy.ps1</code> compares them before it opens this page. If they differ, the
+      page you are looking at is an older copy of this repository — a different, and permanent,
+      contract. Check it if you did not open this page from that script.
+    </div>
   </div></div>
   <div id="log2" class="mono"></div>
 </div>
@@ -86,21 +113,75 @@ Compiled from <code>PeerToken.sol</code> and <code>PeerPools.sol</code> with sol
 const BYTECODE = ${JSON.stringify(build.bytecode)};
 const BYTECODE_POOLS = ${JSON.stringify(pools.bytecode)};
 const BASE_CHAIN_ID = '0x2105'; // 8453
+const BASE_CHAIN_NUM = 8453;   // compared numerically: '0x2105' and '0X2105' are the same chain
 const log = (m, cls, id) => { const d=document.getElementById(id||'log'); d.innerHTML += '<div class="'+(cls||'')+'">'+m+'</div>'; };
 const log2 = (m, cls) => log(m, cls, 'log2');
 let account = null;
+let chainId = null;   // the last chain the WALLET reported — never what we asked for
+let sending = false;  // a request is in MetaMask right now
+let peerSent = false, poolsSent = false; // a deployment hash exists; do not offer a second
+
+const onBase = () => !!chainId && parseInt(chainId, 16) === BASE_CHAIN_NUM;
+
+// The connected row is rebuilt from state rather than written once, because
+// the wallet moves underneath it: the user switches network in MetaMask, or
+// another tab switches it for them. A row still saying "Base" while the wallet
+// says otherwise is worse than no row at all — it is the row somebody trusts
+// on the way to signing.
+const renderWho = () => {
+  const el = document.getElementById('who');
+  if (!account) { el.textContent = ''; return; }
+  el.innerHTML = account + '  ·  chain ' + (chainId ? parseInt(chainId, 16) : '?') +
+    (onBase() ? ' <span class="ok">— Base</span>'
+              : ' <span class="bad">— NOT Base. Switch to Base (8453); deploying is disabled.</span>');
+};
+
+// Both Deploy buttons answer to the same conditions, so they are set together
+// from one place rather than toggled at each site that changes one of them.
+const syncButtons = () => {
+  document.getElementById('go').disabled = !(account && onBase()) || sending || peerSent;
+  poolsReady();
+};
+
+// Read the chain from the wallet on the line before we hand it a deployment.
+// Everything else on this page describes the past: the switch in card 1 is a
+// request that already returned, and chainChanged is news of a change that has
+// already happened. Deploying is the one irreversible signature here — on the
+// wrong chain it spends real gas and leaves a contract at an address this host
+// will never point at, with no undo — so the check that counts is the one with
+// nothing in between.
+const requireBase = async (out) => {
+  let now = null;
+  try { now = await window.ethereum.request({ method: 'eth_chainId' }); }
+  catch (e) { out('Could not read the wallet chain: ' + (e.message || e) + '. Nothing was sent.', 'bad'); return false; }
+  chainId = now; renderWho();
+  if (!onBase()) {
+    // Deploy is disabled the moment we learn this, so the instruction has to
+    // be one the operator can still follow: switching back re-enables it via
+    // chainChanged where the wallet sends that event, and Connect re-reads
+    // everything where it does not.
+    out('The wallet is on chain ' + parseInt(now, 16) + ', not Base (' + BASE_CHAIN_NUM + '). Nothing was sent — switch to Base in MetaMask; the row in card 1 updates itself, and if it does not, press Connect again.', 'bad');
+    return false;
+  }
+  return true;
+};
 
 document.getElementById('conn').onclick = async () => {
   if (!window.ethereum) { log('No wallet found in this browser. Open this page in a browser with MetaMask.', 'bad'); return; }
   try {
     const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
     account = accs[0];
-    const chain = await window.ethereum.request({ method: 'eth_chainId' });
-    document.getElementById('who').textContent = account + '  ·  chain ' + parseInt(chain, 16);
-    if (chain !== BASE_CHAIN_ID) {
+    chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    renderWho();
+    if (!onBase()) {
       log('That is not Base. Asking MetaMask to switch…', 'bad');
       try {
         await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] });
+        // Believe the wallet, not the resolved promise. A switch request that
+        // returns means the dialog closed, which is not the same claim.
+        chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        renderWho();
+        if (!onBase()) { log('The wallet is still not on Base. Switch it by hand, then press Connect again.', 'bad'); return; }
         log('Switched to Base.', 'ok');
       } catch (e) { log('Could not switch: ' + (e.message||e) + ' — switch to Base by hand, then reconnect.', 'bad'); return; }
     }
@@ -109,10 +190,25 @@ document.getElementById('conn').onclick = async () => {
     const eth = Number(BigInt(bal)) / 1e18;
     log('Balance on Base: ' + eth.toFixed(6) + ' ETH');
     if (eth < 0.00005) log('That may be too little for gas. Deployment needs roughly 0.00002 ETH.', 'bad');
-    document.getElementById('go').disabled = false;
-    poolsReady();
+    syncButtons();
   } catch (e) { log('Connect failed: ' + (e.message || e), 'bad'); }
 };
+
+// The wallet tells us when the ground moves; without these the row above and
+// the enabled buttons keep describing a wallet state that stopped being true.
+// Not every provider implements .on, so this is an addition to requireBase and
+// never a replacement for it.
+if (window.ethereum && window.ethereum.on) {
+  window.ethereum.on('chainChanged', (id) => {
+    chainId = id; renderWho(); syncButtons();
+    log(onBase() ? 'Wallet switched to Base.' : 'Wallet switched away from Base — deploying is disabled until it is back.', onBase() ? 'ok' : 'bad');
+  });
+  window.ethereum.on('accountsChanged', (accs) => {
+    account = (accs && accs[0]) || null;
+    renderWho(); syncButtons();
+    log(account ? 'Account changed to ' + account + '.' : 'Wallet disconnected.', account ? '' : 'bad');
+  });
+}
 
 document.getElementById('go').onclick = async () => {
   const raw = document.getElementById('supply').value.trim();
@@ -120,13 +216,20 @@ document.getElementById('go').onclick = async () => {
   // ABI-encode one uint256: 32 bytes, big-endian, left-padded. That is the
   // entire encoder this page needs, so it needs no library.
   const arg = BigInt(raw).toString(16).padStart(64, '0');
-  document.getElementById('go').disabled = true;
+  sending = true; syncButtons();
+  if (!(await requireBase(log))) { sending = false; syncButtons(); return; }
   log('Sending the deployment to MetaMask — approve it there.');
   try {
     const tx = await window.ethereum.request({
       method: 'eth_sendTransaction',
-      params: [{ from: account, data: BYTECODE + arg }],
+      // chainId in the params is a second lock on the same door: MetaMask
+      // refuses a transaction whose chainId is not the selected network, which
+      // closes the sliver between the check above and the signature. Wallets
+      // that do not know the field ignore it, so it is the belt and the
+      // re-read is the braces — not the other way round.
+      params: [{ from: account, chainId: BASE_CHAIN_ID, data: BYTECODE + arg }],
     });
+    peerSent = true;
     log('Transaction sent: ' + tx);
     log('Waiting for it to be mined…');
     let receipt = null;
@@ -144,7 +247,12 @@ document.getElementById('go').onclick = async () => {
     log('Give this address to the host as PEER_TOKEN_ADDR, then GET /api/token/onchain reports it live.');
   } catch (e) {
     log('Refused or failed: ' + (e.message || e), 'bad');
-    document.getElementById('go').disabled = false;
+  } finally {
+    // Refused or failed leaves peerSent false, so the button comes back. Once
+    // a hash exists it stays disabled even on the "not mined yet" path: an
+    // unmined deployment is still a deployment, and a second press would buy
+    // you two contracts and one address you wrote down.
+    sending = false; syncButtons();
   }
 };
 
@@ -152,12 +260,13 @@ document.getElementById('go').onclick = async () => {
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const peerIn = document.getElementById('peerAddr');
 const btcIn = document.getElementById('btcAddr');
-// Enabled only once connected and both fields look like addresses. A 40-hex
-// check cannot catch a wrong-but-real address — MetaMask's confirmation
-// screen and the basescan link afterwards are what catch that.
+// Enabled only once connected, on Base, idle, and both fields look like
+// addresses. A 40-hex check cannot catch a wrong-but-real address — MetaMask's
+// confirmation screen and the basescan link afterwards are what catch that.
 const poolsReady = () => {
   document.getElementById('goPools').disabled =
-    !(account && ADDR_RE.test(peerIn.value.trim()) && ADDR_RE.test(btcIn.value.trim()));
+    !(account && onBase() && !sending && !poolsSent &&
+      ADDR_RE.test(peerIn.value.trim()) && ADDR_RE.test(btcIn.value.trim()));
 };
 peerIn.oninput = poolsReady; btcIn.oninput = poolsReady;
 
@@ -169,13 +278,17 @@ document.getElementById('goPools').onclick = async () => {
   // ABI-encode two addresses: each one 32-byte word, the 20 address bytes
   // right-aligned. Appended to the bytecode, same scheme as the uint256 above.
   const word = (a) => a.slice(2).toLowerCase().padStart(64, '0');
-  document.getElementById('goPools').disabled = true;
+  sending = true; syncButtons();
+  // Same re-read as the token, for the same reason and with more at stake: the
+  // factory is the contract other people's cbBTC ends up inside.
+  if (!(await requireBase(log2))) { sending = false; syncButtons(); return; }
   log2('Sending the deployment to MetaMask — approve it there.');
   try {
     const tx = await window.ethereum.request({
       method: 'eth_sendTransaction',
-      params: [{ from: account, data: BYTECODE_POOLS + word(peer) + word(btc) }],
+      params: [{ from: account, chainId: BASE_CHAIN_ID, data: BYTECODE_POOLS + word(peer) + word(btc) }],
     });
+    poolsSent = true;
     log2('Transaction sent: ' + tx);
     log2('Waiting for it to be mined…');
     let receipt = null;
@@ -186,16 +299,29 @@ document.getElementById('goPools').onclick = async () => {
     if (!receipt) { log2('Still not mined after four minutes. Check the hash on basescan.org — it may yet land.', 'bad'); return; }
     if (receipt.status !== '0x1') { log2('The transaction failed on chain. Nothing was deployed; you paid gas.', 'bad'); return; }
     const addr = receipt.contractAddress;
+    // The block matters as much as the address here. The host finds pools by
+    // asking for this factory's PoolCreated logs, and a log query with no
+    // start block covers the whole chain — a range most public RPCs refuse
+    // outright, which shows up as an empty pool list on a factory that works
+    // perfectly. This receipt is the only place the number is free; after
+    // this you are hunting for it on an explorer.
+    const blk = receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : null;
     log2('');
     log2('DEPLOYED: ' + addr, 'ok');
+    if (blk !== null) log2('IN BLOCK: ' + blk, 'ok');
     log2('<a href="https://basescan.org/address/' + addr + '" target="_blank" rel="noopener">View on Basescan</a>');
     log2('');
-    log2('Give this address to the host as PEER_POOLS_ADDR, then GET /api/token/onchain lists the named pools live.');
+    log2('The host wants both: the address as PEER_POOLS_ADDR' + (blk !== null ? ', the block as PEER_POOLS_FROM_BLOCK' : '') + '. Then GET /api/token/onchain lists the named pools live.');
+    log2('Write them down now — this page keeps nothing.', 'muted');
   } catch (e) {
     log2('Refused or failed: ' + (e.message || e), 'bad');
-    poolsReady();
+  } finally {
+    sending = false; syncButtons();
   }
 };
 </script></body></html>`;
 fs.writeFileSync('chain-l2/deploy.html', html);
+// Say the fingerprint here too, so the number an operator is asked to compare
+// has been seen coming out of the build once, in the terminal that made it.
 console.log('wrote chain-l2/deploy.html (' + html.length + ' bytes, bytecode embedded)');
+console.log('PeerPools build fingerprint sha256:' + poolsFp);
