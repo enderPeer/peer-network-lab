@@ -59,7 +59,44 @@ curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
 The result decodes to 18,250,000 × 10¹⁸. If it returns `0x`, nothing is
 deployed at that address — stop and check the address.
 
-## 2. Create the PEER/cbBTC pool (~$0.20)
+## 2. Deploy the pools factory (~$0.08)
+
+`PeerPools.sol` is the app's own pool contract: named constant-product pools
+over the one PEER/cbBTC pair, Uniswap V2 math with the 0.3% fee staying in
+the pool, and — same as the token — no owner, no fee switch, nothing
+privileged. One deployment holds every pool; anyone can open a named pool
+afterwards by calling it.
+
+Same discipline as §1: the fresh account, wallet on Base.
+
+1. In Remix, create `PeerPools.sol`, paste the contents of
+   [`PeerPools.sol`](./PeerPools.sol). No imports here either — what you
+   compile is exactly what you can read.
+2. Compiler **0.8.24**, optimizer **on**, 200 runs — identical settings.
+3. Constructor takes two addresses: `peer_` is **your token address from
+   §1**, `btc_` is cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`.
+4. Deploy, confirm, and **copy the factory address**.
+
+(The one-click page covers this step too: `node chain-l2/serve-deploy.mjs`,
+open <http://127.0.0.1:8899/>, second card sequence.)
+
+Verify before going further:
+
+```bash
+curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"YOUR_POOLS_ADDR","data":"0xf525cb68"},"latest"]}'
+```
+
+`0xf525cb68` is `poolCount()` — a fresh factory answers a 32-byte zero. If
+it returns `0x`, nothing is deployed at that address — stop and check.
+
+## 3. The Uniswap alternative (~$0.20)
+
+The factory in §2 is what the app reads: named pools, listed live by
+`/api/token/onchain`. Create a Uniswap pool instead if you want the pair on
+infrastructure every aggregator already indexes. Either works; nothing stops
+you doing both, but the two do not share liquidity, so running both splits
+what little there is.
 
 cbBTC on Base is `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` (8 decimals —
 **not** 18; a cbBTC amount of `0.001` is `100000` raw).
@@ -74,7 +111,7 @@ Use <https://app.uniswap.org> connected to Base:
 4. Choose a **full range** position unless you understand concentrated
    liquidity, then Add.
 
-## 3. Point the network at it
+## 4. Point the network at it
 
 In `webapp/server-data/` (gitignored — nothing here reaches the repo), set
 the host's environment and restart:
@@ -82,11 +119,13 @@ the host's environment and restart:
 ```bash
 PEER_TOKEN_ADDR=0xYourPeerToken
 PEER_BTC_ADDR=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
-PEER_POOL_ADDR=0xYourPoolAddress
+PEER_POOLS_ADDR=0xYourPoolsFactory
+PEER_POOL_ADDR=0xYourUniswapPool   # only if you took the §3 alternative
 ```
 
-Then `GET /api/token/onchain` reports live supply, reserves and any account's
-balance, and refuses to report anything if the RPC answers for the wrong
+Then `GET /api/token/onchain` reports live supply, reserves, any account's
+balance and — with `PEER_POOLS_ADDR` set — every named pool with its
+reserves, and refuses to report anything if the RPC answers for the wrong
 chain. Unset, the endpoint returns 404 and says why — a token address baked
 into source is one nobody verified.
 
