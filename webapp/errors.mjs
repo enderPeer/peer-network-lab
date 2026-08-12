@@ -53,8 +53,13 @@ export const CATALOGUE = {
   },
   PIN_REQUIRED: {
     http: 401,
-    why: 'This act is irreversible — deleting an account, removing a post, revising one — and the handle has no PIN. Without proof of identity, anyone could do it in your name.',
-    fix: 'Set a PIN on the handle first. If it has already posted, only the operator can attach one, because nothing in a setPin act proves you wrote any of it.',
+    why: 'This act is irreversible or decides where money goes — deleting an account, removing a post, revising one, binding the ethereum address your epoch earnings are paid to — and the handle has no credential of any kind. Without proof of identity, anyone could do it in your name.',
+    fix: 'Set a PIN on the handle, or attach a passkey — either one is enough. If it has already posted, only the operator can attach the first credential, because nothing in a setPin act proves you wrote any of it.',
+  },
+  PASSKEY_REQUIRED: {
+    http: 401,
+    why: 'This handle is secured with a passkey and has no PIN, so a PIN cannot open it — there is nothing stored to compare one against. This used to read as "no credential" and refused the handle outright, which locked the strongest credential here out of binding an address, and quietly meant a passkey alone verified nothing.',
+    fix: 'POST /api/auth/challenge for a fresh challenge, sign it with the passkey, and send the assertion object as `auth` instead of a PIN string.',
   },
   HANDLE_UNCLAIMABLE: {
     http: 401,
@@ -178,6 +183,18 @@ export const CATALOGUE = {
     http: 400,
     why: 'That asset symbol already exists. PEER and tBTC in particular are reserved and cannot be shadowed, because an asset pretending to be another is the same trick as a handle pretending to be another.',
     fix: 'Pick a different symbol, 3-8 characters, A-Z and digits.',
+  },
+
+  // ── Epoch earnings, on a chain ──────────────────────────────────────────
+  BAD_ADDRESS: {
+    http: 400,
+    why: 'Binding is the one act here that points at money outside this network: it says where a handle\'s epoch earnings are payable on Base, and the earnings tree is built over addresses rather than handles. So the address is checked to the byte — 0x and exactly 40 hex characters — and the zero address is refused outright, because nobody holds its key and anything paid there is destroyed. What cannot be checked is a typo: the EIP-55 checksum needs keccak-256, and nothing in this codebase hashes with a library.',
+    fix: 'Paste the address from your wallet instead of typing it. If you bound the wrong one, bind again — the newest binding wins, and it takes effect from the next epoch close.',
+  },
+  EPOCH_NOT_CLOSED: {
+    http: 404,
+    why: 'Earnings exist only for an epoch that has CLOSED. The distribution is computed at close, from engagement inside that epoch, and until then there is no share to prove and no root to publish. An epoch number beyond the last close is a question about the future.',
+    fix: 'GET /api/v1/tokens for how many epochs have closed (emission.epochsClosed), then ask for one of those.',
   },
 
   // ── Adverts ─────────────────────────────────────────────────────────────

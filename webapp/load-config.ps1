@@ -41,6 +41,16 @@ $peerConfigFiles = @(
   # walks from block 0 - it still finishes and never claims to be complete
   # while it is behind, but it takes many refreshes to get there.
   @{ f = 'pools-from-block.txt';  v = 'PEER_POOLS_FROM_BLOCK' },
+  # The epoch chain on Base: PeerAnchor timestamps each closed epoch's block
+  # id and earnings root, PeerClaim pays those earnings out as real PEER.
+  # Both are OFF when unset and GET /api/token/onchain says so in words.
+  @{ f = 'anchor-address.txt';    v = 'PEER_ANCHOR_ADDR' },
+  @{ f = 'claim-address.txt';     v = 'PEER_CLAIM_ADDR' },
+  # ONE from-block for both of those scans - the two contracts are deployed
+  # in the same sitting, so use the LOWER of their two deployment blocks.
+  # Same rule as pools: err low. Too low costs a little scanning; too high
+  # silently hides everything anchored or opened before it.
+  @{ f = 'epoch-from-block.txt';  v = 'PEER_EPOCH_FROM_BLOCK' },
   @{ f = 'burn-address.txt';      v = 'PEER_BURN_ADDRESS' },
   @{ f = 'btc-address.txt';       v = 'PEER_BTC_ADDRESS' }
 )

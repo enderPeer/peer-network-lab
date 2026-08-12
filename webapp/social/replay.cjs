@@ -294,7 +294,12 @@ function replayUncached(acts) {
   // "burn" reduced a supply that had been conjured anyway.
   //
   // PEER is the network's own scarce thing now: minted only by the epoch
-  // distribution, and obtainable by anyone else only from the pool on Base.
+  // distribution, and obtainable by anyone else only from a pool INSIDE
+  // this log. It is NOT the ERC-20 called PEER on Base. That token shares
+  // the name and the symbol and nothing else: there is no bridge in either
+  // direction, and nothing in this engine, on any host, or on any chain
+  // credits this balance from anything held in a wallet. tokCredit at the
+  // epoch close and an in-log poolSwap are the only two writers there are.
   // So buying attention means buying PEER from people who earned it and
   // then destroying it, which is the one arrangement where advertising
   // pays the network's participants rather than its operator.
@@ -312,6 +317,36 @@ function replayUncached(acts) {
   var tokenCarry = 0;
   var tokEpochN = 0;
   var epochEngage = [];  // {actor, creator, base} since the last close
+
+  // ── Where an epoch's earnings can actually be paid ─────────────────────
+  //
+  // tokenDist pays NETWORK IDENTITIES (u_ender). An on-chain claim pays an
+  // ETHEREUM ADDRESS. A 'bindAddress' act is the whole bridge: signed with
+  // the handle's own credential like every other act, newest one winning.
+  //
+  // Two maps, because one is not enough. `addrOf` is the binding as it stands
+  // NOW — what a screen should show, and what the next epoch will pay to.
+  // `addrAtEpoch` is a snapshot taken at each close, keyed by the same epoch
+  // number tokenDist carries, and it is what an earnings tree must be built
+  // from: a root published for epoch 12 cannot change when somebody rebinds
+  // in epoch 13, and building from the live map would silently recompute a
+  // root that is already public and already anchored. Rebinding is allowed
+  // and takes effect FORWARD ONLY, and this pair is what makes that true
+  // rather than merely stated.
+  var addrOf = {};
+  var addrAtEpoch = {};
+  // Shape-checked HERE and not only at the host door, for the reason the
+  // retired Layer-0 branches give: this file is what a foreign, mirrored or
+  // hand-edited log passes through, and a rule enforced at one door is not a
+  // rule. Lowercase because that is the exact byte string the claim leaf
+  // hashes (chain/earnings.mjs, PeerClaim._hex); the zero address is refused
+  // because a leaf paying it is PEER nobody can ever claim.
+  function bindableAddress(v) {
+    var s = String(v == null ? '' : v).trim().toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(s)) return '';
+    if (s === '0x0000000000000000000000000000000000000000') return '';
+    return s;
+  }
 
   // ── Prender Markets ───────────────────────────────────────────────────────
   //
@@ -436,7 +471,7 @@ function replayUncached(acts) {
       var cost = round6(AD_PEER_PER_DAY * days);
       if (balOf('PEER', who) < cost) {
         return 'this advert costs ' + cost + ' PEER for ' + days + ' day(s) and you hold ' + round6(balOf('PEER', who))
-          + '. PEER is earned by drawing engagement, or bought from the pool.';
+          + '. This PEER is the epoch token in this log: it is earned by drawing engagement, or bought in a pool inside this log. The PEER on Base is a different token that shares the name and cannot pay for a placement.';
       }
       return null;
     }
@@ -1327,6 +1362,39 @@ function replayUncached(acts) {
         };
         chron.push({ who: a.id, line: 'updated their profile' });
       }
+    } else if (a.t === 'bindAddress') {
+      // The handle says where its epoch earnings should be paid on Base.
+      //
+      // RECORDED UNCONDITIONALLY, exactly like contentAuthor above and for the
+      // same reason. `payloadGone` is true for every act of a deleted account,
+      // and a binding inside that guard would vanish the moment somebody
+      // removed a post or left the network — stranding earnings the log still
+      // says they are owed. Deleted accounts keep their tokens here (the
+      // distribution comment says so in as many words: "the tokens sit unspent,
+      // like their standing does"), so they keep the address those tokens can
+      // be paid to. Deletion removes payload; this is not payload. It is where
+      // money goes, and it is public by design — the act is in the log, in the
+      // clear, and anyone can read which address a handle named.
+      //
+      // NOT DEBITED, and this is the one act where free is the careful choice
+      // rather than the lazy one. Binding is what turns a number in this log
+      // into money somebody can actually take. An account that earned a large
+      // share and then ran out of reserve — which is normal, since earning
+      // needs no reserve and speaking does — must still be able to say where
+      // its earnings go, or the network would owe it PEER it could never reach.
+      // So there is no θ here and the host does not W1-gate it; a PIN and the
+      // ordinary rate limiter are what stand in a spammer's way, and a rebind
+      // costs the spammer the same nothing it costs everyone else.
+      if (known(a.id)) {
+        var boundTo = bindableAddress(a.addr);
+        if (boundTo) {
+          addrOf[a.id] = boundTo;                 // newest wins, forward only
+          if (!payloadGone) {
+            chron.push({ who: a.id, line: 'bound epoch earnings to ' + boundTo.slice(0, 10) + '…' + boundTo.slice(-6)
+              + ' on Base — takes effect at the NEXT epoch close; roots already published cannot change' });
+          }
+        }
+      }
     } else if (a.t === 'tag') {
       if (!known(a.author)) continue;
       counter++;
@@ -1628,6 +1696,16 @@ function replayUncached(acts) {
 
       // ── PEER distribution for the epoch that just closed ────────────────
       tokEpochN++;
+      // The bindings this epoch pays to, frozen at the close and never
+      // consulted again. A COPY per epoch, not a shared reference: two epochs
+      // pointing at one object would mean a caller touching last month's map
+      // silently rewrote this month's, which is precisely the class of quiet
+      // rewrite the whole chain exists to make impossible. The copy is a
+      // handful of short strings per closed epoch; the aliasing bug it avoids
+      // would be unfindable.
+      var addrSnap = {};
+      for (var ak in addrOf) addrSnap[ak] = addrOf[ak];
+      addrAtEpoch[tokEpochN] = addrSnap;
       var emission = tokenSupply.PEER >= TOK_CAP ? 0
         : Math.min(TOK_EPOCH * Math.pow(TOK_DECAY, Math.floor((tokEpochN - 1) / TOK_YEAR)), TOK_CAP - tokenSupply.PEER);
       var tokPool = round6(emission + tokenCarry);
@@ -1766,6 +1844,12 @@ function replayUncached(acts) {
     deleted: deletedActors, postMeta: postMeta,
     tokens: { bal: tokenBal, meta: tokenMeta, supply: tokenSupply, claimed: btcClaimed,
       dist: tokenDist, carry: tokenCarry, epochN: tokEpochN },
+    // handle -> Base address, as it stands now; and the same map as it stood
+    // at each epoch close. An earnings tree is built from the SNAPSHOT of the
+    // epoch it pays (chain/earnings.mjs) — never from the live map, or a
+    // rebinding today would recompute a root published last month.
+    addresses: addrOf,
+    addressesAt: addrAtEpoch,
     pools: pools,
     markets: markets,
     // Exposed for the same reason tokenActError is: the screen asks the same

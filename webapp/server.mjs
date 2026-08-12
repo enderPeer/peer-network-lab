@@ -22,6 +22,7 @@ import { createRequire } from 'node:module';
 import { activeAuthors, pickWriter, strictlyLonger } from './chain/election.mjs';
 import { commonPrefixLen, forkChainMergeable } from './chain/reconcile.mjs';
 import { loadOrCreateProducerKey } from './chain/keys.mjs';
+import { earningsTree, cleanAddress } from './chain/earnings.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(here, 'public/peer-social-preview.html');
@@ -42,6 +43,9 @@ const ACT_KINDS = new Set(['register', 'burn', 'btcBurn', 'resetTokens', 'post',
   'setKey', 'advert', 'adStop',
   'follow', 'profile', 'setRecovery',
   'event', 'invite', 'rsvp',
+  // Where this handle's epoch earnings are payable on Base. See ACT_FIELDS
+  // below and chain/earnings.mjs for what it binds and what it cannot.
+  'bindAddress',
   // Prender Markets. `market` mints content like a post; the rest move value
   // against it and mint nothing. See MARKETS.md.
   'market', 'bet', 'modStand', 'modVote', 'attest', 'marketVoid']);
@@ -276,6 +280,12 @@ ACT_FIELDS.deleteAccount = ['t', 'id'];
 // so a field left out is deleted in silence and the act is accepted 200 — the
 // author would be told their bet was published and the thing on screen would
 // be a different bet from the one they wrote.
+// The one act that points at money outside this network. `addr` MUST be
+// listed for the reason fee/cur/cap and pic are: sanitize is a hard whitelist,
+// so a field left out is deleted in silence and the act is accepted 200 — the
+// handle would be told its earnings were bound and the log would carry a
+// binding to nothing.
+ACT_FIELDS.bindAddress = ['t', 'id', 'addr'];
 ACT_FIELDS.market = ['t', 'author', 'text', 'opts', 'cur', 'at', 'seats', 'bond', 'feeBp', 'mods'];
 ACT_FIELDS.bet = ['t', 'author', 'cid', 'opt', 'amt'];
 ACT_FIELDS.modStand = ['t', 'author', 'cid', 'on'];
@@ -1379,7 +1389,14 @@ function pinNeedsUpgrade(stored) {
 // knows its id, so for these kinds "no PIN on file" must mean REFUSED, not
 // waved through — otherwise a stranger can erase someone else's account with a
 // single request. Ordinary acts keep the old permissive behaviour.
-const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount']);
+// 'bindAddress' belongs here and it is the sharpest case in the set. Whoever
+// binds an address to a handle collects that handle's epoch earnings from then
+// on, and an unsecured handle is claimable by anyone who knows its id — so
+// "no PIN on file" must mean REFUSED here, or a stranger could point somebody
+// else's earnings at their own wallet with a single request. Rebinding is
+// allowed, but only ever by whoever can already act as the handle, and it
+// cannot reach an epoch whose root is already published.
+const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount', 'bindAddress']);
 
 /** Has this handle done anything beyond existing? Used to decide whether a
  *  first PIN is someone securing their own new handle, or a stranger claiming
@@ -1888,12 +1905,35 @@ function authError(act) {
       // out of this list they derive a null actor and skip the PIN check
       // entirely: anyone could rewrite anyone's biography, or attach a
       // recovery code to a handle that is not theirs and then take it.
-      'profile', 'setRecovery'].includes(act.t) ? act.id : null));
+      'profile', 'setRecovery',
+      // bindAddress carries its actor in `id` too, and it is the most
+      // expensive omission available: a null actor here skips the PIN check,
+      // and the act says where a handle's epoch earnings are paid. Missing
+      // from this list, the PIN_REQUIRED entry above would be decorative.
+      'bindAddress'].includes(act.t) ? act.id : null));
   if (!actor) return null; // closeEpoch/closeCycle are communal; register is checked for uniqueness only
   const stored = pinIndex.get(actor);
-  if (!stored) {
+  // "Is this handle secured?" is a question about CREDENTIALS, not about PINs.
+  // This read pinIndex alone and treated an empty entry as "no credential", so
+  // a handle secured with a passkey and nothing else fell into the branch
+  // below before the assertion check further down was ever reached. Two things
+  // followed, both bad in the same direction:
+  //
+  //   - the strongest credential this codebase offers could not do the one act
+  //     that turns epoch tokens into money. bindAddress is PIN_REQUIRED, so a
+  //     passkey-only handle was refused every time and told to set a PIN — a
+  //     weaker credential — or watch its share stay unbound and return to the
+  //     steward at every sweep;
+  //   - and for ordinary acts the same empty `stored` meant nothing verified
+  //     the assertion at all: the branch returned null and waved them through,
+  //     so a passkey secured nothing until a PIN sat beside it.
+  //
+  // Both stores are consulted now, and the no-credential branch is entered
+  // only when BOTH are empty.
+  const keys = keyIndex.get(actor) ?? [];
+  if (!stored && keys.length === 0) {
     if (PIN_REQUIRED.has(act.t)) {
-      return 'this handle has no PIN — set one before deleting or editing, otherwise anyone could do it in your name';
+      return 'this handle has no PIN and no passkey — secure it before binding an address, editing or deleting, otherwise anyone could do it in your name';
     }
     // Claiming an unsecured handle that already has a history is how a real
     // tester got locked out of their own account here: setPin was accepted
@@ -1944,7 +1984,6 @@ function authError(act) {
   // was actually on, so it cannot be replayed and cannot be phished.
   const assertion = act.auth && typeof act.auth === 'object' ? act.auth : null;
   if (assertion) {
-    const keys = keyIndex.get(actor) ?? [];
     const cred = keys.find((k) => k.credId === assertion.credId);
     if (!cred) return 'that passkey is not registered to this handle';
     if (!takeChallenge(assertion.challenge, actor)) return 'that sign-in has expired or was already used — ask for a new challenge';
@@ -1956,6 +1995,14 @@ function authError(act) {
     if (bad) return 'passkey refused: ' + bad;
     cred.signCount = assertion.signCount ?? cred.signCount;
     return null;
+  }
+  // No assertion, and this handle has no PIN to fall back on: it is secured by
+  // passkey alone, and the only thing that opens it is a signature. Saying so
+  // matters — the old path fell into pinMatches with nothing stored and
+  // answered "wrong or missing PIN", which sends the owner of a perfectly good
+  // credential looking for one that does not exist.
+  if (!stored) {
+    return 'this handle is secured with a passkey and has no PIN — sign the act with the passkey (POST /api/auth/challenge, then send `auth` as the assertion object). A PIN cannot open it.';
   }
   const pin = typeof act.auth === 'string' ? act.auth : '';
   if (!pinMatches(actor, pin, stored)) return 'this handle is PIN-secured — wrong or missing PIN';
@@ -1984,6 +2031,10 @@ const REFUSAL_CODES = [
   [/already registered|reads as .* which is already registered/i, 'HANDLE_TAKEN'],
   [/no such handle|no such recipient|unknown handle|unknown actor|unknown recipient/i, 'NO_SUCH_HANDLE'],
   [/PIN-secured/i, 'PIN_WRONG'],
+  // Ahead of PIN_REQUIRED on purpose: this refusal also contains "has no PIN",
+  // and a caller told PIN_REQUIRED would go and set a weaker credential on a
+  // handle that already holds a stronger one. The remedy here is a signature.
+  [/secured with a passkey/i, 'PASSKEY_REQUIRED'],
   [/no PIN — set one|has no PIN|needs a PIN on this handle/i, 'PIN_REQUIRED'],
   [/cannot be claimed from outside|already posted and has no PIN|already acted and has no PIN/i, 'HANDLE_UNCLAIMABLE'],
   [/too many PIN attempts/i, 'PIN_ATTEMPTS'],
@@ -2010,6 +2061,7 @@ const REFUSAL_CODES = [
   [/no bet is running|no such bet/i, 'NO_MARKET'],
   [/already resolved|was voided/i, 'MARKET_SETTLED'],
   [/holds no seat|already certified|cannot back an answer|does not hold a position|cannot also certify/i, 'NOT_YOURS'],
+  [/not an ethereum address|bad address binding/i, 'BAD_ADDRESS'],
 ];
 function classify(message) {
   const m = String(message ?? '');
@@ -2251,6 +2303,33 @@ function validate(act) {
     case 'setRecovery': {
         if (!str(act.id, 24)) return 'bad recovery';
         if (!validPinHash(act.codeHash)) return 'bad recovery code hash';
+        break;
+      }
+    case 'bindAddress': {
+        // Where this handle's epoch earnings are payable on Base. The act is
+        // public, like everything else here, and it is the security boundary
+        // between a number in this log and money on a chain — so it is
+        // PIN-gated above and shape-checked to the byte here.
+        if (!str(act.id, 24)) return 'bad address binding';
+        const given = typeof act.addr === 'string' ? act.addr.trim() : '';
+        // Either case is accepted and LOWERCASE is stored. An address is
+        // twenty bytes whichever way a wallet prints them, and lowercase is
+        // the exact byte string the claim leaf hashes (chain/earnings.mjs,
+        // PeerClaim._hex). What is deliberately NOT done: the EIP-55 checksum
+        // is defined over keccak-256, this repo imports no hashing library on
+        // purpose, and node's crypto offers sha3-256 — a different function —
+        // so a checksum cannot be verified here without breaking that rule.
+        // Said plainly rather than implied: A MISTYPED ADDRESS CANNOT BE
+        // CAUGHT. Paste it from the wallet, never type it. That is also why
+        // rebinding exists, and why a rebinding lands in the next epoch.
+        if (!/^0x[0-9a-fA-F]{40}$/.test(given)) {
+          return 'that is not an ethereum address: it must be 0x followed by exactly 40 hex characters (20 bytes) — paste it from your wallet rather than typing it, because nothing here can check a typo';
+        }
+        const addr = given.toLowerCase();
+        if (addr === '0x0000000000000000000000000000000000000000') {
+          return 'that is not an ethereum address: the zero address holds no key, so earnings bound to it could never be claimed by anyone';
+        }
+        act.addr = addr;   // canonical form enters the log, never the input's case
         break;
       }
       case 'event': {
@@ -2842,6 +2921,8 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/alerts?as=ID', purpose: 'what happened to you: reactions, comments, mentions, quotes, messages, calls' },
     { method: 'GET', path: '/api/v1/inbox?as=ID', purpose: 'your chat threads' },
     { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
+    { method: 'GET', path: '/api/v1/epoch/N/claim?as=ID|address=0x…', purpose: 'one CLOSED epoch\'s earnings as a merkle tree: the root, the total in raw 18-decimal units, every leaf (address, amount, the handles behind it), the handles that earned and had no address bound, and — when you name a claimant — that claimant\'s amount and the bytes32[] proof PeerClaim.claim takes. Every leaf is returned on purpose: rebuild the root yourself and compare it with the one published on-chain rather than trusting this host to have computed it honestly.' },
+    { method: 'POST', path: '/api/v1/bind', purpose: 'bind an ethereum address to your handle, so that from the NEXT epoch close your share is a leaf under that address in the epoch\'s earnings tree. That is all binding does. Whether such a leaf is ever payable on Base is a separate question and not this host\'s to answer: PEER has no mint, so every claim is a transfer out of the steward\'s own holdings, and an epoch becomes claimable only if the steward chooses to open and fund it. Credential required — whoever binds collects. Costs no energy. A root already published cannot change, so binding again replaces it forward only.', body: { as: 'id', pin: 'string — your PIN, or the passkey assertion object under `auth` if this handle is secured with a passkey and no PIN', address: '0x + 40 hex — paste it from your wallet, a typo cannot be detected here' } },
     { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them — this is the in-log AMM; the real on-chain named pools, when a factory is configured, are under namedPools at GET /api/token/onchain' },
     { method: 'GET', path: '/api/v1/gatherings?past=1', purpose: 'the calendar: what is happening, when, where, the fee, and how many are going. Upcoming only unless past=1. NOTE the name — /api/v1/events is the act stream, this is the thing people turn up to.' },
     { method: 'GET', path: '/api/v1/markets?all=1', purpose: 'Prender Markets: every open bet with its answers, what is staked on each, the elected jury, the bond, the fee and the deadlines. Settled ones too with all=1. Read the content id from here — never derive it. Stakes and juries touch no standing.' },
@@ -2956,8 +3037,13 @@ function applyActInner(act, auth, ip) {
   if (act.to && deletedIds.has(act.to)) return { error: 'that account was deleted', code: 410 };
   const aerr = authError({ ...act, auth });
   if (aerr) {
-    if (!pinFailLimiter(ip)) return { error: 'too many wrong PIN attempts from this address — the lock lasts about ten minutes, and while it holds even the CORRECT PIN is refused. Wait it out rather than trying again.', code: 429 };
-    return { error: aerr, code: 401 };
+    if (!pinFailLimiter(ip)) return { error: 'too many wrong PIN attempts from this address — the lock lasts about ten minutes, and while it holds even the CORRECT PIN is refused. Wait it out rather than trying again.', code: 429, errorCode: 'PIN_ATTEMPTS' };
+    // Credential refusals used to come back with a 401 and no `code` at all,
+    // while every validate() refusal carried one — so the catalogue's own rule
+    // ("branch on `code`, the wording may change") did not hold for exactly the
+    // refusals a caller most needs to tell apart. "Set a PIN", "wrong PIN" and
+    // "this handle takes a passkey, not a PIN" want three different next steps.
+    return { error: aerr, code: 401, errorCode: classify(aerr) };
   }
   if (W1_GATED.has(act.t) && solvency && actorId) {
     const bal = solvency(actorId);
@@ -3262,6 +3348,138 @@ async function handleBotApi(req, res, url, ip) {
     });
     return;
   }
+  // ── One closed epoch's earnings, as something a wallet can act on ────────
+  //
+  // Everything here is DERIVED from the public log and nothing is authored by
+  // this host: the amounts come from the replay's tokenDist, the addresses
+  // from 'bindAddress' acts, the tree from chain/earnings.mjs and its root
+  // from chain/merkle.mjs — the same module PeerClaim reads back on Base. So
+  // the leaf list is returned in full, not only the caller's own leaf. That is
+  // the point of the endpoint: a claimant can rebuild the root from the leaves,
+  // check it against what was published on-chain, and discover for themselves
+  // that this host computed the same thing rather than taking its word.
+  //
+  // The bindings used are the ones frozen AT THAT EPOCH'S CLOSE
+  // (state.addressesAt), never today's. Somebody rebinding this morning must
+  // not change what a root published last month commits to.
+  if (req.method === 'GET' && /^epoch\/\d+\/claim$/.test(p)) {
+    const n = Number(p.split('/')[1]);
+    const dist = (st.tokens.dist || []).find((d) => d.epoch === n);
+    if (!dist) {
+      json(res, 404, { code: 'EPOCH_NOT_CLOSED',
+        error: 'epoch ' + n + ' has not closed on this host — ' + st.tokens.epochN + ' epoch(s) have, so there is no distribution to prove yet' });
+      return;
+    }
+    let tree;
+    try {
+      tree = earningsTree(dist, (st.addressesAt && st.addressesAt[n]) || {});
+    } catch (e) {
+      // Unreachable from the log this host wrote — every input was already
+      // validated at the door — so it is reported as the fault it would be
+      // rather than smoothed over into an empty tree somebody might publish.
+      json(res, 500, { error: 'this epoch\'s earnings tree could not be built: ' + e.message });
+      return;
+    }
+    // Who is asking. An explicit ?address wins over ?as, because the address is
+    // what the contract pays and the handle is only a way of looking one up.
+    const askedAddr = q.get('address');
+    let who = '';
+    let asked = null;
+    if (askedAddr) {
+      who = cleanAddress(askedAddr);
+      if (!who) { json(res, 400, { code: 'BAD_ADDRESS', error: 'that is not an ethereum address: ' + String(askedAddr).slice(0, 60) }); return; }
+    } else if (asId) {
+      asked = asId;
+      who = cleanAddress(((st.addressesAt && st.addressesAt[n]) || {})[asId] || '');
+    }
+    const leaf = who ? tree.leaves.find((l) => l.address === who) : null;
+    const proof = leaf ? tree.proofs[leaf.address] : null;
+    // Is any of this payable? A root, an amount and a proof are arithmetic over
+    // the log and this host can always produce them; whether they are money is
+    // a fact about Base that only Base can answer. This endpoint used to skip
+    // the question entirely — it named no contract, never read PEER_CLAIM_ADDR,
+    // and handed out `call: PeerClaim.claim(…)` in the shipped state where no
+    // claim contract is configured at all. Two files away, onchain.mjs already
+    // refuses to do that. The same refusal belongs here, because this is where
+    // somebody decides to open their wallet.
+    let onchain;
+    try {
+      const m = await import('./chain-l2/onchain.mjs');
+      onchain = await m.epochOnChain(n);
+    } catch (e) {
+      onchain = { configured: null, error: 'this host could not check the chain (' + String(e.message).slice(0, 60) + ')' };
+    }
+    if (onchain && onchain.opened) {
+      // Does the epoch on Base commit to the tree this host just computed? A
+      // mismatch is the loudest fact available and is never smoothed over: it
+      // means the published root came from a different log, a different
+      // binding snapshot, or a different builder, and every proof below would
+      // revert. Bare lowercase hex on both sides, so this is a string compare.
+      onchain.rootMatches = onchain.root === tree.root;
+      if (!onchain.rootMatches) {
+        onchain.rootMismatch =
+          'the root opened on-chain for this epoch is NOT the root this host computes from its log. Nothing below is claimable against it — do not spend gas on these proofs, and treat the difference as the thing to investigate.';
+      }
+    }
+    // Payable RIGHT NOW: opened, still open, funded, matching, and a leaf to
+    // claim. Anything less and `call` below stays a description rather than an
+    // instruction.
+    const payable = !!(leaf && onchain && onchain.open && onchain.rootMatches);
+    json(res, 200, {
+      epoch: n,
+      // Both spellings of the same 32 bytes: bare hex is what chain/merkle.mjs
+      // and the block certificates use, 0x-prefixed is what a wallet hands a
+      // bytes32 argument. Neither is a different number.
+      root: tree.root,
+      root0x: '0x' + tree.root,
+      // Raw 18-decimal units as a STRING. A uint256 does not survive JSON's
+      // number type, and an epoch's earnings silently losing its low digits to
+      // a double is exactly the arithmetic this whole pipeline exists to avoid.
+      total: String(tree.total),
+      totalPeer: tree.totalPeer,
+      decimals: tree.decimals,
+      minted: tree.minted,
+      leafCount: tree.leaves.length,
+      leaves: tree.leaves.map((l) => ({
+        index: l.index, address: l.address, amount: String(l.amount), peer: l.peer,
+        handles: l.handles, leaf: l.hex,
+      })),
+      unbound: {
+        count: tree.unbound.handles.length,
+        total: String(tree.unbound.total),
+        totalPeer: tree.unbound.totalPeer,
+        handles: tree.unbound.handles.map((u) => ({ id: u.id, handle: nameOf(st, u.id), amount: String(u.amount), peer: u.peer })),
+        note: 'These handles earned this epoch and had no address bound when it closed, so they have NO LEAF in the tree and nothing to claim. Their share is not shared out among the others and is not held for them: it stays in the epoch\'s remainder and returns to whoever funded it when the claim window closes. Binding now takes effect from the NEXT epoch — a published root cannot change.',
+      },
+      claimant: leaf ? {
+        as: asked, address: leaf.address, handles: leaf.handles,
+        index: leaf.index, amount: String(leaf.amount), peer: leaf.peer, leaf: leaf.hex,
+        // The bytes32[] argument itself: the path word first, then the
+        // siblings, bottom of the tree first. Folded back to the root before
+        // this answer was written (chain/earnings.mjs verifies every proof it
+        // builds), so a proof that would revert on Base never leaves here.
+        proof: proof.words,
+        pathWord: proof.words[0],
+        // TRUE only when this proof would be paid if sent now. It is not a
+        // property of the proof — the proof is fine either way — it is a
+        // property of whether anyone has funded this epoch on Base.
+        payable,
+        call: payable
+          ? 'PeerClaim.claim(uint256 epoch, uint256 amount, bytes32[] proof) at ' + onchain.contract + ' — from THIS address and no other: the contract verifies the proof over msg.sender, so nobody can claim it for you, including you from a second wallet.'
+          : 'PeerClaim.claim(uint256 epoch, uint256 amount, bytes32[] proof) is the call this proof is shaped for, and it is NOT payable right now — see `onchain` for which part is missing. Sending it would revert and cost you the gas. The proof is verified over msg.sender, so when it does become payable it is claimable from THIS address and no other.',
+      } : null,
+      claimantNote: leaf ? null
+        : (askedAddr ? 'That address has no leaf in this epoch: nothing was bound to it when the epoch closed, or the handle that bound it earned nothing.'
+          : asked ? (who ? 'That handle had an address bound but earned nothing this epoch.'
+            : 'That handle had no address bound when this epoch closed, so it has no leaf here. POST /api/v1/bind to bind one; it takes effect from the next epoch close.')
+            : 'Pass ?as=<handle id> or ?address=0x… to get that claimant\'s amount and proof.'),
+      // What Base says about this epoch, or plainly that nothing was asked.
+      onchain,
+      onchainIs: 'Everything above this line is derived from the act log and would be the same on any host replaying it. This block is the other question: has anybody actually put PEER behind it? PEER has no mint, so every claim is a transfer out of the steward\'s own holdings, and an epoch is claimable only if the steward chose to open and fund it. A tree without an open epoch is a correct answer to "what did the log credit me", and no answer at all to "can I collect".',
+      how: 'The tree is built by chain/earnings.mjs over chain/merkle.mjs — SHA-256 over lowercase hex strings, leaves domain-separated with "L", interior nodes with "N", an odd node carried up. A leaf is the 40 hex chars of the address followed by the 64 hex chars of the amount in raw units. Rebuild it from `leaves` yourself and compare the root with the one on-chain; that check is the whole reason this endpoint returns every leaf and not just yours. Sum `leaves` against the epoch\'s on-chain `totalRaw` too: no contract can add a tree\'s leaves up, so a root that oversums its deposit pays first-come and reverts for everyone after — and that is checkable here, before the first claim, or not at all.',
+    });
+    return;
+  }
   if (req.method === 'GET' && p === 'pools') {
     json(res, 200, {
       pools: Object.entries(st.pools).map(([id, pl]) => ({
@@ -3396,7 +3614,16 @@ async function handleBotApi(req, res, url, ip) {
 
   const body = await readBody(req, MAX_ACT_BYTES * 2);
   if (!body) { json(res, 400, { error: 'invalid JSON body' }); return; }
-  const pin = typeof body.pin === 'string' ? body.pin : '';
+  // The credential for every write on this door: `pin` as a string, or a
+  // passkey assertion object under `auth` (or under `pin`, for a caller who
+  // only knows the one field name). It read `body.pin` as a string and nothing
+  // else, so a handle secured with a passkey and no PIN could not reach a
+  // single endpoint here — including /api/v1/bind, the one act that decides
+  // where its epoch earnings are paid. What it can carry is exactly what
+  // authError can check; nothing new is trusted.
+  const assertion = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+  const pin = typeof body.pin === 'string' ? body.pin
+    : (assertion(body.auth) ?? assertion(body.pin) ?? '');
   const me = typeof body.as === 'string' ? body.as : '';
 
   const submit = (raw) => {
@@ -3543,6 +3770,33 @@ async function handleBotApi(req, res, url, ip) {
     const text = typeof body.text === 'string' ? body.text.trim() : '';
     if (!body.to || !text) { json(res, 400, { error: 'to and text are required' }); return; }
     submit({ t: 'dm', from: me, to: String(body.to), text });
+    return;
+  }
+  // Say where this handle's epoch earnings are payable on Base.
+  //
+  // Not routed through submit(), and the difference is not cosmetic: submit()
+  // answers "This cost θ", and this act costs none. A binding debits nothing
+  // and is not W1-gated, because an account that earned a share and then ran
+  // out of reserve must still be able to say where that share goes — earning
+  // needs no reserve and speaking does, so the two run out at different times.
+  // What guards it instead is the PIN: bindAddress is in PIN_REQUIRED, so an
+  // unsecured handle is refused rather than waved through, and the act carries
+  // its actor in `id` so authError checks the credential of the handle whose
+  // money this decides.
+  if (p === 'bind') {
+    const given = typeof body.address === 'string' ? body.address : (typeof body.addr === 'string' ? body.addr : '');
+    if (!given.trim()) {
+      json(res, 400, { code: 'BAD_ADDRESS', error: 'address is required: the ethereum address on Base your epoch earnings should be paid to' });
+      return;
+    }
+    const out = applyAct(sanitize({ t: 'bindAddress', id: me, addr: given }), pin, ip);
+    if (out.error) { json(res, out.code, { error: out.error, code: out.errorCode }); return; }
+    json(res, 200, {
+      ok: true, as: me, address: given.trim().toLowerCase(), actIndex: out.index, cursor: acts.length,
+      effectiveFrom: st.tokens.epochN + 1,
+      note: 'Bound. This cost no energy, and it changes nothing about epochs that have already closed: their earnings roots are published and cannot be recomputed. From epoch ' + (st.tokens.epochN + 1) + ' on, your share is a leaf under this address. Bind again whenever you like — the newest binding wins, forward only.',
+      warning: 'Whoever can act as this handle can move this binding, and whoever holds the address collects. Nothing here can check that the address is yours, or that it is not a typo — the checksum a wallet shows is keccak-based and this codebase hashes with no library. Read it back from GET /api/v1/epoch/<n>/claim?as=' + me + ' after the next epoch closes.',
+    });
     return;
   }
   // The faucet route, kept only to explain itself.
@@ -3702,9 +3956,11 @@ function adminBans() {
 // renders the token panel, every render used to be a full round of eth_calls
 // to a public RPC, and the chain does not change fast enough to justify
 // asking mainnet.base.org the same questions once per tab per render. The
-// per-account balance lookup (?of=) deliberately stays outside the cache:
-// it is one cheap call, and a cached balance would show one viewer's wallet
-// to everyone who asked within the same 30 seconds.
+// per-account lookups (?of=) deliberately stay outside the cache: a cached
+// balance — or a cached "you already claimed epoch 12" — would show one
+// viewer's wallet to everyone who asked within the same 30 seconds. They are
+// a handful of cheap calls, capped inside onchain.mjs and paid for by the
+// read limiter this door spends like every other GET.
 //
 // `inFlight` is the other half of that, and the half a cache is usually
 // missing. A cold cache with twenty tabs arriving at once used to start
@@ -4117,6 +4373,12 @@ const server = createServer((req, res) => {
       // Compose onto a fresh object, never onto the cached one: attaching
       // an account balance to the shared state would hand it to every other
       // viewer for the rest of the cache window.
+      //
+      // Everything the chain says about the epoch contracts — the anchors,
+      // and each recent epoch's root, total, paid and deadline — is already
+      // inside `state`, because it is the same answer for everybody and
+      // belongs in the same 30-second cache as the pool scan that pays for
+      // it. Only the per-account questions are asked per request.
       const out = { deployed: true, ...state };
       if (q) {
         // If the state above is a refusal — the RPC answered for a chain
@@ -4124,9 +4386,23 @@ const server = createServer((req, res) => {
         // endpoint does not become trustworthy by sitting in a different
         // field. This body used to say both at once: "refusing to report
         // its numbers" and, underneath, a number. Say it once.
-        out.account = state && state.chainIdMatches === false
-          ? { read: false, error: 'not read — ' + state.error }
-          : await m.balanceOf(q);
+        if (state && state.chainIdMatches === false) {
+          out.account = { read: false, error: 'not read — ' + state.error };
+        } else {
+          out.account = await m.balanceOf(q);
+          // Has this address already claimed the epochs on screen? That is
+          // one viewer's business, so it hangs off `account` with the balance
+          // rather than being folded into claimState — a claimed flag written
+          // into the cached epoch rows would be answered from the first
+          // asker's wallet for everyone who asked in the next thirty seconds.
+          // The epochs asked about are exactly the ones this body reports, so
+          // the two can never describe different sets.
+          const eps = state && state.claimState && Array.isArray(state.claimState.epochs)
+            ? state.claimState.epochs.map((e) => e.epoch)
+            : [];
+          const claims = eps.length ? await m.claimsOf(q, eps) : null;
+          if (claims) out.account = out.account ? { ...out.account, claims } : { address: claims.address, claims };
+        }
       }
       json(res, 200, out);
     }).catch((e) => json(res, 502, { code: 'L2_UNREACHABLE', error: 'could not read the chain: ' + String(e.message).slice(0, 120) }));
@@ -4159,7 +4435,14 @@ const server = createServer((req, res) => {
       // Client's known log length: reply with just the tail it is missing.
       const since = Math.max(0, Number(act.since ?? 0) || 0);
       delete act.since;
-      const auth = typeof act.auth === 'string' ? act.auth : '';
+      // A PIN string, or a passkey assertion object. The object used to be
+      // discarded here — `typeof act.auth === 'string' ? act.auth : ''` — so
+      // authError's assertion branch was unreachable from the main write door
+      // and a passkey could authorise nothing but its own registration. It is
+      // never persisted either way: sanitize() strips `auth` on the next line,
+      // and only this local copy reaches the credential check.
+      const auth = typeof act.auth === 'string' ? act.auth
+        : (act.auth && typeof act.auth === 'object' && !Array.isArray(act.auth) ? act.auth : '');
       act = sanitize(act); // whitelist fields; auth/since never persist
       if (hasControlChars(act)) { json(res, 400, { error: 'unprintable characters are not allowed' }); return; }
       if (act.t === 'register' && !registerLimiter(ip)) {

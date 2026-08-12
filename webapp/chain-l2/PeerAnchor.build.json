@@ -1,0 +1,103 @@
+{
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "by",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "epoch",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "blockId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "earningsRoot",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "at",
+          "type": "uint64"
+        }
+      ],
+      "name": "Anchored",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "epoch",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "blockId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "earningsRoot",
+          "type": "bytes32"
+        }
+      ],
+      "name": "anchor",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "poster",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "epoch",
+          "type": "uint256"
+        }
+      ],
+      "name": "anchorOf",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "blockId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "earningsRoot",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "at",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405234801561000f575f80fd5b506102fd8061001d5f395ff3fe608060405234801561000f575f80fd5b5060043610610034575f3560e01c8063065dfced1461003857806375834a611461004d575b5f80fd5b61004b610046366004610269565b6100c3565b005b61009a61005b366004610292565b6001600160a01b03919091165f908152602081815260408083209383529290522080546001820154600290920154909267ffffffffffffffff90911690565b60408051938452602084019290925267ffffffffffffffff169082015260600160405180910390f35b816101075760405162461bcd60e51b815260206004820152600f60248201526e626c6f636b4964206973207a65726f60881b60448201526064015b60405180910390fd5b8061014b5760405162461bcd60e51b81526020600482015260146024820152736561726e696e6773526f6f74206973207a65726f60601b60448201526064016100fe565b335f908152602081815260408083208684529091529020600281015467ffffffffffffffff16156101be5760405162461bcd60e51b815260206004820152601f60248201527f796f7520616c726561647920616e63686f72656420746869732065706f63680060448201526064016100fe565b604080516060808201835285825260208083018681524267ffffffffffffffff818116868801818152335f8181528088528a81208f825288528a90209851895594516001890155516002909701805467ffffffffffffffff1916979092169690961790558551898152928301889052948201939093528792917f86ec5f6efee73f1d5be0ac8a6f8bb4bba87bd4f8caf2edd1fd79943f42518077910160405180910390a35050505050565b5f805f6060848603121561027b575f80fd5b505081359360208301359350604090920135919050565b5f80604083850312156102a3575f80fd5b82356001600160a01b03811681146102b9575f80fd5b94602093909301359350505056fea264697066735822122026f3e097e4854e0e88c1e5ad3df90577943426dfef6eae390452843ca44310fa64736f6c63430008180033",
+  "hashes": {
+    "anchor(uint256,bytes32,bytes32)": "065dfced",
+    "anchorOf(address,uint256)": "75834a61"
+  }
+}

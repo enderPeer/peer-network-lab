@@ -111,7 +111,7 @@ Same discipline as §1: the fresh account, wallet on Base.
    §1**, `btc_` is cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`.
 4. Deploy, confirm, and **copy the factory address — and the block number it
    landed in.** Both, together. The block is on the deployment transaction on
-   any explorer, and the one-click page prints it beside the address; §4
+   any explorer, and the one-click page prints it beside the address; §5
    explains what it is for. Recording it now costs nothing and finding it
    later is a chore.
 
@@ -121,7 +121,7 @@ prefilled there, the PEER address is the one you paste in from §1. The page
 embeds the compiled bytecode and fetches nothing; rebuild it with `node
 chain-l2/build-deploy-page.js` any time `PeerPools.sol` changes, or you
 will deploy the previous contract. `chain-l2/auto-deploy.ps1` runs that
-whole sitting end to end, including §4 below.)
+whole sitting end to end, including §5 below.)
 
 **Check the fingerprint before you sign.** Card 5 prints the SHA-256 of the
 factory bytecode that page will deploy, and `auto-deploy.ps1` refuses to open
@@ -169,7 +169,167 @@ Use <https://app.uniswap.org> connected to Base:
 4. Choose a **full range** position unless you understand concentrated
    liquidity, then Add.
 
-## 4. Point the network at it
+## 4. The epoch contracts (~$0.06), optional
+
+Everything above is about the token and where it trades. These two are about
+the **epoch chain**: the signed certificate `webapp/chain/` seals every time
+an epoch closes, and the epoch token that certificate distributes.
+
+Both are optional and independent of each other. The network runs exactly as
+it does today without either — closing epochs, sealing blocks, distributing
+the epoch token in its own act log. What these add is (a) an outside witness
+that a result existed at a particular time, and (b) a way for that
+distribution to become real PEER on Base.
+
+### PeerAnchor — the epoch chain's public clock
+
+`webapp/chain/` already makes a silent rewrite **detectable** by anyone
+holding an older copy of the chain. "Anyone holding an older copy" is the
+catch: a producer who rewrote history and reissued every block from the fork
+point hands a self-consistent chain to a reader who was not watching at the
+time, and nothing inside the chain tells that reader which version existed
+first.
+
+An anchor is the outside witness for exactly that one gap. It posts an
+epoch's block id and its earnings root, and Base timestamps the pair in a
+place the poster cannot reach back into.
+
+**What an anchor does not say**, because a contract that overstates itself is
+worse than no contract at all: it does not say the block is correct, that the
+epoch was computed honestly, that the earnings in that root are deserved, or
+that the poster is anybody in particular. It is a timestamp over two hashes.
+Truth stays where `block.mjs` says it stays — in replay of the public log, by
+anyone who disagrees.
+
+**Anyone may post, and that is the design.** No owner, no allowlist, no pause,
+no privileged function of any kind. Records are keyed by `(poster, epoch)`, so
+your epoch 12 and a stranger's epoch 12 are two separate rows and neither can
+touch the other — the same rule PeerPools applies to pool names. Readers
+decide whose anchors mean anything by choosing whose address to read. An
+impostor anchoring garbage is not an attack on the contract; their garbage
+sits under their own address, next to nothing.
+
+**One anchor per (poster, epoch), forever.** A second attempt reverts. If you
+anchor the wrong hash there is no repair inside the contract by design; the
+honest repair is to anchor the corrected epoch from a **new address** and say
+plainly why. The mistake stays visible, which is the point of the mechanism.
+
+### PeerClaim — epoch earnings, paid out of PEER that already exists
+
+Each closed epoch publishes a merkle root of who earned what, and people claim
+their earnings as real on-chain PEER.
+
+**Where the PEER comes from is the question the whole design turns on.**
+`PeerToken.sol` has no mint function and no owner, so the supply is fixed
+forever and nothing here can create a token. Every PEER this contract ever
+pays out was pulled from the steward's own holdings when the epoch was opened.
+"Epoch earnings" on-chain means a transfer out of one existing pile, never an
+issuance — and if the steward stops funding epochs, epochs stop being
+claimable, which is an honest failure mode with no hidden inflation
+underneath it.
+
+**The steward** is the first privileged role anywhere in this codebase, so
+here it is in the same words as the contract header:
+
+> The steward **can** open an epoch — publish a root, a total and a claim
+> deadline, once per epoch number, and thereby direct PEER that the steward
+> themselves just deposited into the contract to whichever addresses that root
+> commits to; publish a root whose leaves **oversum** that deposit, which makes
+> the epoch first-come and reverts everyone after the money runs out, including
+> by putting an address they control in the root and claiming it first; and
+> reclaim, after the deadline, whatever nobody claimed.
+>
+> The steward **cannot** mint anything (there is no mint; the token cannot
+> grow); touch any balance outside the contract, or any epoch's deposit other
+> than through the root that epoch was opened with; take back a claim already
+> made; alter, replace, or re-open a root already published; reach into an open
+> epoch to stop one named claimant (there is no pause, no allowlist, no
+> per-claimant switch); or sweep early — `sweep` reverts before the deadline for
+> everyone including the steward, and `openEpoch` refuses a window shorter than
+> `MIN_WINDOW` (7 days) or longer than `MAX_WINDOW` (365 days).
+
+The oversum is in the **can** list and it is the one to read twice. Nothing
+on-chain holds the tree, only its root, so no contract can add the leaves up
+— which means "this epoch can pay everyone it commits to" is not a promise
+the chain makes. It is checkable before the first claim instead: the host
+publishes the full leaf list beside the root
+(`GET /api/v1/epoch/<n>/claim`), so anyone can sum it against `total` and
+refuse to believe an epoch that does not add up. A window floor is what makes
+"cannot sweep early" mean anything; without it a deadline of `now + 1` was
+legal and the next Base block could take the whole deposit back.
+
+The role is unavoidable rather than desirable: a contract that pays out must
+have something deciding who is owed what, and if publishing a root were open
+to anyone, the first passer-by would publish a root paying themselves the
+entire deposit. What the contract does instead is make the role **small** and
+its every use **public** — the steward's authority extends to money they put
+in themselves, each epoch is one irreversible publication, and PeerAnchor
+timestamps the root so "the root was fixed before the claims" is checkable by
+a stranger.
+
+**Exposure is bounded by what was actually deposited.** `openEpoch` pulls the
+whole total up front with `transferFrom`, so an epoch is either fully funded
+from the first second or it does not exist — funded to `total`, which is a
+different claim from "funded to what the tree owes". Deploying the contract
+moves no coins at all; funding an epoch is two later transactions you sign
+yourself (an `approve`, then `openEpoch`).
+
+**A handle with no bound address has no leaf that epoch.** Earnings are owed
+to a network identity (`u_ender`) and paid to an ethereum address; the binding
+is a signed `bindAddress` act in the log, under the handle's own credential.
+An unbound handle is simply not in the tree — its share is **not**
+redistributed to everyone else and is not held in escrow. It stays in the
+unclaimed remainder and returns to the steward at sweep. Rebinding is allowed
+and takes effect for **future epochs only**: a root already published cannot
+change, which is the entire point of publishing it.
+
+### Deploying them
+
+Same discipline as §1 and §2: the fresh account, wallet on Base, compiler
+**0.8.24**, optimizer **on**, 200 runs.
+
+1. `PeerAnchor.sol` — **no constructor arguments.** Deploy, copy the address
+   and the block.
+2. `PeerClaim.sol` — constructor takes **two addresses, both immutable
+   forever**: `token_` is your PEER from §1, `steward_` is the account that
+   will open epochs. The steward must be a key **you hold**: there is no
+   transfer function for the role, and a steward key that could hand itself to
+   another address is a steward key one phishing email wider than it looks. If
+   the role must ever move, deploy a new contract and let the old epochs finish
+   under the address they were opened by.
+
+The one-click page covers both — cards **6** and **7** of
+`node chain-l2/serve-deploy.mjs`. Card 7 checks both arguments against the
+chain before anything is signed, in opposite directions: the token must answer
+`decimals()` and `totalSupply()`, and the steward must **not** — a token
+contract as steward is an epoch nobody can ever open. It also warns if the
+steward is not the wallet you are deploying from. Each card prints its build
+fingerprint; check it against `node chain-l2/build-deploy-page.js` if you did
+not open the page from `auto-deploy.ps1`, for the reason §2 gives.
+
+Verify before going further:
+
+```bash
+# PeerAnchor: anchorOf(0x0…0, 0) = selector 0x75834a61 + two zero words.
+# A fresh contract answers 96 bytes of zeros; that IS the empty answer.
+A=0x75834a61$(printf '0%.0s' $(seq 1 128))
+curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"YOUR_ANCHOR_ADDR","data":"'"$A"'"},"latest"]}'
+
+# PeerClaim: token() — must answer YOUR PEER address from §1
+curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"YOUR_CLAIM_ADDR","data":"0xfc0c546a"},"latest"]}'
+```
+
+`0x` back from either means nothing is deployed at that address. A `token()` that
+answers an address you do not recognise means the claim contract pays a
+different coin than this network's; that pairing is immutable, so the only
+repair is to deploy again.
+
+Zero anchors and zero epochs is the right answer for a fresh pair and not a
+failure: deploying creates no anchor and opens no epoch, and no PEER has moved.
+
+## 5. Point the network at it
 
 These are **files**, not a shell you have to remember to export in. Each
 lives in `webapp/server-data/` (gitignored — nothing here reaches the repo),
@@ -193,10 +353,22 @@ do not copy the list.
 | `btc-token-address.txt` | `PEER_BTC_ADDR` | cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` |
 | `pools-address.txt` | `PEER_POOLS_ADDR` | your pools factory from §2 |
 | `pools-from-block.txt` | `PEER_POOLS_FROM_BLOCK` | the block §2 deployed in |
+| `anchor-address.txt` | `PEER_ANCHOR_ADDR` | your PeerAnchor from §4 |
+| `claim-address.txt` | `PEER_CLAIM_ADDR` | your PeerClaim from §4 |
+| `epoch-from-block.txt` | `PEER_EPOCH_FROM_BLOCK` | the **lower** of the two blocks §4 deployed in |
 
 Then restart the host: `.\start-host.ps1`. Or let
-`chain-l2/auto-deploy.ps1` write all four and restart for you — it is the
-same four files, typed once.
+`chain-l2/auto-deploy.ps1` write the first four and restart for you — it
+writes the §1–§2 files, and the §4 ones are typed by hand.
+
+The last three are the epoch contracts, and every one of them is optional:
+with none of them set, `GET /api/token/onchain` answers `anchors` and
+`claimState` as `{ configured: false, why: … }` — in words, rather than by
+leaving the keys out, because "this host reads no anchors" and "nothing was
+ever anchored" are opposite claims and a missing key lets an interface render
+either one as the other. `PEER_EPOCH_FROM_BLOCK` covers **both** epoch scans
+with one value, so use the lower of the two deployment blocks; the same
+err-low rule below applies to it word for word.
 
 That last one is worth getting right even though the host no longer breaks
 without it. The host finds pools by asking the RPC for the factory's
@@ -221,6 +393,23 @@ keyed to the chain, the factory and this block, so a value that moved throws
 the remembered scan away rather than reporting a range it never walked. The
 file is a cache in every direction — delete it and the next refresh rebuilds
 it from the chain.
+
+The epoch contracts are walked by that same scan, with a memory file each:
+
+| file in `server-data/` | what it remembers |
+|---|---|
+| `pools-scan.json` | how far the `PoolCreated` scan got, and each pool's last measured BTC reserve |
+| `anchor-scan.json` | how far the `Anchored` scan got, and the anchors it has seen |
+| `claim-scan.json` | how far the `EpochOpened` scan got, and which epochs exist |
+
+All three are caches, none of them is a source of truth, and each is keyed to
+its own contract — delete any of them and the next refresh rebuilds it from
+the chain. `anchor-scan.json` keeps the newest 400 rows and no more: anyone
+may anchor anything, forever, so an unbounded file is one a stranger decides
+the size of. `claim-scan.json` holds only which epochs exist; what each epoch
+is worth and how much of it has been taken is read from `epochInfo` on every
+refresh, because `paid` moves with every claim and a remembered figure would
+show a full pot to somebody whose claim had already come out of it.
 
 The §3 Uniswap pool is the exception, and it is worth knowing before you
 rely on it: **`PEER_POOL_ADDR` has no file behind it.** Exported by hand it
@@ -247,6 +436,22 @@ its own immutables, and if it disagrees with what you configured, a
 decimals. That is the shape of a factory deployed over the wrong PEER
 address — a mistake worth catching while the pools are still empty, because
 it cannot be corrected afterwards, only abandoned.
+
+With §4 configured the same endpoint also carries `anchors` — the recent
+`Anchored` rows, newest first, each with its poster, epoch, block id,
+earnings root and the chain's own timestamp — and `claimState`, with each
+recent epoch's root, total, paid, remaining, deadline and whether a claim
+would be paid right now. `claimState.token` gets the same treatment as
+`tokens` above: read it once, and a `mismatch` key means the claim contract
+pays a different coin than this host reports.
+
+Two things that list deliberately does not do. It does not rank anchors by
+anything, because there is nothing here to rank by — anyone may post, so
+`posters` and `busiestPoster` are reported instead, which makes a flood
+arithmetic rather than a hunch. And whether **you** have already claimed an
+epoch is never in the cached body: it comes back under `account.claims` only
+when you ask with `?of=YOUR_ADDRESS`, because a claimed flag inside the
+30-second cache would answer for everyone out of the first asker's wallet.
 
 ## What to expect, plainly
 
@@ -281,3 +486,18 @@ liquidity, or leave it alone. Deploying is the last moment anything about
 that contract can change. That is the same property that makes it worth
 trusting with other people's coins, and it is why this runbook asks you to
 read `PeerPools.sol` rather than take the summary above on trust.
+
+PeerAnchor holds to the same line — no owner, no allowlist, no pause, nothing
+privileged, and a row that can never be revised once posted.
+
+**PeerClaim is the exception, and it should be read as one.** It has a
+steward, and that is the only privileged address anywhere in this codebase.
+The bound is not a promise about behaviour, it is the shape of the contract:
+the steward's authority reaches only money they deposited themselves, one
+epoch at a time, in publications that cannot be edited afterwards. Nothing
+about a steward can mint a token, and no version of a lost or stolen steward
+key can touch a claim already paid, a balance outside the contract, or a root
+already published. What it can cost you is the undeposited future — an epoch
+that never gets opened, or a remainder swept to the wrong hands after a
+deadline. That is the price of paying anything out at all, and §4 says so
+where you can weigh it before signing rather than afterwards.
