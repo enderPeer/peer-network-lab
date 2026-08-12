@@ -270,11 +270,86 @@ const poolsReady = () => {
 };
 peerIn.oninput = poolsReady; btcIn.oninput = poolsReady;
 
+// Does an ERC-20 actually live there? This existed as a comment saying a
+// 40-hex check "cannot catch a wrong-but-real address — MetaMask's
+// confirmation screen and the basescan link afterwards are what catch that."
+// They do not. Pasting a WALLET address here sailed through both: MetaMask
+// shows a constructor argument without knowing what it is meant to be, and
+// basescan shows a contract that deployed perfectly. The factory came out
+// immutably paired to an address with no token at it, so every createPool
+// reverted with empty data, and the only repair was deploying it again.
+//
+// The chain can be asked, for free, before the irreversible signature. That
+// is the same rule the pools card follows for its own refusals, applied to
+// the one transaction here that cannot be taken back.
+// Three outcomes, not two. "That address holds no token" and "I could not
+// reach the chain to find out" are different facts, and collapsing them
+// would build a second trap on top of the first: a public RPC answering
+// "over rate limit" would refuse a PERFECTLY GOOD address in the words of a
+// bad one, and whoever hit it would go hunting for a fault in their paste.
+// Measured, not imagined - three quick reads against a public endpoint is
+// enough to be rate-limited.
+const SEL = { decimals: '0x313ce567', symbol: '0x95d89b41', totalSupply: '0x18160ddd' };
+const BAD = (why) => ({ ok: false, sure: true, why: why });    // the chain answered: not a token
+const UNSURE = (why) => ({ ok: false, sure: false, why: why }); // could not ask
+async function probeToken(addr, label) {
+  let code;
+  try {
+    code = await window.ethereum.request({ method: 'eth_getCode', params: [addr, 'latest'] });
+  } catch (e) { return UNSURE('could not read the chain: ' + (e.message || e)); }
+  if (!code || code === '0x') {
+    return BAD('nothing is deployed at that address on Base. '
+      + (account && addr.toLowerCase() === account.toLowerCase()
+        ? 'That is THIS WALLET’s address, not a token — the token address is the one the deploy step printed, not the account you deployed from.'
+        : 'Check you pasted the ' + label + ' CONTRACT address rather than a wallet, and that it was deployed on Base.'));
+  }
+  const call = (data) => window.ethereum.request({ method: 'eth_call', params: [{ to: addr, data: data }, 'latest'] });
+  let dec, sup, sym = '';
+  try {
+    const d = await call(SEL.decimals); const s = await call(SEL.totalSupply);
+    // An empty answer from a contract that DOES have code is the chain
+    // telling us the function is not there - that is an answer, not a
+    // failure, so it is a definite no.
+    if (!d || d === '0x' || !s || s === '0x') return BAD('there is a contract there, but it does not answer decimals() and totalSupply() — so it is not an ERC-20.');
+    dec = parseInt(d, 16); sup = BigInt(s);
+    try {
+      const y = await call(SEL.symbol);
+      if (y && y.length > 130) {
+        const n = parseInt(y.slice(66, 130), 16);
+        for (let i = 0; i < n; i++) sym += String.fromCharCode(parseInt(y.slice(130 + i * 2, 132 + i * 2), 16));
+      }
+    } catch (e) { /* symbol() is decoration; having decimals and supply is the check */ }
+  } catch (e) { return UNSURE('the chain did not answer an ERC-20 call: ' + (e.message || e)); }
+  const whole = dec <= 30 ? (sup / (10n ** BigInt(dec))).toString() : sup.toString();
+  return { ok: true, note: (sym || '?') + ' · ' + dec + ' decimals · supply ' + whole };
+}
+
 document.getElementById('goPools').onclick = async () => {
   const peer = peerIn.value.trim(), btc = btcIn.value.trim();
   // The constructor would revert on equal addresses anyway — but a revert on
   // deployment still costs gas, so refuse here where refusing is free.
   if (peer.toLowerCase() === btc.toLowerCase()) { log2('PEER and BTC are the same address. The constructor rejects that; fix the paste.', 'bad'); return; }
+  // Both sides are checked against the chain before anything is signed. The
+  // pairing is immutable: a wrong address here is a contract that can never
+  // trade, only be abandoned and redeployed.
+  log2('Checking both addresses against Base before signing…');
+  for (const t of [{ a: peer, n: 'PEER' }, { a: btc, n: 'BTC' }]) {
+    let r = await probeToken(t.a, t.n);
+    // One retry, only for the could-not-ask case: a public endpoint that
+    // rate-limited the first read will usually answer the second.
+    if (!r.ok && !r.sure) { await new Promise((s) => setTimeout(s, 1200)); r = await probeToken(t.a, t.n); }
+    if (!r.ok && r.sure) {
+      log2('The ' + t.n + ' address is not a token: ' + r.why, 'bad');
+      log2('Nothing was signed and nothing was spent. The pairing is immutable, so this is worth getting right.', 'muted');
+      return;
+    }
+    if (!r.ok) {
+      log2('Could not check the ' + t.n + ' address — ' + r.why, 'bad');
+      log2('This is not a verdict on your address; the chain simply did not answer. Press Deploy again to retry.', 'muted');
+      return;
+    }
+    log2('  ' + t.n + ' ' + t.a + ' — ' + r.note, 'ok');
+  }
   // ABI-encode two addresses: each one 32-byte word, the 20 address bytes
   // right-aligned. Appended to the bytecode, same scheme as the uint256 above.
   const word = (a) => a.slice(2).toLowerCase().padStart(64, '0');
