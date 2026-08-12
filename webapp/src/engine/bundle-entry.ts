@@ -11,4 +11,5 @@ export * from './standing';
 export * from './attestation';
 export * from './can';
 export * from './cogra';
+export * from './community';
 export * from './fixtures';
