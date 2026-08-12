@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#131110">
+<title>Ender Net — the code graph</title>
+<meta name="description" content="Every function, file and document in the Ender Net repository, parsed locally with tree-sitter into a knowledge graph you can click through. 1,196 nodes, 2,011 edges, 84 communities, zero LLM tokens.">
+<link rel="canonical" href="https://enderpeer.github.io/peer-network-lab/graph/">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ender Net">
+<meta property="og:url" content="https://enderpeer.github.io/peer-network-lab/graph/">
+<meta property="og:title" content="Ender Net — the code graph">
+<meta property="og:description" content="1,196 nodes, 2,011 edges, 84 communities. Parsed from source with tree-sitter. Every edge marked EXTRACTED or INFERRED, so you can tell what was read from what was guessed.">
+<link rel="icon" href="../icons/favicon-32.png" sizes="32x32">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --paper: #FBF6F0; --ink: #251F19; --muted: #7A6C5C; --line: #E7DCCC;
+    --ember-solid: #B84525; --card: #FFFFFF;
+    --stage: #0f0f1a; --stage-line: #2a2a4e;
+    --display: 'Bahnschrift', 'Avenir Next Condensed', 'Roboto Condensed', 'Arial Narrow', sans-serif;
+    --body: 'Charter', 'Bitstream Charter', Cambria, 'Iowan Old Style', Georgia, serif;
+    --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #131110; --ink: #EFE7DB; --muted: #9C8E7E; --line: #2E2823; --card: #1C1917; --ember-solid: #E0663C; }
+  }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--body); font-size: 18px; line-height: 1.62;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 22px; }
+  a { color: inherit; text-decoration-color: var(--ember-solid); text-underline-offset: 3px; }
+  a:hover { color: var(--ember-solid); }
+
+  header { padding: 60px 0 28px; }
+  .mark {
+    font-family: var(--display); font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; font-size: 26px; margin: 0 0 26px; display: block; text-decoration: none;
+  }
+  .mark em { font-style: normal; color: var(--ember-solid); }
+  h1 { font-size: clamp(30px, 6.2vw, 44px); line-height: 1.14; margin: 0 0 16px; font-weight: 600; letter-spacing: -0.012em; }
+  .lede { font-size: clamp(18px, 2.5vw, 21px); color: var(--muted); margin: 0 0 26px; }
+  h2 {
+    font-family: var(--display); text-transform: uppercase; letter-spacing: 0.09em;
+    font-size: 13px; color: var(--muted); font-weight: 700;
+    margin: 54px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  p { margin: 0 0 16px; }
+  code, .mono { font-family: var(--mono); font-size: 0.86em; }
+  .tag {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+    padding: 1px 6px; border: 1px solid var(--line); border-radius: 2px; white-space: nowrap;
+  }
+  .tag.ex { border-color: var(--ember-solid); color: var(--ember-solid); }
+
+  /* stat strip */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin: 0 0 8px; }
+  .stat { background: var(--card); padding: 16px 14px; }
+  .stat b { display: block; font-family: var(--display); font-size: 30px; line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; }
+  .stat span { display: block; font-family: var(--display); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .caption { font-size: 14px; color: var(--muted); margin: 10px 0 0; }
+
+  /* the dark stage holding graphify's viewer */
+  .stage { background: var(--stage); border-top: 1px solid var(--stage-line); border-bottom: 1px solid var(--stage-line); margin: 34px 0 0; padding: 0; }
+  .stage-inner { max-width: 1400px; margin: 0 auto; }
+  .stage iframe { display: block; width: 100%; height: min(78vh, 760px); border: 0; background: var(--stage); }
+  .stage-bar {
+    max-width: 1400px; margin: 0 auto; padding: 11px 22px;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: baseline; justify-content: space-between;
+    font-family: var(--display); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; color: #8a8aa8;
+  }
+  .stage-bar a { color: #cfcfe4; }
+  .stage-bar a:hover { color: #fff; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 0 0 6px; }
+  th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--display); text-transform: uppercase; letter-spacing: 0.07em; font-size: 11px; color: var(--muted); font-weight: 700; }
+  td.num { text-align: right; font-family: var(--mono); font-size: 13px; white-space: nowrap; padding-right: 0; }
+  td .path { display: block; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+  .bar { height: 6px; background: var(--line); border-radius: 0; overflow: hidden; margin-top: 5px; }
+  .bar i { display: block; height: 100%; background: var(--ember-solid); }
+
+  ul.plain { list-style: none; padding: 0; margin: 0 0 16px; }
+  ul.plain li { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  ul.plain .why { display: block; color: var(--muted); font-size: 13px; font-family: var(--mono); margin-top: 3px; }
+
+  .note { border-left: 2px solid var(--ember-solid); padding: 2px 0 2px 16px; margin: 0 0 18px; color: var(--muted); font-size: 16px; }
+
+  pre { background: var(--card); border: 1px solid var(--line); padding: 13px 15px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.55; margin: 0 0 16px; }
+
+  footer { margin: 60px 0 70px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+  footer a { margin-right: 16px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <a class="mark" href="../">ENDER<em>·</em>NET</a>
+    <h1>The code graph</h1>
+    <p class="lede">Every function, file and document in this repository, parsed into a graph you can
+    click through instead of grepping. Built locally with tree-sitter — no embeddings, no vector
+    store, and not one token spent on a model.</p>
+
+    <div class="stats">
+      <div class="stat"><b>1,196</b><span>Nodes</span></div>
+      <div class="stat"><b>2,011</b><span>Edges</span></div>
+      <div class="stat"><b>84</b><span>Communities</span></div>
+      <div class="stat"><b>115</b><span>Files</span></div>
+      <div class="stat"><b>0</b><span>LLM tokens</span></div>
+    </div>
+    <p class="caption">Built from the git-tracked tree at commit <code>6e1f2e9</code> on 12 August 2026
+    by <a href="https://github.com/Graphify-Labs/graphify">graphify</a> 0.9.40.</p>
+  </header>
+</div>
+
+<section class="stage">
+  <div class="stage-inner"><iframe src="graph.html" title="Interactive knowledge graph of the Ender Net repository"></iframe></div>
+  <div class="stage-bar">
+    <span>Click a node for its neighbours · search top-right · uncheck a community to fade it out</span>
+    <span><a href="graph.html">Open full screen ↗</a></span>
+  </div>
+</section>
+
+<div class="wrap">
+
+  <h2>How to read it</h2>
+  <p>Each node is a concept the parser actually found in a file: a function, a class, a config key, a
+  heading in a document. Each edge says how one reaches the other, and carries a confidence tag.</p>
+  <ul class="plain">
+    <li><span class="tag ex">EXTRACTED</span> — written down in the source. <code>server.mjs</code> literally
+    calls <code>validBtcAddress()</code>. 1,988 of the 2,011 edges are this kind.
+    <span class="why">99% of the graph is quotation, not inference.</span></li>
+    <li><span class="tag">INFERRED</span> — resolved by graphify across files, where the call is real but the
+    target had to be matched by name. 23 edges, average confidence 0.63.
+    <span class="why">Useful, and the only part you should double-check.</span></li>
+  </ul>
+  <p>Colours are communities — subsystems found by the Leiden algorithm, then named after their most
+  connected member. Nothing was labelled by a model; the names are the hubs' own filenames.</p>
+
+  <h2>Core abstractions</h2>
+  <p>The most connected nodes — what everything else flows through.</p>
+  <table>
+    <thead><tr><th>Node</th><th>Edges</th></tr></thead>
+    <tbody>
+      <tr><td><code>server</code><span class="path">webapp/server.mjs</span></td><td class="num">52</td></tr>
+      <tr><td><code>handleBotApi()</code><span class="path">webapp/server.mjs</span></td><td class="num">20</td></tr>
+      <tr><td><code>applyActInner()</code><span class="path">webapp/chain/acts.mjs</span></td><td class="num">16</td></tr>
+      <tr><td><code>seed()</code><span class="path">webapp/src/engine</span></td><td class="num">16</td></tr>
+      <tr><td><code>RawGraph</code><span class="path">webapp/src/engine/graph.ts</span></td><td class="num">15</td></tr>
+      <tr><td><code>demoteTo()</code><span class="path">webapp/chain/election.mjs</span></td><td class="num">14</td></tr>
+      <tr><td><code>electionTick()</code><span class="path">webapp/chain/election.mjs</span></td><td class="num">14</td></tr>
+      <tr><td><code>AttestationLedger</code><span class="path">webapp/src/engine</span></td><td class="num">14</td></tr>
+      <tr><td><code>verifyChain()</code><span class="path">webapp/chain/chain.mjs</span></td><td class="num">13</td></tr>
+      <tr><td>Running the network on your own machine<span class="path">docs — a document, not code</span></td><td class="num">13</td></tr>
+    </tbody>
+  </table>
+  <p class="caption">The last row is the point of doing this over docs as well as code: a runbook section
+  sits in the same graph as the functions it describes, and is as connected as most of them.</p>
+
+  <h2>Largest subsystems</h2>
+  <table>
+    <thead><tr><th>Community</th><th>Nodes</th></tr></thead>
+    <tbody>
+      <tr><td><code>chain.mjs</code> — acts, digests, block sealing<div class="bar"><i style="width:100%"></i></div></td><td class="num">87</td></tr>
+      <tr><td><code>server.mjs</code> — the HTTP surface<div class="bar"><i style="width:84%"></i></div></td><td class="num">73</td></tr>
+      <tr><td><code>world.ts</code> — the reference engine's state<div class="bar"><i style="width:64%"></i></div></td><td class="num">56</td></tr>
+      <tr><td><code>agent.mjs</code> — the resident bots<div class="bar"><i style="width:52%"></i></div></td><td class="num">45</td></tr>
+      <tr><td><code>chain.ts</code> — the TypeScript chain mirror<div class="bar"><i style="width:43%"></i></div></td><td class="num">37</td></tr>
+      <tr><td><code>stream.mjs</code> — WebSocket + media framing<div class="bar"><i style="width:40%"></i></div></td><td class="num">35</td></tr>
+      <tr><td><code>standing.ts</code> — the ranking constants<div class="bar"><i style="width:37%"></i></div></td><td class="num">32</td></tr>
+      <tr><td><code>webauthn.mjs</code> — passkeys and handle skeletons<div class="bar"><i style="width:34%"></i></div></td><td class="num">30</td></tr>
+      <tr><td><code>onchain.mjs</code> — the Base-side reads<div class="bar"><i style="width:33%"></i></div></td><td class="num">29</td></tr>
+    </tbody>
+  </table>
+  <p class="caption">84 communities in total; the full list is in the report.</p>
+
+  <h2>What the parser saw</h2>
+  <table>
+    <thead><tr><th>Edge kind</th><th>Count</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>contains</code></td><td class="num">1,008</td><td>file holds a definition</td></tr>
+      <tr><td><code>calls</code></td><td class="num">568</td><td>one function invokes another</td></tr>
+      <tr><td><code>imports</code></td><td class="num">224</td><td>module dependency</td></tr>
+      <tr><td><code>imports_from</code></td><td class="num">89</td><td>named import</td></tr>
+      <tr><td><code>method</code></td><td class="num">48</td><td>method on a class</td></tr>
+      <tr><td><code>references</code></td><td class="num">28</td><td>name used, not called</td></tr>
+      <tr><td><code>indirect_call</code></td><td class="num">18</td><td>call through a variable</td></tr>
+      <tr><td><code>re_exports</code>, <code>dynamic_import</code>, <code>extends</code>, <code>cites</code>, <code>rationale_for</code></td><td class="num">28</td><td>the long tail</td></tr>
+    </tbody>
+  </table>
+  <p class="caption">1,047 code nodes · 129 document nodes · 19 concepts · 1 rationale comment.
+  By language: 562 <code>.mjs</code>, 390 <code>.ts</code>, 129 <code>.md</code>, 67 <code>.json</code>,
+  20 <code>.ps1</code>, 16 <code>.js</code>, 8 <code>.py</code>.</p>
+
+  <h2>Connections worth a second look</h2>
+  <p>Edges the tool flagged as surprising — mostly the honest failure mode of name-matching across files.</p>
+  <ul class="plain">
+    <li><code>server</code> → <code>validBtcAddress()</code> <span class="tag ex">EXTRACTED</span>
+    <span class="why">webapp/server.mjs → webapp/ads.mjs — real, and worth knowing the ad path validates addresses</span></li>
+    <li><code>actCommitments()</code> → <code>act()</code> <span class="tag">INFERRED</span>
+    <span class="why">webapp/chain/acts.mjs → agent/agent.mjs — a name collision, not a real call</span></li>
+    <li><code>pickWriter()</code> → <code>c()</code> <span class="tag">INFERRED</span>
+    <span class="why">webapp/chain/election.mjs → webapp/tests/election.test.ts — matched a one-letter test helper</span></li>
+  </ul>
+  <p class="note">This is why every edge carries its tag. Two of the three above are wrong, and the graph
+  says so itself rather than presenting all edges as equal.</p>
+  <p><strong>No import cycles were detected</strong> anywhere in the tree.</p>
+
+  <h2>Rebuild it yourself</h2>
+  <p>Nothing here is a build artifact you have to trust. The parse is deterministic and local — same
+  commit in, same graph out.</p>
+  <pre>pip install graphifyy
+graphify update .        # writes graphify-out/graph.html, graph.json, GRAPH_REPORT.md
+graphify god-nodes       # the table above
+graphify path "verifyChain" "applyActInner"</pre>
+  <p>The graph on this page was built from the <em>git-tracked</em> tree only, so the spec author's
+  withheld documents never entered it.</p>
+
+  <footer>
+    <a href="../">← Ender Net</a>
+    <a href="graph.json">graph.json (1.1 MB)</a>
+    <a href="GRAPH_REPORT.md">Full report</a>
+    <a href="https://github.com/enderPeer/peer-network-lab">Repository</a>
+    <a href="https://github.com/Graphify-Labs/graphify">graphify</a>
+  </footer>
+</div>
+
+</body>
+</html>
