@@ -35,10 +35,10 @@ Three things shape it, all inherited from poolsite:
 - **Per-pair damping.** The *n*-th engagement from the same person toward the
   same creator is worth `1/(1 + 0.3·(n−1))`. Ten nudges from one friend lose to
   one nudge from ten people — by a factor the test pins at more than 2×.
-- **The commitment gate.** A weigher's influence scales by `λ(α̂) = α̂/(1+α̂)`
-  and is **zero below α̂ = 0.2**. The rate is computed from burn the account
-  **acquired**, never from the grant handed out at registration — see below.
-  An account that never burned weighs nothing at all.
+- **Weight is linear in satoshis destroyed.** A weigher's influence scales
+  straight with burn the account **acquired**, never with the grant handed out
+  at registration — see below. An account that never burned weighs nothing at
+  all, and above zero there is no threshold to sit under.
 - **Self-engagement never counts.**
 
 Rounding dust and epochs nobody engaged in **carry over**, so nothing is lost —

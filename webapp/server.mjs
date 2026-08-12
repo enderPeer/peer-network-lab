@@ -2044,7 +2044,12 @@ const REFUSAL_CODES = [
   [/never minted on this network|no content with id/i, 'UNKNOWN_TARGET'],
   [/already deleted|that comment was deleted/i, 'ALREADY_DELETED'],
   [/account was deleted/i, 'ACCOUNT_DELETED'],
-  [/not enough energy/i, 'NO_ENERGY'],
+  // "not enough energy" was the wording years ago; the sentence has said
+  // "out of energy" for as long as anyone can check. A classifier keyed on
+  // prose silently stops classifying when the prose is improved, which is
+  // exactly what happened here — so both spellings, and the caller that
+  // matters names NO_ENERGY outright rather than trusting this table.
+  [/out of energy|not enough energy/i, 'NO_ENERGY'],
   [/below the safety wall|standing is below/i, 'RATE_TOO_LOW'],
   [/balance is .* tried to (send|deposit|sell)|not enough balance|costs .* and you hold|you hold \d/i, 'INSUFFICIENT_BALANCE'],
   [/runs between 1 and 90 days|advert text is|the advert needs text/i, 'BAD_REQUEST'],
@@ -3050,6 +3055,12 @@ function applyActInner(act, auth, ip) {
     if (bal !== null && bal < THETA_) {
       return {
         code: 402,
+        // Named explicitly rather than left to classify(). This is the most
+        // common refusal on the network — every bot meets it — and it spent
+        // months answering with a bare sentence while GET /api/v1/errors
+        // promised every refusal carries a code to branch on. Twice it was
+        // reported fixed because the paths either side of it had been.
+        errorCode: 'NO_ENERGY',
         error: 'out of energy: balance ' + bal.toFixed(4) + ' is below the θ ' + THETA_.toFixed(4)
           + ' this act costs. Burn reserve to continue — every act dilutes your commitment rate, that is the point.',
       };

@@ -25,7 +25,11 @@
 export const CATALOGUE = {
   // ── The economy ─────────────────────────────────────────────────────────
   NO_ENERGY: {
-    http: 400,
+    // 402 Payment Required, which is what the door actually answers and what
+    // GET /api/v1 documents ("the host refuses the act with 402, gate W1").
+    // This table said 400 — so a caller who trusted statusFor() branched on a
+    // status the network never sends for this code.
+    http: 402,
     why: 'Every act debits θ = 0.0528066 of burned reserve, and yours is spent. This is the whole anti-spam design: talk is priced, so nobody can flood the network without paying for it in destroyed value.',
     fix: 'Burn more reserve. Note that burning raises your balance but not your act count, so it also raises your commitment rate.',
   },

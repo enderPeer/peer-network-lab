@@ -6013,7 +6013,7 @@ button, .btn { touch-action: manipulation; }
   function contributeNote() {
     return h('div', { class: 'contribute' },
       h('b', { text: 'Found something wrong, or want to change it?' }),
-      h('p', { class: 'smallnote', text: 'Say so in a post — that is how the mobile layout, the length limits and the deletion rules all got fixed. Or send code: fork, keep the 67 tests green, open a pull request. Everything is reviewed before it merges.' }),
+      h('p', { class: 'smallnote', text: 'Say so in a post — that is how the mobile layout, the length limits and the deletion rules all got fixed. Or send code: fork, keep the tests green, open a pull request. Everything is reviewed before it merges.' }),
       h('div', { class: 'row' },
         h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab', target: '_blank', rel: 'noopener' }, 'Source on GitHub'),
         h('a', { class: 'btn small', href: 'https://github.com/enderPeer/peer-network-lab/issues/new', target: '_blank', rel: 'noopener' }, 'Report an issue'),
@@ -10249,7 +10249,7 @@ button, .btn { touch-action: manipulation; }
     if (econView === 'wallet') {
       var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'PEER — the epoch token' }),
-        h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled by their commitment rate λ(α̂) and gated at α̂ ≥ 0.2. Value, never standing: no balance enters any score.' }));
+        h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled linearly by the satoshis they have proved destroyed — an account that never burned weighs nothing, and above zero there is no threshold. Value, never standing: no balance enters any score.' }));
       var bkv = h('div', { class: 'kv' });
       var symsAll = Object.keys(tok.meta);
       for (var ti = 0; ti < symsAll.length; ti++) {
