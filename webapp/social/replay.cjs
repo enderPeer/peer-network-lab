@@ -94,21 +94,42 @@ function compileCells(bundles, selfCells) {
   return out;
 }
 
+/**
+ * A map whose keys come from the log — which means from strangers.
+ *
+ * `{}` inherits Object.prototype, so `pools['constructor']` is not undefined,
+ * it is the Object constructor: truthy, and every `if (!pools[name])` guard in
+ * this file waved it through. An adversarial pre-flight proved the whole
+ * family before this shipped: one authenticated `poolAdd` naming
+ * "constructor" was accepted at the door, persisted to the append-only log,
+ * and then threw on EVERY subsequent replay — the host died on boot, the
+ * browsers died with it, and nothing short of hand-editing the record could
+ * bring it back. `poolRemove` with the same name killed the process inside
+ * validate(), before authentication, repeatably.
+ *
+ * A prototype-less object has no such keys to inherit, so the guards mean what
+ * they say. Every map below whose keys are act fields — symbols, pool names,
+ * content ids, handles, txids — is built with this. It is one line instead of
+ * a `hasOwnProperty` call at fifty lookup sites, and unlike the fifty it
+ * cannot be forgotten at the fifty-first.
+ */
+function bare() { return Object.create(null); }
+
 function replayUncached(acts) {
   var g = new E.RawGraph();
-  var ledgers = [], ledgerById = {}, handles = {}, kReg = {}, creators = {}, payloads = {};
-  var bundles = {}, selfCells = [], deltaActs = {}, epochHistory = [], chron = [];
+  var ledgers = [], ledgerById = bare(), handles = bare(), kReg = bare(), creators = bare(), payloads = bare();
+  var bundles = bare(), selfCells = [], deltaActs = bare(), epochHistory = [], chron = [];
   // Who authored a node, recorded UNCONDITIONALLY. `creators` is inside the
   // payload guard, so a deleted account loses its entries — fine for display,
   // fatal for the token distribution: an epoch that closed months ago would
   // silently re-cut everyone else's share the moment one participant left.
   // Authorship is structure (the Publish edge already carries it publicly),
   // and structure survives deletion. This map is read by distribution only.
-  var contentAuthor = {};
-  var reviewMeta = {}; // commentNodeId -> {e, f}
-  var mediaMeta = {};  // contentId -> [{h, m} | {d, m}]
+  var contentAuthor = bare();
+  var reviewMeta = bare(); // commentNodeId -> {e, f}
+  var mediaMeta = bare();  // contentId -> [{h, m} | {d, m}]
   var dms = [];        // {from, to, text, idx}
-  var pinHash = {};
+  var pinHash = bare();
   var counter = 0;
   var certsSoFar = 0; // certificates issued before the current act (CoGra epoch age)
 
@@ -127,8 +148,8 @@ function replayUncached(acts) {
   // The cost, and the spec takes it deliberately: deleting a post does not
   // retract the vouches it compiled. Removal cannot be used to launder
   // standing that other people already received.
-  var deletedActors = {}, deletedPostIdx = {};
-  var seenSkel = {}, handleTwin = {};
+  var deletedActors = bare(), deletedPostIdx = bare();
+  var seenSkel = bare(), handleTwin = bare();
   for (var pre = 0; pre < acts.length; pre++) {
     var pact = acts[pre];
     if (pact.t === 'deleteAccount') deletedActors[pact.id] = true;
@@ -141,9 +162,9 @@ function replayUncached(acts) {
   }
   // Content whose payload was removed. Read for display and to refuse edits;
   // it no longer propagates, because muting is never inherited from a target.
-  var mutedContent = {};
-  var actContent = {};   // act index -> content id (posts only; edit targets)
-  var postMeta = {};
+  var mutedContent = bare();
+  var actContent = bare();   // act index -> content id (posts only; edit targets)
+  var postMeta = bare();
   // The faucet's ceiling. FROM_EPOCH is deliberately ahead of where the live
   // network stands, so no already-recorded standing moves; see the burn branch.
   var FAUCET_PER_EPOCH = 8;
@@ -151,18 +172,18 @@ function replayUncached(acts) {
   // The epoch the tBTC faucet shuts for good. Ahead of the record on
   // purpose: see the btcClaim branch.
   var TBTC_FAUCET_CLOSED_FROM = 62;
-  var faucetCount = {};   // (id '@' epoch) -> how many this epoch
-  var events = {};        // cid -> {host, at, place, fee, cur, cap, idx}
-  var eventInvites = {};  // cid -> { invitee: true }
-  var eventGoing = {};    // cid -> { attendee: true }
+  var faucetCount = bare();   // (id '@' epoch) -> how many this epoch
+  var events = bare();        // cid -> {host, at, place, fee, cur, cap, idx}
+  var eventInvites = bare();  // cid -> { invitee: true }
+  var eventGoing = bare();    // cid -> { attendee: true }
   // (actor '>' creator) pairs where money moved this epoch. Cleared with the
   // engagement records at close.
-  var paidTo = {};
+  var paidTo = bare();
   function countGoing(cid) { return Object.keys(eventGoing[cid] || {}).length; }
   function fmtAmt(x) { return (Math.round(x * 1e6) / 1e6).toString(); }
   // Attention, recorded but never scored. See the 'follow' branch below.
-  var follows = {};     // follower -> { followee: true }
-  var followers = {};   // followee -> { follower: true }
+  var follows = bare();     // follower -> { followee: true }
+  var followers = bare();   // followee -> { follower: true }
   var profiles = {};    // id -> { bio, link, pic, idx }     // cid -> {idx, ts, edited} for the edit/delete UI
   // Layer 0: the attestation ledger (Peer Attestation v0.6.0). The L1 seam:
   // every attestation increment feeds the actor's residual burn balance.
@@ -257,17 +278,17 @@ function replayUncached(acts) {
   var TBTC_CLAIM = 0.01;
   var TOK_MINLIQ = 1e-9; // locked forever at pool birth — kills the classic
                          // first-depositor share-inflation attack
-  var tokenBal = {};     // sym -> { actor -> amount }
-  var tokenMeta = { PEER: { name: 'Peer epoch token', creator: null },
+  var tokenBal = bare();     // sym -> { actor -> amount }
+  var tokenMeta = Object.assign(bare(), { PEER: { name: 'Peer epoch token', creator: null },
                     // tBTC is gone. It was a bitcoin-shaped name on a number
                     // this code invented, and after the restart there is no
                     // supply of it and no way to claim any. Kept in the table
                     // only so a pre-restart log still replays; it can hold no
                     // balance, because none was ever minted after genesis.
-                    tBTC: { name: 'retired — never real bitcoin, no supply, nothing mints it', creator: null } };
-  var tokenSupply = { PEER: 0, tBTC: 0 };
-  var btcClaimed = {};
-  var pools = {};        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
+                    tBTC: { name: 'retired — never real bitcoin, no supply, nothing mints it', creator: null } });
+  var tokenSupply = Object.assign(bare(), { PEER: 0, tBTC: 0 });
+  var btcClaimed = bare();
+  var pools = bare();        // 'A/B' -> { a, b, resA, resB, totalShares, shares: {actor->amt} }
   var tokenDist = [];    // per epoch: { epoch, minted, carried, to: {id: amt} }
   // ── Adverts ───────────────────────────────────────────────────────────
   //
@@ -306,13 +327,13 @@ function replayUncached(acts) {
   var AD_PEER_PER_DAY = 10;
   var adverts = [];      // {id, by, text, url, days, paid, at, until, aim, stopped}
   var adSeq = 0;
-  var earnedBurn = {};   // burn an account acquired, EXCLUDING the register grant
+  var earnedBurn = bare();   // burn an account acquired, EXCLUDING the register grant
   // Value this account destroyed on the Bitcoin chain, in satoshis, proven by
   // a txid anyone can check. Not a balance and not a claim: the coins are
   // gone, paid to a script that can never be satisfied. This is the ONLY
   // thing that weighs in the token distribution now — see TOK_SAT_UNIT.
-  var burnedSats = {};
-  var burnedTx = {};     // txid -> account, so one burn is claimed exactly once
+  var burnedSats = bare();
+  var burnedTx = bare();     // txid -> account, so one burn is claimed exactly once
   var tokenEpoch0 = 0;   // epochs before a resetTokens act pay nobody
   var tokenCarry = 0;
   var tokEpochN = 0;
@@ -388,13 +409,13 @@ function replayUncached(acts) {
   // the screen draws it, and two copies of one number drift: a card offering a
   // 'call time' button the door then refuses is the interface lying.
   var MKT_RESOLVE_MS = 7 * 24 * 60 * 60 * 1000;
-  var markets = {};      // cid -> the record built in the 'market' branch
+  var markets = bare();      // cid -> the record built in the 'market' branch
 
   function round6(x) { return Math.round(x * 1e6) / 1e6; }
   function balOf(sym, id) { return (tokenBal[sym] && tokenBal[sym][id]) || 0; }
   function tokCredit(sym, id, amt) {
     if (!(amt > 0)) return;
-    var m = tokenBal[sym] || (tokenBal[sym] = {});
+    var m = tokenBal[sym] || (tokenBal[sym] = bare());
     m[id] = (m[id] || 0) + amt;
   }
   function tokDebit(sym, id, amt) {
@@ -406,7 +427,7 @@ function replayUncached(acts) {
     // Both are refused here as well as at the door, because this file is the
     // last thing a foreign or hand-edited log passes through.
     if (!(amt > 0)) return;
-    var m = tokenBal[sym] || (tokenBal[sym] = {});
+    var m = tokenBal[sym] || (tokenBal[sym] = bare());
     m[id] = (m[id] || 0) - amt;
   }
   function poolId(x, y) { return x < y ? x + '/' + y : y + '/' + x; }
@@ -576,14 +597,25 @@ function replayUncached(acts) {
   function mktAmt(x) { return Math.floor(x * 1e6) / 1e6; }
 
   function mktSeats(m) {
-    var w = {}, id;
+    var w = bare(), id;
     for (id in m.cands) w[id] = 0;
     for (var v in m.votes) {
-      var wt = burnedSats[v] || 0;
+      // The weight RECORDED WITH THE BALLOT, never today's burn total.
+      //
+      // This read live `burnedSats[v]`, and a bitcoin burn is not a market
+      // act — no door closes it when betting closes. So an ally burning after
+      // the answer was already knowable re-ordered the jury: a pre-flight
+      // reproduced both halves of that, seating a puppet who then certified
+      // the attacker's answer (their 100 back as 196, the honest backer's 100
+      // gone), and un-seating a moderator who had certified falsely so the
+      // bond — the only thing a corrupt certification can cost — went home in
+      // full. Ballots are already refused after the close, so recording the
+      // weight when the ballot is cast freezes the election at the close by
+      // construction, with no clock anywhere near this file.
+      var ballot = m.votes[v], wt = ballot.wt || 0;
       if (wt <= 0) continue;                    // no proven burn, no weight
-      var ballot = m.votes[v];
-      for (var k = 0; k < ballot.length; k++) {
-        if (w[ballot[k]] !== undefined) w[ballot[k]] += wt;
+      for (var k = 0; k < ballot.for.length; k++) {
+        if (w[ballot.for[k]] !== undefined) w[ballot.for[k]] += wt;
       }
     }
     var order = Object.keys(m.cands).sort(function (x, y) {
@@ -776,9 +808,14 @@ function replayUncached(acts) {
           m.refunded[back[j]] = round6((m.refunded[back[j]] || 0) + m.stakes[i][back[j]]);
         }
       }
-      // A struck bond never goes home. With stakes to compensate it is spread
-      // across every one of them pro rata; with no stakes at all there is
-      // nobody to compensate, and it falls to the author with the dust.
+      // A struck bond never goes home — but only where somebody was actually
+      // kept waiting. With stakes to compensate, it is spread across every one
+      // of them pro rata. With NO stakes at all there is no victim, so there
+      // is nothing to compensate and nothing is taken: the bonds go back.
+      // (They used to fall to the author with the dust, which put the author
+      // of a bet nobody backed in the position of collecting from a jury that
+      // stayed quiet — a shape worth removing even though a review found the
+      // full attack it suggested does not close.)
       if (slashed > 0 && m.pool > 0) {
         var comp = 0, all = Object.keys(m.byBettor).sort();
         for (i = 0; i < all.length; i++) {
@@ -790,8 +827,14 @@ function replayUncached(acts) {
           }
         }
         dust = round6(slashed - comp);
-      } else {
-        dust = slashed;
+      } else if (slashed > 0) {
+        for (i = 0; i < seated.length; i++) {
+          if (m.struck[seated[i]] === undefined) continue;
+          tokCredit(m.cur, seated[i], m.struck[seated[i]]);
+          delete m.struck[seated[i]];
+        }
+        slashed = 0;
+        guilty = [];
       }
     }
     // Half the fee to the author, half split among the moderators who called
@@ -971,7 +1014,7 @@ function replayUncached(acts) {
       // by a faucet, and carrying them forward would price that farming in
       // permanently.
       tokenEpoch0 = certsSoFar;
-      for (var rsym in tokenBal) tokenBal[rsym] = {};
+      for (var rsym in tokenBal) tokenBal[rsym] = bare();
       if (!payloadGone) chron.push({ who: a.id || null, line: 'the token ledger was reset to zero at epoch ' + certsSoFar + ' — free-minted balances stop here' });
     } else if (a.t === 'deposit') {
       // Layer 0 is retired. This branch used to apply deposits,
@@ -1494,7 +1537,7 @@ function replayUncached(acts) {
           var depB = A === a.symA ? a.amtB : a.amtA;
           tokDebit(A, a.author, depA); tokDebit(B, a.author, depB);
           var s0 = Math.sqrt(depA * depB);
-          var sh = {}; sh[a.author] = s0 - TOK_MINLIQ; sh['_locked'] = TOK_MINLIQ;
+          var sh = bare(); sh[a.author] = s0 - TOK_MINLIQ; sh['_locked'] = TOK_MINLIQ;
           pools[pid] = { a: A, b: B, resA: depA, resB: depB, totalShares: s0, shares: sh, swaps: 0, volA: 0, volB: 0 };
           if (!payloadGone) chron.push({ who: a.author, line: 'opened the ' + pid + ' pool with ' + round6(depA) + ' ' + A + ' + ' + round6(depB) + ' ' + B });
         } else if (a.t === 'poolAdd') {
@@ -1560,7 +1603,7 @@ function replayUncached(acts) {
         var mopts = [], mstakes = [], mtotals = [];
         for (var mo = 0; mo < a.opts.length; mo++) {
           mopts.push(payloadGone ? '' : String(a.opts[mo]).slice(0, 60));
-          mstakes.push({}); mtotals.push(0);
+          mstakes.push(bare()); mtotals.push(0);
         }
         markets[mcid] = {
           cid: mcid, by: a.author, cur: a.cur, n: mopts.length, opts: mopts,
@@ -1572,10 +1615,10 @@ function replayUncached(acts) {
           nominees: (Array.isArray(a.mods) ? a.mods : []).filter(function (x) {
             return ledgerById[x] && x !== a.author;
           }).slice(0, 8),
-          stakes: mstakes, totals: mtotals, pool: 0, byBettor: {},
-          cands: {}, votes: {}, attests: {},
+          stakes: mstakes, totals: mtotals, pool: 0, byBettor: bare(),
+          cands: bare(), votes: bare(), attests: bare(),
           state: 'open', outcome: -1,
-          paid: {}, refunded: {}, struck: {}, earned: {},
+          paid: bare(), refunded: bare(), struck: bare(), earned: bare(),
           jury: [], honest: [], guilty: [], feePaid: 0, slashedTotal: 0,
           idx: i,
         };
@@ -1638,11 +1681,16 @@ function replayUncached(acts) {
       // is what makes a seat recallable: the community can move its weight to
       // somebody else at any point the host is still taking ballots, without
       // any separate machinery for throwing a moderator out.
-      vm.votes[a.author] = a.for.slice();
+      // The ballot carries the weight it was cast with. `for` is defaulted
+      // exactly as marketActError defaults it: the rulebook accepted an act
+      // with no `for` field and this line then threw on a.for.slice(), which
+      // is a host-and-replay divergence even though the HTTP door refuses it
+      // today. The two must read the same act the same way.
+      vm.votes[a.author] = { for: (Array.isArray(a.for) ? a.for : []).slice(), wt: burnedSats[a.author] || 0 };
       debit(a.author);
       if (!payloadGone) {
-        chron.push({ who: a.author, line: a.for.length
-          ? 'voted for ' + a.for.map(dispName).join(', ') + ' on a jury · weight '
+        chron.push({ who: a.author, line: vm.votes[a.author].for.length
+          ? 'voted for ' + vm.votes[a.author].for.map(dispName).join(', ') + ' on a jury · weight '
             + (burnedSats[a.author] || 0) + ' sat destroyed'
           : 'withdrew their jury ballot', to: a.cid });
       }
@@ -1709,7 +1757,7 @@ function replayUncached(acts) {
       var emission = tokenSupply.PEER >= TOK_CAP ? 0
         : Math.min(TOK_EPOCH * Math.pow(TOK_DECAY, Math.floor((tokEpochN - 1) / TOK_YEAR)), TOK_CAP - tokenSupply.PEER);
       var tokPool = round6(emission + tokenCarry);
-      var tw = {}, twTotal = 0, pairN = {}, twDetail = {};
+      var tw = bare(), twTotal = 0, pairN = bare(), twDetail = bare();
       for (var te = 0; te < epochEngage.length; te++) {
         var ev = epochEngage[te];
         var al = ledgerById[ev.actor];
@@ -1768,7 +1816,7 @@ function replayUncached(acts) {
       // nobody engaged in, and reaches the people who burn for real.
       if (certsSoFar <= tokenEpoch0) twTotal = 0;
       if (twTotal > 0 && tokPool > 0) {
-        var credited = 0, distTo = {};
+        var credited = 0, distTo = bare();
         for (var tk in tw) {
           // Round DOWN, always. round6 rounds to nearest, so summing the
           // per-creator shares could exceed the epoch pool by up to half a

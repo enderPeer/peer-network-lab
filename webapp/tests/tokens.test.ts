@@ -187,6 +187,66 @@ describe('epoch distribution — the poolsite curve on the epoch clock', () => {
   });
 });
 
+describe('a pool name that is an Object.prototype key', () => {
+  /**
+   * The defect this pins killed hosts, and it took an adversarial pre-flight
+   * to find it: `var pools = {}` inherits Object.prototype, so
+   * `pools['constructor']` is the Object constructor rather than undefined.
+   * Every `if (!pl) return 'no such pool'` guard therefore passed, and the
+   * next line indexed `pl.shares`, which is undefined.
+   *
+   * Two proven outcomes, both from a single POST by any registered handle with
+   * energy: `poolRemove` threw inside the door's own validation, killing the
+   * process before the act was even written and repeatably on every retry; and
+   * `poolAdd` was ACCEPTED, written to the append-only log, and then threw on
+   * every replay afterwards — the host died on boot, every browser died with
+   * it, and the only cure was hand-editing a record that is supposed to be
+   * unrewritable.
+   */
+  const POISON = ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'prototype'];
+
+  it('is refused by the rulebook rather than throwing inside it', () => {
+    const st = replay([...world('al', 'bo')]) as any;
+    for (const key of POISON) {
+      expect(() => st.tokenActError({ t: 'poolRemove', author: 'u_al', pool: key, shares: 1 }), key).not.toThrow();
+      expect(st.tokenActError({ t: 'poolRemove', author: 'u_al', pool: key, shares: 1 }), key)
+        .toMatch(/no such pool/);
+      expect(st.tokenActError({ t: 'poolAdd', author: 'u_al', pool: key, amtA: 1, amtB: 1 }), key)
+        .toMatch(/no such pool/);
+      expect(st.tokenActError({ t: 'poolSwap', author: 'u_al', pool: key, sell: 'PEER', amt: 1 }), key)
+        .toMatch(/no such pool/);
+    }
+  });
+
+  it('cannot be written into the log and then poison every future replay', () => {
+    // The unrecoverable variant: the act is in the record, so if the replay
+    // throws here it throws on every boot, forever.
+    const acts = [...world('al', 'bo')];
+    for (const key of POISON) {
+      acts.push({ t: 'poolAdd', author: 'u_al', pool: key, amtA: 1, amtB: 1 });
+      acts.push({ t: 'poolRemove', author: 'u_al', pool: key, shares: 1 });
+      acts.push({ t: 'poolSwap', author: 'u_al', pool: key, sell: 'PEER', amt: 1 });
+      acts.push({ t: 'poolCreate', author: 'u_al', symA: key, symB: 'PEER', amtA: 1, amtB: 1 });
+      acts.push({ t: 'tokenSend', author: 'u_al', sym: key, to: 'u_bo', amt: 1 });
+    }
+    let st: any;
+    expect(() => { st = replay(acts); }).not.toThrow();
+    expect(Object.keys(st.pools)).toEqual([]);
+    expect(st.tokens.bal.PEER).toBeUndefined();
+  });
+
+  it('an asset symbol shaped like a prototype key mints nothing', () => {
+    const st = replay([...world('al'),
+      { t: 'assetCreate', author: 'u_al', sym: 'constructor', name: 'x', supply: 1000 },
+      { t: 'assetCreate', author: 'u_al', sym: '__proto__', name: 'x', supply: 1000 },
+    ]) as any;
+    // The symbol grammar already refuses lowercase, and now the map cannot be
+    // fooled either way round.
+    expect(st.tokens.supply.constructor).toBeUndefined();
+    expect(st.tokens.bal.constructor).toBeUndefined();
+  });
+});
+
 describe('the wall between value and standing', () => {
   it('token acts create no graph edges and compile no vouches', () => {
     const base = [...world('al', 'bo'), post('al', 'P'), like('bo', 'c1'), close()];

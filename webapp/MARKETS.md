@@ -49,6 +49,19 @@ makes a seat recallable: the community can move its weight to somebody else at
 any point up to the close, and no separate machinery for throwing a moderator
 out has to exist.
 
+**A ballot carries the weight it was cast with**, and that is what freezes the
+jury when betting closes. The first version read the voter's burn total live,
+and a bitcoin burn is not a market act — no door shuts it at the close. An
+adversarial pre-flight turned that into two working attacks before any of this
+shipped: an ally burning *after* the answer was already knowable seated a
+puppet who then certified the attacker's answer (their 100 came back as 196,
+the honest backer lost 100), and the same trick un-seated a moderator who had
+certified falsely, so the bond that is supposed to be the only cost of a
+corrupt certification went home in full. Recording the weight at the moment the
+ballot is cast fixes it where it belongs: ballots already stop at the close, so
+the election stops with them — and no clock had to go anywhere near the
+replay.
+
 Ties break by bond, then by handle. That is determinism, not merit: two honest
 observers replaying the same log must seat the same people, or the network has
 two different answers to who may certify a bet.
@@ -76,6 +89,13 @@ is paid and **no fee is taken**: every stake goes back in full.
 Every stake goes back in full, no fee is taken — and there the silence is what
 costs: seats that never certified forfeit their bonds, shared across the stakes
 that were held hostage while they said nothing.
+
+**Unless nobody was kept waiting.** On a bet that never drew a single stake
+there is no victim, so nothing is taken and every bond goes back. The earlier
+rule handed those bonds to the author with the dust, which put the author of an
+unbacked bet in the position of collecting from a jury that stayed quiet — a
+review could not close the full attack it suggested, and the shape was still
+worth removing.
 
 ## Who may not do what
 
@@ -115,9 +135,17 @@ is a way to lose other people's money.
 satoshis, so splitting a stake across puppets gains nothing — that hole is
 closed and there is a test. What is *not* closed is concentration: somebody who
 has destroyed more bitcoin than everyone else voting can seat whoever they
-like. The counterweights are that seats are contestable until the close, that a
+like. The counterweights are that seats are contestable until the close — and
+only until the close, since a ballot's weight is fixed when it is cast — that a
 corrupt certification forfeits the bond, and that the whole election is in the
 public log with every ballot's weight beside it. None of those is a proof.
+
+It is worth being plain about the size of that: this network is small, and the
+burns behind it are small. A jury here can be swung for a few tens of thousands
+of satoshis. That is real money and it is destroyed rather than spent, but it
+is not much money, and a pool worth more than the burn that decides it is a
+pool worth attacking. Do not put more on a bet than you would put on the
+honesty of the people standing for its jury.
 
 **A colluding majority of a seated jury can certify a lie.** They would forfeit
 nothing — the minority would be the ones struck for dissenting. This is the
@@ -166,3 +194,14 @@ as its owner choosing to play.
 the refusal text is the same sentence in both places and the host cannot accept
 what the replay would skip. The only things the host adds are the clock and
 deletion — the two things a pure replay must never know about.
+
+**Every map the log can key is prototype-free.** `{}` inherits
+`Object.prototype`, so a pool or a bet named `constructor` was not missing — it
+was the `Object` constructor, truthy, and it walked straight through every
+`if (!thing) return 'no such thing'` guard in the replay. On the token path
+that was a proven host-killer: one accepted `poolAdd` wrote a line that threw on
+every replay afterwards, killing the host on every boot until somebody
+hand-edited an append-only record. Those maps are built with
+`Object.create(null)` now, which is one line each instead of a `hasOwnProperty`
+call at fifty lookup sites — and unlike the fifty, it cannot be forgotten at
+the fifty-first.

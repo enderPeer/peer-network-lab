@@ -399,6 +399,114 @@ describe('the wall between a bet and a reputation', () => {
   });
 });
 
+describe('the jury is frozen when betting closes', () => {
+  const cid = 'c1';
+  const race = [...table('al', 'dd', 'ee'),
+    ask('al', ['yes', 'no'], { seats: 1 }), stand('dd', cid), stand('ee', cid)];
+  const lean = (name: string, sats: number, nonce = 7) =>
+    [{ t: 'register', id: 'u_' + name, handle: name, seed: 1, epoch: 0 }, btcBurn(name, sats, nonce)];
+
+  it('a burn made after the ballot does not move the seat it voted for', () => {
+    // The attack this pins, reproduced before it shipped: a ballot's weight
+    // used to be read live, and a bitcoin burn is not a market act, so no door
+    // closes it when betting does. An ally burning after the answer was
+    // already knowable re-ordered the jury — seating a puppet who then
+    // certified the attacker's answer, or un-seating a moderator who had
+    // certified falsely so their bond went home instead of being struck.
+    const before = [...race,
+      ...lean('w1', 8000), ...lean('w2', 9000),
+      ballot('w1', cid, 'dd'), ballot('w2', cid, 'ee')];
+    const st: any = replay(before);
+    expect(st.marketSeats(st.markets[cid]).weight).toEqual({ u_dd: 8000, u_ee: 9000 });
+    expect(st.marketSeats(st.markets[cid]).seated).toEqual(['u_ee']);
+
+    // …now w1 destroys another 50,000 sat. Real money, really gone — and it
+    // buys reserve and epoch-mint weight, as it always did. What it must not
+    // buy is a seat on a jury whose ballots already closed.
+    const after: any = replay([...before, btcBurn('w1', 50000, 99)]);
+    expect(after.marketSeats(after.markets[cid]).weight).toEqual({ u_dd: 8000, u_ee: 9000 });
+    expect(after.marketSeats(after.markets[cid]).seated).toEqual(['u_ee']);
+    expect(after.marketActError({ t: 'attest', author: 'u_dd', cid, opt: 0 })).toMatch(/holds no seat/);
+    expect(after.marketActError({ t: 'attest', author: 'u_ee', cid, opt: 0 })).toBeNull();
+  });
+
+  it('a fresh ballot re-reads the weight, because that is the voter choosing to', () => {
+    const st: any = replay([...race, ...lean('w1', 8000), ballot('w1', cid, 'dd'),
+      btcBurn('w1', 50000, 98), ballot('w1', cid, 'dd')]);
+    expect(st.marketSeats(st.markets[cid]).weight['u_dd']).toBe(58000);
+  });
+
+  it('a ballot with no candidates named at all is recorded, not thrown at', () => {
+    // marketActError defaults a missing `for` to []; the apply branch used to
+    // call a.for.slice() and throw. The rulebook and the record have to read
+    // the same act the same way, or the host and the replay disagree.
+    const st: any = replay([...race, { t: 'modVote', author: 'u_al', cid }]);
+    expect(st.markets[cid].votes['u_al'].for).toEqual([]);
+    expect(st.marketSeats(st.markets[cid]).seated.length).toBe(1);
+  });
+});
+
+describe('hostile keys cannot reach the maps', () => {
+  // `{}` inherits Object.prototype, so markets['constructor'] used to be the
+  // Object constructor — truthy, defeating every `if (!m)` guard. On the token
+  // path the same shape was a proven host-killer; here it must simply refuse.
+  const POISON = ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf'];
+  const cid = 'c1';
+
+  it('a bet, a ballot and a certificate naming a prototype key are refused, not crashed on', () => {
+    const base = [...table('al', 'bo'), ask('al', ['y', 'n'])];
+    for (const key of POISON) {
+      const st: any = replay([...base,
+        { t: 'bet', author: 'u_bo', cid: key, opt: 0, amt: 10 },
+        { t: 'modStand', author: 'u_bo', cid: key, on: true },
+        { t: 'modVote', author: 'u_bo', cid: key, for: [] },
+        { t: 'attest', author: 'u_bo', cid: key, opt: 0 },
+        { t: 'marketVoid', author: 'u_bo', cid: key },
+      ]);
+      expect(st.marketActError({ t: 'bet', author: 'u_bo', cid: key, opt: 0, amt: 1 }),
+        `bet on ${key}`).toMatch(/no such bet/);
+      expect(chips(st, 'bo'), `balance moved on ${key}`).toBe(START);
+      expect(st.markets[cid].pool).toBe(0);
+    }
+  });
+
+  it('a handle named after a prototype key is an unknown actor, not a live one', () => {
+    const st: any = replay([...table('al'), ask('al', ['y', 'n'])]);
+    for (const key of POISON) {
+      expect(st.marketActError({ t: 'bet', author: key, cid, opt: 0, amt: 1 }), key)
+        .toMatch(/unknown actor/);
+    }
+  });
+});
+
+describe('a void with nobody to compensate takes nothing', () => {
+  it('returns every bond when no stake was ever placed', () => {
+    const cid = 'c1';
+    const players = ['al', 'dd', 'ee', 'ff'];
+    const st: any = replay([...table(...players), ask('al', ['y', 'n']),
+      stand('dd', cid), stand('ee', cid), stand('ff', cid),
+      callTime('al', cid)]);
+    expect(st.markets[cid].state).toBe('void');
+    expect(st.markets[cid].slashedTotal).toBe(0);
+    expect(st.markets[cid].struck).toEqual({});
+    for (const n of players) expect(chips(st, n), n).toBe(START);
+    expect(conserved(st, players, cid)).toBe(START * players.length);
+  });
+
+  it('but still strikes the silent when real money was held up', () => {
+    const cid = 'c1';
+    const players = ['al', 'bo', 'dd', 'ee', 'ff'];
+    const st: any = replay([...table(...players), ask('al', ['y', 'n']),
+      bet('bo', cid, 0, 40),
+      stand('dd', cid), stand('ee', cid), stand('ff', cid),
+      callTime('bo', cid)]);
+    expect(st.markets[cid].slashedTotal).toBe(30);
+    expect(chips(st, 'bo')).toBe(START + 30);   // stake back, plus the bonds
+    expect(chips(st, 'dd')).toBe(START - 10);
+    expect(conserved(st, players, cid)).toBe(START * players.length);
+  });
+});
+
 describe('purity', () => {
   it('deleting the bet redacts the question and pays out exactly the same', () => {
     const { acts, cid, players } = game();
