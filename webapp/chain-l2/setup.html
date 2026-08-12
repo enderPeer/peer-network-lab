@@ -36,6 +36,7 @@
 <div class="card">
   <b>What one press does</b>
   <ol class="muted">
+    <li>Asks the setup script whether this page belongs to the run that is listening, and what it already has recorded — before anything is signed, so a tab left over from an earlier run stops here instead of paying for two contracts nobody will record.</li>
     <li>Reads your wallet and this host: what is already deployed, how much PEER and ETH you hold, which epochs have closed and which of them have anything to claim.</li>
     <li>Deploys <b>PeerAnchor</b>, then <b>PeerClaim</b> against the PEER the host reports and you as steward — checking there is really code at each address before going on.</li>
     <li>Hands both addresses and their block numbers to the setup script, which writes them into <code>server-data</code> and restarts the host.</li>
@@ -318,24 +319,81 @@ const HOSTC = pointedAt('host', 'peer-host', 'http://127.0.0.1:5210');
 const CBC = pointedAt('callback', 'peer-callback', noSlash(location.origin));
 const HOST = HOSTC.url, CB = CBC.url;
 const NONCE = String(QS.get('nonce') || metaOf('peer-setup-nonce') || '');
-const cfgOk = HOSTC.ok && CBC.ok;
-(function renderCfg() {
+
+// ---- is this the run that opened this tab? ----
+// The nonce used to be checked in exactly one place: the setup script, when
+// the addresses were POSTed to it. That is step three of the plan — after two
+// irreversible deployments — so a tab left over from an earlier run learned it
+// was stale by having its hand-over refused, with the gas already spent. And
+// stale is the ordinary case, not an exotic one: the script takes the first
+// free port from 8930 upwards, so the next run almost always binds the port
+// the last one used, and an old tab reloaded there loads the NEW page from the
+// NEW listener while its URL still carries the OLD nonce.
+//
+// The listener answers GET before anything is signed. It always did. So the
+// question is asked at load, for free, and the button is dead if the answer is
+// no.
+//   'unchecked' — asked, no answer yet
+//   'ok'        — this run's nonce
+//   'stale'     — a nonce, and not this run's: nothing this page deploys would
+//                 be recorded, so nothing is deployed
+//   'absent'    — no nonce at all. Not fatal and never has been: the page still
+//                 works standalone (serve-deploy.mjs), the hand-over is refused,
+//                 and you write the three files by hand. It says so up front.
+//   'unreachable' — no setup script there. Same as absent, for the same reason.
+let nonceState = NONCE ? 'unchecked' : 'absent';
+let nonceWhy = '';
+const cfgOk = () => HOSTC.ok && CBC.ok && nonceState !== 'stale' && nonceState !== 'unchecked';
+function renderCfg() {
   const row = (label, c) => '<div>' + label + ' <b>' + esc(c.url || '(nothing)') + '</b>'
     + (c.ok ? '' : ' <span class="bad">— REFUSED: not a loopback address</span>')
     + '<div class="muted" style="font-size:12px">from ' + esc(c.src) + '</div></div>';
   let h = row('the host:', HOSTC) + row('the setup script:', CBC);
-  h += '<div class="muted" style="font-size:12px;margin-top:8px">'
-    + (NONCE ? 'A nonce was passed in, so the setup script can tell this press from any other page you have open.'
-             : 'No nonce was passed in. The setup script may refuse the callback for that reason — it is how it tells this press apart from any other page you have open. Everything else works; you would write the three files by hand.')
-    + '</div>';
-  if (!cfgOk) {
+  const nonceLine = {
+    unchecked: ['muted', 'A nonce was passed in, but this page has not yet confirmed with the setup script that it is the current one. Asking — nothing runs until it answers.'],
+    ok: ['ok', 'The setup script confirms this nonce is the one it is listening for, so it can tell this press from any other page you have open.'],
+    stale: ['bad', 'THIS TAB IS FROM AN EARLIER RUN. ' + (nonceWhy || 'The setup script listening on that port is not the one that opened this page, so it would refuse everything this page deployed — after you had paid for it. Close this tab and open the URL the running script printed.')],
+    absent: ['muted', 'No nonce was passed in. The setup script may refuse the callback for that reason — it is how it tells this press apart from any other page you have open. Everything else works; you would write the three files by hand.'],
+    unreachable: ['muted', 'No setup script answered at that address, so this page cannot confirm its nonce and cannot hand anything over. Everything else works; you would write the three files by hand.'],
+  }[nonceState];
+  h += '<div class="' + nonceLine[0] + '" style="font-size:12px;margin-top:8px">' + esc(nonceLine[1]) + '</div>';
+  if (!HOSTC.ok || !CBC.ok) {
     h += '<div class="bad" style="margin-top:8px">Both must be http://127.0.0.1 or http://localhost. This page configures a running host, so it only talks to one on this machine. Nothing on this page will run until that is true.</div>';
   }
   if (location.protocol === 'file:') {
     h += '<div class="bad" style="margin-top:8px">This page was opened as a file. MetaMask does not inject into file:// pages, so there is no wallet here at all — serve it over http from the setup script, or with <code>node chain-l2/serve-deploy.mjs</code> and open http://127.0.0.1:8899/setup.html.</div>';
   }
   $('cfg').innerHTML = h;
-})();
+}
+renderCfg();
+
+// ONE GET, and it answers three separate questions this page used to guess at:
+// whether this tab belongs to the run that is listening, what server-data
+// NAMES, and whether that run may record a different address over a recorded
+// one. Called at load to settle the button, and again as the first act of every
+// press — the tab could have been sitting here while one run ended and another
+// took the port, and only the press-time answer is about the run that would
+// actually receive the addresses.
+//
+// Returns the script's state, or null when there is nothing to ask.
+async function readSetupScript() {
+  if (!CBC.ok || !NONCE) return null;
+  let st = null;
+  try { st = await getJson(CB + '/state?nonce=' + encodeURIComponent(NONCE), 'asking the setup script what it already knows'); }
+  catch (e) { nonceState = 'unreachable'; nonceWhy = String(e.message || e); renderCfg(); sync(); return null; }
+  // An older setup script that does not answer nonceOk at all is not evidence
+  // of staleness, and treating a missing field as false would brick a page that
+  // is perfectly current. Only an explicit false is a verdict.
+  if (st && st.nonceOk === false) {
+    nonceState = 'stale'; nonceWhy = String(st.nonceWhy || '');
+    renderCfg(); sync();
+    return st;
+  }
+  if (st && st.nonceOk === true) { nonceState = 'ok'; }
+  else { nonceState = 'unreachable'; nonceWhy = 'that setup script does not answer nonceOk, so this page cannot tell whether it is the current one.'; st = null; }
+  renderCfg(); sync();
+  return st;
+}
 
 // ---- the little that is remembered, and why ----
 // Everything this page needs it re-reads from the chain or from the host on
@@ -343,26 +401,44 @@ const cfgOk = HOSTC.ok && CBC.ok;
 // address was never handed over is remembered nowhere else: not by the host,
 // which has not been told, and not by the chain, which cannot be asked "did
 // this wallet deploy a PeerAnchor". Closing the tab there costs a redeployment
-// for nothing. So those addresses live in sessionStorage — this tab only, gone
-// when it closes — keyed to the account that deployed them, and every one is
-// checked against eth_getCode before it is believed.
-const MEM = 'peer-setup-' + BASE_CHAIN_NUM;
+// for nothing.
+//
+// This used to say exactly that and then store the record in sessionStorage,
+// which survives a reload and a re-press and is destroyed by the one event the
+// paragraph names: closing the tab. So it is localStorage now, keyed to the
+// account AND the chain, because the record is about what that account
+// deployed and a different account's deployments are not an answer about this
+// one. Nothing secret goes in it — a contract address is public the moment it
+// is mined — and nothing in it is believed: every address is checked against
+// eth_getCode, and the host's own answer wins wherever both have one.
+const memKey = () => 'peer-setup-' + BASE_CHAIN_NUM + '-' + String(account || '').toLowerCase();
+function remember() {
+  const rec = JSON.stringify({
+    account: account, anchor: S.anchor, anchorBlock: S.anchorBlock, anchorTx: S.anchorTx,
+    claim: S.claim, claimBlock: S.claimBlock, claimTx: S.claimTx,
+    pools: S.pools, poolsBlock: S.poolsBlock, poolsTx: S.poolsTx,
+  });
+  // Both stores, and neither is required. Some privacy modes throw on the very
+  // first localStorage touch, and there sessionStorage is still better than
+  // nothing — it at least survives the re-press.
+  try { localStorage.setItem(memKey(), rec); } catch (e) { /* see below */ }
+  try { sessionStorage.setItem(memKey(), rec); } catch (e) { /* the addresses are in the log either way */ }
+}
+function recall() {
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const v = JSON.parse(store.getItem(memKey()) || 'null');
+      if (v) return v;
+    } catch (e) { /* unavailable or unparseable: try the other, then give up */ }
+  }
+  return null;
+}
 const S = {
   anchor: null, anchorBlock: null, anchorTx: null,
   claim: null, claimBlock: null, claimTx: null,
   pools: null, poolsBlock: null, poolsTx: null,
   token: null, btc: null, btcDec: 8, peerDec: 18,
 };
-function remember() {
-  try {
-    sessionStorage.setItem(MEM, JSON.stringify({
-      account: account, anchor: S.anchor, anchorBlock: S.anchorBlock, anchorTx: S.anchorTx,
-      claim: S.claim, claimBlock: S.claimBlock, claimTx: S.claimTx,
-      pools: S.pools, poolsBlock: S.poolsBlock, poolsTx: S.poolsTx,
-    }));
-  } catch (e) { /* private mode, or storage full: the addresses are in the log either way */ }
-}
-function recall() { try { return JSON.parse(sessionStorage.getItem(MEM) || 'null'); } catch (e) { return null; } }
 
 // ---- what has landed, what it cost ----
 // Kept across presses on purpose: "what stands" is the whole session's answer,
@@ -393,8 +469,11 @@ function setNow(t) { curLine = t; $('now').textContent = t; }
 function tick(secs) { $('now').textContent = curLine + '  (' + secs + 's)'; }
 function sync() {
   const b = $('go');
-  b.disabled = running || !cfgOk;
-  b.textContent = running ? 'Working — watch the line below' : (DONE.length ? 'Carry on from where it stopped' : 'Set everything up');
+  b.disabled = running || !cfgOk();
+  b.textContent = running ? 'Working — watch the line below'
+    : (nonceState === 'stale' ? 'This tab is from an earlier run'
+    : (nonceState === 'unchecked' ? 'Checking with the setup script…'
+    : (DONE.length ? 'Carry on from where it stopped' : 'Set everything up')));
 }
 // The steward is fixed at deployment and the approve is granted by one
 // account. A wallet that switches accounts mid-run would sign the next step as
@@ -509,8 +588,14 @@ async function postToScript(what) {
   // itself before writing anything, and its reason is the useful part of the
   // answer. Pull it out rather than showing a person a JSON blob to read.
   let said = text.slice(0, 400);
-  try { const j = JSON.parse(text); if (j && (j.error || j.note)) said = j.error || j.note; } catch (e) { /* not JSON: the raw body is the best there is */ }
-  if (r && !r.ok) handOverFailed(what, 'it answered ' + r.status + ' and said: ' + said);
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (e) { /* not JSON: the raw body is the best there is */ }
+  if (parsed && (parsed.error || parsed.note)) said = parsed.error || parsed.note;
+  // filesWritten is the script saying "the refusal is not about your addresses":
+  // it took them, wrote them, and then the host did not come back. Sending that
+  // operator off to write files that already say the right thing would be the
+  // wrong instruction at the one moment they are most likely to follow it.
+  if (r && !r.ok) handOverFailed(what, 'it answered ' + r.status + ' and said: ' + said, !!(parsed && parsed.filesWritten));
   log('The setup script took it: ' + esc(said || 'ok'), 'ok');
 }
 
@@ -518,11 +603,23 @@ async function postToScript(what) {
 // whole message: those contracts exist, they are yours, they cost money, and
 // the only thing missing is that a text file does not name them yet. So this
 // prints the three files and the restart command rather than a stack trace.
-function handOverFailed(what, why) {
+function handOverFailed(what, why, filesWritten) {
   log('');
-  log('The setup script did not take the addresses: ' + esc(why), 'bad');
+  log('The setup script did not finish the hand-over: ' + esc(why), 'bad');
   log('');
   log('THIS DID NOT UNDO ANYTHING. What you deployed is deployed and is yours.', 'hd');
+  if (filesWritten) {
+    // The files are right; the host is not running. One instruction, and it is
+    // not "write these down".
+    log('The setup script DID write the configuration. Nothing needs copying and nothing');
+    log('needs deploying again — what is missing is the host itself, which did not come');
+    log('back after the restart.');
+    log('Start it by hand:  powershell -ExecutionPolicy Bypass -File .\\start-host.ps1');
+    log('and read webapp\\server-data\\host.err.log if it will not stay up.');
+    log('Then press the button again — it reads the host, sees the contracts, and carries on.', 'muted');
+    const e = new Error(what + ': the files were written but the host did not come back');
+    e.hard = true; throw e;
+  }
   log('All that is missing is the host being told. Write these into webapp\\server-data\\:');
   if (S.anchor) log('  anchor-address.txt    ' + S.anchor);
   if (S.claim) log('  claim-address.txt     ' + S.claim);
@@ -589,6 +686,26 @@ async function sequence() {
   setNow('Reading what is already true. Nothing is signed in this part.');
   log('');
   log('READING WHAT IS ALREADY TRUE', 'hd');
+
+  // The setup script is asked first — before the wallet, before the plan, and
+  // a long way before the first signature. It is the cheapest read in the whole
+  // run and it used to be the last one: the nonce was only tested when the
+  // addresses were POSTed, which is after two deployments have been paid for.
+  const SETUP = await readSetupScript();
+  if (nonceState === 'stale') {
+    const e = new Error(nonceWhy || 'this page carries the nonce of an earlier run, and the setup script listening here is not that run. Nothing was signed — close this tab and open the URL the running script printed.');
+    e.hard = true; throw e;
+  }
+  if (SETUP) {
+    log('The setup script answers, and this page is its own.', 'ok');
+  } else if (NONCE) {
+    log('The setup script did not answer, so nothing can be handed over to it. Deploying would still work and the addresses would be printed here for you to write into server-data by hand — but the run is stopped instead, because that is a decision to make on purpose rather than to discover afterwards.', 'bad');
+    const e = new Error('no setup script answered at ' + CB + '. Nothing was signed.');
+    e.hard = true; throw e;
+  } else {
+    log('No setup script to ask (no nonce was passed in). Nothing will be handed over automatically; the addresses are printed here and you write the three files yourself.', 'muted');
+  }
+
   if (!window.ethereum) throw new Error('No wallet in this browser. Open this page in the browser where MetaMask lives — over http://, because MetaMask does not inject into file:// pages.');
   const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
   account = accs && accs[0];
@@ -653,9 +770,23 @@ async function sequence() {
     log('Could not read the cbBTC side (' + esc(b.why) + '). The pool question is left alone rather than answered wrongly.', 'muted');
   }
 
-  // What is already deployed, from two sources that must agree: the host's
-  // configuration, and this tab's memory of a run that never got to hand its
-  // addresses over. The host wins where both have an answer.
+  // What is already deployed, from THREE sources, and the order between them is
+  // the whole point.
+  //
+  //   this tab's memory   a contract deployed in an earlier press whose address
+  //                       was never handed over. Weakest: nobody else knows it.
+  //   server-data         what the setup script's files NAME. Stronger: it is a
+  //                       decision somebody recorded on this machine.
+  //   the host            what /api/token/onchain actually serves. Strongest,
+  //                       because the app reads the host and nothing else.
+  //
+  // The middle one is new here, and its absence was expensive. This page used
+  // to plan entirely from the host, and the setup script used to gate entirely
+  // on the files — so in the one state where those disagree, which is "the
+  // files were written and the restart did not take", the page saw no claim
+  // contract, deployed a second one with real money, posted it, and was refused
+  // for replacing a contract it had never been told about. Two contracts paid
+  // for and thrown away, and the script's own header documents that state.
   const mem = recall();
   if (mem && eqAddr(mem.account, account)) {
     for (const k of ['anchor', 'claim', 'pools']) {
@@ -665,15 +796,64 @@ async function sequence() {
       S[k] = String(mem[k]).toLowerCase();
       S[k + 'Block'] = mem[k + 'Block'];
       S[k + 'Tx'] = mem[k + 'Tx'];
-      log('Recovered from an earlier press in this tab: ' + k + ' at ' + scan('address', S[k]) + ' — there is code at it, so it is real and will not be deployed again.', 'ok');
+      log('Recovered from an earlier press by this wallet: ' + k + ' at ' + scan('address', S[k]) + ' — there is code at it, so it is real and will not be deployed again.', 'ok');
     }
   }
+
+  // What server-data names. Adopted, not deployed over — but only after the
+  // chain says there is really something at it, because a file is a claim and
+  // eth_getCode is an answer.
+  const CFG = (SETUP && SETUP.configured) || {};
+  const ALLOW_REPLACE = !!(SETUP && SETUP.allowReplace);
+  const cfgDead = [];
+  for (const k of ['anchor', 'claim', 'pools']) {
+    const a = addrOf(CFG[k]);
+    if (!a) continue;
+    let code = null;
+    try { code = await window.ethereum.request({ method: 'eth_getCode', params: [a, 'latest'] }); }
+    catch (e) { throw new Error('server-data names a ' + k + ' at ' + a + ' and the chain could not be asked whether there is code there (' + (e.message || e) + '). Nothing was signed; that is the RPC, not a verdict. Press again.'); }
+    if (!code || code === '0x') {
+      // Named in a file, absent from the chain. Never adopted, and never
+      // silently deployed over either: the refusal belongs to whoever wrote
+      // that file.
+      cfgDead.push(k + ' ' + a);
+      continue;
+    }
+    if (S[k] && !eqAddr(S[k], a)) {
+      log('server-data names a ' + k + ' at ' + scan('address', a) + ', and this tab remembers deploying ' + scan('address', S[k]) + '. Taking the recorded one: a file on the machine outranks this tab\'s memory.', 'muted');
+    }
+    S[k] = a;
+    log('server-data already names a ' + k + ': ' + scan('address', a) + ' — there is code at it, so it is adopted and will not be deployed again.', 'ok');
+  }
+
   const hostAnchor = addrOf(oc.anchors && oc.anchors.contract);
   const hostClaim = addrOf(oc.claimState && oc.claimState.contract);
   const hostPools = addrOf(oc.namedPools && oc.namedPools.factory);
+  // The host wins where both have an answer — but a host serving a DIFFERENT
+  // address than the files name is not a precedence question, it is a broken
+  // configuration, and neither answer is safe to fund against. Nobody is asked
+  // to guess which one the app will be reading in five minutes.
+  for (const pair of [['anchor', hostAnchor], ['claim', hostClaim], ['pools', hostPools]]) {
+    const named = addrOf(CFG[pair[0]]);
+    if (named && pair[1] && !eqAddr(named, pair[1])) {
+      throw new Error('the host is serving ' + pair[1] + ' as its ' + pair[0] + ' and server-data\\' + pair[0] + '-address.txt names ' + named + '. Those are different contracts, and which one the app uses depends on when it was last restarted. Nothing was signed. Settle that first — pick one, put it in the file, and restart the host.');
+    }
+  }
   if (hostAnchor) { S.anchor = hostAnchor; log('The host already points at a PeerAnchor: ' + scan('address', hostAnchor), 'ok'); }
   if (hostClaim) { S.claim = hostClaim; log('The host already points at a PeerClaim: ' + scan('address', hostClaim), 'ok'); }
   if (hostPools) { S.pools = hostPools; log('The host already points at a pools factory: ' + scan('address', hostPools), 'ok'); }
+
+  // The last thing before the plan is drawn: would this run's deployments be
+  // REFUSED? The setup script will not record a different address over a
+  // recorded one unless it was told it may, and that answer was taken in the
+  // terminal before this page ever loaded. Reading it here turns "deploy, then
+  // be refused" into "do not deploy" — the difference is two contracts.
+  if (cfgDead.length && !ALLOW_REPLACE) {
+    throw new Error('server-data names ' + cfgDead.join(' and ') + ', and there is no code at that address on Base — so it cannot be adopted. Deploying a replacement is what is needed, and this run was told not to replace what is recorded, so the setup script would refuse to write the new address after you had paid for it. Nothing was signed. Re-run the setup script with -ReplaceExisting, or clear that file.');
+  }
+  if (cfgDead.length) {
+    log('server-data names ' + esc(cfgDead.join(' and ')) + ' with no code at it on Base. This run was told it may replace what is recorded, so a new one is deployed below and the file is rewritten.', 'bad');
+  }
 
   // A factory is only a factory for the pair it was deployed against, and
   // that pairing is immutable. This is not a hypothetical check: a PeerPools
@@ -1113,6 +1293,11 @@ if (window.ethereum && window.ethereum.on) {
   window.ethereum.on('accountsChanged', (accs) => { account = (accs && accs[0]) || null; renderWho(); });
 }
 sync();
+// Asked at load, so a tab from an earlier run is dead on arrival rather than
+// after two deployments. It reaches nothing outside this machine and signs
+// nothing; the button waits for it because a button that works before this
+// answers is a button that can spend money on a run that will not record it.
+readSetupScript();
 
 // ---- the pool, which is not setup ----
 // Deliberately behind its own button and its own numbers. Everything above is

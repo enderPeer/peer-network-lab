@@ -49,8 +49,9 @@
 # THE PROTOCOL BETWEEN THE TWO FILES, so they cannot drift apart. The listener
 # is loopback-only and setup.html is written to exactly this:
 #   GET  /  and  /setup.html      the page, byte for byte as fingerprinted below
-#   GET  /api/setup/status        { state, note } - narration the page prints
-#                                 beside its own, so one window tells the story
+#   GET  /api/setup/status        { state, note, nonceOk } - narration the page
+#                                 prints beside its own, so one window tells the
+#                                 story. A ?nonce= on it is answered by nonceOk.
 #   POST /api/setup/deployed      the hand-over. Cumulative and idempotent: the
 #                                 page posts anchor+claim, and later posts the
 #                                 same body again with pools added, so this
@@ -62,8 +63,30 @@
 #       claim?:  { address, block, tx },
 #       pools?:  { address, block, tx },
 #       epochFromBlock? }
-#   GET  /state                   not used by the page: it is how a person can
-#                                 see what this script decided, with one curl.
+#   GET  /state?nonce=...         everything this script decided. Still one curl
+#                                 for a person, and also the FIRST thing the page
+#                                 asks for - before the first signature rather
+#                                 than after two of them:
+#                                   nonceOk      is this the run that opened you?
+#                                                A tab left over from an earlier
+#                                                run, pointed at a port this one
+#                                                reused, used to learn that only
+#                                                when its hand-over was refused -
+#                                                two deployments too late.
+#                                   configured   what server-data NAMES.
+#                                   hostReports  what the running host actually
+#                                                serves. Those two disagree in
+#                                                one real state - a previous run
+#                                                wrote the files and the restart
+#                                                did not take - and there the
+#                                                page must ADOPT the difference
+#                                                rather than deploy over it.
+#                                   allowReplace whether this run may record a
+#                                                DIFFERENT address over one that
+#                                                is already recorded. The page
+#                                                refuses to sign what this would
+#                                                refuse to write, instead of
+#                                                finding out afterwards.
 #
 # THERE IS NO "DONE" MESSAGE, ON PURPOSE. The page never tells this script that
 # an epoch was funded, and this script never asks it. It watches Base instead:
@@ -166,6 +189,39 @@ function Has-Code($addr) {
   $c = Rpc 'eth_getCode' ('["' + $addr + '","latest"]')
   if (-not $c) { return $false }
   return (([string]$c).Length -gt 2)
+}
+# Three outcomes, not two. "That contract answered something else" and "I could
+# not ask" are different facts about different faults, and collapsing them tells
+# an operator who has just paid for two contracts that the anchor they are
+# looking at on Basescan is not a PeerAnchor - when all that happened is that a
+# public RPC rate-limited the fifth call in a row. That is not hypothetical: the
+# checks below fire five eth_calls at https://mainnet.base.org back to back,
+# seconds after two deployments went through the same endpoint. setup.html
+# learned this first and split every verdict of its own into BAD and UNSURE for
+# it; this is the same split, on this side, where the money has already been
+# spent by the time it matters.
+#
+# The retry is not optimism. An endpoint that answered eth_getCode a moment ago
+# and then refuses an eth_call is almost always rate-limiting, and rate limits
+# are measured in seconds. One retry absorbs that; two would just be a slower
+# way to print the same honest refusal.
+#
+# Speaks in no channel: every caller decides what to Say, so this returns a
+# hashtable and prints nothing.
+function Ask-Chain($to, $data) {
+  $err = ''
+  foreach ($attempt in 1..2) {
+    try { return @{ answered = $true; word = [string](EthCall $to $data); error = '' } }
+    catch { $err = $_.Exception.Message }
+    if ($attempt -eq 1) { Start-Sleep -Milliseconds 1200 }
+  }
+  return @{ answered = $false; word = ''; error = $err }
+}
+# The sentence for the third outcome, in one place so all four probes word it
+# the same way - and so that none of them can drift into sounding like a
+# verdict on the address.
+function Unreachable($what, $addr, $err) {
+  return ('the chain did not answer ' + $what + ' at ' + $addr + ', twice, via ' + $RPC + ' (' + $err + '). That is NOT a verdict on that address - nothing was read, so nothing is known, and nothing was written. Press the button again; a public RPC rate-limiting a burst of calls is the usual cause and it clears in seconds.')
 }
 # The low 20 bytes of a returned word, as an address. Lowercase on purpose:
 # every comparison in this script is between lowercase strings, because the
@@ -370,6 +426,104 @@ Say ('  PeerPools         ' + (Shown $cfgPools))
 Say ('  pools from block  ' + (Shown $cfgPoolsB))
 Say ''
 
+# ...and what the host is ACTUALLY serving, which is a different question. The
+# files above are the configuration; /api/token/onchain is the configuration
+# that got read. They part company in exactly one state - a previous run wrote
+# the files and the restart did not take, which is the state the hand-over path
+# further down exists to repair - and until now nobody compared them: this
+# script gated on the files, the page planned from the host, and the two
+# disagreed silently. The page then saw no claim contract, deployed a second
+# one with real money, and was refused at the callback for replacing a contract
+# it never knew existed.
+#
+# So it is asked once, here, and printed beside the files. It is also handed to
+# the page in /state, which is what actually removes the trap: the page adopts
+# an address server-data names rather than deploying over it.
+$script:hostAnchorSeen = ''
+$script:hostClaimSeen = ''
+$script:hostPoolsSeen = ''
+$hostReadOk = $false
+try {
+  $oc0 = Get-Json ($HOSTBASE + '/api/token/onchain') 20
+  $script:hostAnchorSeen = ([string]$oc0.anchors.contract).Trim().ToLowerInvariant()
+  $script:hostClaimSeen = ([string]$oc0.claimState.contract).Trim().ToLowerInvariant()
+  $script:hostPoolsSeen = ([string]$oc0.namedPools.factory).Trim().ToLowerInvariant()
+  $hostReadOk = $true
+} catch { }
+Say 'and what the host is actually serving, from /api/token/onchain:'
+if ($hostReadOk) {
+  Say ('  PeerAnchor        ' + (Shown $script:hostAnchorSeen))
+  Say ('  PeerClaim         ' + (Shown $script:hostClaimSeen))
+  Say ('  PeerPools         ' + (Shown $script:hostPoolsSeen))
+} else {
+  Say '  the host answered /api/v1/state but not /api/token/onchain, so this run'
+  Say '  cannot say what it is serving. The page asks it directly too, and that'
+  Say '  answer is the one the plan is built from.'
+}
+
+# The disagreements worth naming. Neither is fatal and neither is repaired
+# here: the run repairs the first one by itself a few seconds later, when the
+# page hands the recorded addresses back and this script restarts the host onto
+# them. Saying it now is so that restart is expected rather than mysterious.
+$stale = @()
+if ($hostReadOk) {
+  # Both directions. A file naming what the host is not serving is a write
+  # without a restart; a host serving what no file names is a configuration that
+  # disappears at the next restart. Neither is a state to discover later.
+  $sides = @(
+    @{ n = 'anchor-address.txt'; f = $cfgAnchor; h = $script:hostAnchorSeen },
+    @{ n = 'claim-address.txt '; f = $cfgClaim;  h = $script:hostClaimSeen },
+    @{ n = 'pools-address.txt '; f = $cfgPools;  h = $script:hostPoolsSeen }
+  )
+  foreach ($s in $sides) {
+    $fLow = ''
+    if ($s.f) { $fLow = ([string]$s.f).ToLowerInvariant() }
+    if ($fLow -ne ([string]$s.h)) {
+      $stale += ('  ' + $s.n + ' says ' + (Shown $s.f) + ' and the host serves ' + (Shown $s.h))
+    }
+  }
+}
+if ($stale.Count -gt 0) {
+  Say ''
+  Say 'THOSE TWO DISAGREE:'
+  foreach ($s in $stale) { Say $s }
+  Say 'A file naming what the host is not serving is a write that never got a restart.'
+  Say 'A host serving what no file names is a configuration that disappears at the next'
+  Say 'one. Nothing is lost either way, and nothing here gets deployed twice: the page'
+  Say 'is told what server-data names, adopts it rather than deploying over it, hands it'
+  Say 'straight back, and this script restarts the host onto it. If both sides name an'
+  Say 'address and they are DIFFERENT addresses, the page stops instead and says so -'
+  Say 'that one is a choice about which contract is real, and it is not this script''s'
+  Say 'to make. To settle any of it before a browser opens at all, stop here and run'
+  Say '.\start-host.ps1.'
+}
+
+# And is there really something at the addresses the files name? Two free reads
+# that turn a confusing failure in the middle of the run - the page adopting an
+# address with nothing at it - into a sentence now. An RPC that will not answer
+# is reported as an RPC that will not answer, never as a verdict on the address.
+foreach ($pair in @(@{ n = 'anchor-address.txt'; a = $cfgAnchor }, @{ n = 'claim-address.txt'; a = $cfgClaim }, @{ n = 'pools-address.txt'; a = $cfgPools })) {
+  if (-not $pair.a) { continue }
+  if ($pair.a -notmatch $ADDR_RE) { Say ('  WARNING: server-data\' + $pair.n + ' does not hold an address: ' + $pair.a); continue }
+  try {
+    if (-not (Has-Code $pair.a)) {
+      Say ''
+      Say ('WARNING: server-data\' + $pair.n + ' names ' + $pair.a + ' and there is no code')
+      Say ('there on chain ' + $CHAIN_ID + '. That address cannot be adopted. If it was deployed on')
+      Say ('another network, or never deployed at all, clear the file - and pass')
+      Say ('-ReplaceExisting when you want this run to record a new contract over it.')
+    }
+  } catch {
+    # One report and then stop asking. An RPC that refuses the first of these
+    # will refuse the rest, and three 25-second timeouts before the browser
+    # opens is a worse start than not knowing - the page checks the same thing
+    # itself, against the wallet's own RPC, before it adopts anything.
+    Say ('  (could not check these against ' + $RPC + ': ' + $_.Exception.Message + ' - that is the RPC, not a verdict on any address. The page checks them again through your wallet.)')
+    break
+  }
+}
+Say ''
+
 if (-not $cfgToken) {
   Fail @(
     'ERROR: server-data\token-address.txt is not set, so there is no PEER token.',
@@ -437,7 +591,14 @@ if ($fundable.Count -eq 0) {
 Say ''
 
 # -- 4. Do not replace a live contract by accident -----------------------
-$skipDeploy = $false
+# The answer to this question used to be taken here and then go nowhere. It set
+# a $skipDeploy nothing ever read, and the page - which plans from the host and
+# had never heard of server-data - went on to deploy the very pair the operator
+# had just said to keep. Two contracts, real gas, and a refusal at the callback
+# after the money was spent. So the answer now leaves this block by the only
+# route that reaches the browser: Build-State publishes it, the page reads
+# /state before it plans, and a deployment this script would refuse to write is
+# a deployment the page refuses to sign.
 $allowReplace = $ReplaceExisting.IsPresent
 if ($cfgAnchor -or $cfgClaim) {
   Say 'An epoch contract is ALREADY configured on this host.'
@@ -458,7 +619,7 @@ if ($cfgAnchor -or $cfgClaim) {
     try { $ans = Read-Host 'Record NEW epoch contracts over those, if the page deploys them? (yes/N)' }
     catch { Say 'No console to ask on, so taking that as no. Pass -ReplaceExisting if you meant yes.' }
     if ($ans -eq 'yes') { $allowReplace = $true }
-    else { $skipDeploy = $true; Say 'Keeping the contracts above.' }
+    else { Say 'Keeping the contracts above. The page is told, so it will adopt them rather than offer to deploy.' }
   }
   Say ''
 }
@@ -580,10 +741,20 @@ function Restart-TheHost() {
 }
 
 # -- 8. What this script knows, for the page and for a person ------------
+# Lowercased where they are taken in, not at each comparison. These are
+# compared against addresses the page sends and against addresses the host
+# reports, and the casing a wallet shows is keccak-based - so a file somebody
+# pasted a checksummed address into would otherwise read as a DIFFERENT address
+# from the same address written out by this script, and the hand-over would be
+# refused for replacing a contract with itself. Every comparison in this script
+# is between lowercase strings; this is where that becomes true.
 $script:note = 'waiting for the page'
-$script:cfgAnchorNow = $cfgAnchor
-$script:cfgClaimNow = $cfgClaim
-$script:cfgPoolsNow = $cfgPools
+$script:cfgAnchorNow = ''
+$script:cfgClaimNow = ''
+$script:cfgPoolsNow = ''
+if ($cfgAnchor) { $script:cfgAnchorNow = $cfgAnchor.ToLowerInvariant() }
+if ($cfgClaim) { $script:cfgClaimNow = $cfgClaim.ToLowerInvariant() }
+if ($cfgPools) { $script:cfgPoolsNow = $cfgPools.ToLowerInvariant() }
 $script:stewardSeen = $null
 $script:verified = @()
 $script:winding = $false
@@ -595,6 +766,17 @@ function Build-State() {
   }
   $skipped = @()
   foreach ($f in $notFundable) { $skipped += @{ epoch = $f.epoch; why = $f.why } }
+  # Refreshed rather than remembered, because this is read after the restart as
+  # well as before it, and a snapshot from preflight would be the one thing on
+  # this endpoint that quietly describes the past. A host mid-restart refuses
+  # the connection; that is not an error here, it is the last known answer
+  # standing until the host is back.
+  try {
+    $ocNow = Get-Json ($HOSTBASE + '/api/token/onchain') 5
+    $script:hostAnchorSeen = ([string]$ocNow.anchors.contract).Trim().ToLowerInvariant()
+    $script:hostClaimSeen = ([string]$ocNow.claimState.contract).Trim().ToLowerInvariant()
+    $script:hostPoolsSeen = ([string]$ocNow.namedPools.factory).Trim().ToLowerInvariant()
+  } catch { }
   return @{
     ok = $true
     chainId = $CHAIN_ID
@@ -603,7 +785,15 @@ function Build-State() {
     origin = $selfOrigin
     token = $cfgToken
     btc = $CBBTC
+    # What server-data NAMES, which is not the same question as what the host
+    # is serving - see hostReports. The page merges the two, and the whole
+    # point of publishing both is that it can tell them apart.
     configured = @{ anchor = $script:cfgAnchorNow; claim = $script:cfgClaimNow; pools = $script:cfgPoolsNow }
+    hostReports = @{ anchor = $script:hostAnchorSeen; claim = $script:hostClaimSeen; pools = $script:hostPoolsSeen }
+    # Whether this run may record a DIFFERENT address over a recorded one. The
+    # page reads it so it can refuse to deploy, rather than deploy and then be
+    # refused - a distinction that costs two contracts.
+    allowReplace = $allowReplace
     fundable = $fund
     skipped = $skipped
     verified = $script:verified
@@ -657,8 +847,20 @@ function Handle-Setup($body) {
     if (-not $claim -or $claim -notmatch $ADDR_RE) { Refuse ('claim is not an address: ' + $claim); return }
     $anchor = $anchor.ToLowerInvariant()
     $claim = $claim.ToLowerInvariant()
-    if (($script:cfgAnchorNow -or $script:cfgClaimNow) -and -not $allowReplace) {
-      Refuse ('this host is already configured for anchor ' + $script:cfgAnchorNow + ' and claim ' + $script:cfgClaimNow + ', and this run was told not to replace them. What you deployed is deployed and is yours; nothing here was changed. Re-run with -ReplaceExisting if replacing them is really what you want.')
+    # Replacing means recording a DIFFERENT address over one that is already
+    # recorded. It does not mean "something is recorded and something arrived":
+    # a half-configured host - anchor-address.txt written, claim-address.txt
+    # never - used to be refused for replacing an anchor that was byte-identical
+    # to the one it already held, with the operator's newly deployed claim
+    # contract as the casualty. Each side is judged on its own, and a file that
+    # holds nothing has nothing to protect.
+    $anchorReplaced = $script:cfgAnchorNow -and ($anchor -ne ([string]$script:cfgAnchorNow).ToLowerInvariant())
+    $claimReplaced = $script:cfgClaimNow -and ($claim -ne ([string]$script:cfgClaimNow).ToLowerInvariant())
+    if (($anchorReplaced -or $claimReplaced) -and -not $allowReplace) {
+      $what = @()
+      if ($anchorReplaced) { $what += ('anchor ' + $script:cfgAnchorNow + ' with ' + $anchor) }
+      if ($claimReplaced) { $what += ('claim ' + $script:cfgClaimNow + ' with ' + $claim) }
+      Refuse ('that would replace ' + ($what -join ', and ') + ', and this run was told not to. What you deployed is deployed and is yours; nothing here was changed. Re-run with -ReplaceExisting if replacing them is really what you want.')
       return
     }
     Say ''
@@ -683,9 +885,16 @@ function Handle-Setup($body) {
     #     contract, and something else - or nothing - on anything else. "No
     #     anchors yet" and "wrong address" are different answers, and this is
     #     what tells them apart.
-    try { $probe = [string](EthCall $anchor ($SEL_anchorOf + (Pad-Addr $ZERO_ADDR) + (Pad-Uint 0))) } catch { $probe = '' }
+    #     Asked through Ask-Chain, so an RPC that will not talk is reported as
+    #     an RPC that will not talk. Swallowing the throw here and speaking as
+    #     though the chain had answered turned a rate limit into "that address
+    #     is something else" - at the exact moment the operator had just paid
+    #     for the address in question.
+    $aProbe = Ask-Chain $anchor ($SEL_anchorOf + (Pad-Addr $ZERO_ADDR) + (Pad-Uint 0))
+    if (-not $aProbe.answered) { Refuse (Unreachable 'anchorOf(address,uint256)' $anchor $aProbe.error); return }
+    $probe = $aProbe.word
     if ($probe.Length -ne 194 -or ($probe.Substring(2) -notmatch '^0+$')) {
-      Refuse ('the contract at ' + $anchor + ' did not answer anchorOf(address,uint256) the way a PeerAnchor does. That address is something else - nothing was written.')
+      Refuse ('the contract at ' + $anchor + ' did not answer anchorOf(address,uint256) the way a PeerAnchor does. The chain answered; it just did not answer like a PeerAnchor. That address is something else - nothing was written.')
       return
     }
     Say '  PeerAnchor answers anchorOf() as an empty anchor should'
@@ -695,9 +904,10 @@ function Handle-Setup($body) {
     #     address was the operator's wallet, so it had code, it answered, and
     #     every call reverted forever. An immutable argument is checkable
     #     exactly once - now - and fixable never.
-    try { $tokWord = [string](EthCall $claim $SEL_claimToken) } catch { $tokWord = '' }
-    $tokSeen = Word-Addr $tokWord
-    if (-not $tokSeen) { Refuse ('the contract at ' + $claim + ' does not answer token(), so it is not a PeerClaim. Nothing was written.'); return }
+    $tokAns = Ask-Chain $claim $SEL_claimToken
+    if (-not $tokAns.answered) { Refuse (Unreachable 'token()' $claim $tokAns.error); return }
+    $tokSeen = Word-Addr $tokAns.word
+    if (-not $tokSeen) { Refuse ('the contract at ' + $claim + ' answered token() with nothing, so it is not a PeerClaim. Nothing was written.'); return }
     if ($tokSeen -ne $cfgToken.ToLowerInvariant()) {
       Refuse ('the claim contract at ' + $claim + ' says its token is ' + $tokSeen + ', and this host''s PEER is ' + $cfgToken + '. Those are different coins and the pairing is immutable, so that contract can never settle these epochs. Nothing was written.')
       return
@@ -709,9 +919,10 @@ function Handle-Setup($body) {
     #     address can ever open an epoch, so if it is not the wallet standing
     #     in front of the funding step, saying so now saves a reverted
     #     transaction and the gas it costs.
-    try { $stewWord = [string](EthCall $claim $SEL_steward) } catch { $stewWord = '' }
-    $steward = Word-Addr $stewWord
-    if (-not $steward -or $steward -eq $ZERO_ADDR) { Refuse ('the claim contract at ' + $claim + ' has no steward. Nothing was written.'); return }
+    $stewAns = Ask-Chain $claim $SEL_steward
+    if (-not $stewAns.answered) { Refuse (Unreachable 'steward()' $claim $stewAns.error); return }
+    $steward = Word-Addr $stewAns.word
+    if (-not $steward -or $steward -eq $ZERO_ADDR) { Refuse ('the claim contract at ' + $claim + ' answered steward() with nothing, or with the zero address. Nothing was written.'); return }
     $script:stewardSeen = $steward
     Say ('  steward ' + $steward)
     if ($account -and $account.ToLowerInvariant() -ne $steward) {
@@ -765,12 +976,18 @@ function Handle-Setup($body) {
     # The two immutable constructor arguments, read back from the factory
     # itself. This is the exact check whose absence produced a factory on this
     # very network whose peer() is a wallet and whose every createPool reverts.
-    try { $fp = Word-Addr ([string](EthCall $pools $SEL_poolsPeer)) } catch { $fp = '' }
-    try { $fb = Word-Addr ([string](EthCall $pools $SEL_poolsBtc)) } catch { $fb = '' }
+    $fpAns = Ask-Chain $pools $SEL_poolsPeer
+    if (-not $fpAns.answered) { Refuse (Unreachable 'peer()' $pools $fpAns.error); return }
+    $fbAns = Ask-Chain $pools $SEL_poolsBtc
+    if (-not $fbAns.answered) { Refuse (Unreachable 'btc()' $pools $fbAns.error); return }
+    $fp = Word-Addr $fpAns.word
+    $fb = Word-Addr $fbAns.word
     # "Answered a different address" and "did not answer at all" are two
     # different mistakes with two different repairs, so they do not share one
-    # sentence with an empty space where an address should be.
-    if (-not $fp -or -not $fb) { Refuse ('the contract at ' + $pools + ' does not answer peer() and btc(), so it is not a PeerPools factory. Nothing was written.'); return }
+    # sentence with an empty space where an address should be. And neither of
+    # them is "the RPC was busy", which Ask-Chain has already separated out
+    # above - a distinction that used to be lost in the same catch.
+    if (-not $fp -or -not $fb) { Refuse ('the contract at ' + $pools + ' answered peer() and btc() with nothing, so it is not a PeerPools factory. Nothing was written.'); return }
     if ($fp -ne $cfgToken.ToLowerInvariant()) {
       Refuse ('that factory says peer() is ' + $fp + ', not ' + $cfgToken + '. Both sides are fixed at deployment, so every createPool on it would revert forever - this is exactly the dead factory this network already has one of. Nothing was written.')
       return
@@ -817,12 +1034,35 @@ function Handle-Setup($body) {
 
   $script:note = 'restarting the host onto the new configuration'
   Restart-TheHost
+  # Restart-TheHost already knows whether the host came back - it is the only
+  # thing it exists to find out - and the answer used to go into
+  # $script:hostBackUp and stop there. The reply said "written and the host
+  # restarted:" with an empty space where the host's own report belonged, in the
+  # page's green ok class, and the status note said "host is up" once every two
+  # seconds for the four minutes the page then spent failing to reach that same
+  # host. The terminal had the truth in a WARNING nobody was looking at, because
+  # the page is the surface a person watches.
+  if (-not $script:hostBackUp) {
+    $script:note = 'the files are written, but the host did not come back after the restart - see server-data\host.err.log'
+    $script:reply = @{
+      ok = $false
+      filesWritten = $true
+      error = 'the addresses were written to server-data, and then the host did not answer after the restart. Nothing is lost and nothing needs deploying again - the contracts exist and the files name them. What is missing is the host. Start it by hand:  .\start-host.ps1   and read server-data\host.err.log.'
+    }
+    # 500, not 400: nothing about the hand-over was wrong. The page treats any
+    # non-2xx as "stop and tell me how to finish by hand", which is right here,
+    # and filesWritten tells it not to send anybody to write files that already
+    # say the right thing.
+    $script:replyCode = 500
+    return
+  }
   $reported = ''
   try {
     $oc = Get-Json ($HOSTBASE + '/api/token/onchain') 30
     $reported = 'anchor ' + $oc.anchors.contract + ', claim ' + $oc.claimState.contract
     Say ('  /api/token/onchain now reports ' + $reported)
   } catch { Say ('  could not read /api/token/onchain yet: ' + $_.Exception.Message) }
+  if (-not $reported) { $reported = 'it is answering, though it has not yet said what it is pointed at - the page asks it directly and that answer is the one that counts' }
   if ($fundable.Count -gt 0) { $script:note = 'host is up; watching Base for the epoch deposit' }
   else { $script:note = 'host is up; there is no epoch with anything to pay, so nothing is expected on chain' }
   # Short on purpose: the page prints this answer verbatim, and 300 characters
@@ -835,10 +1075,47 @@ function Handle-Setup($body) {
 # Called from the wait loop rather than from a callback, because the page never
 # says "done" and is never asked to. An epoch is funded when the claim contract
 # says it holds the deposit, and not one second before.
+#
+# Which puts a duty on the watching. The header of this script promises "it
+# watches Base instead", and a watcher that saw nothing because it could not
+# look must never report that as having looked: the closing account used to say
+# "No epoch was funded in this run ... can be funded whenever you like", which is
+# advice that costs gas if the epoch WAS opened, because openEpoch is once per
+# epoch number forever and the second call reverts. So every way out of this
+# function that is not an answer leaves a mark.
+$script:epochPolls = 0          # epochInfo calls attempted at all
+$script:epochReads = 0          # ...of those, the ones that came back readable
+$script:epochPollFails = 0      # CONSECUTIVE failures; a good read clears it
+$script:epochPollError = ''     # the last one, in its own words
+$script:epochShortSaid = $false # the "that is not a PeerClaim" line, once
 function Check-Epoch($f) {
-  if (-not $script:cfgClaimNow) { return }
-  try { $info = [string](EthCall $script:cfgClaimNow ($SEL_epochInfo + (Pad-Uint $f.epoch))) } catch { return }
-  if ($info.Length -lt 322) { return }
+  if (-not $script:cfgClaimNow) { return }   # nowhere to look yet; not a failure
+  $script:epochPolls = $script:epochPolls + 1
+  try {
+    $info = [string](EthCall $script:cfgClaimNow ($SEL_epochInfo + (Pad-Uint $f.epoch)))
+  } catch {
+    $script:epochPollFails = $script:epochPollFails + 1
+    $script:epochPollError = $_.Exception.Message
+    return
+  }
+  if ($info.Length -lt 322) {
+    # The call succeeded and the answer is not five words. That is a real
+    # verdict about the address, not a network problem - and sitting on it in
+    # silence for twenty minutes is how a wrong claim-address.txt looks exactly
+    # like an epoch nobody has funded yet. Said once, not every ten seconds.
+    $script:epochPollFails = $script:epochPollFails + 1
+    $script:epochPollError = ('epochInfo(' + $f.epoch + ') at ' + $script:cfgClaimNow + ' answered ' + $info.Length + ' characters, not the five 32-byte words a PeerClaim returns')
+    if (-not $script:epochShortSaid) {
+      $script:epochShortSaid = $true
+      Say ''
+      Say ('WARNING: ' + $script:epochPollError + '.')
+      Say 'That address answers, but not like a PeerClaim. Nothing here can fund an'
+      Say 'epoch on it. Check server-data\claim-address.txt against Basescan.'
+    }
+    return
+  }
+  $script:epochReads = $script:epochReads + 1
+  $script:epochPollFails = 0
   # Five 32-byte words, in the order epochInfo declares them:
   # (bytes32 root, uint256 total, uint256 paid, uint64 claimUntil, bool open).
   # Parenthesised on purpose - an unparenthesised .Substring(a, b) in argument
@@ -962,9 +1239,31 @@ try {
     }
 
     if ($method -eq 'GET') {
+      # Is the asker carrying THIS run's nonce? The POST has always checked
+      # this, and checking it only there meant a tab left over from an earlier
+      # run - reloaded against a port this run happened to reuse, which is the
+      # common case, since the port search starts at 8930 every time - found out
+      # after it had deployed two contracts. A GET costs nothing and the
+      # listener was already answering them before the first signature, so the
+      # answer was there the whole time; it simply was not offered.
+      #
+      # Compared, never echoed: the reply says yes or no and never repeats the
+      # value, so this endpoint cannot be used to read a nonce out of the run.
+      $askedNonce = ''
+      try { $askedNonce = [string]$req.QueryString['nonce'] } catch { $askedNonce = '' }
+      $nonceOk = ($askedNonce -eq $nonce)
       if ($path -eq '/' -or $path -eq '/setup.html') { Send-Bytes $ctx 200 'text/html; charset=utf-8' $pageBytes; continue }
-      if ($path -eq '/api/setup/status') { Send-Json $ctx 200 @{ state = 'ok'; note = $script:note }; continue }
-      if ($path -eq '/state') { Send-Json $ctx 200 (Build-State); continue }
+      if ($path -eq '/api/setup/status') { Send-Json $ctx 200 @{ state = 'ok'; note = $script:note; nonceOk = $nonceOk; nonceGiven = ($askedNonce -ne '') }; continue }
+      if ($path -eq '/state') {
+        $st = Build-State
+        $st['nonceOk'] = $nonceOk
+        $st['nonceGiven'] = ($askedNonce -ne '')
+        # The same sentence the POST would refuse with, handed over before
+        # anything is signed rather than after. One wording, one place.
+        if (-not $nonceOk) { $st['nonceWhy'] = 'this page does not carry the nonce of the run that is listening here. It is a copy of setup.html from an earlier run, pointed at a port this one reused. Nothing it deployed would be recorded. Close it and open the URL the running script printed.' }
+        Send-Json $ctx 200 $st
+        continue
+      }
       Send-Json $ctx 404 @{ ok = $false; error = 'no such endpoint' }
       continue
     }
@@ -996,8 +1295,22 @@ Say ''
 Say '========================================================================'
 if ($stopped) { Say ('Closed: ' + $stopped); Say '' }
 if ($script:landed.Count -eq 0) {
-  Say 'Nothing landed. No file was written, the host was not restarted, and nothing'
-  Say 'was deployed by this run.'
+  # Two of these three clauses used to be three. "Nothing was deployed by this
+  # run" was a claim about the chain, and this script only ever hears about a
+  # deployment when the page hands one over - so the sentence was at its most
+  # confident in exactly the case where it was most likely wrong: the browser
+  # closed, or MetaMask refused, BETWEEN a deployment and the callback. There
+  # the operator has a paid-for contract, no address anywhere, and a terminal
+  # telling them nothing was deployed. Everything else in this account is
+  # backed by something that was actually observed; this is now too.
+  Say 'Nothing landed here. This script wrote no file and restarted nothing.'
+  Say ''
+  Say 'It cannot see what the page deployed - that is the browser''s side, and this'
+  Say 'script only learns of a contract when the page hands one over. If MetaMask'
+  Say 'asked you to confirm a deployment and you approved it, that contract exists'
+  Say 'and is yours. Its address is in the wallet''s activity list, and on'
+  Say 'basescan.org under your account. Run this script again with it to hand: the'
+  Say 'page adopts a contract that is already there rather than deploying a second.'
 } else {
   Say 'What landed:'
   foreach ($l in $script:landed) { Say ('  ' + $l) }
@@ -1036,9 +1349,38 @@ if ($script:verified.Count -gt 0) {
   Say 'that reverts before it.'
 } elseif ($fundable.Count -gt 0) {
   Say ''
-  Say 'No epoch was funded in this run. The tree for each of these is unchanged and'
-  Say 'can be funded whenever you like - a published root does not expire:'
-  foreach ($f in $fundable) { Say ('  epoch ' + $f.epoch + '  ' + $f.totalPeer + ' PEER over ' + $f.leafCount + ' leaf/leaves') }
+  # Three different silences, and they are not the same fact. "No claim
+  # contract" and "nothing was funded" and "this run never managed to look" all
+  # produced the same confident sentence before, and the last of the three is
+  # the one that costs money: "can be funded whenever you like" sends an
+  # operator to openEpoch, which is once per epoch number FOREVER, so if the
+  # epoch was in fact opened while the RPC was refusing to answer, following
+  # that advice reverts and takes the gas with it.
+  if (-not $script:cfgClaimNow) {
+    Say 'No claim contract is configured, so no epoch could be funded. The tree for'
+    Say 'each of these is unchanged and can be funded whenever you like - a published'
+    Say 'root does not expire:'
+    foreach ($f in $fundable) { Say ('  epoch ' + $f.epoch + '  ' + $f.totalPeer + ' PEER over ' + $f.leafCount + ' leaf/leaves') }
+  } elseif ($script:epochReads -eq 0 -or $script:epochPollFails -gt 0) {
+    if ($script:epochPolls -eq 0) {
+      Say 'THIS RUN NEVER READ BASE for these epochs - it ended before the watch got'
+      Say 'going - so it does not know whether they were funded.'
+    } else {
+      Say 'THIS RUN COULD NOT READ BASE, so it does not know whether these epochs were'
+      Say 'funded. It watched, but the watching did not answer:'
+      Say ('  last error: ' + (Shown $script:epochPollError))
+    }
+    Say ('  contract:   ' + $script:cfgClaimNow)
+    Say 'Read epochInfo(n) on that contract yourself before opening any of them again.'
+    Say 'openEpoch is once per epoch number forever: if one of these is already open,'
+    Say 'a second call reverts and costs you the gas for finding out.'
+    foreach ($f in $fundable) { Say ('  epoch ' + $f.epoch + '  ' + $f.totalPeer + ' PEER over ' + $f.leafCount + ' leaf/leaves') }
+  } else {
+    Say 'No epoch was funded in this run - the chain was read and said so. The tree for'
+    Say 'each of these is unchanged and can be funded whenever you like - a published'
+    Say 'root does not expire:'
+    foreach ($f in $fundable) { Say ('  epoch ' + $f.epoch + '  ' + $f.totalPeer + ' PEER over ' + $f.leafCount + ' leaf/leaves') }
+  }
 }
 
 # Pools, and the honest reason they are not set up. The balance is read off the
