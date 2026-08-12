@@ -197,14 +197,17 @@ describe('the built page is an application, not just valid JavaScript', () => {
     // app can go blank on its own.
     // 'net' joined them when the graph stopped being a tab of its own: it is a
     // way of looking at the economy, and eight tabs never fitted a phone.
-    for (const view of ['wallet', 'net', 'pools', 'layer0', 'ledger']) {
+    // 'chain' is the epoch chain: it fetches three endpoints and recomputes
+    // block ids in the page, so offline (this test) it must still draw its
+    // explanation rather than throwing inside a promise nobody is watching.
+    for (const view of ['wallet', 'net', 'pools', 'chain', 'layer0', 'ledger']) {
       const { dom, errors, root } = await boot({
         'peer-sandbox-who-v2': JSON.stringify('alice'),
         'peer-sandbox-mode-v1': JSON.stringify('geek'),
         'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: view }),
       });
       expect(errors, 'the ' + view + ' view threw: ' + errors.join(' | ')).toEqual([]);
-      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(5);
+      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(6);
       expect(root!.textContent!.length, 'the ' + view + ' view rendered nothing').toBeGreaterThan(400);
       dom.window.close();
     }

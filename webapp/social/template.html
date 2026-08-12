@@ -782,6 +782,22 @@ button, .btn { touch-action: manipulation; }
   // under another, and this is cache, never a source of truth — the card
   // prints the clock time it was read at and offers to read again.
   var l2Bal = null;
+  // The claim card's own redraw hook. l2Redraw is the token card's, and the
+  // two cards sit in the SAME view — one slot between them means the second
+  // one to render silently takes the wallet's events away from the first.
+  var l2ClaimRedraw = null;
+  // One epoch's answer from GET /api/v1/epoch/N/claim, keyed by handle and
+  // epoch, so re-rendering this tab (which a poll can do at any moment) does
+  // not re-ask the host — and, where a claim contract IS configured, does not
+  // turn one open tab into a chain read per epoch every few seconds. Cache,
+  // never a source of truth: every row prints the clock time it was read at
+  // and carries a button to read it again.
+  var l2Claims = {};
+  // Whether one address has already claimed one epoch, read off the contract
+  // through the reader's own wallet: 'epoch|address' -> true/false. Kept apart
+  // from the host's answer above because it is a different source — the
+  // contract's own public mapping, which is the thing that actually decides.
+  var l2Claimed = {};
   var alertView = 'inbound'; // | 'record'
 
   // ── the wallet on Base: connecting, the chain check, the read encoders ──
@@ -815,6 +831,53 @@ button, .btn { touch-action: manipulation; }
     return '0x' + v.toString(16);
   }
   function l2ChainName(n) { return Number(n) === 8453 ? 'Base' : 'chain ' + Number(n); }
+
+  // ── the block explorer, and only for the chain it is the explorer FOR ──
+  //
+  // basescan reads Base. Pointed at an address from some other chain it does
+  // not fail: it draws a confident page about whatever lives at that address
+  // ON BASE, which is usually nothing and occasionally somebody else's
+  // contract. So a link to the wrong explorer is worse than no link at all —
+  // it looks like a check that passed. Links are built from this table by
+  // chain id, and a chain with no entry in it gets none.
+  var L2_EXPLORERS = {
+    8453: { name: 'basescan', at: 'https://basescan.org' }
+  };
+  /**
+   * The explorer URL for one on-chain thing, or null.
+   *
+   * `kind` is 'address' (a wallet or a contract), 'token' (the token's own
+   * page, which lists holders and transfers) or 'tx' (one transaction). The
+   * value is checked against the shape it must have before a link is built
+   * from it: a truncated hash makes a URL that opens a page about nothing,
+   * and a dead end on an explorer reads as a fact about the chain rather than
+   * a mistake on this page.
+   */
+  function l2ScanURL(chainId, kind, value) {
+    var ex = L2_EXPLORERS[Number(chainId)];
+    if (!ex) return null;
+    var v = String(value == null ? '' : value).trim();
+    if (kind === 'tx') return /^0x[0-9a-fA-F]{64}$/.test(v) ? ex.at + '/tx/' + v : null;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(v)) return null;
+    return ex.at + '/' + (kind === 'token' ? 'token' : 'address') + '/' + v;
+  }
+  // The <a> itself, or null. Callers append it only where it exists, never a
+  // greyed-out placeholder: "this chain has no explorer here" and "this link
+  // goes nowhere" must not look the same.
+  function l2ScanLink(chainId, kind, value, label) {
+    var href = l2ScanURL(chainId, kind, value);
+    if (!href) return null;
+    var ex = L2_EXPLORERS[Number(chainId)];
+    return h('a', { class: 'smallnote', target: '_blank', rel: 'noopener', href: href,
+      text: label || ('on ' + ex.name) });
+  }
+  // 0x12345678…f0e1d2c3 — enough to tell two rows apart at a glance. The
+  // full value is always printed or copyable on the row this labels; nothing
+  // here is ever the only place a hash appears.
+  function l2ShortHex(v) {
+    var t = String(v == null ? '' : v);
+    return t.length > 20 ? t.slice(0, 10) + '…' + t.slice(-8) : t;
+  }
   // Compared as numbers, not as text: a wallet answering '0x2105' and one
   // answering '0x02105' mean the same chain, and a false MISMATCH only ever
   // refuses. Anything unparseable is not a match, which is the safe way
@@ -909,6 +972,9 @@ button, .btn { touch-action: manipulation; }
       l2Tokens = null;
       if (had) toast(why);
       if (l2Redraw) l2Redraw();
+      // Both cards, always. A claim row shows an address, an amount and a
+      // Claim button that are only true of one account on one chain.
+      if (l2ClaimRedraw) l2ClaimRedraw();
     };
     window.ethereum.on('chainChanged', function () { forget('The wallet changed network. Nothing here reads or signs until it is back on the chain this host serves and connected again.'); });
     window.ethereum.on('accountsChanged', function () { forget('The wallet switched accounts. Connect again \u2014 the address shown here is only ever the one that connected.'); });
@@ -1048,7 +1114,7 @@ button, .btn { touch-action: manipulation; }
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
-      if (['wallet', 'net', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
+      if (['wallet', 'net', 'pools', 'chain', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
       if (['social', 'all', 'ego'].indexOf(v0.netScope) >= 0) netScope = v0.netScope;
     }
     // #feed / #chat / #profile override the restored view: the installed app's
@@ -2162,6 +2228,48 @@ button, .btn { touch-action: manipulation; }
    * help link, and this codebase has shipped that bug before (see jump()).
    */
   var TERMS = {
+    epochBlock: {
+      t: 'epoch block',
+      one: 'One signed certificate per closed epoch: what was computed then, and who published it.',
+      more: 'It carries the acts that epoch covered, hashes of the state computed from them, the constants used, and the id of the block before it — so editing an old one changes every id after it and stops matching the copies other people hold. A block is a publication, not a verdict: it makes a silent rewrite loud, and decides nothing.',
+      sect: 'Epochs: stamping the record',
+    },
+    producer: {
+      t: 'producer',
+      one: 'The key that signed a block — whoever published that epoch’s result.',
+      more: 'A signing key, not a person and not a wallet: it signs the record and holds no money. A signature that checks out says this key published exactly these bytes. It says nothing about the numbers being right — anyone who disagrees recomputes the log and publishes the difference.',
+      sect: 'Epochs: stamping the record',
+    },
+    replay: {
+      t: 'replay',
+      one: 'Recomputing the whole network from the public list of acts, to see if you get the same answer.',
+      more: 'Every number on screen comes out of that list, so anyone holding it rebuilds the state themselves and has to trust no host, no signature and no chain. Replay is what decides what is true here; hashes and timestamps only make a disagreement visible and attributable.',
+      sect: 'What you are looking at',
+    },
+    anchor: {
+      t: 'anchor',
+      one: 'A short record posted on a public chain, saying a particular result existed by a particular moment.',
+      more: 'It is a timestamp over two hashes, posted by whatever address chose to post it, and it can never be revised. What it proves is that the commitment existed by then — not that the result is correct, and not that the poster is anyone in particular. Anyone may post one, so an anchor is worth exactly what its poster is.',
+      sect: 'Epochs: stamping the record',
+    },
+    explorer: {
+      t: 'block explorer',
+      one: 'A public website that shows what a chain holds at an address, or inside one transaction.',
+      more: 'It reads the same chain a wallet does, which makes it the way to check this page against something that is not this page. Links here only ever point at the explorer for the chain this host is configured for: pointed at another chain an explorer does not fail, it draws a confident page about something else.',
+      sect: 'The coin on Base: pools, prices and explorers',
+    },
+    dex: {
+      t: 'DEX',
+      one: 'A place two tokens trade against each other with no company in the middle — a contract holding both.',
+      more: 'The ratio between what it holds is the price, and a trade moves it. This app has its own pools; the same pair can also have a pool on Uniswap, which is a different contract with different coins in it. Nothing here routes a trade to Uniswap or reads a price from it.',
+      sect: 'The coin on Base: pools, prices and explorers',
+    },
+    liquidity: {
+      t: 'liquidity',
+      one: 'How much of each coin a pool actually holds — what there is to trade against.',
+      more: 'The less there is, the further a trade moves the price, so a thin pool moves enormously on a small trade. It sits in one pool and nowhere else: coins in this app’s pool do nothing for a trade in a Uniswap pool of the same pair, and the two prices can differ until somebody trades the gap away.',
+      sect: 'The coin on Base: pools, prices and explorers',
+    },
     reserve: {
       t: 'reserve',
       one: 'Credit you can spend — the only thing here that buys the right to act.',
@@ -2281,6 +2389,48 @@ button, .btn { touch-action: manipulation; }
       one: 'The log exactly as written, newest first — the authoritative order.',
       more: 'Every other order on this list is a view ON this one. Nothing is hidden by ranking: what changes is the sequence, never the set.',
       sect: 'The left rail: search, order, filters',
+    },
+    earnings: {
+      t: 'epoch earnings',
+      one: 'What an epoch credited you for other people engaging with what you made.',
+      more: 'It is a number computed from the public log, and that is all it is until somebody funds it. The PEER token on Base has no mint: paying an epoch means the operator transferring coins they already hold, which they may simply never do. Nothing here is a debt anybody owes you.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
+    },
+    merkle: {
+      t: 'merkle root',
+      one: 'One short fingerprint of a whole payout list: change any line and the fingerprint changes.',
+      more: 'It is what gets published on the chain — 32 bytes instead of thousands of lines — so a contract can check that your line was in the list without ever holding the list. Published once per epoch and never editable afterwards, which is exactly why a binding made today cannot reach an epoch that closed yesterday.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
+    },
+    proof: {
+      t: 'proof',
+      one: 'The handful of hashes that show your line was in the published list.',
+      more: 'Walk them from your line upward and you arrive at the published fingerprint, or you do not. It is checked against the address that sends the transaction, so a proof is worth nothing to anybody else — nobody can claim your share with it, including you from another wallet.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
+    },
+    binding: {
+      t: 'binding an address',
+      one: 'Telling the network which ethereum address this handle is paid at.',
+      more: 'Whoever holds that address collects, so it is guarded like a password change. It applies forward only — the payout list for an epoch that has already closed is fixed — and nothing here can detect a typo, so paste it from a wallet and never type it.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
+    },
+    steward: {
+      t: 'steward',
+      one: 'The one account that can put money behind an epoch, and take back what nobody collected.',
+      more: 'It cannot create coins (there is no mint), cannot edit a payout list it has already published, cannot take back a payment already made, cannot sweep before the deadline, and cannot open an epoch whose claim window is shorter than a week. What it CAN do that costs people: publish a list adding up to more than it deposited, which pays whoever claims first and fails for everyone after — including a list that pays an address the steward controls, claimed first, which empties that epoch before anybody else reaches it. Nothing on a chain can add a list up, so the amounts are all published and this app compares them for you.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
+    },
+    deadline: {
+      t: 'claim deadline',
+      one: 'The moment after which an epoch stops paying and cannot be reopened.',
+      more: 'It is set when the epoch is funded and it is on the chain\u2019s clock, not this computer\u2019s. The contract refuses a window shorter than a week and refuses to sweep before it passes, so this is not a span the funder can shrink to nothing. Miss it and the money is not held for you: it goes back to whoever put it there.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
+    },
+    sweep: {
+      t: 'sweep',
+      one: 'Taking back whatever nobody collected once the deadline has passed.',
+      more: 'It returns to whoever funded the epoch. A handle with no address bound when the epoch closed was never in the payout list at all, so its whole share leaves this way \u2014 which is the one loss here that binding early prevents and nothing else does.',
+      sect: 'Epoch earnings: binding an address and claiming on Base',
     },
   };
 
@@ -8630,7 +8780,16 @@ button, .btn { touch-action: manipulation; }
 
       // ── which token is which, before anything else on the card ──
       body.appendChild(h('p', { class: 'smallnote', text: 'The PEER counted further up this tab is the EPOCH token: a number in this network\u2019s act log, minted when an epoch closes and shared out by engagement. It is not on a chain, it is not in a wallet, and no wallet can be pointed at it.' }));
-      body.appendChild(h('p', { class: 'smallnote', text: 'The PEER below is a different token that happens to share the name: an ERC-20 on ' + chainName + '. That is the one a wallet holds and the only one an on-chain pool can trade. There is no bridge between the two and neither converts into the other \u2014 nothing in this app can turn epoch PEER into the coin below, or the coin below into epoch PEER.' }));
+      body.appendChild(h('p', { class: 'smallnote', text: 'The PEER below is a different token that happens to share the name: an ERC-20 on ' + chainName + '. That is the one a wallet holds and the only one an on-chain pool can trade. There is no exchange rate between the two and nothing converts one into the other automatically: the coin below never becomes epoch PEER, and epoch PEER is never spent to get it.' }));
+      // The one crossing, named here because the card that does it is the very
+      // next thing in this view. This used to be an absolute — nothing in this
+      // app can turn epoch PEER into the coin below — with the claim card
+      // rendered two hundred pixels lower doing precisely that, and the
+      // misleading direction is the expensive one: a reader who believes there
+      // is nothing to collect never scrolls to the only place in this app that
+      // says an unbound handle gets no line at all, and that share is gone at
+      // the sweep rather than waiting for them.
+      body.appendChild(h('p', { class: 'smallnote', text: 'One crossing does exist, in the card below this one, and it runs one way only: the operator may deposit coins they already hold against an epoch\u2019s payout list, and a handle with an address bound before that epoch closed can then claim its line \u2014 paid in the coin below, at the number the log computed. Nobody is obliged to fund an epoch, a handle with no address bound gets no line in the list at all, and claiming does not spend the epoch PEER the line was computed from.' }));
 
       // ── the address, in full, because half an address reads as provenance ──
       body.appendChild(h('p', { class: 'eyebrow', style: 'margin:14px 0 4px',
@@ -8843,6 +9002,1216 @@ button, .btn { touch-action: manipulation; }
     return card;
   }
 
+  /**
+   * Epoch earnings: binding an address, what an epoch owes, and claiming it.
+   *
+   * Three sources feed this card and they are never blended, because the whole
+   * value of the card is in keeping them apart:
+   *
+   *   THIS LOG (st)  — which epochs credited this handle and which address is
+   *                    bound to it. Local, instant, replayable by anyone.
+   *   THIS HOST      — GET /api/v1/epoch/N/claim: the earnings tree for one
+   *                    epoch, the amount in raw units, the proof PeerClaim
+   *                    takes, and what the host can see of that epoch on the
+   *                    chain. The proof is used exactly as it arrives; the
+   *                    encoding is position-dependent and a second derivation
+   *                    in the browser would be a second thing to keep in step.
+   *   THE CHAIN      — read through the reader's OWN wallet: whether this
+   *                    address has already claimed, the free dry run before a
+   *                    signature, and the receipt afterwards.
+   *
+   * The sentence this card exists to avoid is "you are owed 4,000 PEER" said
+   * about an epoch nobody has funded. PEER has no mint: every claim is a
+   * transfer out of holdings the operator already has, made only if they
+   * choose to open and fund that epoch, and where no claim contract is
+   * configured at all the honest answer is that these earnings are a number in
+   * a log and nothing else. So "the log credited you", "somebody deposited
+   * money behind it" and "you can take it now" are three separate statements
+   * here, in that order, and the button only ever appears under the third.
+   */
+  function l2ClaimCard(st) {
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', {}, term('earnings', 'Epoch earnings'), ' \u2014 getting paid on Base'));
+    var body = h('div', {});
+    card.appendChild(body);
+
+    var me = who;
+    if (!me) {
+      body.appendChild(h('p', { class: 'smallnote', text: 'Nobody is signed in here, so there is no handle to bind an address to and nothing to claim.' }));
+      return card;
+    }
+
+    // PeerClaim's selectors, each beside the signature it hashes from — the
+    // same policy as the pools card and chain-l2/onchain.mjs: no keccak in
+    // this page. Recompute any of them with `cast sig '<signature>'`.
+    var CL_SEL = {
+      claim: '0xae0b51df',        // claim(uint256,uint256,bytes32[])
+      checkClaim: '0x65574c78',   // checkClaim(uint256,address,uint256,bytes32[])
+      claimed: '0x120aa877',      // claimed(uint256,address)
+      epochInfo: '0x3894228e'     // epochInfo(uint256)
+    };
+    var WARN = 'border-left:2px solid var(--ember); padding-left:9px';
+    var ROWS = 6;   // epochs asked about per press, newest first
+    // How many rows are on screen. It only rises, and only when somebody asks.
+    // The cap is there because every row costs one host read and one chain
+    // read, which is a reason to ask in batches and no reason at all to make
+    // an epoch unreachable: nothing else in this app renders an epoch row, so
+    // a funded, open, still-matching epoch pushed off the bottom by a busy
+    // afternoon of closes had no route to a Claim button until its window ran
+    // out and the remainder swept back to the steward.
+    var shownN = ROWS;
+
+    function note(t, style) { return h('p', { class: 'smallnote', style: style || '', text: t }); }
+    /** A uint as a 32-byte argument word. */
+    function w256(v) { return BigInt(v).toString(16).padStart(64, '0'); }
+    /** A bytes32 as it arrives from the host (0x-prefixed) as an argument word. */
+    function w32(x) { return String(x).replace(/^0x/, '').toLowerCase().padStart(64, '0'); }
+    /** A chain deadline in words. The clock is named, because it is not the
+     *  chain's — a browser an hour out would otherwise state a deadline as
+     *  fact that the contract disagrees with. */
+    function when(sec) {
+      var v = Number(sec);
+      if (!isFinite(v) || v <= 0) return 'no deadline this host could read';
+      var days = Math.round((v * 1000 - Date.now()) / 86400000);
+      return new Date(v * 1000).toLocaleString() + ' \u2014 '
+        + (days >= 0 ? 'about ' + days + ' day(s) from now' : Math.abs(days) + ' day(s) ago')
+        + ', by this computer\u2019s clock';
+    }
+
+    // ── first, the thing that is true of every row below ──
+    body.appendChild(note('Epoch earnings are paid OUT OF THE OPERATOR\u2019S OWN HOLDINGS. The PEER token on Base has no mint \u2014 its supply is fixed and nothing in this app can add to it \u2014 so an epoch is paid only if the operator deposits coins they already hold against it. Everything below says which of those two things has happened.'));
+
+    // What the chain block is anchored to, once any epoch answer has named it.
+    // Never a constant in this file: a different operator runs a different
+    // contract on a different chain.
+    var claimAddr = null, chainHex = null, chainName = null;
+    var rowPaints = [];       // every row's repaint, so a wallet change reaches all of them
+    var wRow = h('div', { class: 'mini-form persistent' });
+
+    function redrawAll() {
+      drawWallet();
+      drawBind();
+      for (var i = 0; i < rowPaints.length; i++) { try { rowPaints[i](); } catch (e) {} }
+    }
+
+    // ── 1. binding ────────────────────────────────────────────────────────
+    var bindBox = h('div', {});
+    body.appendChild(bindBox);
+
+    function drawBind() {
+      bindBox.innerHTML = '';
+      var bound = (st.addresses || {})[me] || '';
+      bindBox.appendChild(h('p', { class: 'eyebrow', style: 'margin:16px 0 4px' },
+        term('binding', 'where this handle is paid')));
+      if (bound) {
+        bindBox.appendChild(h('div', { class: 'kv' },
+          h('span', { text: 'bound to' }),
+          h('b', { class: 'num', style: 'word-break:break-all', text: bound })));
+        bindBox.appendChild(note('Whoever holds that address collects this handle\u2019s earnings from the epochs that close from now on. It is public: the binding is an act in this log like everything else.'));
+      } else {
+        // The loudest sentence on the card, and it is here rather than in a
+        // row because a row is read after the epoch closed, which is too late
+        // for it to be worth anything.
+        bindBox.appendChild(h('p', { class: 'smallnote', style: WARN },
+          'No address is bound to this handle. An epoch\u2019s payout list is built from the bindings as they stood AT ITS CLOSE, and a handle with no address gets no line in it at all \u2014 not a line worth zero, no line. That share is not held for you: it stays with whoever funded the epoch and returns to them at the ',
+          term('sweep', 'sweep'),
+          '. Bind an address before the next close, or this repeats.'));
+      }
+
+      var row = h('div', { class: 'mini-form persistent' });
+      bindBox.appendChild(row);
+      if (!window.ethereum) {
+        row.appendChild(h('span', { class: 'smallnote', text: 'There is no wallet in this browser to take an address from. Open this app in a browser with one \u2014 the address is never typed here, because a typo in an address cannot be detected and would send these earnings somewhere nobody can reach.' }));
+        return;
+      }
+      if (!l2Wallet) {
+        row.appendChild(h('button', { class: 'btn small', text: 'Connect a wallet', onclick: function () {
+          // The chain to connect to is the one the host names for its claim
+          // contract, and only once an epoch answer has named it. Before
+          // that, Base is the default this page has always used — connecting
+          // reads an address and signs nothing either way.
+          l2Connect(chainHex, chainName).then(function (a) { if (a) redrawAll(); })
+            .catch(function (e) { toast('Connect failed: ' + l2Err(e)); });
+        } }));
+        row.appendChild(h('span', { class: 'smallnote', text: 'Connecting shows an address. It signs nothing, records nothing, and this page never sees a key.' }));
+        return;
+      }
+      row.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: 'wallet ' + l2Wallet }));
+      if (l2Wallet === String(bound).toLowerCase()) {
+        row.appendChild(h('span', { class: 'smallnote', text: '\u2014 which is the address already bound. Nothing to change.' }));
+        return;
+      }
+      row.appendChild(h('button', { class: 'btn small', text: bound ? 'Bind this wallet instead' : 'Bind this wallet', onclick: function () { confirmBind(l2Wallet, bound); } }));
+    }
+
+    /**
+     * Read the address back, in full, before it is recorded.
+     *
+     * Not a confirm() and not a short form of the address: this is the one
+     * screen where somebody should compare 40 characters against their wallet,
+     * and a truncated address is precisely how a wrong one gets past a person
+     * who was looking straight at it.
+     */
+    function confirmBind(addr, bound) {
+      // One confirmation at a time. Pressed twice, the old shape stacked two
+      // identical blocks and the reader confirmed the one they were not
+      // looking at.
+      var open = bindBox.querySelector('[data-confirm]');
+      if (open) open.remove();
+      var box = h('div', { style: 'margin-top:10px', 'data-confirm': '1' });
+      bindBox.appendChild(box);
+      box.appendChild(h('p', { class: 'eyebrow', style: 'margin:6px 0 4px', text: 'bind this handle\u2019s earnings to' }));
+      box.appendChild(h('p', { class: 'num', style: 'word-break:break-all; margin:0 0 6px', text: addr }));
+      box.appendChild(note('Read it against the wallet before pressing. Nothing here can check it: an address is 20 bytes and any 20 bytes are a valid one, and the checksum a wallet shows is keccak-based while this codebase carries no keccak on purpose. A wrong address is earnings paid to somebody else, or to nobody, permanently.'));
+      box.appendChild(note('Whoever holds this address can claim this handle\u2019s earnings from now on. That is the whole security of it \u2014 there is no second check and no way to reverse a payment.', WARN));
+      box.appendChild(h('p', { class: 'smallnote' },
+        'It applies to FUTURE epochs only. Epochs that have already closed have their payout lists published, and a published ',
+        term('merkle', 'root'),
+        ' cannot be recomputed \u2014 so this changes nothing about what they pay, including epochs where this handle was unbound and therefore has no line at all.'));
+      if (bound) box.appendChild(note('This replaces ' + bound + ' from the next close onward. Anything already claimable at that address stays claimable there.'));
+      var go = h('div', { class: 'mini-form persistent' });
+      box.appendChild(go);
+      go.appendChild(h('button', { class: 'btn small primary', text: 'Bind ' + addr.slice(0, 10) + '\u2026' + addr.slice(-6), onclick: function () { submitBind(addr); } }));
+      go.appendChild(h('button', { class: 'btn small ghost', text: 'Cancel', onclick: function () { box.remove(); } }));
+    }
+
+    function submitBind(addr) {
+      // The host refuses this act from a handle with NO CREDENTIAL, and it is
+      // right to: an unsecured handle is claimable by anyone who knows its id,
+      // and this is the act that decides where money goes. But "secured" is a
+      // question about credentials, and this page cannot answer it — the
+      // replay carries pinHash and nothing whatever about passkeys, so the
+      // test that stood here was a PIN test wearing a credential test's
+      // sentence. server.mjs enters its no-credential branch only when BOTH
+      // stores are empty, and the comment above that line was written for this
+      // very act; refusing in the host's name for a rule the host does not
+      // have sent the owner of the strongest credential in this codebase off
+      // to set a weaker one, or to watch their share stay unbound and return
+      // to the steward at every sweep.
+      //
+      // So the question goes to the host that holds the answer, and only the
+      // case it confirms is refused here. A host that will not answer is not a
+      // refusal: the act is sent, and whatever the host says of it — including
+      // "this handle is secured with a passkey, sign the act with it" — is
+      // what the reader is told, in the host's own words.
+      var go = function () {
+        // The ordinary act path, PIN unlock and all: pushAct is what every
+        // other act in this file goes through, and bindAddress is not debited
+        // (the replay says so in as many words), so it does not go through the
+        // W1 wrapper that would refuse a drained account. Earning needs no
+        // reserve and speaking does, so those two run out at different times,
+        // and an account that earned a share must still be able to say where
+        // it goes.
+        pushAct({ t: 'bindAddress', id: me, addr: addr }, function () {
+          toast('Bound to ' + addr + '. It costs no \u03b8. From the next epoch close, this handle\u2019s share is a line in the payout list under that address; epochs already closed are unchanged.');
+        });
+      };
+      if (!REMOTE) { go(); return; }
+      fetch(API + '/api/auth/status?as=' + encodeURIComponent(me), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var hasPin = !!(d && d.hasPin);
+          var keys = d && d.passkeys && d.passkeys.length ? d.passkeys.length : 0;
+          if (!hasPin && !keys) {
+            toast('Secure this handle first, with a PIN or a passkey \u2014 this act says where money goes, and the host refuses it from a handle anyone could act as.');
+            setPinFlow(st, false);
+            return;
+          }
+          go();
+        })
+        .catch(function () { go(); });
+    }
+
+    // ── 2. the wallet, once for the whole card ────────────────────────────
+    body.appendChild(wRow);
+
+    // ── 2b. who the steward is, in the host's own words ───────────────────
+    //
+    // The rows below all depend on one account choosing to fund an epoch, and
+    // the card named it nowhere: `steward` appeared once in the whole surface,
+    // under the softer label "operator", with no address beside it. Both lines
+    // come from this host — the address the contract answers for steward(),
+    // and the account of the role that chain-l2/onchain.mjs already computes
+    // and serves to every other consumer of /api/token/onchain, including the
+    // uncomfortable half. Rendered only where that answer is about the very
+    // contract these rows claim against: a steward printed under a different
+    // deployment would be a different person entirely.
+    var sBox = h('div', {});
+    body.appendChild(sBox);
+    var sAsked = false;
+
+    function drawSteward() {
+      if (sAsked || !claimAddr) return;
+      sAsked = true;
+      fetch(API + '/api/token/onchain', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var cs = d && d.claimState;
+          if (!cs || !cs.contract || !cs.steward) return;
+          if (String(cs.contract).toLowerCase() !== String(claimAddr).toLowerCase()) return;
+          sBox.innerHTML = '';
+          sBox.appendChild(h('p', { class: 'eyebrow', style: 'margin:16px 0 4px', text: 'who can open and fund an epoch here' }));
+          var row = h('div', { class: 'mini-form persistent' },
+            h('span', { class: 'smallnote' }, 'the ', term('steward', 'steward'), ' of this contract is'),
+            h('span', { class: 'smallnote num', style: 'word-break:break-all', text: String(cs.steward) }));
+          // No label: l2ScanLink names the explorer it actually built the
+          // href from, and this page must not say "basescan" about a chain the
+          // host may not be serving.
+          var link = l2ScanLink(d.chainId, 'address', cs.steward);
+          if (link) row.appendChild(link);
+          sBox.appendChild(row);
+          if (cs.stewardIs) sBox.appendChild(note(cs.stewardIs));
+        })
+        .catch(function () { sAsked = false; });   // a question that failed is not an answer
+    }
+
+    function drawWallet() {
+      wRow.innerHTML = '';
+      if (!claimAddr) return;      // nothing on a chain to talk to yet
+      if (!window.ethereum) {
+        wRow.appendChild(h('span', { class: 'smallnote', text: 'No wallet in this browser, so nothing below can be checked against the chain or claimed. The amounts are still what this host computes from the log.' }));
+        return;
+      }
+      if (!chainHex) {
+        wRow.appendChild(h('span', { class: 'smallnote', text: 'This host named no chain id for its claim contract, so this page cannot tell a wallet which network to ask \u2014 and a read on the wrong one would be about a different contract. Nothing here is read through a wallet until it does.' }));
+        return;
+      }
+      if (!l2Wallet) {
+        // Not a second button. The binding section above has the only one, and
+        // it writes the same l2Wallet this row reads \u2014 two controls doing
+        // one thing, a few lines apart, is a question the reader should not
+        // have to answer.
+        wRow.appendChild(h('span', { class: 'smallnote', text: 'Connect the wallet above and this card will ask the contract whether these epochs have already been claimed. Connecting signs nothing; nothing here is signed until you press a Claim button.' }));
+        return;
+      }
+      wRow.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: l2Wallet + ' \u00b7 ' + chainName }));
+      wRow.appendChild(h('span', { class: 'smallnote', text: 'claiming at ' + claimAddr }));
+    }
+
+    // ── 3. one row per epoch this handle earned in ────────────────────────
+    var epochBox = h('div', {});
+    body.appendChild(epochBox);
+    drawBind();
+    drawEpochs();
+
+    function drawEpochs() {
+      epochBox.innerHTML = '';
+      // Every repaint in that list points at a row this line just detached.
+      rowPaints.length = 0;
+      epochBox.appendChild(h('p', { class: 'eyebrow', style: 'margin:18px 0 4px', text: 'what each closed epoch credited you' }));
+      var dist = (st.tokens && st.tokens.dist) || [];
+      var mine = [];
+      for (var i = dist.length - 1; i >= 0; i--) {
+        var d = dist[i];
+        if (d && d.to && d.to[me] > 0) mine.push(d);
+      }
+      if (!mine.length) {
+        epochBox.appendChild(note('No closed epoch has credited this handle yet. Earnings come from other people reacting to and commenting on what you made, shared out when an epoch closes \u2014 so there is nothing here to bind for yet, and binding early is what makes sure the first one has a line to pay.'));
+        return;
+      }
+      var shown = mine.slice(0, shownN);
+      if (mine.length > shown.length) {
+        epochBox.appendChild(note('The ' + shown.length + ' most recent of ' + mine.length + ' epochs that credited this handle. Each row is one question to this host and one to the chain, so they are asked in batches rather than all at once \u2014 the rest are unchanged and still claimable if they were ever funded, and the button below asks about them.'));
+      }
+      for (var k = 0; k < shown.length; k++) epochBox.appendChild(epochRow(shown[k]));
+      if (mine.length > shown.length) {
+        var left = mine.length - shown.length;
+        var step = left < ROWS ? left : ROWS;
+        epochBox.appendChild(h('div', { class: 'mini-form persistent', style: 'margin-top:12px' },
+          h('button', { class: 'btn small ghost', text: 'Show ' + step + ' older epoch' + (step === 1 ? '' : 's'),
+            onclick: function () { shownN += ROWS; drawEpochs(); } }),
+          h('span', { class: 'smallnote', text: left + ' older epoch' + (left === 1 ? '' : 's') + ' this card has not asked about yet. An epoch\u2019s claim window runs whether or not its row is on screen, so open them rather than read their absence as \u201cnothing there\u201d.' })));
+      }
+    }
+
+    function epochRow(dist) {
+      var n = dist.epoch;
+      var logAmt = Math.round((dist.to[me] || 0) * 1e6) / 1e6;
+      var box = h('div', { style: 'margin-top:12px; border-top:1px solid var(--line); padding-top:10px' });
+      box.appendChild(h('div', { class: 'kv' },
+        h('span', { text: 'epoch ' + n }),
+        h('b', { class: 'num', text: logAmt + ' PEER credited to this handle in the log' })));
+      var stateBox = h('div', {});
+      var actBox = h('div', {});
+      var sayBox = h('div', {});
+      box.appendChild(stateBox);
+      box.appendChild(actBox);
+      box.appendChild(sayBox);
+      var key = me + '|' + n;
+
+      function say(t, warn) {
+        sayBox.appendChild(h('p', { class: 'smallnote', style: warn ? WARN : '', text: t }));
+      }
+      function only(t, style) { stateBox.innerHTML = ''; actBox.innerHTML = ''; stateBox.appendChild(note(t, style)); }
+
+      function stamp(at) {
+        var line = h('div', { class: 'mini-form persistent' },
+          h('span', { class: 'smallnote', text: 'read from this host at ' + new Date(at).toLocaleTimeString() }),
+          h('button', { class: 'btn small ghost', text: 'Check again', onclick: function () { load(true); } }));
+        stateBox.appendChild(line);
+      }
+
+      /** Everything about epoch `n`, painted from one host answer. */
+      function paint(d, at) {
+        stateBox.innerHTML = '';
+        actBox.innerHTML = '';
+        var oc = d.onchain || {};
+        var dec = Number(d.decimals);
+        var cl = d.claimant;
+
+        // (a) is there a line in the payout list, and what does it pay?
+        if (cl) {
+          stateBox.appendChild(h('div', { class: 'kv' },
+            h('span', {}, 'its ', term('merkle', 'payout list'), ' pays'),
+            h('b', { class: 'num', text: l2Human(BigInt(cl.amount), dec) + ' PEER' }),
+            h('span', { text: 'to' }),
+            h('b', { class: 'num', style: 'word-break:break-all', text: cl.address })));
+          if (cl.handles && cl.handles.length > 1) {
+            stateBox.appendChild(note('That line is shared: ' + cl.handles.length + ' handles had this same address bound when the epoch closed, so the amount above is their combined share and whoever holds the address collects all of it at once.'));
+          }
+        } else {
+          stateBox.appendChild(note(d.claimantNote || 'This handle has no line in this epoch\u2019s payout list.', WARN));
+        }
+
+        // (b) has anybody put money behind it? Four different answers, and
+        //     blurring them is exactly how "nothing was deposited" gets read
+        //     as "you will be paid".
+        if (oc.configured === false) {
+          stateBox.appendChild(note('The operator of this host has not deployed a claim contract \u2014 PEER_CLAIM_ADDR is unset. These earnings therefore exist only as a number in this log: there is nothing on any chain to claim, nothing has been deposited, and no deadline is running. That may never change; nothing in this app can make it.', WARN));
+          stamp(at);
+          return;
+        }
+        if (!claimAddr && oc.contract) {
+          claimAddr = String(oc.contract);
+          chainHex = l2ChainHex(oc.chainId);
+          chainName = l2ChainName(oc.chainId);
+          drawWallet();
+          drawSteward();
+        }
+        if (oc.error) { stateBox.appendChild(note(oc.error, WARN)); stamp(at); return; }
+        if (!oc.opened) {
+          stateBox.appendChild(note('Nobody has opened epoch ' + n + ' on the claim contract at ' + (oc.contract || 'the configured address') + '. NOTHING HAS BEEN DEPOSITED for it. This is not \u201cyou will be paid later\u201d \u2014 it is \u201cno money has been put behind this\u201d, and opening an epoch is the operator\u2019s own transaction out of coins they already hold. ' + (oc.why || ''), WARN));
+          stamp(at);
+          return;
+        }
+        if (oc.rootMatches === false) {
+          stateBox.appendChild(note(oc.rootMismatch || 'The payout list published on chain for this epoch is NOT the one this host computes from its log. Nothing here is claimable against it.', WARN));
+          stamp(at);
+          return;
+        }
+
+        var total = BigInt(oc.totalRaw || '0');
+        var paid = BigInt(oc.paidRaw || '0');
+        var tree = BigInt(d.total || '0');
+        var kv = h('div', { class: 'kv' },
+          h('span', {}, 'the ', term('steward', 'operator'), ' deposited'),
+          h('b', { class: 'num', text: l2Human(total, dec) + ' PEER' }),
+          h('span', { text: 'claimed so far' }),
+          h('b', { class: 'num', text: l2Human(paid, dec) + ' PEER' }),
+          h('span', {}, term('deadline', 'claim deadline')),
+          h('b', { text: when(oc.claimUntil) }));
+        stateBox.appendChild(kv);
+        // The check no contract can make, made here, before anybody spends
+        // gas: nothing on chain holds the payout list, so a list adding up to
+        // more than the deposit pays first-come and reverts for the rest.
+        if (tree > total) {
+          stateBox.appendChild(note('This epoch\u2019s payout list adds up to ' + l2Human(tree, dec) + ' PEER but only ' + l2Human(total, dec) + ' was deposited. No contract can add a list up, so this epoch pays whoever claims first and reverts for everyone after. Read that as a warning about the epoch, not about your line.', WARN));
+        }
+        if (!oc.open) {
+          stateBox.appendChild(h('p', { class: 'smallnote', style: WARN },
+            'This epoch is not open to claims: the window ran to ' + when(oc.claimUntil) + ', or the remainder has already been ',
+            term('sweep', 'swept'),
+            '. A claim now would revert and cost the gas, so there is no button.'));
+          stamp(at);
+          return;
+        }
+        if (!cl) { stamp(at); return; }
+
+        // (c) can THIS reader take it?
+        drawClaim(d, cl, oc, dec);
+        stamp(at);
+      }
+
+      function drawClaim(d, cl, oc, dec) {
+        actBox.innerHTML = '';
+        var leafAddr = String(cl.address).toLowerCase();
+        if (!window.ethereum) {
+          actBox.appendChild(note('There is no wallet in this browser to claim with. This line is payable to ' + leafAddr + ' and to no other address \u2014 open that account in a browser with a wallet.'));
+          return;
+        }
+        if (!chainHex) {
+          actBox.appendChild(note('This host named no chain id for its claim contract, so nothing here will be signed \u2014 a claim sent on the wrong chain reaches no contract and costs the gas anyway.', WARN));
+          return;
+        }
+        if (!l2Wallet) {
+          actBox.appendChild(note('Connect a wallet above to check whether this has already been claimed, and to claim it. It is payable to ' + leafAddr + ' and to no other address.'));
+          return;
+        }
+        if (l2Wallet !== leafAddr) {
+          actBox.appendChild(note('The connected wallet is ' + l2Wallet + '. This line pays ' + leafAddr + ', and the contract checks the proof against whoever sends the transaction \u2014 so nobody can claim it for you, including you from a second wallet. Switch the wallet to that account.', WARN));
+          return;
+        }
+        var flag = l2Claimed[n + '|' + leafAddr];
+        if (flag === true) {
+          actBox.appendChild(note('This address has already claimed epoch ' + n + '. The contract\u2019s own record says so; there is nothing further to take.'));
+          return;
+        }
+        var btn = h('button', { class: 'btn small primary', text: 'Claim ' + l2Human(BigInt(cl.amount), dec) + ' PEER' });
+        btn.onclick = function () {
+          btn.disabled = true;
+          sayBox.innerHTML = '';
+          doClaim(d, cl, oc).catch(function (e) {
+            say('Stopped: ' + l2Err(e), true);
+          }).then(function () { btn.disabled = false; });
+        };
+        actBox.appendChild(h('div', { class: 'mini-form persistent' }, btn,
+          h('span', { class: 'smallnote' }, 'The contract is asked first, for free, whether this would be paid \u2014 a refused ',
+            term('proof', 'proof'), ' costs nothing this way, and this page will not offer to sign a claim the contract has already said no to. It is one moment\u2019s answer, not a guarantee: on an epoch whose list adds up to more than its deposit, another claim landing first can still revert this one, and so can the deadline passing between the check and the block that carries the transaction. Gas spent on a claim that reverts does not come back.')));
+        if (flag === undefined) readClaimed(leafAddr);
+      }
+
+      /** The contract's own claimed mapping — the same flag claim() checks. */
+      function readClaimed(addr) {
+        if (!claimAddr || !window.ethereum || !l2Wallet) return;
+        l2Eth('eth_call', [{ to: claimAddr, data: CL_SEL.claimed + w256(n) + l2Addr(addr) }, 'latest'])
+          .then(function (r) {
+            var v = l2Uint(r, 'the claimed flag for epoch ' + n);
+            l2Claimed[n + '|' + addr] = v === 1n;
+            var c = l2Claims[key];
+            if (c) paint(c.d, c.at);
+          })
+          .catch(function () { /* the dry run below asks the same question anyway */ });
+      }
+
+      /**
+       * Claim, with the free question asked before the expensive one.
+       *
+       * checkClaim folds in every check claim() makes, so a claim that would
+       * revert is refused here at the cost of one eth_call — and when it does
+       * refuse, epochInfo and the claimed flag are read to say WHICH check
+       * failed, because "it would fail" is not something anybody can act on.
+       */
+      async function doClaim(d, cl, oc) {
+        var to = String(oc.contract);
+        var acct = l2Wallet || await l2Connect(chainHex, chainName);
+        if (!acct) return;
+        // Asked again at the last moment. l2Wallet outlives the check made at
+        // connect time on purpose, so between connecting and pressing, the
+        // wallet may have moved account or network without this page hearing.
+        var accs = await l2Eth('eth_accounts');
+        var cur = accs && accs[0] ? String(accs[0]).toLowerCase() : '';
+        if (!cur) { say('The wallet is not connected any more \u2014 nothing was sent.', true); return; }
+        if (cur !== String(cl.address).toLowerCase()) {
+          l2Wallet = cur;
+          redrawAll();
+          say('The wallet is on ' + cur + ' now, and this line pays ' + cl.address + '. Nothing was sent: the proof is checked against whoever sends the transaction.', true);
+          return;
+        }
+        var chain = await l2Eth('eth_chainId');
+        if (!l2OnChain(chain, chainHex)) {
+          l2Wallet = null;
+          redrawAll();
+          say('That wallet answers for chain ' + chain + ', not ' + chainName + '. Nothing was sent \u2014 a claim signed on the wrong chain reaches no contract and costs the gas anyway.', true);
+          return;
+        }
+
+        // The proof, exactly as the endpoint supplies it. Checked for shape
+        // only: 32-byte words, and the one structural rule of this encoding —
+        // proof[0] is a PATH WORD whose bits index the siblings after it, so
+        // bits above that count carry no meaning and PeerClaim refuses them.
+        var words = cl.proof;
+        if (!Array.isArray(words) || !words.length) { say('This host sent no proof for this line, so there is nothing to send.', true); return; }
+        for (var i = 0; i < words.length; i++) {
+          if (!/^(0x)?[0-9a-fA-F]{64}$/.test(String(words[i]))) {
+            say('Word ' + i + ' of this proof is not 32 bytes, so nothing was sent \u2014 this host answered something no contract could read.', true);
+            return;
+          }
+        }
+        if ((BigInt('0x' + w32(words[0])) >> BigInt(words.length - 1)) !== 0n) {
+          say('The path word of this proof has bits set above its sibling count, which PeerClaim rejects outright. Nothing was sent.', true);
+          return;
+        }
+
+        var amt = BigInt(cl.amount);
+        say('Asking the contract whether this claim would be paid. This is a free read \u2014 no signature, no gas.');
+        var dry = CL_SEL.checkClaim + w256(n) + l2Addr(cur) + w256(amt)
+          + w256(128) + w256(words.length) + words.map(w32).join('');
+        var okWord;
+        try {
+          okWord = l2Uint(await l2Eth('eth_call', [{ to: to, data: dry }, 'latest']), 'the dry run of this claim');
+        } catch (e) {
+          say('The dry run could not be read (' + l2Err(e) + '), so nothing was signed. A claim is not sent on a question this page could not ask.', true);
+          return;
+        }
+        if (okWord !== 1n) {
+          say('The contract says this claim would NOT be paid. Nothing was signed and no gas was spent. ' + (await whyNot(d, cl, to, cur)), true);
+          load(true);
+          return;
+        }
+
+        say('Approve it in the wallet. This is the only step that costs gas, and it is the only thing this page ever asks you to sign.');
+        var data = CL_SEL.claim + w256(n) + w256(amt)
+          + w256(96) + w256(words.length) + words.map(w32).join('');
+        var tx = await l2Eth('eth_sendTransaction', [{ from: cur, to: to, data: data, chainId: chainHex }]);
+        say('Sent. Transaction ' + tx + ' \u2014 waiting for a block to carry it. Nothing has been claimed until one does; do not send it again.');
+        if (Number(oc.chainId) === 8453) {
+          sayBox.appendChild(h('p', { class: 'smallnote' },
+            h('a', { target: '_blank', rel: 'noopener', href: 'https://basescan.org/tx/' + tx, text: 'follow it on basescan' })));
+        }
+        var rc = null;
+        for (var k = 0; k < 90 && !rc; k++) {
+          await new Promise(function (r) { setTimeout(r, 2000); });
+          // A provider that throws mid-poll throws out of here, which is the
+          // truth: the transaction went out and this page stopped watching.
+          rc = await l2Eth('eth_getTransactionReceipt', [tx]);
+        }
+        if (!rc) {
+          say('Not mined after three minutes. It may still be waiting in the mempool \u2014 follow the hash above rather than sending it a second time.', true);
+        } else if (rc.status !== '0x1') {
+          say('It reverted on chain. No PEER moved; the gas did not come back. The state below is re-read from the chain rather than assumed.', true);
+        } else {
+          say('Claimed. The PEER is in ' + cur + ' now \u2014 if the wallet does not list it, add the token from the card above; a wallet does not show a token it has never been told about.');
+        }
+        delete l2Claimed[n + '|' + cur];
+        load(true);
+      }
+
+      /** Which check failed, in the contract's own terms. */
+      async function whyNot(d, cl, to, cur) {
+        var reasons = [];
+        try {
+          var got = String(await l2Eth('eth_call', [{ to: to, data: CL_SEL.epochInfo + w256(n) }, 'latest']) || '').replace(/^0x/, '');
+          if (got.length >= 320) {
+            var root = got.slice(0, 64);
+            var total = BigInt('0x' + got.slice(64, 128));
+            var paid = BigInt('0x' + got.slice(128, 192));
+            var until = Number(BigInt('0x' + got.slice(192, 256)));
+            var open = BigInt('0x' + got.slice(256, 320)) === 1n;
+            if (/^0+$/.test(root)) {
+              reasons.push('this epoch is not open on that contract at all');
+            } else {
+              if (root !== String(d.root).toLowerCase()) reasons.push('the payout list published on chain is not the one this host computes, so no proof from here folds to it');
+              if (!open) reasons.push('the epoch is closed to claims \u2014 its window ran to ' + when(until));
+              if (total - paid < BigInt(cl.amount)) reasons.push('what is left of the deposit is ' + l2Human(total - paid, Number(d.decimals)) + ' PEER, less than this line, so the list was funded for less than it promises');
+            }
+          }
+        } catch (e) { /* the claimed read below may still explain it */ }
+        try {
+          var c = l2Uint(await l2Eth('eth_call', [{ to: to, data: CL_SEL.claimed + w256(n) + l2Addr(cur) }, 'latest']), 'the claimed flag');
+          if (c === 1n) {
+            l2Claimed[n + '|' + cur] = true;
+            reasons.unshift('this address has already claimed this epoch');
+          }
+        } catch (e) { /* below */ }
+        return reasons.length
+          ? 'Why: ' + reasons.join('; ') + '.'
+          : 'It did not say which check failed. The address, the amount or the proof is not what the published list commits to.';
+      }
+
+      function load(force) {
+        var c = l2Claims[key];
+        if (!force && c && Date.now() - c.at < 60000) { paint(c.d, c.at); return; }
+        only('Asking this host what epoch ' + n + ' owes you\u2026');
+        fetch(API + '/api/v1/epoch/' + n + '/claim?as=' + encodeURIComponent(me), { cache: 'no-store' })
+          .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+          .then(function (x) {
+            if (x.status !== 200 || !x.d || !x.d.root) {
+              only((x.d && x.d.error) || ('This host answered ' + x.status + ' for epoch ' + n + ', so nothing about it is shown here rather than guessed.'), WARN);
+              return;
+            }
+            l2Claims[key] = { at: Date.now(), d: x.d };
+            paint(x.d, l2Claims[key].at);
+            // Claimed once this card is actually on screen, for the same
+            // reason the token card claims its own slot late: a fetch landing
+            // after the reader moved on must not take the hook from the card
+            // they moved to.
+            if (card.isConnected) l2ClaimRedraw = function () { redrawAll(); };
+          })
+          .catch(function () {
+            only('Could not reach this host to ask about epoch ' + n + '. The ' + logAmt + ' PEER above is what this device\u2019s copy of the log says; whether anything was ever deposited against it is a question only the host and the chain can answer.', WARN);
+          });
+      }
+
+      rowPaints.push(function () {
+        var c = l2Claims[key];
+        if (c) paint(c.d, c.at);
+      });
+      load(false);
+      return box;
+    }
+
+    return card;
+  }
+
+  // ── checking an epoch block here, instead of taking the host's word ────
+  //
+  // These mirror chain/canonical.mjs and chain/keys.mjs exactly, and they have
+  // to: a host reporting that its own chain verifies is a host marking its own
+  // work. Keys sorted by UTF-16 code unit, numbers printed by Number::toString
+  // (which is what JSON.stringify prints), non-finite numbers refused rather
+  // than nulled — JSON.stringify would write `null` for both and two different
+  // corruptions would then hash alike. If that file ever changes, this changes
+  // with it; the symptom of forgetting is every id on this screen going red at
+  // once, which is the right way round for a mistake like that to fail.
+  function chainCanon(v) {
+    if (v === null) return 'null';
+    var t = typeof v, i;
+    if (t === 'boolean') return v ? 'true' : 'false';
+    if (t === 'number') {
+      if (!isFinite(v)) throw new Error('canonical: non-finite number');
+      return JSON.stringify(v);
+    }
+    if (t === 'string') return JSON.stringify(v);
+    if (t !== 'object') throw new Error('canonical: cannot encode ' + t);
+    if (Array.isArray(v)) {
+      var items = [];
+      for (i = 0; i < v.length; i++) items.push(chainCanon(v[i]));
+      return '[' + items.join(',') + ']';
+    }
+    var keys = Object.keys(v).sort(), parts = [];
+    for (i = 0; i < keys.length; i++) {
+      if (v[keys[i]] === undefined) continue;
+      parts.push(JSON.stringify(keys[i]) + ':' + chainCanon(v[keys[i]]));
+    }
+    return '{' + parts.join(',') + '}';
+  }
+  function chainHexOf(bytes) {
+    var out = '', i;
+    for (i = 0; i < bytes.length; i++) out += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+    return out;
+  }
+  function chainBytesFromHex(hex) {
+    var t = String(hex), out = new Uint8Array(Math.floor(t.length / 2)), i;
+    for (i = 0; i < out.length; i++) out[i] = parseInt(t.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+  // base64url — the representation a producer key and a signature travel in,
+  // the same one a JWK carries, so nothing here parses DER.
+  function chainBytesFromB64u(t0) {
+    var t = String(t0).replace(/-/g, '+').replace(/_/g, '/');
+    while (t.length % 4) t += '=';
+    var bin = atob(t), out = new Uint8Array(bin.length), i;
+    for (i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function chainSha256(text) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+      .then(function (buf) { return chainHexOf(new Uint8Array(buf)); });
+  }
+  // Ed25519 over the 32 raw bytes of the block digest — exactly what
+  // chain/keys.mjs signs. A browser without Ed25519 in WebCrypto rejects here
+  // and the caller reports "not checked", never "failed": those are opposite
+  // claims about somebody's record and this page must not render one as the
+  // other.
+  function chainVerifySig(pub, digestHex, sig) {
+    var jwk = { kty: 'OKP', crv: 'Ed25519', x: String(pub), ext: true, key_ops: ['verify'] };
+    return crypto.subtle.importKey('jwk', jwk, { name: 'Ed25519' }, false, ['verify'])
+      .then(function (k) {
+        return crypto.subtle.verify({ name: 'Ed25519' }, k, chainBytesFromB64u(sig), chainBytesFromHex(digestHex));
+      });
+  }
+  /**
+   * One block, recomputed in this browser: { id, sig, why }.
+   *
+   * `id` is the block's own hash or null; `sig` is true, false, or null for
+   * "nothing checked it here". Null is never shown as either of the other two.
+   */
+  function chainCheck(block) {
+    var out = { id: null, sig: null, why: null };
+    if (!(window.crypto && window.crypto.subtle)) {
+      out.why = 'This browser handed the page no cryptography to check with — crypto.subtle exists only on a secure origin, and this app is often served over plain http on a LAN. Nothing below was recomputed here, so every signature is unchecked rather than trusted.';
+      return Promise.resolve(out);
+    }
+    var unsigned = {}, k;
+    for (k in block) if (Object.prototype.hasOwnProperty.call(block, k) && k !== 'sig') unsigned[k] = block[k];
+    return chainSha256(chainCanon(block)).then(function (id) {
+      out.id = id;
+      return chainSha256(chainCanon(unsigned));
+    }).then(function (digest) {
+      return chainVerifySig(block.producer, digest, block.sig);
+    }).then(function (ok) {
+      out.sig = ok;
+      return out;
+    }).catch(function (e) {
+      out.why = out.id
+        ? 'The id above was recomputed here, but this browser would not check an Ed25519 signature (' + l2Err(e) + '), so the signatures below are unchecked.'
+        : 'This browser could not recompute these blocks (' + l2Err(e) + ').';
+      return out;
+    });
+  }
+
+  /**
+   * The epoch chain, and who has timestamped it on Base.
+   *
+   * The distinction this view exists to hold apart is the one the whole design
+   * turns on, so it is said on the screen and not only in this comment:
+   *
+   *   · the LOG is what is true. Anyone holding it recomputes the state and
+   *     gets the same numbers. That is replay, and it needs no signature, no
+   *     chain and nobody's permission.
+   *   · a BLOCK makes a rewrite loud. It says: this key published exactly
+   *     these bytes for this epoch, linked to the block before it.
+   *   · an ANCHOR adds the one fact replay cannot reconstruct — WHEN a
+   *     commitment existed — by putting two hashes somewhere the poster
+   *     cannot reach back into.
+   *
+   * None of the three makes a result correct, and the interface must never
+   * blur that: an anchor proves a commitment existed at a time and was never
+   * revised, and says nothing whatever about whether what it commits to is
+   * true.
+   *
+   * Anchors are keyed by (poster, epoch) and ANYONE may post one. This app has
+   * no official anchoring address to compare against, so every row names WHOSE
+   * anchor it is, and an epoch several addresses anchored shows all of them
+   * rather than one this page chose.
+   */
+  function epochChainView() {
+    var wrap = h('div', {});
+    // The newest N blocks are drawn and checked. The chain is every epoch this
+    // network has ever closed; hashing all of it inside a page would be a
+    // spinner rather than a check, and the whole file is one fetch away at
+    // /api/chain for anyone who wants to run chain/verify.mjs over it.
+    var SHOW = 20;
+
+    var card = h('div', { class: 'card' }, h('h2', { text: 'The epoch chain' }));
+    card.appendChild(h('p', { class: 'smallnote' },
+      'Every closed epoch is sealed into one ', term('epochBlock'),
+      ': the acts it covered, hashes of the state computed from them, the constants used, and a signature from the ',
+      term('producer'), ' that published it. Each block carries the id of the one before it, so an old block cannot be edited quietly — every id after it changes too, and stops matching the copies other people are holding.'));
+    card.appendChild(h('p', { class: 'smallnote' },
+      'A block is a publication, not a verdict. What is true here is settled by ', term('replay'),
+      ' — recomputing the network from the public act log, which needs neither this host nor any chain. A signature that checks out says this key published exactly these bytes, and nothing at all about the numbers in them being right.'));
+    card.appendChild(h('p', { class: 'smallnote', text: 'The ids and signatures below are recomputed in this browser out of the bytes this host served, because a host reporting that its own chain verifies is marking its own work. The same check runs offline over the same two files: node chain/verify.mjs, against /api/chain and /api/acts.' }));
+    var body = h('div', {});
+    card.appendChild(body);
+    wrap.appendChild(card);
+
+    var aCard = h('div', { class: 'card', style: 'margin-top:14px' }, h('h2', { text: 'Anchors — and whose they are' }));
+    var aBody = h('div', {});
+    aCard.appendChild(aBody);
+    wrap.appendChild(aCard);
+
+    var kCard = h('div', { class: 'card', style: 'margin-top:14px' }, h('h2', { text: 'The contracts this host reads' }));
+    var kBody = h('div', {});
+    kCard.appendChild(kBody);
+    wrap.appendChild(kCard);
+
+    body.appendChild(h('p', { class: 'smallnote', text: 'Reading the blocks this host publishes…' }));
+    aBody.appendChild(h('p', { class: 'smallnote', text: 'Asking this host what it can see on chain…' }));
+    kBody.appendChild(h('p', { class: 'smallnote', text: 'Asking this host which contracts it is pointed at…' }));
+
+    // One shape for three answers, and a refusal that is a status rather than
+    // an exception: /api/chain is ndjson and never parses as one document, so
+    // the text is kept beside whatever JSON there was.
+    function ask(path) {
+      return fetch(API + path, { cache: 'no-store' }).then(function (r) {
+        return r.text().then(function (t) {
+          var d = null;
+          try { d = JSON.parse(t); } catch (e) { d = null; }
+          return { status: r.status, d: d, text: t };
+        });
+      }).catch(function () { return { status: 0, d: null, text: '' }; });
+    }
+
+    Promise.all([ask('/api/chain'), ask('/api/chain/head'), ask('/api/token/onchain')])
+      .then(function (r) { draw(r[0], r[1], r[2]); });
+
+    function draw(chainRes, headRes, ocRes) {
+      body.innerHTML = '';
+      aBody.innerHTML = '';
+      kBody.innerHTML = '';
+
+      var oc = ocRes.d;
+      var ocOff = ocRes.status === 404 || !!(oc && oc.code === 'ONCHAIN_OFF');
+      var ocOK = ocRes.status === 200 && !!oc && !oc.code;
+      var chainId = ocOK && isFinite(Number(oc.chainId)) ? Number(oc.chainId) : null;
+      var anch = ocOK && oc.anchors ? oc.anchors : null;
+      var anchorsOn = !!(anch && anch.configured !== false && !anch.error && Array.isArray(anch.anchors));
+
+      // Anchors by epoch, in a null-prototype map: the keys are decimal
+      // strings a stranger chose, because anyone may anchor any epoch number.
+      var byEpoch = Object.create(null);
+      if (anchorsOn) {
+        anch.anchors.forEach(function (a) {
+          var k = String(a.epoch);
+          if (!byEpoch[k]) byEpoch[k] = [];
+          byEpoch[k].push(a);
+        });
+      }
+
+      var blocks = [], bad = 0;
+      if (chainRes.status === 200) {
+        String(chainRes.text || '').split('\n').forEach(function (line) {
+          var t = line.trim();
+          if (!t) return;
+          try {
+            var b = JSON.parse(t);
+            if (b && typeof b === 'object' && !Array.isArray(b)) blocks.push(b);
+            else bad++;
+          } catch (e) { bad++; }
+        });
+      }
+      blocks.sort(function (x, y) { return (Number(x.height) || 0) - (Number(y.height) || 0); });
+
+      var head = headRes.status === 200 && headRes.d ? headRes.d : null;
+      // What the chain says its own ids are: block N+1 carries N's id in
+      // `prev`, and HEAD.json names the tip's. That is what makes recomputing
+      // them worth doing — two independent statements of one hash, one
+      // derived from the bytes and one asserted by the files, and a
+      // disagreement between them is the loudest thing this view can say.
+      var said = Object.create(null), saidBy = Object.create(null);
+      blocks.forEach(function (b) {
+        var hgt = Number(b.height);
+        if (typeof b.prev === 'string' && b.prev && isFinite(hgt)) {
+          said[String(hgt - 1)] = b.prev;
+          saidBy[String(hgt - 1)] = 'the block above names it as its prev';
+        }
+      });
+      if (head && typeof head.hash === 'string' && head.hash) {
+        said[String(head.height)] = head.hash;
+        saidBy[String(head.height)] = 'HEAD.json names it as the tip';
+      }
+
+      var queue = [], whyBox = h('div', {});
+
+      if (chainRes.status === 0) {
+        body.appendChild(h('p', { class: 'smallnote', text: 'This page could not reach a host to ask for the chain, so nothing is shown. Nothing is drawn from this page’s own memory on purpose: a chain redrawn out of a cache is exactly what this view exists to make unnecessary.' }));
+      } else if (chainRes.status === 404) {
+        body.appendChild(h('p', { class: 'smallnote', text: (chainRes.d && chainRes.d.error) || 'This host has sealed no epoch block yet.' }));
+        body.appendChild(h('p', { class: 'smallnote', text: 'That is a host which has sealed nothing, not a network without a record: the act log IS the record, and it replays without any of this.' }));
+      } else if (chainRes.status !== 200) {
+        body.appendChild(h('p', { class: 'smallnote', text: 'This host answered ' + chainRes.status + ' when asked for its chain' + (chainRes.d && chainRes.d.error ? ': ' + chainRes.d.error : '.') }));
+      } else if (!blocks.length) {
+        body.appendChild(h('p', { class: 'smallnote', text: 'This host served a chain with no blocks in it' + (bad ? ', and ' + bad + ' line(s) of it would not parse.' : '.') }));
+      } else {
+        drawBlocks();
+      }
+
+      function drawBlocks() {
+        var shown = blocks.slice(Math.max(0, blocks.length - SHOW)).reverse();
+        var top = 'Newest first. ' + (blocks.length > shown.length
+          ? 'Showing ' + shown.length + ' of ' + blocks.length + ' blocks — the rest are in the same file, at /api/chain.'
+          : blocks.length + ' block' + (blocks.length === 1 ? '' : 's') + ', which is all of them.');
+        if (bad) top += ' ' + bad + ' line(s) would not parse and are not counted.';
+        if (head && Number(head.height) !== Number(blocks[blocks.length - 1].height)) {
+          top += ' This host’s HEAD names height ' + head.height + ' while the last block in its file is height ' + blocks[blocks.length - 1].height + ': the two disagree, which is worth more of your attention than any signature below.';
+        }
+        body.appendChild(h('p', { class: 'smallnote', text: top }));
+        body.appendChild(whyBox);
+
+        shown.forEach(function (b) {
+          var row = h('div', { style: 'border-top:1px solid var(--line); padding:10px 0' });
+          var when = typeof b.time === 'number' && isFinite(b.time)
+            ? new Date(b.time).toLocaleString()
+            : 'a time this block does not carry';
+          row.appendChild(h('div', { class: 'kv' },
+            h('span', { text: 'epoch ' + (b.epoch == null ? '?' : b.epoch) }),
+            h('b', { class: 'num', text: 'height ' + (b.height == null ? '?' : b.height) }),
+            h('span', { text: 'sealed' }),
+            h('b', { class: 'num', text: when })));
+          var idLine = h('p', { class: 'smallnote' });
+          row.appendChild(idLine);
+          row.appendChild(h('p', { class: 'smallnote' },
+            h('span', { class: 'num', style: 'word-break:break-all', text: 'producer ' + String(b.producer || '—') })));
+          var chips = h('div', {});
+          row.appendChild(chips);
+          var anchors = h('div', {});
+          row.appendChild(anchors);
+          body.appendChild(row);
+          queue.push({ b: b, idLine: idLine, chips: chips, anchors: anchors });
+        });
+
+        body.appendChild(h('p', { class: 'smallnote', text: 'A producer is a signing key — not a wallet and not a person. It signs the record and holds no money. A key that changes from one block to the next is a change in who publishes this network’s epochs, and it is visible here rather than silent.' }));
+        run();
+      }
+
+      // One at a time. Twenty blocks is twenty canonical encodings and forty
+      // digests; done in parallel on a phone the page stops answering, and the
+      // rows fill in top-down either way.
+      function run() {
+        var i = 0;
+        function next() {
+          if (i >= queue.length) return;
+          var slot = queue[i++];
+          chainCheck(slot.b).then(function (r) { paint(slot, r); next(); });
+        }
+        next();
+      }
+
+      function paint(slot, r) {
+        var b = slot.b, hgt = String(b.height);
+        var claimed = said[hgt] || null;
+        var id = r.id || claimed;
+
+        slot.idLine.innerHTML = '';
+        if (id) {
+          slot.idLine.appendChild(h('span', { class: 'num', style: 'word-break:break-all', text: id }));
+          slot.idLine.appendChild(h('button', { class: 'btn small', style: 'margin-left:8px', text: 'Copy id',
+            onclick: function () { copyLine(id, 'Block id copied.'); } }));
+          slot.idLine.appendChild(h('span', { class: 'smallnote', text: r.id ? ' · recomputed here from the bytes served' : ' · not recomputed here — ' + (saidBy[hgt] || 'taken from this host') }));
+        } else {
+          slot.idLine.appendChild(h('span', { class: 'smallnote', text: 'This block’s id is not on screen: nothing here recomputed it, and neither another block nor HEAD names it.' }));
+        }
+
+        slot.chips.innerHTML = '';
+        if (r.sig === true) slot.chips.appendChild(h('span', { class: 'gate pass', text: 'signature verifies' }));
+        else if (r.sig === false) slot.chips.appendChild(h('span', { class: 'gate fail', text: 'SIGNATURE DOES NOT VERIFY' }));
+        else slot.chips.appendChild(h('span', { class: 'gate', style: 'border:1px solid var(--line)', text: 'signature not checked here' }));
+
+        if (r.id && claimed) {
+          slot.chips.appendChild(r.id === claimed
+            ? h('span', { class: 'gate pass', text: 'id matches — ' + saidBy[hgt] })
+            : h('span', { class: 'gate fail', text: 'ID DOES NOT MATCH THE LINK' }));
+        } else if (r.id) {
+          slot.chips.appendChild(h('span', { class: 'gate', style: 'border:1px solid var(--line)', text: 'nothing else names this id' }));
+        }
+
+        if (r.id && claimed && r.id !== claimed) {
+          slot.chips.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px',
+            text: 'These bytes hash to ' + r.id + ', and this same host says the block at this height is ' + claimed + ' (' + saidBy[hgt] + '). One of the two is wrong, and a chain whose own links do not fit the blocks it serves proves nothing at all. Replay the act log and believe that instead.' }));
+        }
+        if (r.sig === false) {
+          slot.chips.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px',
+            text: 'The signature on this block does not check out against the key inside it. That does not say which of the possible things happened — an edited block, a truncated file, a key that is not this producer’s — only that these are not bytes that key published, and they should be read as unsigned.' }));
+        }
+        // Said once, above the list, rather than twenty times down it.
+        if (r.why && !whyBox.firstChild) whyBox.appendChild(h('p', { class: 'smallnote', text: r.why }));
+
+        paintAnchors(slot.anchors, b.epoch, r.id || claimed, false);
+      }
+
+      /**
+       * The anchors for one epoch, each under the address that posted it.
+       *
+       * `id` is the block id this screen holds for that epoch, or null. Where
+       * both exist they are compared, because an anchor committing to a
+       * DIFFERENT block for the same epoch is the single most useful thing an
+       * anchor can tell a reader — and it is a fact about two records, never a
+       * verdict about which is honest.
+       */
+      function paintAnchors(box, epoch, id, orphan) {
+        if (!anchorsOn) return;   // said once, in the anchors card below
+        var rows = byEpoch[String(epoch)] || [];
+        if (!rows.length) {
+          box.appendChild(h('p', { class: 'smallnote', text: 'No anchor for this epoch in what this host has read. That is not evidence that nobody anchored it: anyone may post one from any address, and this host reports only the rows its own log scan reached.' }));
+          return;
+        }
+        if (rows.length > 1) {
+          box.appendChild(h('p', { class: 'smallnote', text: rows.length + ' separate addresses have anchored epoch ' + epoch + '. None of them is “the network’s” — the contract keeps one row per (address, epoch) and anyone may post — so these are ' + rows.length + ' claims sitting side by side, and which of them means anything is a question about those addresses and not about this epoch.' }));
+        }
+        rows.forEach(function (a) {
+          var when = a.at ? new Date(Number(a.at) * 1000).toLocaleString() + ', on the chain’s own clock' : 'a time this host did not report';
+          var who = l2ScanLink(chainId, 'address', a.by, 'this address on basescan');
+          var tx = l2ScanLink(chainId, 'tx', a.tx, 'the transaction');
+          box.appendChild(h('p', { class: 'smallnote' },
+            h('span', { class: 'num', text: l2ShortHex(a.by) }),
+            ' anchored epoch ' + a.epoch + ' at ' + when + '. ',
+            who, who && tx ? ' · ' : null, tx));
+          if (typeof a.blockId === 'string' && a.blockId) {
+            if (id && String(a.blockId).toLowerCase() === String(id).toLowerCase()) {
+              box.appendChild(h('span', { class: 'gate pass', text: 'commits to this exact block' }));
+            } else if (id) {
+              box.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px',
+                text: 'That anchor commits to a different block for epoch ' + a.epoch + ' than the one on this screen: ' + a.blockId + '. Both records are real and they cannot both be this epoch. Which one is honest is not a question an anchor can answer — replay the act log and see whose hashes come out of it.' }));
+            } else {
+              box.appendChild(h('p', { class: 'smallnote', text: 'It commits to block id ' + a.blockId + '. Nothing here compared that against anything, because ' + (orphan ? 'this host holds no block for that epoch.' : 'this block’s own id could not be established above.') }));
+            }
+          }
+          box.appendChild(h('p', { class: 'smallnote', text: 'It also commits to an earnings root, ' + l2ShortHex(String(a.earningsRoot || '—')) + '. This view checks that root against nothing: what an epoch owes and to whom is the earnings tree’s business, and an anchor only fixes the moment a commitment to it existed.' }));
+        });
+      }
+
+      // ── the anchors card ──
+      aBody.appendChild(h('p', { class: 'smallnote' },
+        'An ', term('anchor'), ' is two hashes and a timestamp, posted to a contract on Base by whatever address chose to post them: this address said epoch N had this block id and this earnings root, at this moment. The contract keeps one row per (address, epoch) and refuses a second forever — so what it proves is that the commitment existed by then and was never revised.'));
+      aBody.appendChild(h('p', { class: 'smallnote', text: 'It proves nothing else. Not that the epoch was computed honestly, not that the numbers in it are right, and not that the poster is anybody in particular: anyone may anchor anything, and an impostor’s row sits under their own address next to nothing. This app has no official anchoring address, so no row here is “the network’s” and every one of them says whose it is.' }));
+
+      if (ocRes.status === 0) {
+        aBody.appendChild(h('p', { class: 'smallnote', text: 'This page could not reach a host to ask what it reads on chain, so nothing is claimed about anchors either way.' }));
+      } else if (ocOff) {
+        aBody.appendChild(h('p', { class: 'smallnote', text: (oc && oc.why) || 'This host serves no on-chain token, so it reads no anchor contract either.' }));
+      } else if (!ocOK) {
+        aBody.appendChild(h('p', { class: 'smallnote', text: 'This host answered ' + ocRes.status + ' when asked what it reads on chain' + (oc && oc.error ? ': ' + oc.error : '.') }));
+      } else if (!anch) {
+        aBody.appendChild(h('p', { class: 'smallnote', text: oc.error || 'This host said nothing about anchors at all — neither a contract nor a reason — and nothing is assumed from that silence.' }));
+      } else if (anch.configured === false) {
+        aBody.appendChild(h('p', { class: 'smallnote', text: anch.why || 'PEER_ANCHOR_ADDR is unset on this host, so it reads no anchors.' }));
+        aBody.appendChild(h('p', { class: 'smallnote', text: 'The blocks above are unaffected: they are this host’s own record and need no contract. Anchoring is an outside witness, and its absence here is not a claim that nobody anchored these epochs — only that this host is not looking.' }));
+      } else if (anch.error) {
+        aBody.appendChild(h('p', { class: 'smallnote', text: anch.error }));
+      } else {
+        aBody.appendChild(h('p', { class: 'smallnote' },
+          h('span', { class: 'num', style: 'word-break:break-all', text: String(anch.contract || '—') }),
+          ' · the anchor contract this host reads, on ' + l2ChainName(chainId) + '. ',
+          l2ScanLink(chainId, 'address', anch.contract, 'the contract on basescan')));
+        var seen = Number(anch.returned || 0), found = Number(anch.discovered || 0);
+        var line = seen + ' anchor' + (seen === 1 ? '' : 's') + ' in view, of ' + found + ' this host has seen';
+        if (anch.posters != null) line += ', posted by ' + anch.posters + ' address' + (Number(anch.posters) === 1 ? '' : 'es');
+        if (anch.busiestPoster && anch.busiestPoster.by) line += '; the busiest is ' + l2ShortHex(anch.busiestPoster.by) + ' with ' + anch.busiestPoster.anchors;
+        aBody.appendChild(h('p', { class: 'smallnote', text: line + '. Nothing ranks them, because there is nothing here to rank by: posting one costs a fee and proves membership of nothing.' }));
+        if (anch.note) aBody.appendChild(h('p', { class: 'smallnote', text: anch.note }));
+
+        // Anchors for epochs this host has no block for. Either it is behind,
+        // or somebody anchored an epoch that does not exist here — both
+        // are ordinary, and neither is evidence about the other.
+        var have = Object.create(null);
+        blocks.forEach(function (b) { have[String(b.epoch)] = 1; });
+        var orphans = Object.keys(byEpoch).filter(function (k) { return !have[k]; });
+        if (orphans.length) {
+          orphans.sort(function (x, y) { return Number(y) - Number(x); });
+          aBody.appendChild(h('p', { class: 'eyebrow', style: 'margin:14px 0 4px', text: 'anchored epochs this host has no block for' }));
+          aBody.appendChild(h('p', { class: 'smallnote', text: 'The contract accepts any epoch number from any address, so a row here means somebody committed to an epoch this host cannot show you — because it has not sealed that far yet, or because the epoch is not one it recognises at all.' }));
+          orphans.slice(0, 12).forEach(function (k) {
+            var oBox = h('div', { style: 'border-top:1px solid var(--line); padding:8px 0' });
+            oBox.appendChild(h('div', { class: 'kv' },
+              h('span', { text: 'epoch ' + k }),
+              h('b', { class: 'num', text: byEpoch[k].length + ' anchor' + (byEpoch[k].length === 1 ? '' : 's') })));
+            aBody.appendChild(oBox);
+            paintAnchors(oBox, k, null, true);
+          });
+          if (orphans.length > 12) {
+            aBody.appendChild(h('p', { class: 'smallnote', text: orphans.length + ' such epochs in all; the newest twelve are shown.' }));
+          }
+        }
+      }
+
+      // ── the contracts card ──
+      kBody.appendChild(h('p', { class: 'smallnote' },
+        'Every address below is read from this host and never written into this page, and each one carries a link to a ', term('explorer', 'block explorer'),
+        ' — which is how any of it gets checked against something that is not this app.'));
+      if (!ocOK) {
+        kBody.appendChild(h('p', { class: 'smallnote', text: ocOff
+          ? ((oc && oc.why) || 'No on-chain token is configured on this host, so it names no contracts.')
+          : 'This host did not answer with what it reads on chain, so there is nothing here to name.' }));
+      } else {
+        if (chainId === null) {
+          kBody.appendChild(h('p', { class: 'smallnote', text: 'This host did not say which chain it serves, so nothing here links anywhere: an explorer for the wrong chain draws a confident page about an entirely different thing.' }));
+        } else if (!L2_EXPLORERS[chainId]) {
+          kBody.appendChild(h('p', { class: 'smallnote', text: 'This host serves chain ' + chainId + ', and this page knows no explorer for it. The addresses below are printed without links rather than linked to basescan, which only reads Base.' }));
+        } else {
+          kBody.appendChild(h('p', { class: 'smallnote', text: 'This host serves chain ' + chainId + ' (' + l2ChainName(chainId) + '), so every link below goes to basescan, which is the explorer for that chain.' }));
+        }
+        kRow('PEER — the ERC-20', oc.token, 'token', 'No token address.');
+        kRow('cbBTC — the other side of every pool here', oc.btc, 'token', 'PEER_BTC_ADDR is unset on this host.');
+        kRow('the pools factory — this app’s own pools', oc.namedPools && oc.namedPools.factory, 'address',
+          'PEER_POOLS_ADDR is unset on this host, so this app has no pools of its own here.');
+        kRow('the anchor contract — timestamps over epoch blocks', anch && anch.configured !== false ? anch.contract : null, 'address',
+          (anch && anch.why) || 'No anchor contract is configured on this host.');
+        var cs = oc.claimState;
+        kRow('the claim contract — epoch earnings paid on chain', cs && cs.configured !== false ? cs.contract : null, 'address',
+          (cs && cs.why) || 'No claim contract is configured on this host.');
+      }
+
+      function kRow(label, addr, kind, off) {
+        var row = h('div', { style: 'border-top:1px solid var(--line); padding:8px 0' });
+        row.appendChild(h('p', { class: 'eyebrow', style: 'margin:0 0 3px', text: label }));
+        if (!addr) {
+          row.appendChild(h('p', { class: 'smallnote', text: off }));
+        } else {
+          row.appendChild(h('p', { class: 'smallnote' },
+            h('span', { class: 'num', style: 'word-break:break-all', text: String(addr) }), ' ',
+            l2ScanLink(chainId, kind, addr, 'on basescan')));
+        }
+        kBody.appendChild(row);
+      }
+    }
+
+    return wrap;
+  }
+
+  /**
+   * This app's own pools, and the same pair on a public DEX.
+   *
+   * Two pools over the same two tokens are two pools. They hold different
+   * coins, they have different prices, and a trade in one does nothing for the
+   * other. That is worth a card of its own because the failure it prevents is
+   * expensive and quiet: reading the ratio on this screen as "the price of
+   * PEER", depositing into one pool while quoting the other, or believing this
+   * app routes a trade somewhere it does not.
+   *
+   * Nothing here reads Uniswap. This app cannot say whether a Uniswap pool for
+   * the pair exists, what it holds, or what it would fill at — so it says that
+   * instead of implying otherwise, and the link is a link out rather than a
+   * reading.
+   */
+  function dexCard() {
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'This app’s pools, and Uniswap' }));
+    var body = h('div', {});
+    card.appendChild(body);
+
+    body.appendChild(h('p', { class: 'smallnote' },
+      'The card above is this app’s own pools: named pools inside one contract, opened by whoever wanted one, trading PEER against cbBTC. Every button on it calls that contract and nothing else.'));
+    body.appendChild(h('p', { class: 'smallnote' },
+      'The same two tokens can also have a pool on Uniswap, which is a different ', term('dex'),
+      ': a different contract, holding different coins, with its own price and its own fee tier. This app does not read Uniswap, does not route anything to it, and cannot tell you whether a pool for this pair exists there at all.'));
+    body.appendChild(h('p', { class: 'smallnote' },
+      term('liquidity', 'Liquidity'), ' sits in one pool and nowhere else. Coins deposited here are not available to a trade there, and the reverse is just as true — so the two prices can differ for as long as nobody trades the gap away, and opening both splits what little depth there is rather than adding it up.'));
+    body.appendChild(h('p', { class: 'smallnote', text: 'No price on this screen is a market price. A pool’s price is its own ratio: what its opener put in, moved by whoever has traded against it since.' }));
+
+    var out = h('div', {});
+    body.appendChild(out);
+
+    function draw(status, d) {
+      out.innerHTML = '';
+      if (status === 404 || !d || d.code === 'ONCHAIN_OFF' || !d.token) {
+        out.appendChild(h('p', { class: 'smallnote', text: 'This host names no token, so there is no pair to point at anywhere — here or on Uniswap.' }));
+        return;
+      }
+      var chainId = Number(d.chainId);
+      var token = String(d.token), btc = d.btc ? String(d.btc) : null;
+      if (!d.namedPools) {
+        out.appendChild(h('p', { class: 'smallnote', text: 'This host has no pools factory configured, so this app has no pools of its own — the card above says so. A Uniswap pool for the same pair would be a separate thing that needs nothing from this host.' }));
+      }
+      // Three different reasons not to draw a link out, and each says which
+      // piece is actually missing. Folded into one sentence they produced
+      // "it would be written for Base and this host serves chain 8453" on a
+      // host whose only problem was an unset cbBTC address.
+      var why = null;
+      if (chainId !== 8453) {
+        why = 'No link out is drawn. It would be written for Base, and this host serves chain ' + d.chainId + ': an exchange link built for the wrong chain sends somebody to a page about different coins that happen to sit at the same addresses.';
+      } else if (!/^0x[0-9a-fA-F]{40}$/.test(token)) {
+        why = 'No link out is drawn: this host did not name the token as an address, and a link built around ' + token + ' would point at nothing.';
+      } else if (!btc || !/^0x[0-9a-fA-F]{40}$/.test(btc)) {
+        why = 'No link out is drawn: a pair needs two sides and this host names only one. PEER_BTC_ADDR is unset here, so there is no second token to ask an exchange about.';
+      }
+      if (why) {
+        out.appendChild(h('p', { class: 'smallnote', text: why }));
+      } else {
+        var row = h('div', { class: 'mini-form persistent' });
+        row.appendChild(h('a', { class: 'btn small', target: '_blank', rel: 'noopener',
+          href: 'https://app.uniswap.org/swap?chain=base&inputCurrency=' + btc + '&outputCurrency=' + token,
+          text: 'Open this pair on Uniswap' }));
+        var tl = l2ScanLink(chainId, 'token', token, 'the token on basescan');
+        if (tl) row.appendChild(tl);
+        out.appendChild(row);
+        out.appendChild(h('p', { class: 'smallnote', text: 'That opens Uniswap with both addresses filled in. It is a link out, not a reading: if no pool exists there, Uniswap is what will tell you, and whatever price it shows is that pool’s and has nothing to do with the numbers above. Opening a position there is a decision about a different pool — chain-l2/DEPLOY.md §3 is the runbook, and a new pair belongs at a 1% fee tier with an opening price you are choosing rather than discovering.' }));
+      }
+      // PEER_POOL_ADDR: an outside pair this host was pointed at. It is read
+      // and reported, and it is still not this app's pool — naming it without
+      // that sentence would be the exact blur this card exists to prevent.
+      var pool = d.pool ? (typeof d.pool === 'string' ? d.pool : d.pool.address) : null;
+      if (pool) {
+        var pl = l2ScanLink(chainId, 'address', pool, 'on basescan');
+        out.appendChild(h('p', { class: 'smallnote' },
+          'This host is also pointed at an outside pair at ',
+          h('span', { class: 'num', style: 'word-break:break-all', text: String(pool) }), ' ', pl,
+          ' — a UniswapV2-style contract it reads and never trades. No button here touches it, and this page cannot say which exchange it belongs to; the explorer can.'));
+        if (d.pool && d.pool.error) out.appendChild(h('p', { class: 'smallnote', text: d.pool.error }));
+      }
+    }
+
+    out.appendChild(h('p', { class: 'smallnote', text: 'Asking this host which pair it serves…' }));
+    fetch(API + '/api/token/onchain', { cache: 'no-store' })
+      .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+      .then(function (x) { draw(x.status, x.d); })
+      .catch(function () {
+        out.innerHTML = '';
+        out.appendChild(h('p', { class: 'smallnote', text: 'Could not reach this host to ask which pair it serves, so no link out is drawn from memory. Everything above is true regardless: two pools over one pair are two pools.' }));
+      });
+    return card;
+  }
+
   function econTab(st) {
     var l0 = st.l0;
     var w = l0.bal(who);
@@ -8859,7 +10228,7 @@ button, .btn { touch-action: manipulation; }
     // unrelated jobs: what you hold, what the pools are doing, the Layer-0
     // receipt system, and the history. Splitting them means the wallet is
     // reachable without scrolling past a ledger of raw addresses.
-    var views = [['wallet', 'Wallet'], ['net', 'Network'], ['pools', 'Pools & ads'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
+    var views = [['wallet', 'Wallet'], ['net', 'Network'], ['pools', 'Pools & ads'], ['chain', 'Epoch chain'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
     var bar = h('div', { class: 'lanes' });
     views.forEach(function (v) {
       var b = h('button', { class: 'lane' + (econView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
@@ -8902,6 +10271,11 @@ button, .btn { touch-action: manipulation; }
       // Directly under the epoch token, because the two are only confusable
       // while they are apart.
       wrap.appendChild(l2TokenCard());
+      // And under both: the epoch token is what an epoch credits, the coin on
+      // Base is what a claim pays, and this is the only place the two ever
+      // meet — the operator transferring the second against a list of the
+      // first. It reads as nonsense anywhere else on the page.
+      wrap.appendChild(l2ClaimCard(st));
 
     }
 
@@ -8932,7 +10306,16 @@ button, .btn { touch-action: manipulation; }
       // approvals landed is the one thing nobody should have to remember.
       var ocSeq = h('div', {});
       ocCard.appendChild(ocSeq);
+      // Every transaction hash this card produces, kept where it can be
+      // clicked. Deliberately NOT inside ocSeq: the create sequence clears
+      // that panel when it starts, and a hash from an earlier swap is exactly
+      // the thing that must survive somebody pressing another button.
+      var ocTxBox = h('div', {});
+      ocCard.appendChild(ocTxBox);
       wrap.appendChild(ocCard);
+      // Two pools over one pair are two pools. Directly under the card whose
+      // prices could otherwise be read as the market's.
+      wrap.appendChild(dexCard());
 
       // Hardcoded 4-byte selectors, each with the signature it hashes from —
       // the same policy as chain-l2/onchain.mjs: no keccak library in the
@@ -9092,6 +10475,9 @@ button, .btn { touch-action: manipulation; }
           return inState(st).map(function (l) { return l.what + (l.tx ? ' \u2014 ' + l.tx : ''); }).join('; ');
         }
         return {
+          // Exposed so the on-screen record can print each leg beside a link
+          // to the explorer. Read-only by convention: the ledger owns them.
+          legs: legs,
           open: function (what) {
             var leg = { what: what || 'that step', state: 'attempted', tx: null };
             legs.push(leg);
@@ -9108,6 +10494,38 @@ button, .btn { touch-action: manipulation; }
             return parts.join(' ');
           }
         };
+      }
+
+      /**
+       * Every transaction this card produced, on screen, with a link each.
+       *
+       * A hash inside a toast is a hash nobody can act on: it is gone in five
+       * seconds and it cannot be clicked — and the two states where it
+       * matters most, BROADCAST WITH NO RECEIPT SEEN and REVERTED, are exactly
+       * the ones somebody has to look up before pressing anything again.
+       * Pressing again can pay for the same thing twice.
+       *
+       * Base is not asked for here: this whole card refuses to draw unless the
+       * host answered chain 8453, a few hundred lines above, so a hash it
+       * produced is a hash on Base by construction.
+       */
+      function ocTxRecord(led, headline) {
+        var all = (led && led.legs) || [], rows = [], i;
+        for (i = 0; i < all.length; i++) if (all[i].tx) rows.push(all[i]);
+        if (!rows.length) return;
+        var box = h('div', { style: 'margin-top:10px' });
+        box.appendChild(h('p', { class: 'eyebrow', style: 'margin:0 0 4px', text: headline }));
+        rows.forEach(function (l) {
+          var said = l.state === 'confirmed' ? 'landed'
+            : l.state === 'reverted' ? 'REVERTED — it cost the gas and moved no coins'
+            : l.state === 'sent' ? 'BROADCAST AND NOT SEEN TO CONFIRM — it may still land, so look it up before signing anything like it again'
+            : l.state;
+          box.appendChild(h('p', { class: 'smallnote' },
+            h('span', { class: 'num', style: 'word-break:break-all', text: String(l.tx) }),
+            ' · ' + l.what + ' · ' + said + ' ',
+            l2ScanLink(8453, 'tx', l.tx, 'on basescan')));
+        });
+        ocTxBox.appendChild(box);
       }
 
       // Decimal text -> raw BigInt at `dec` decimals, or null. NEVER
@@ -9557,6 +10975,15 @@ button, .btn { touch-action: manipulation; }
           ocBody.appendChild(h('p', { class: 'smallnote', text: np.tokensNote }));
         }
 
+        // The address every button below sends to, printed and linkable. It
+        // was the one address on this card a reader could not check, which is
+        // backwards: a pool list is judged by its reserves and its creators,
+        // and the factory holding all of them is judged by being readable.
+        ocBody.appendChild(h('p', { class: 'smallnote' },
+          h('span', { class: 'num', style: 'word-break:break-all', text: String(factory) }),
+          ' · the pools contract this host reads, on Base. ',
+          l2ScanLink(8453, 'address', factory, 'on basescan')));
+
         var walletRow = h('div', { class: 'mini-form persistent' });
         ocBody.appendChild(walletRow);
         function drawWallet() {
@@ -9751,7 +11178,12 @@ button, .btn { touch-action: manipulation; }
           // nobody else took \u2014 and where the scan reached part of the
           // factory, that is a guarantee this card cannot make.
           if (sharing > 1) prov += ' \u00b7 ' + sharing + ' of the pools on this page carry the name \u201c' + (p.name || '') + '\u201d \u2014 different pools, different creators, one word between them';
-          box.appendChild(h('p', { class: 'smallnote', text: prov }));
+          // The creator, linkable. "Read the creator" is advice nobody can
+          // take from twelve characters of hex: on the explorer that address
+          // has a history, and this row is where somebody decides whether to
+          // hand it money.
+          box.appendChild(h('p', { class: 'smallnote' }, prov + ' ',
+            l2ScanLink(8453, 'address', p.creator, 'that address on basescan')));
 
           var sellSel = h('select', {}, h('option', { value: 'PEER', text: 'sell PEER' }), h('option', { value: 'BTC', text: 'sell BTC' }));
           var amtIn = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
@@ -9821,8 +11253,9 @@ button, .btn { touch-action: manipulation; }
                   var data = OC_SEL.swap + ocWord(p.id) + ocWord(q.sellPeer ? 1n : 0n) + ocWord(q.vin) + ocWord(ocFloor(q.out, nowOut)) + ocWord(await ocDeadline());
                   await ocSend(factory, data, 'Swapping in ' + label, led, 'the swap of ' + ocFmt(q.vin, sellDec) + ' ' + sellSym + ' in ' + label);
                   toast('Swapped in ' + label + '. ' + OC_LAG);
+                  ocTxRecord(led, 'Swap in ' + label);
                   ocRefresh();
-                } catch (e) { toast(led.sentence('The swap stopped', e)); }
+                } catch (e) { toast(led.sentence('The swap stopped', e)); ocTxRecord(led, 'Swap in ' + label + ' — stopped'); }
                 finally {
                   swapBusy = false;
                   swapBtn.disabled = false;
@@ -9891,8 +11324,9 @@ button, .btn { touch-action: manipulation; }
                   }
                   await ocSend(factory, OC_SEL.addLiquidity + ocWord(p.id) + ocWord(vp) + ocWord(vb) + ocWord(ocFloor(expect, nowExp)) + ocWord(await ocDeadline()), 'Adding liquidity to ' + label, led, 'the deposit into ' + label);
                   toast('Added to ' + label + ' \u2014 the proportional part of what you offered. ' + OC_LAG);
+                  ocTxRecord(led, 'Deposit into ' + label);
                   ocRefresh();
-                } catch (e) { toast(led.sentence('The deposit stopped', e)); }
+                } catch (e) { toast(led.sentence('The deposit stopped', e)); ocTxRecord(led, 'Deposit into ' + label + ' \u2014 stopped'); }
                 finally {
                   addBusy = false;
                   addBtn.disabled = false;
@@ -9950,8 +11384,9 @@ button, .btn { touch-action: manipulation; }
                       }
                       await ocSend(factory, OC_SEL.removeLiquidity + ocWord(p.id) + ocWord(sh) + ocWord(ocFloor(expP, nowP)) + ocWord(ocFloor(expB, nowB)), 'Withdrawing from ' + label, led, 'the withdrawal of your whole share of ' + label);
                       toast('Withdrew from ' + label + ' \u2014 both sides, proportional to your shares. ' + OC_LAG);
+                      ocTxRecord(led, 'Withdrawal from ' + label);
                       ocRefresh();
-                    } catch (e) { toast(led.sentence('The withdrawal stopped', e)); }
+                    } catch (e) { toast(led.sentence('The withdrawal stopped', e)); ocTxRecord(led, 'Withdrawal from ' + label + ' \u2014 stopped'); }
                     finally {
                       wdBusy = false;
                       wdBtn.disabled = false;
@@ -10233,6 +11668,7 @@ button, .btn { touch-action: manipulation; }
               await ocSend(factory, OC_SEL.createPool + hexName + ocWord(vp) + ocWord(vb), 'Opening \u201c' + nm + '\u201d', led, 'opening the pool \u201c' + nm + '\u201d');
               cSay('Done. \u201c' + nm + '\u201d is open on Base holding ' + ocDec(vp, pdec) + ' PEER against ' + ocDec(vb, bdec) + ' cbBTC, and that ratio is its price until somebody trades against it. The name is yours and not the network\u2019s: somebody else may open one called the same thing.');
               cSay(OC_LAG + ' The list above is being re-read now and once more when that window rolls \u2014 you do not have to reload the page.');
+              ocTxRecord(led, 'Opening \u201c' + nm + '\u201d');
               toast('Opened \u201c' + nm + '\u201d on Base.');
               ocRefresh();
             } catch (e) {
@@ -10241,6 +11677,7 @@ button, .btn { touch-action: manipulation; }
               // went out at all — and an approval that landed cost gas and
               // still stands.
               cSay(led.sentence('Opening the pool stopped', e), true);
+              ocTxRecord(led, 'Opening \u201c' + nm + '\u201d \u2014 stopped');
               cSay('Press Open pool again once that is dealt with: the free checks run again from the top, and an approval that already stands is reused rather than signed and paid for twice \u2014 that is a prompt your wallet simply will not show a second time.');
               toast('The pool did not open \u2014 what landed and what did not is written under the button.');
             } finally {
@@ -10479,6 +11916,10 @@ button, .btn { touch-action: manipulation; }
 
     }
 
+    if (econView === 'chain') {
+      wrap.appendChild(epochChainView());
+    }
+
     if (econView === 'layer0') {
       wrap.appendChild(h('div', { class: 'card' },
         h('h2', { text: 'Layer 0 — the reserve receipt' }),
@@ -10646,7 +12087,16 @@ button, .btn { touch-action: manipulation; }
 
       sect('Epochs: stamping the record', false,
         P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (left rail, Epoch card) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in Economy → Record.'),
-        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'econ/ledger'))),
+        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'econ/ledger')),
+        P('Closing also seals an ', B('epoch block'), ': one signed certificate carrying the acts that epoch covered, hashes of the state computed from them, the constants used, and the previous block’s id. The key that signs it is the ', B('producer'), ' — a signing key, not a wallet, holding no money. Changing an old block changes every id after it, which is the whole job: it makes a silent rewrite loud rather than deciding anything.'),
+        P('None of that is what makes a result true. ', B('Replay'), ' is: anyone holding the public act log recomputes the same numbers, without this host and without any chain. A signature says who published these exact bytes. An ', B('anchor'), ' — two hashes posted to a contract on Base by whatever address chose to post them — says a commitment existed by a given moment and was never revised. Neither says the numbers are right, and anyone may anchor anything, so an anchor is worth what its poster is. ', jump('open the epoch chain', 'econ/chain'))),
+
+      sect('Epoch earnings: binding an address and claiming on Base', false,
+        P('Closing an epoch mints ', B('PEER'), ' in this log and credits it to creators by the engagement their work drew. That is a number in a public record: anyone replaying the log computes the same one, and it is true whatever any chain says. Everything below is about the separate question of whether that number ever becomes money.'),
+        P(B('There is no mint. '), 'The PEER token on Base has a fixed supply, and this app cannot add to it. Paying an epoch means the operator transferring coins they already hold into a claim contract and opening that epoch against a published payout list. They may never do it. An epoch balance is therefore ', B('not'), ' a debt anybody owes you, and this app will not print it as one — where no claim contract is configured, the card says so in those words.'),
+        P(B('Bind an address before the epoch closes, not after. '), 'The payout list is built from the bindings as they stood ', B('at that close'), ', and only handles with an address in it get a line. A handle with none has no line at all — not a line worth zero — and its share returns to whoever funded the epoch at the ', K('sweep'), '. Binding is free, costs no θ, and applies to future epochs only, because a published list cannot be recomputed.'),
+        P(B('Whoever holds the address collects. '), 'A binding is as strong as the credential on the handle — a PIN or a passkey — and the host demands one before it records this act. Nothing here can tell whether an address is yours or whether it has a typo in it — the checksum a wallet prints is keccak-based and this codebase deliberately carries no keccak — so the address is taken from the connected wallet and read back to you in full before anything is recorded.'),
+        P(B('Claiming is one transaction, signed by you. '), 'The app asks the contract first, for free, whether the claim would be paid, and refuses with the contract’s own answer rather than letting a doomed claim cost gas. The proof is checked against the address that sends it, so nobody can claim your share and you cannot claim it from a second wallet. ', jump('open the wallet', 'econ/wallet'))),
 
       sect('The economy: Layer 0 (Peer Attestation)', false,
         P('Reserve is no longer a faucet — it is a ', B('full-reserve receipt system'), ' beneath the network. You hold external reserve, deposit it into the pool, and receive receipt units at the next ', B('cycle boundary'), ': (1−f)·ζ live + (1−f)·(1−ζ) time-locked, with fee f to the operator (ζ = f = 0.5, spec placeholders).'),
@@ -10654,6 +12104,12 @@ button, .btn { touch-action: manipulation; }
         P(B('Burning is real destruction.'), ' burn(x) destroys x live units against an unchanged pool — the floor rises for everyone left — and credits your ', B('attestation'), ' A += x·φ at the settled floor. That attestation is exactly the burn value Layer 1 reads: your standing rate is built from irreversibly destroyed value, nothing else.'),
         P(B('Redemption'), ' pays x·φ reserve back and never lowers the floor. ', B('Time-locked units'), ' exist only during bootstrapping and convert to live in one relabel at maturity (cycle 10). Capacity before deposits is bounded: A_max = E₀·ln(1/(1−ζ)).'),
         P('Try it in the ', B('Economy tab'), ': deposit, close a cycle, burn, watch φ ratchet. ', jump('open economy', 'econ'))),
+
+      sect('The coin on Base: pools, prices and explorers', false,
+        P('Two different things here are called PEER. The one this guide has been about is the ', B('epoch token'), ': a number in the act log, minted when an epoch closes, on no chain and in no wallet. The other is an ', B('ERC-20 on Base'), ' — a real token in a real wallet, and the only one of the two a pool can trade. There is no exchange rate between them and no automatic bridge in either direction: the coin on Base never becomes epoch PEER, and epoch PEER is never spent to get it. The one crossing is the one described above — the operator may deposit coins they already hold against an epoch’s payout list, and a handle bound to an address before that epoch closed can claim its line — and claiming pays the coin without touching the epoch PEER the line was computed from.'),
+        P('A ', B('DEX'), ' is a place two tokens trade against each other with no company in between: a contract holding both sides, where the ratio between them is the price. This app has its own — named pools in its own contract, which is what every button in Pools calls. The same pair can also have a pool on Uniswap: a different contract, with different coins in it, its own price and its own fee tier. This app neither reads it nor routes anything to it.'),
+        P(B('Liquidity'), ' is how much of each coin a pool actually holds, and it sits in one pool and nowhere else. The less there is, the further a trade moves the price — so a thin pool moves enormously on a small trade, and coins deposited in one pool do nothing for a trade in the other. Running both splits what depth there is rather than adding it up.'),
+        P('A ', B('block explorer'), ' is a public website showing what a chain holds at an address or inside one transaction — basescan, for Base. It is how anything on these screens gets checked against something that is not this page, so every on-chain address and every transaction here carries a link to one. Where this host is configured for another chain there is no link at all: an explorer pointed at the wrong chain does not fail, it draws a confident page about different coins. ', jump('open pools', 'econ/pools'))),
 
       sect('Prender Markets: betting on an answer', false,
         P('A ', B('bet'), ' is a post. Ask a question, name two to seven answers, say what it is staked in and when betting closes, and the card carries a pool. It mints a Content node like any other post, so people react to it, comment under it and quote it exactly as they would a note \u2014 and those acts count for the epoch mint the same way.'),
