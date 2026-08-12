@@ -20,6 +20,11 @@
   --bad: #A93B2A;
   --bad-soft: rgba(169, 59, 42, 0.11);
   --shadow: 0 1px 2px rgba(52, 40, 18, 0.08), 0 8px 28px rgba(52, 40, 18, 0.08);
+  /* group colours: a categorical set for the network legend and halos.
+     The cool arc 173-328deg, which no semantic token uses -- ember 21,
+     brass 38, moss 93, bad 8. Every value clears 4.6:1 on the worst
+     surface in its theme, above the 3:1 WCAG asks of a graphical mark. */
+  --c1: #10665C; --c2: #0F6486; --c3: #26479E; --c4: #613AA3; --c5: #8B2F86; --c6: #A32A6B;
   /* type: geometric sans for display/labels (the Futura lineage, 1927), book serif for reading, mono for figures */
   --display: 'Century Gothic', 'Futura', 'Twentieth Century', 'Bahnschrift', 'Avenir Next', sans-serif;
   --body: 'Charter', 'Bitstream Charter', Cambria, 'Iowan Old Style', Georgia, serif;
@@ -32,6 +37,7 @@
     --ember-soft: rgba(232, 100, 27, 0.16);
   --logo-red: #F51106; --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201, 181, 147, 0.13);
     --moss: #8CAF7F; --moss-soft: rgba(140, 175, 127, 0.14); --bad: #E05A3C; --bad-soft: rgba(224, 90, 60, 0.15);
+    --c1: #38C4AE; --c2: #4FB4E4; --c3: #8AA6F7; --c4: #B79AF0; --c5: #E68FD8; --c6: #F58BB6;
     --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.4);
   }
 }
@@ -41,6 +47,11 @@
   --ember-soft: rgba(169,71,8,0.10);
   --logo-red: #F51106; --brass: #8A6F3C; --brass-soft: rgba(138,111,60,0.14);
   --moss: #55703F; --moss-soft: rgba(85,112,63,0.13); --bad: #A93B2A; --bad-soft: rgba(169,59,42,0.11);
+  /* group colours: a categorical set for the network legend and halos.
+     The cool arc 173-328deg, which no semantic token uses -- ember 21,
+     brass 38, moss 93, bad 8. Every value clears 4.6:1 on the worst
+     surface in its theme, above the 3:1 WCAG asks of a graphical mark. */
+  --c1: #10665C; --c2: #0F6486; --c3: #26479E; --c4: #613AA3; --c5: #8B2F86; --c6: #A32A6B;
   --shadow: 0 1px 2px rgba(52,40,18,0.08), 0 8px 28px rgba(52,40,18,0.08);
 }
 :root[data-theme="dark"] {
@@ -49,6 +60,7 @@
   --ember-soft: rgba(232,100,27,0.16);
   --logo-red: #F51106; --on-ember: #16110A; --brass: #C9B593; --brass-soft: rgba(201,181,147,0.13);
   --moss: #8CAF7F; --moss-soft: rgba(140,175,127,0.14); --bad: #E05A3C; --bad-soft: rgba(224,90,60,0.15);
+  --c1: #38C4AE; --c2: #4FB4E4; --c3: #8AA6F7; --c4: #B79AF0; --c5: #E68FD8; --c6: #F58BB6;
   --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.4);
 }
 
@@ -526,6 +538,39 @@ body[data-mode='geek'] .onboard .wordmark { font-size: 30px; margin-bottom: 2px;
 .edge-g text { font-family: var(--mono); font-size: 9px; fill: var(--muted); text-anchor: middle; }
 .edge-g.sel text { fill: var(--ember); font-weight: 600; }
 
+/* The network instruments. .stat-row/.stat-tile were used by the Network
+   summary from the day it shipped and never had a rule of their own. */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin: 10px 0 6px; }
+.stat-tile { background: var(--card); padding: 11px 12px; display: flex; flex-direction: column; gap: 2px; }
+.stat-tile b { font-family: var(--display); font-size: 22px; line-height: 1.1; letter-spacing: -0.01em; }
+.stat-tile span { font-size: 12px; color: var(--muted); }
+.stat-tile span + span { font-size: 11px; }
+
+.netgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+.netlist { display: flex; flex-direction: column; margin: 8px 0 4px; }
+.netrow { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.netrow:last-child { border-bottom: 0; }
+.netrow:hover { background: var(--card-2); }
+.netrow.off { opacity: 0.42; }
+.netrow .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.netrow .grow b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.netrow .grow small { font-size: 11px; color: var(--muted); }
+.netrow .arrow { font-family: var(--mono); color: var(--muted); width: 1em; }
+.legend-sw { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; border: 1px solid var(--line-2); }
+.legend-sw.dashed { background: transparent; border-style: dashed; border-color: var(--muted); }
+.netrow.off .legend-sw { background: transparent !important; border-style: dashed; }
+
+.netstats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+.netstats b { color: var(--ink); font-family: var(--mono); }
+.netstats .sep { color: var(--line-2); }
+.netfind { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+/* Solid border = in the record. Dashed = computed by this page. The
+   distinction survives greyscale and colour blindness, which a hue would not. */
+.prov { font-family: var(--display); font-size: 9px; letter-spacing: 0.1em; padding: 1px 5px; border-radius: 2px; white-space: nowrap; }
+.prov.rec { color: var(--ink); border: 1px solid var(--line-2); }
+.prov.der { color: var(--muted); border: 1px dashed var(--line-2); }
+
 .mat { display: inline-grid; gap: 3px; margin: 6px 14px 8px 0; vertical-align: top; }
 .mat .cell { width: 46px; height: 27px; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-family: var(--mono); border-radius: 5px; color: #1B140E; font-weight: 600; }
 .mat-title { font-size: 11px; color: var(--muted); margin-top: 8px; }
@@ -731,7 +776,165 @@ button, .btn { touch-action: manipulation; }
   var l2Tokens = null;
   var l2Redraw = null;
   var l2Watching = false;
+  // The last balances read off the chain for one account, so a re-render is
+  // not three more eth_calls through somebody's wallet. Keyed on the account
+  // AND the token: a number read for one address must never be reprinted
+  // under another, and this is cache, never a source of truth — the card
+  // prints the clock time it was read at and offers to read again.
+  var l2Bal = null;
   var alertView = 'inbound'; // | 'record'
+
+  // ── the wallet on Base: connecting, the chain check, the read encoders ──
+  //
+  // These live out here with the state they write because two cards need them
+  // now: the on-chain pools card in the Pools tab, and the token card in the
+  // Wallet tab. The pools card grew its own copies (ocConnect, ocEth, ocWord…)
+  // inside its own block, back when there was only one caller; both sets write
+  // THIS l2Wallet, so a wallet connected in either card is connected in both.
+  // The copies down there should be deleted in favour of these rather than
+  // kept in step by hand.
+  //
+  // Nothing here signs and nothing here holds a key. eth_call is a read; the
+  // one call in this file that writes anything, wallet_watchAsset, writes to
+  // the WALLET's list of tokens and touches no chain.
+  var L2_CHAIN = '0x2105'; // Base mainnet, 8453
+  // Which chain a wallet must be on to answer for this token is the chain
+  // THIS HOST serves, and it used to be the constant above. The token card
+  // prints the host's chain id and the host's supply and then read
+  // balanceOf on Base regardless: with PEER_CHAIN_ID set to anything else
+  // that prints a DIFFERENT token's balance under this token's name and
+  // divides it by another chain's supply — and the same deployer at the
+  // same nonce lands on the same address on every EVM chain, so this is an
+  // ordinary configuration, not a corner. l2Uint only refuses when the
+  // address is codeless on Base, which is exactly the case that does not
+  // arise. Derived from the host now, and where the host names no chain
+  // this page reads no balance at all rather than reading one somewhere.
+  function l2ChainHex(n) {
+    var v = Number(n);
+    if (!isFinite(v) || v <= 0 || Math.floor(v) !== v) return null;
+    return '0x' + v.toString(16);
+  }
+  function l2ChainName(n) { return Number(n) === 8453 ? 'Base' : 'chain ' + Number(n); }
+  // Compared as numbers, not as text: a wallet answering '0x2105' and one
+  // answering '0x02105' mean the same chain, and a false MISMATCH only ever
+  // refuses. Anything unparseable is not a match, which is the safe way
+  // round — the dangerous error here is a false match, and BigInt cannot
+  // produce one.
+  function l2OnChain(got, wantHex) {
+    try { return BigInt(got) === BigInt(wantHex); } catch (e) { return false; }
+  }
+  // Hardcoded 4-byte selectors, each beside the signature it hashes from —
+  // the same policy as chain-l2/onchain.mjs, whose table these three are
+  // copied from: no keccak library in the page. Recompute any of them with
+  // `cast sig 'balanceOf(address)'` if you would rather not take them on
+  // trust, which you should not.
+  var L2_SEL = {
+    balanceOf: '0x70a08231',   // balanceOf(address)
+    decimals: '0x313ce567',    // decimals()
+    symbol: '0x95d89b41'       // symbol()
+  };
+
+  function l2Eth(method, params) { return window.ethereum.request({ method: method, params: params || [] }); }
+  function l2Addr(a) { return String(a).toLowerCase().replace(/^0x/, '').padStart(64, '0'); }
+  // A wallet's error can be a paragraph of JSON-RPC, so it is cut — visibly.
+  function l2Err(e) {
+    var t = String((e && e.message) || e);
+    return t.length > 140 ? t.slice(0, 139) + '\u2026' : t;
+  }
+  // A 32-byte answer as a BigInt, or a refusal in a plain sentence. An
+  // eth_call that reaches an address holding no code answers '0x' — EMPTY,
+  // not zero — and reading that as a balance of nothing is how a page on the
+  // wrong network prints a confident number about a token that is not there.
+  function l2Uint(res, what) {
+    var body = String(res == null ? '' : res).replace(/^0x/, '');
+    if (body.length < 64) throw new Error(what + ' answered nothing \u2014 that call reached no contract. Check the wallet is on Base.');
+    return BigInt('0x' + body.slice(0, 64));
+  }
+  // A raw integer amount as a decimal string, by string surgery rather than
+  // division. 18,250,000 PEER at 18 decimals is 1.825e25, which no double
+  // holds exactly: Number(raw)/1e18 prints a supply wrong in its last digits,
+  // on the one card whose whole job is being exact about what a number means.
+  // Nothing is rounded here; trailing zeros in the fraction are dropped.
+  function l2Human(raw, dec) {
+    var v = BigInt(raw), neg = v < 0n;
+    if (neg) v = -v;
+    var t = v.toString(), d = Number(dec) || 0, frac = '';
+    if (d > 0) {
+      while (t.length <= d) t = '0' + t;
+      frac = t.slice(t.length - d).replace(/0+$/, '');
+      t = t.slice(0, t.length - d);
+    }
+    // Grouped: the number this most often prints is eight digits of supply,
+    // and an ungrouped one is not read, it is squinted at. The raw integer is
+    // always printed beside it, so nothing is lost by making this one legible.
+    t = t.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-' : '') + t + (frac ? '.' + frac : '');
+  }
+  // symbol() answers a dynamically sized string: an offset word, a length
+  // word, then the bytes. A handful of older tokens answer a bare bytes32
+  // instead. Both are read here, and anything else returns '' so the caller
+  // can refuse — the symbol is the name a wallet will print beside somebody's
+  // balance from then on, and one this page made up would be worse than a
+  // button that did nothing.
+  function l2Symbol(res) {
+    var body = String(res == null ? '' : res).replace(/^0x/, ''), bytes = [], i, b;
+    if (body.length === 64) {
+      for (i = 0; i + 2 <= 64; i += 2) {
+        b = parseInt(body.slice(i, i + 2), 16);
+        if (!b) break;
+        bytes.push(b);
+      }
+    } else if (body.length >= 128) {
+      var off = Number(BigInt('0x' + body.slice(0, 64))) * 2;
+      if (!(off >= 64 && off + 64 <= body.length)) return '';
+      var len = Number(BigInt('0x' + body.slice(off, off + 64)));
+      if (!(len > 0 && len <= 64) || body.length < off + 64 + len * 2) return '';
+      for (i = 0; i < len; i++) bytes.push(parseInt(body.slice(off + 64 + i * 2, off + 66 + i * 2), 16));
+    }
+    var t = new TextDecoder().decode(new Uint8Array(bytes));
+    return /^[\x20-\x7e]{1,32}$/.test(t) ? t : '';
+  }
+  // The wallet is not a thing this page can hold still: a user can switch
+  // network or account at any moment, including while a card sits open, and
+  // an address left on screen after the wallet moved on is a lie the page is
+  // telling for free. Registered once per page — l2Watching is the same flag
+  // the pools card checks, so whichever of the two runs first installs the
+  // one pair of handlers and the other skips.
+  function l2WatchWallet() {
+    if (!window.ethereum || !window.ethereum.on || l2Watching) return;
+    l2Watching = true;
+    var forget = function (why) {
+      var had = l2Wallet;
+      l2Wallet = null;
+      l2Tokens = null;
+      if (had) toast(why);
+      if (l2Redraw) l2Redraw();
+    };
+    window.ethereum.on('chainChanged', function () { forget('The wallet changed network. Nothing here reads or signs until it is back on the chain this host serves and connected again.'); });
+    window.ethereum.on('accountsChanged', function () { forget('The wallet switched accounts. Connect again \u2014 the address shown here is only ever the one that connected.'); });
+  }
+  // Connecting is its own deliberate press: every card is readable without a
+  // wallet. The wrong network is the failure that looks most like success —
+  // same shapes, different chain — so nothing proceeds until the wallet
+  // itself answers for Base, and a switch is never believed on the strength
+  // of the request resolving: that means the wallet accepted the ASK, not
+  // that the network moved.
+  async function l2Connect(wantHex, wantName) {
+    if (!window.ethereum) return null;
+    var want = wantHex || L2_CHAIN, name = wantName || 'Base';
+    l2WatchWallet();
+    var accs = await l2Eth('eth_requestAccounts');
+    if (!accs || !accs[0]) return null;
+    var chain = await l2Eth('eth_chainId');
+    if (!l2OnChain(chain, want)) {
+      try { await l2Eth('wallet_switchEthereumChain', [{ chainId: want }]); }
+      catch (e) { toast('That wallet is not on ' + name + ' and would not switch. Switch it by hand, then connect again.'); return null; }
+      chain = await l2Eth('eth_chainId');
+      if (!l2OnChain(chain, want)) { toast('The wallet still answers for chain ' + chain + ', not ' + name + '. Nothing here will read or sign until it does.'); return null; }
+    }
+    l2Wallet = String(accs[0]).toLowerCase();
+    return l2Wallet;
+  }
   var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags'
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed';
@@ -814,6 +1017,9 @@ button, .btn { touch-action: manipulation; }
   // render was the whole reason this screen froze the tab when you opened it.
   var netLayoutCache = null;
   var netTarget = null; // network tab: whose reach we are explaining
+  // Selection and hidden groups are a way of LOOKING, not a place you are, so
+  // they are session-only like netMinW and netView rather than persisted.
+  var netSel = null, netHidden = {}, netCommCache = { key: '', comm: null };
   var viewAs = null; // geek feed: rank from another identity's perspective (read-only)
   var netLayoutCache = { key: '', pos: null };
   // There was a second UI — "simple mode" — that hid the mathematics instead
@@ -842,8 +1048,8 @@ button, .btn { touch-action: manipulation; }
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
-      if (['wallet', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
-      if (v0.netScope === 'social' || v0.netScope === 'all') netScope = v0.netScope;
+      if (['wallet', 'net', 'pools', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
+      if (['social', 'all', 'ego'].indexOf(v0.netScope) >= 0) netScope = v0.netScope;
     }
     // #feed / #chat / #profile override the restored view: the installed app's
     // long-press shortcuts launch with a hash, and a shortcut that opens on
@@ -1870,6 +2076,26 @@ button, .btn { touch-action: manipulation; }
     t.textContent = msg;
     host.appendChild(t);
     setTimeout(function () { t.remove(); }, 4600);
+  }
+
+  /**
+   * Put `text` on the clipboard and say so — or say plainly that it did not.
+   *
+   * navigator.clipboard exists only on a secure origin, so on http over a LAN
+   * (which is how this app is usually reached) it is simply not there, and
+   * writeText rejects outright when the document is not focused. Both failures
+   * are silent, and a button that reports success either way is worse than no
+   * button: the reader pastes whatever was on the clipboard before, and an
+   * address is precisely the thing nobody re-reads after pasting.
+   *
+   * `ok` is a sentence to toast, or a function for callers that report into
+   * their own status line.
+   */
+  function copyLine(text, ok) {
+    var said = function () { if (typeof ok === 'function') ok(); else toast(ok || 'Copied.'); };
+    var failed = function () { toast('This browser would not let the page reach the clipboard \u2014 it is on screen above, select it and copy it by hand.'); };
+    if (!navigator.clipboard || !navigator.clipboard.writeText) { failed(); return; }
+    navigator.clipboard.writeText(text).then(said, failed);
   }
 
   // ── DOM helpers ──
@@ -5188,7 +5414,7 @@ button, .btn { touch-action: manipulation; }
       if (!info || !info.accepting) { say('This host is not accepting burns.', 'bad'); return; }
       addrLine.textContent = info.address;
       var copy = h('button', { class: 'btn small', text: 'Copy address', onclick: function () {
-        navigator.clipboard.writeText(info.address); say('address copied');
+        copyLine(info.address, function () { say('address copied'); });
       } });
       actions.insertBefore(copy, actions.firstChild);
       showOrphans();
@@ -7169,6 +7395,281 @@ button, .btn { touch-action: manipulation; }
     return out;
   }
 
+  // ── Groups: the one thing on this screen that is chosen, not recorded ──
+  //
+  // Six colours and no seventh. Past six, categorical hues stop being separable
+  // at halo width, so every remaining group shares one dashed swatch and gets
+  // no colour at all — absence is the honest encoding for "not named".
+  var NET_COMM_MAX = 6;
+
+  /**
+   * The partition, cached on the same set the layout is cached on.
+   *
+   * netHidden is deliberately absent from the key: hiding a group must not
+   * reflow the picture underneath it, or the toggle destroys the thing it is
+   * for. Scope and min-weight ARE in the key, because they change which graph
+   * is being grouped — and the legend says so.
+   */
+  function netCommunities(st, data) {
+    var key = netScope + '|' + netMinW + '|' + data.nodes.length + '|' + data.edges.length + '|' + world.acts.length;
+    if (netCommCache.key === key && netCommCache.comm) return netCommCache.comm;
+    var comm = E.communities(data.nodes, data.edges, personOfId);
+    netCommCache = { key: key, comm: comm };
+    return comm;
+  }
+
+  /**
+   * A name for each group, preferring one somebody wrote over one we computed.
+   *
+   * A dominant tag is RECORDED: that string is literally in the log. The
+   * fallback is DERIVED and is written "alice +11" on purpose — it reads as
+   * "alice and eleven others", which is all a partition supports. It does not
+   * say alice leads anything, and it must not be made to.
+   */
+  function netCommNames(st, data, comm) {
+    var n = comm.count, i, c;
+    var tally = [], members = [], bestActor = [], bestDeg = [], bestAny = [], bestAnyDeg = [];
+    for (i = 0; i < n; i++) {
+      tally.push({}); members.push(0);
+      bestActor.push(null); bestDeg.push(-1);
+      bestAny.push(null); bestAnyDeg.push(-1);
+    }
+    var seen = {};
+    data.nodes.forEach(function (nd) {
+      var pid = personOfId(nd.id);
+      c = comm.of[pid];
+      if (c === undefined) return;
+      if (!seen[pid]) { seen[pid] = 1; members[c] += 1; }
+      var deg = comm.strength[pid] || 0;
+      if (deg > bestAnyDeg[c]) { bestAnyDeg[c] = deg; bestAny[c] = nd; }
+      if (nd.kind === 'Actor' && deg > bestDeg[c]) { bestDeg[c] = deg; bestActor[c] = nd; }
+    });
+    // One pass for every tag act, rather than tagsOf() per node (that filters
+    // the whole edge list each call, which is O(N·E) on this screen).
+    st.g.edges.forEach(function (e) {
+      if (e.family !== 'TagT') return;
+      c = comm.of[personOfId(e.src)];
+      if (c === undefined) return;
+      var label = (st.g.nodes.get(e.tgt) || {}).label || '';
+      if (!label) return;
+      tally[c][label] = (tally[c][label] || 0) + 1;
+    });
+    var out = [];
+    for (i = 0; i < n; i++) {
+      var keys = Object.keys(tally[i]).sort(function (a, b) {
+        if (tally[i][b] !== tally[i][a]) return tally[i][b] - tally[i][a];
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+      var top = keys[0], topN = top ? tally[i][top] : 0;
+      var runner = keys[1] ? tally[i][keys[1]] : 0;
+      // A tag only names the group when it plainly dominates it. Otherwise it
+      // would be a characterisation dressed as a record.
+      if (top && topN >= 3 && topN >= runner * 2) {
+        out.push({ text: top, prov: 'rec', note: topN + ' acts here carry this tag' });
+      } else if (bestActor[i]) {
+        var extra = members[i] - 1;
+        out.push({
+          text: (st.handles[bestActor[i].id] || bestActor[i].label) + (extra > 0 ? ' +' + extra : ''),
+          prov: 'der', note: 'most-connected member, by act weight',
+        });
+      } else if (bestAny[i]) {
+        out.push({ text: bestAny[i].label || 'group ' + (i + 1), prov: 'der', note: 'largest member' });
+      } else {
+        out.push({ text: 'group ' + (i + 1), prov: 'der', note: '' });
+      }
+    }
+    return out;
+  }
+
+  /** RECORDED = read out of the log. DERIVED = computed from it by this page. */
+  function provChip(kind) {
+    return h('span', { class: 'prov ' + kind, text: kind === 'rec' ? 'RECORDED' : 'DERIVED' });
+  }
+
+  /**
+   * The legend, and the only control over what the picture shows.
+   *
+   * Toggling a group hides it from the drawing without recomputing anything —
+   * the layout and the partition are both solved on the unfiltered graph, so
+   * nodes never move when you fold a group away.
+   */
+  function netLegendCard(st, data, comm, names) {
+    var card = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow', text: 'groups — derived, not recorded' }));
+    if (comm.count <= 1) {
+      card.appendChild(h('p', { class: 'smallnote', text: 'This graph does not separate: every node sits in one group. That is a fact about the record, not a failure to find structure — nothing here transacts in clusters yet.' }));
+      return card;
+    }
+    if (comm.q < 0.15) {
+      card.appendChild(h('p', { class: 'warn', text: 'This graph barely separates. The split below is the best one found and it is weak (Q ' + fmt(comm.q, 2) + ') — read it as a hint, not a boundary.' }));
+    }
+    var list = h('div', { class: 'netlist' });
+    var shown = Math.min(comm.count, NET_COMM_MAX);
+    var i;
+    for (i = 0; i < shown; i++) {
+      (function (ci) {
+        var off = !!netHidden[ci];
+        var row = h('div', { class: 'netrow' + (off ? ' off' : '') });
+        row.appendChild(h('span', { class: 'legend-sw', style: 'background: var(--c' + (ci + 1) + ')' }));
+        row.appendChild(h('span', { class: 'grow' },
+          h('b', { text: names[ci].text }),
+          names[ci].note ? h('small', { text: names[ci].note }) : null));
+        row.appendChild(provChip(names[ci].prov));
+        row.appendChild(h('span', { class: 'num', text: String(comm.sizes[ci]) }));
+        row.addEventListener('click', function () {
+          if (netHidden[ci]) delete netHidden[ci]; else netHidden[ci] = 1;
+          render();
+        });
+        list.appendChild(row);
+      })(i);
+    }
+    if (comm.count > NET_COMM_MAX) {
+      var rest = 0;
+      for (i = NET_COMM_MAX; i < comm.count; i++) rest += comm.sizes[i];
+      var allOff = true;
+      for (i = NET_COMM_MAX; i < comm.count; i++) if (!netHidden[i]) allOff = false;
+      var row2 = h('div', { class: 'netrow' + (allOff ? ' off' : '') });
+      row2.appendChild(h('span', { class: 'legend-sw dashed' }));
+      row2.appendChild(h('span', { class: 'grow' },
+        h('b', { text: (comm.count - NET_COMM_MAX) + ' smaller groups' }),
+        h('small', { text: 'past six, colours stop being tellable apart' })));
+      row2.appendChild(h('span', { class: 'num', text: String(rest) }));
+      row2.addEventListener('click', function () {
+        for (var k = NET_COMM_MAX; k < comm.count; k++) {
+          if (allOff) delete netHidden[k]; else netHidden[k] = 1;
+        }
+        render();
+      });
+      list.appendChild(row2);
+    }
+    card.appendChild(list);
+    card.appendChild(h('p', { class: 'smallnote', text: 'Click a group to fold it out of the picture. Grouping drops direction and sign: it says who transacts with whom, never who reaches whom, and never who agrees. It is computed over the graph as filtered above, so changing scope or min weight changes the groups.' }));
+    return card;
+  }
+
+  /**
+   * The most-connected accounts. Deliberately NOT called influence, centrality
+   * or importance: it counts the acts touching an account, not what those acts
+   * did. The only structural-importance claim on this page stays the min-cut-1
+   * bridge and the leave-one-out counterfactual, both measured by removal.
+   */
+  function netHubCard(st, data, comm, focus) {
+    var rows = [];
+    var seen = {};
+    data.nodes.forEach(function (nd) {
+      var pid = personOfId(nd.id);
+      if (seen[pid]) return;
+      seen[pid] = 1;
+      rows.push({ id: nd.id, pid: pid, node: nd, w: comm.strength[pid] || 0, k: comm.links[pid] || 0 });
+    });
+    rows.sort(function (a, b) {
+      if (b.w !== a.w) return b.w - a.w;
+      if (b.k !== a.k) return b.k - a.k;
+      return a.pid < b.pid ? -1 : a.pid > b.pid ? 1 : 0;
+    });
+    // A "most connected" list that includes things nothing touches is not a
+    // ranking, it is a roster.
+    rows = rows.filter(function (r) { return r.w > 0; }).slice(0, 8);
+    var card = h('div', { class: 'card' },
+      h('p', { class: 'eyebrow', text: 'most connected — derived' }));
+    if (!rows.length || rows[0].w <= 0) {
+      card.appendChild(h('p', { class: 'smallnote', text: 'No priced act connects anything in this view yet.' }));
+      return card;
+    }
+    var list = h('div', { class: 'netlist' });
+    rows.forEach(function (r) {
+      var row = h('div', { class: 'netrow' });
+      var ci = comm.of[r.pid];
+      row.appendChild(h('span', { class: 'legend-sw' + (ci === undefined || ci >= NET_COMM_MAX ? ' dashed' : ''),
+        style: ci !== undefined && ci < NET_COMM_MAX ? 'background: var(--c' + (ci + 1) + ')' : '' }));
+      row.appendChild(h('span', { class: 'grow' },
+        h('b', { text: st.handles[r.pid] || r.node.label || r.pid }),
+        h('small', { text: r.k + (r.k === 1 ? ' relationship' : ' relationships') })));
+      row.appendChild(h('span', { class: 'num', text: fmt(r.w, 2) }));
+      row.addEventListener('click', function () { focus(r.id); });
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+    card.appendChild(h('p', { class: 'smallnote', text: 'People and posts alike, weighted by the damped weight of every act touching each one, direction dropped. Connected is not the same as important — this counts the acts, not what they did.' }));
+    return card;
+  }
+
+  /**
+   * What is behind one node: its group, how far off it is, and who it actually
+   * touches. Replaces a click that used to fire a profile drawer straight out
+   * of a pan-and-zoom surface.
+   */
+  function netNodeCard(st, data, comm, dist, focus) {
+    var nd = st.g.nodes.get(netSel);
+    if (!nd) return null;
+    var pid = personOfId(netSel);
+    var ci = comm.of[pid];
+    var name = st.handles[pid] || (st.payloads[netSel] ? '\u201c' + st.payloads[netSel].slice(0, 44) + '\u201d' : nd.label || netSel);
+    if (nd.kind === 'Profile') name += '\u2019s profile';
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('div', { class: 'panel-head' },
+        h('h2', { style: 'margin:0', text: name }),
+        h('button', { class: 'btn small ghost', text: 'close', onclick: function () { netSel = null; render(); } })));
+    var d = dist.get(netSel);
+    card.appendChild(h('p', { class: 'smallnote',
+      text: nd.kind + ' \u00b7 ' + (ci === undefined ? 'no group' : 'group ' + (ci + 1))
+        + ' \u00b7 ' + (d === 0 ? 'this is you' : d === undefined ? 'beyond your 4-hop horizon' : d + (d === 1 ? ' hop away' : ' hops away')) }));
+    // Neighbours, from the drawn edge set so the panel and the picture agree.
+    var nb = [], nbSeen = {};
+    data.edges.forEach(function (e) {
+      var other = e.src === netSel ? e.tgt : e.tgt === netSel ? e.src : null;
+      if (!other || nbSeen[other]) return;
+      nbSeen[other] = 1;
+      nb.push({ id: other, out: e.src === netSel, family: e.family, w: e.weight });
+    });
+    nb.sort(function (a, b) { return b.w - a.w; });
+    if (!nb.length) {
+      card.appendChild(h('p', { class: 'smallnote', text: 'Nothing in this view points at it and it points at nothing — it is in the record, but no priced act connects it here.' }));
+    } else {
+      var list = h('div', { class: 'netlist' });
+      nb.slice(0, 10).forEach(function (x) {
+        var on = st.g.nodes.get(x.id) || {};
+        var row = h('div', { class: 'netrow' });
+        // A profile leg folds onto its owner, so naming it after the person
+        // rendered "Alice \u2192 Alice". It is the profile being pointed at.
+        var oName = st.handles[personOfId(x.id)] || on.label || x.id;
+        if (String(x.id).indexOf('prof_') === 0) oName += '\u2019s profile';
+        row.appendChild(h('span', { class: 'arrow', text: x.out ? '\u2192' : '\u2190' }));
+        row.appendChild(h('span', { class: 'grow' },
+          h('b', { text: oName }),
+          h('small', { text: x.family })));
+        row.appendChild(h('span', { class: 'num', text: fmt(x.w, 3) }));
+        row.addEventListener('click', function () { netSel = x.id; focus(x.id); });
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+      if (nb.length > 10) card.appendChild(h('p', { class: 'smallnote', text: 'Showing the 10 heaviest of ' + nb.length + '.' }));
+      card.appendChild(h('p', { class: 'smallnote', text: 'Arrows are the direction commitment travelled. Every row is a recorded act; the weight beside it is that act damped by its maturity.' }));
+    }
+    var acts = h('div', { style: 'display:flex; gap:6px; flex-wrap:wrap; margin-top:8px' });
+    if (nd.kind === 'Actor' || nd.kind === 'Profile') {
+      acts.appendChild(h('button', { class: 'btn small', text: 'Open profile',
+        onclick: function () { openProfile(pid); } }));
+    }
+    if (netTarget !== netSel) {
+      acts.appendChild(h('button', { class: 'btn small primary', text: 'Explain my reach to this',
+        onclick: function () { netTarget = netSel; netView = null; render(); } }));
+    }
+    card.appendChild(acts);
+    return card;
+  }
+
+  /** Legend and hubs side by side, so neither pushes the graph off the screen. */
+  function netInstruments(st, data, comm, names, dist, focus) {
+    var grid = h('div', { class: 'netgrid' },
+      netLegendCard(st, data, comm, names),
+      netHubCard(st, data, comm, focus));
+    var wrap = h('div', {}, grid);
+    var sel = netNodeCard(st, data, comm, dist, focus);
+    if (sel) wrap.appendChild(sel);
+    return wrap;
+  }
+
   function netTab(st) {
     var wrap = h('div', {});
     var me = personOfId(who);
@@ -7192,6 +7693,27 @@ button, .btn { touch-action: manipulation; }
     var hops = cograHops(st);
     var maxReach = 0;
     reach.forEach(function (r) { if (r.pos > maxReach) maxReach = r.pos; });
+
+    // Grouping is the one figure here that is chosen rather than read, so it is
+    // solved once, cached, and labelled as derived wherever it appears.
+    var comm = netCommunities(st, data);
+    var commNames = netCommNames(st, data, comm);
+    var commOf = function (id) {
+      var c = comm.of[personOfId(id)];
+      return c === undefined ? -1 : c;
+    };
+    var commHidden = function (id) {
+      var c = commOf(id);
+      return c >= 0 && !!netHidden[c];
+    };
+    // The cover answers "how strongly does this reach me"; it cannot answer
+    // "how far off is it", because zero weight and out-of-range look alike.
+    var dist = E.hopDistance(st.g, me);
+    var netFocusTo = function (id) {
+      var p = pos[id];
+      if (p) netView = { x: p.x - 190, y: p.y - 150, w: 380, h: 300 };
+      render();
+    };
 
     var stats = netStats(st, me, reach);
     var sum = h('div', { class: 'card' },
@@ -7292,7 +7814,7 @@ button, .btn { touch-action: manipulation; }
 
     wrap.appendChild(h('div', { class: 'card' },
       h('div', { class: 'panel-head', style: 'margin-bottom:4px' },
-        h('p', { class: 'eyebrow', style: 'margin:0', text: 'your position — ' + data.nodes.length + ' nodes · ' + data.edges.length + ' edges · brightness = how strongly you reach it' }),
+        h('p', { class: 'eyebrow', style: 'margin:0', text: 'the graph — brightness is how strongly you reach a thing, ring colour is its group' }),
         h('div', { style: 'display:flex; gap:6px' },
           h('button', { class: 'btn small', text: '−', onclick: function () { zoom(1.3); } }),
           h('button', { class: 'btn small', text: '+', onclick: function () { zoom(1 / 1.3); } }),
@@ -7301,7 +7823,9 @@ button, .btn { touch-action: manipulation; }
         targetSel, scopeSel,
         h('span', { class: 'slider' }, 'min weight ', wSlider, wOut),
         h('button', { class: 'btn small', text: 'Export JSON', onclick: function () { exportGraphJSON(st); } })),
-      h('p', { class: 'smallnote', style: 'margin-top:6px', text: 'Pick a target to see the actual disjoint paths your feed rank is built from. Drag to pan, wheel to zoom, click an edge for its tensor or an actor for their profile.' })));
+      netStatsStrip(data, comm),
+      netSearchRow(st, data, netFocusTo),
+      h('p', { class: 'smallnote', style: 'margin-top:6px', text: 'Drag to pan, wheel to zoom. Click any node for what it touches, or an edge for its tensor. Pick a target to see the disjoint paths your feed rank is actually built from.' })));
 
     // ── the graph ──
     // touch-action:none was set so a drag would pan the graph rather than
@@ -7352,6 +7876,7 @@ button, .btn { touch-action: manipulation; }
     data.edges.forEach(function (e) {
       var p1 = pos[e.src], p2 = pos[e.tgt];
       if (!p1 || !p2) return;
+      if (commHidden(e.src) || commHidden(e.tgt)) return; // folded away, not filtered out
       var key = [e.src, e.tgt].sort().join('|');
       var nth = pair[key] || 0; pair[key] = nth + 1;
       var dx = p2.x - p1.x, dy = p2.y - p1.y, len = Math.hypot(dx, dy) || 1;
@@ -7384,6 +7909,7 @@ button, .btn { touch-action: manipulation; }
 
     data.nodes.forEach(function (n) {
       var p = pos[n.id];
+      if (commHidden(n.id)) return; // folded away by the legend
       var pid = personOfId(n.id);
       var r = reach.get(n.id);
       var strength = r && maxReach > 0 ? Math.min(1, r.pos / maxReach) : 0;
@@ -7397,6 +7923,18 @@ button, .btn { touch-action: manipulation; }
         : n.kind === 'Profile' ? 'var(--brass)' : 'var(--moss)';
       var base = n.kind === 'Actor' ? 'var(--ember)' : n.kind === 'Profile' ? 'var(--brass)' : 'var(--moss)';
       var rad = n.kind === 'Actor' ? (isMe ? 20 : 15) : 11;
+      // Group colour rides a halo BEHIND the shape rather than the fill: fill
+      // already carries kind and reach brightness, and at 0.12 opacity a
+      // community colour would be invisible on exactly the nodes you most want
+      // to place. Groups past the sixth get no halo — absence is honest.
+      var ci = commOf(n.id);
+      // Exposed so a render test can assert the partition is identical
+      // across two boots of the same log — the doctrine, checked end to end.
+      g2.setAttribute('data-comm', String(ci));
+      if (ci >= 0 && ci < NET_COMM_MAX && !dim) {
+        g2.appendChild(sv('circle', { cx: String(p.x), cy: String(p.y), r: String(rad + 5),
+          fill: 'none', stroke: 'var(--c' + (ci + 1) + ')', 'stroke-width': '2.5', 'stroke-opacity': '0.9' }));
+      }
       if (n.kind === 'Actor') {
         g2.appendChild(sv('circle', { cx: String(p.x), cy: String(p.y), r: String(rad), fill: base, 'fill-opacity': fillOpacity, stroke: stroke, 'stroke-width': isMe ? '3' : isBridge ? '2.5' : '1.5' }));
       } else if (n.kind === 'Profile') {
@@ -7407,7 +7945,7 @@ button, .btn { touch-action: manipulation; }
         g2.appendChild(sv('rect', { x: String(p.x - 14), y: String(p.y - 10), width: '28', height: '20', rx: '6', fill: base, 'fill-opacity': fillOpacity, stroke: stroke, 'stroke-width': n.id === netTarget ? '3' : '1.2' }));
       }
       if (isMe) {
-        var ring = sv('circle', { cx: String(p.x), cy: String(p.y), r: String(rad + 6), fill: 'none', stroke: 'var(--ink)', 'stroke-width': '1', 'stroke-dasharray': '2 3' });
+        var ring = sv('circle', { cx: String(p.x), cy: String(p.y), r: String(rad + 10), fill: 'none', stroke: 'var(--ink)', 'stroke-width': '1', 'stroke-dasharray': '2 3' });
         g2.appendChild(ring);
       }
       if (n.kind === 'Actor' || onPath || n.id === netTarget || data.nodes.length <= 60) {
@@ -7417,15 +7955,17 @@ button, .btn { touch-action: manipulation; }
       }
       g2.addEventListener('click', function () {
         if (dragMoved) return;
-        if (n.kind === 'Actor') { netTarget = n.id === me ? null : n.id; render(); }
-        else if (n.kind === 'Profile') openProfile(n.id.slice(5));
-        else if (st.payloads[n.id]) { netTarget = n.id; render(); }
-        else toast(n.label + ' — ' + n.kind);
+        // A single click on a pan-and-zoom surface used to fire a profile
+        // drawer. It now selects, and the inspector below carries the drawer
+        // behind a button you have to mean.
+        netSel = n.id;
+        render();
       });
       svg.appendChild(g2);
     });
     card.appendChild(svg);
     wrap.appendChild(card);
+    wrap.appendChild(netInstruments(st, data, comm, commNames, dist, netFocusTo));
 
     // ── explanation panel: the same numbers the feed ranks with ──
     if (explained) {
@@ -7483,6 +8023,56 @@ button, .btn { touch-action: manipulation; }
     var e2 = st.g.edges.find(function (x) { return x.id === selEdge; });
     if (e2) wrap.appendChild(inspectorCard(st, e2));
     return wrap;
+  }
+
+  /** N nodes · M edges · K groups · Q, with what is read and what is computed. */
+  function netStatsStrip(data, comm) {
+    var strip = h('div', { class: 'netstats' });
+    strip.appendChild(h('span', {}, h('b', { text: String(data.nodes.length) }), ' nodes'));
+    strip.appendChild(h('span', {}, h('b', { text: String(data.edges.length) }), ' edges'));
+    strip.appendChild(provChip('rec'));
+    strip.appendChild(h('span', { class: 'sep', text: '\u00b7' }));
+    strip.appendChild(h('span', {}, h('b', { text: String(comm.count) }), comm.count === 1 ? ' group' : ' groups'));
+    strip.appendChild(h('span', {}, 'Q ', h('b', { class: 'num', text: fmt(comm.q, 2) })));
+    strip.appendChild(provChip('der'));
+    return strip;
+  }
+
+  /**
+   * Search over the drawn nodes.
+   *
+   * Results are built in the input handler against a list held here, and
+   * render() is only called on a click. Calling it per keystroke would replay
+   * the whole log, run 51 reach passes and re-solve a 467ms layout on every
+   * letter. The row must also stay .persistent: safeToRepaint blocks every
+   * background repaint while a non-persistent .mini-form is in the DOM.
+   */
+  function netSearchRow(st, data, focus) {
+    var input = h('input', { type: 'search', placeholder: 'find a node\u2026', style: 'flex:1; min-width:0' });
+    var out = h('div', { class: 'netfind' });
+    var row = h('div', { class: 'mini-form persistent', style: 'margin-top:6px' }, input);
+    function label(nd) {
+      var base = st.handles[personOfId(nd.id)] || (st.payloads[nd.id] ? '\u201c' + st.payloads[nd.id].slice(0, 40) + '\u201d' : nd.label || nd.id);
+      // Without this an account and its profile are two rows both reading
+      // "Bob", and picking one is a coin toss.
+      return String(nd.id).indexOf('prof_') === 0 ? base + '\u2019s profile' : base;
+    }
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase();
+      out.innerHTML = '';
+      if (!q) return;
+      var hits = data.nodes.filter(function (nd) { return label(nd).toLowerCase().indexOf(q) >= 0; }).slice(0, 8);
+      if (!hits.length) {
+        out.appendChild(h('p', { class: 'smallnote', text: 'Nothing in this view matches. Widen the scope, or drop the min weight.' }));
+        return;
+      }
+      hits.forEach(function (nd) {
+        var hit = h('button', { class: 'btn small ghost', text: label(nd) });
+        hit.addEventListener('click', function () { netSel = nd.id; focus(nd.id); });
+        out.appendChild(hit);
+      });
+    });
+    return h('div', {}, row, out);
   }
 
   function heat(v) {
@@ -7855,6 +8445,7 @@ button, .btn { touch-action: manipulation; }
     if (!anyHeld) {
       hold.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER arrives when an epoch closes and someone has engaged with what you made — or from the pool, if somebody is selling.' }));
     }
+    hold.appendChild(h('p', { class: 'smallnote', text: 'These are epoch tokens: numbers in this network\u2019s act log, which anyone can replay and check. They are not on any chain and not in any wallet \u2014 a wallet cannot be shown them. The ERC-20 called PEER on Base is a separate token that shares the name; it has its own card at the bottom of this tab.' }));
     wrap.appendChild(hold);
 
     // ── the network-wide picture, so your share has a denominator ──
@@ -7974,6 +8565,284 @@ button, .btn { touch-action: manipulation; }
     return wrap;
   }
 
+  /**
+   * PEER on Base — the ERC-20, which is NOT the epoch token above it.
+   *
+   * Two different things in this app are called PEER and the interface did not
+   * say so anywhere. The cards above print "you hold N PEER" out of the act
+   * log: a number in a ledger anyone can replay, minted when an epoch closes,
+   * on no chain and in no wallet — a wallet cannot even be shown it. The PEER
+   * here is an ERC-20 deployed on Base: it sits in an account, it moves when
+   * its holder signs, and it is the only one of the two that a pool can trade.
+   * They share a name and a symbol and nothing else. There is no bridge, no
+   * claim and no conversion in either direction, and nothing in this codebase
+   * could make one — so this card says that outright, first, rather than
+   * leaving two tokens to be read as one.
+   *
+   * Everything shown is read, never assumed. The address, its decimals and
+   * the supply come from this host's /api/token/onchain and are NEVER
+   * constants in this file: a different operator runs a different token, and
+   * an address baked into source is one nobody verified. The balances come
+   * from eth_call through the user's own wallet, so they are the chain's
+   * answer rather than this host's 30-second cache. The one call that writes
+   * anything, wallet_watchAsset, writes to the WALLET's list of tokens: it
+   * touches no chain, no balance and no coin, and the button says so, because
+   * a button next to a balance looks like it does something to the balance.
+   */
+  function l2TokenCard() {
+    var card = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('h2', { text: 'PEER on Base \u2014 the coin in your wallet' }));
+    var body = h('div', {});
+    card.appendChild(body);
+
+    function only(text) {
+      body.innerHTML = '';
+      body.appendChild(h('p', { class: 'smallnote', text: text }));
+    }
+
+    function draw(status, d) {
+      body.innerHTML = '';
+      // Four different sentences, and blurring them is how "switched off"
+      // gets read as "empty". Where the endpoint sent its own error, it is
+      // shown verbatim and never replaced with an invented zero.
+      if (status === 404 || !d || d.code === 'ONCHAIN_OFF' || !d.token) {
+        only('The operator of this host has not deployed a token \u2014 PEER_TOKEN_ADDR is unset, and an address baked into source is one nobody verified, so this card will not print one. There is no ERC-20 called PEER here; the PEER counted above is the epoch token in this network\u2019s log, and it was never on a chain.');
+        return;
+      }
+      if (d.error) { only(d.error); return; }
+      if (d.decimals == null || d.totalSupplyRaw == null) {
+        only('This host names a token at ' + d.token + ' but could not read its decimals or its supply off the chain, so every number here would be a guess. Nothing else is shown until it can.');
+        return;
+      }
+
+      var token = String(d.token);
+      var btc = d.btc ? String(d.btc) : null;
+      var dec = Number(d.decimals);
+      var supply = BigInt(d.totalSupplyRaw);
+      var chainId = Number(d.chainId);
+      // Everything below that touches a wallet is anchored to THIS, never
+      // to the constant at the top of the file. Null where the host named
+      // no usable chain, and then no balance is read at all: a number read
+      // off some other chain and printed under this token's name is worse
+      // than no number, because it looks exactly like an answer.
+      var chainHex = l2ChainHex(chainId);
+      var chainName = l2ChainName(chainId);
+
+      // ── which token is which, before anything else on the card ──
+      body.appendChild(h('p', { class: 'smallnote', text: 'The PEER counted further up this tab is the EPOCH token: a number in this network\u2019s act log, minted when an epoch closes and shared out by engagement. It is not on a chain, it is not in a wallet, and no wallet can be pointed at it.' }));
+      body.appendChild(h('p', { class: 'smallnote', text: 'The PEER below is a different token that happens to share the name: an ERC-20 on ' + chainName + '. That is the one a wallet holds and the only one an on-chain pool can trade. There is no bridge between the two and neither converts into the other \u2014 nothing in this app can turn epoch PEER into the coin below, or the coin below into epoch PEER.' }));
+
+      // ── the address, in full, because half an address reads as provenance ──
+      body.appendChild(h('p', { class: 'eyebrow', style: 'margin:14px 0 4px',
+        text: isFinite(chainId) ? 'the contract, on chain ' + chainId : 'the contract' }));
+      var addrRow = h('div', { class: 'mini-form persistent' },
+        h('span', { class: 'num', style: 'word-break:break-all', text: token }),
+        h('button', { class: 'btn small', text: 'Copy address', onclick: function () {
+          copyLine(token, 'Token address copied.');
+        } }));
+      // Only where the explorer is the one for this chain. An operator running
+      // this app against another network gets no link rather than a wrong one.
+      if (chainId === 8453) {
+        addrRow.appendChild(h('a', { class: 'smallnote', target: '_blank', rel: 'noopener',
+          href: 'https://basescan.org/token/' + token, text: 'check it on basescan' }));
+      }
+      body.appendChild(addrRow);
+      body.appendChild(h('p', { class: 'smallnote', text: 'Read from this host, not from anything written into the page \u2014 whoever runs this app points it at their own deployment, so an address in the source would be one nobody checked.' }));
+
+      // ── the actual answer to "where is it" ──
+      var addRow = h('div', { class: 'mini-form persistent' });
+      if (!chainHex) {
+        addRow.appendChild(h('span', { class: 'smallnote', text: 'This host did not answer with a chain id, so this page cannot tell a wallet which network to ask \u2014 and a balance read on the wrong one would be some other token\u2019s, printed under this name. The address and the supply above are what the host reported; nothing here is read through a wallet until the host says which chain it serves.' }));
+      } else if (window.ethereum) {
+        addRow.appendChild(h('button', { class: 'btn small primary', text: 'Add to MetaMask', onclick: function () {
+          addToWallet().catch(function (e) { toast('The wallet refused: ' + l2Err(e)); });
+        } }));
+        addRow.appendChild(h('span', { class: 'smallnote', text: 'This only tells the wallet that the token exists. It moves nothing, mints nothing and changes no balance: coins sent to an account are in it whether or not the wallet lists them, and MetaMask simply does not show a token it has never been told about. That is the whole of \u201cwhere is it\u201d.' }));
+      } else {
+        addRow.appendChild(h('span', { class: 'smallnote', text: 'No wallet in this browser. Anything sent to an account on ' + chainName + ' is in it regardless \u2014 open that account in a wallet on ' + chainName + ' and paste the address above under \u201cimport token\u201d to see it listed.' }));
+      }
+      body.appendChild(addRow);
+
+      // ── connect, then read the two balances that decide what is possible ──
+      var wRow = h('div', { class: 'mini-form persistent' });
+      var balBox = h('div', {});
+      // Only where there is a wallet to connect to. Without one this row has
+      // nothing to say that the line beside the add button has not already
+      // said, and an empty mini-form still draws its own box.
+      if (window.ethereum && chainHex) body.appendChild(wRow);
+      body.appendChild(balBox);
+
+      // ── supply, so no share is read without its denominator ──
+      body.appendChild(h('div', { class: 'kv', style: 'margin-top:10px' },
+        h('span', { text: 'total supply' }), h('b', { class: 'num', text: l2Human(supply, dec) + ' PEER' }),
+        h('span', { text: 'raw, at ' + dec + ' decimals' }), h('b', { class: 'num', text: supply.toString() })));
+      // Said to EVERY reader, not only to the one address that holds it.
+      // The note further down (\u201cthis account holds every PEER in
+      // existence\u201d) is drawn only when the connected wallet IS that
+      // address \u2014 which is the one person who already knew. Everybody
+      // else saw a supply, a 0.00% share, and then a pool ratio a few
+      // hundred pixels below, with nothing between the two to stop the
+      // ratio being read as a market. This page cannot count holders
+      // without an indexer, so it says exactly that and links the list
+      // rather than inventing a distribution.
+      body.appendChild(h('p', { class: 'smallnote', text: 'How that supply is HELD is not something this card can show. It reads one balance \u2014 the connected wallet\u2019s \u2014 and nothing about who holds the rest, so a token sitting entirely in one address and a token spread over thousands look identical here. A newly deployed token is normally the former, and a ratio in a pool is then a price its one holder chose rather than one a market found.' }));
+      if (chainId === 8453) {
+        body.appendChild(h('p', { class: 'smallnote' },
+          h('a', { target: '_blank', rel: 'noopener', href: 'https://basescan.org/token/' + token + '#balances', text: 'who holds it, on basescan' })));
+      }
+
+      async function addToWallet() {
+        if (!window.ethereum) { toast('There is no wallet in this browser to add it to.'); return; }
+        var acct = l2Wallet || await l2Connect(chainHex, chainName);
+        if (!acct) return;              // l2Connect already said why
+        // MetaMask adds a token to the network the wallet is ON. Asked on the
+        // wrong one it would list this address against a chain where nothing
+        // is deployed at it, which is a permanent wrong entry in somebody's
+        // wallet, so the chain is re-asked here rather than assumed from the
+        // check made at connect time.
+        var chain = await l2Eth('eth_chainId');
+        if (!chainHex || !l2OnChain(chain, chainHex)) {
+          l2Wallet = null;
+          drawWallet();
+          toast('The wallet is on chain ' + chain + ', not ' + chainName + ' \u2014 a token added there would point at an address with nothing behind it. Put it on ' + chainName + ' and connect again.');
+          return;
+        }
+        // The symbol comes off the token itself. Not from this file: a wallet
+        // listing somebody else's name for this contract is worse than a
+        // button that refuses.
+        var sym = l2Symbol(await l2Eth('eth_call', [{ to: token, data: L2_SEL.symbol }, 'latest']));
+        if (!sym) { toast('That contract did not answer symbol() with a readable name, so nothing was added \u2014 a token listed under a name this page invented would be worse than one not listed.'); return; }
+        var ok = await l2Eth('wallet_watchAsset', { type: 'ERC20', options: { address: token, symbol: sym, decimals: dec } });
+        toast(ok === false
+          ? 'The wallet declined to add it. Nothing changed \u2014 the coins are wherever they were either way.'
+          : sym + ' is now listed in that wallet. No coin moved: this told the wallet the token exists, nothing more.');
+      }
+
+      async function readBalances() {
+        var acct = l2Wallet;
+        if (!acct) return;
+        balBox.innerHTML = '';
+        balBox.appendChild(h('p', { class: 'smallnote', text: 'Reading the chain\u2026' }));
+        try {
+          // Asked again at the last moment: l2Wallet outlives the check made
+          // at connect time on purpose, so between connecting and now the
+          // wallet may have moved to a network where these addresses hold no
+          // code — or, worse, hold something else.
+          var chain = await l2Eth('eth_chainId');
+          if (!chainHex || !l2OnChain(chain, chainHex)) {
+            l2Wallet = null;
+            l2Bal = null;
+            drawWallet();
+            toast('That wallet is on chain ' + chain + ' now, not ' + chainName + '. Nothing was read \u2014 a balance from the wrong chain is not this token\u2019s balance.');
+            return;
+          }
+          var peerRaw = l2Uint(await l2Eth('eth_call', [{ to: token, data: L2_SEL.balanceOf + l2Addr(acct) }, 'latest']), 'that account\u2019s PEER balance');
+          var btcRaw = null, btcDec = 8;
+          if (btc) {
+            btcDec = Number(l2Uint(await l2Eth('eth_call', [{ to: btc, data: L2_SEL.decimals }, 'latest']), 'the cbBTC decimals'));
+            btcRaw = l2Uint(await l2Eth('eth_call', [{ to: btc, data: L2_SEL.balanceOf + l2Addr(acct) }, 'latest']), 'that account\u2019s cbBTC balance');
+          }
+          // The wallet can switch accounts mid-read. Numbers read for one
+          // address must never be printed under another.
+          if (l2Wallet !== acct) return;
+          l2Bal = { acct: acct, token: token, peer: peerRaw.toString(), btc: btcRaw === null ? null : btcRaw.toString(), btcDec: btcDec, at: Date.now() };
+        } catch (e) {
+          if (l2Wallet !== acct) return;
+          balBox.innerHTML = '';
+          balBox.appendChild(h('p', { class: 'smallnote', text: 'Could not read the balances: ' + l2Err(e) }));
+          return;
+        }
+        showBalances();
+      }
+
+      function showBalances() {
+        balBox.innerHTML = '';
+        if (!l2Bal || l2Bal.acct !== l2Wallet || l2Bal.token !== token) return;
+        var peerRaw = BigInt(l2Bal.peer);
+        var kv = h('div', { class: 'kv' },
+          h('span', { text: 'this account holds' }), h('b', { class: 'num', text: l2Human(peerRaw, dec) + ' PEER' }),
+          h('span', { text: 'raw, at ' + dec + ' decimals' }), h('b', { class: 'num', text: peerRaw.toString() }));
+        // Share of supply in basis points by integer division, so a hundred
+        // per cent is a hundred per cent and a dust balance does not round up
+        // into looking like one.
+        if (supply > 0n) {
+          var bp = peerRaw * 10000n / supply;
+          kv.appendChild(h('span', { text: 'share of the whole supply' }));
+          kv.appendChild(h('b', { class: 'num', text: bp === 0n && peerRaw > 0n ? 'under 0.01%' : (Number(bp) / 100).toFixed(2) + '%' }));
+        }
+        balBox.appendChild(kv);
+        if (supply > 0n && peerRaw === supply) {
+          // Neutral, and worth the sentence: a token one address holds all of
+          // has never been priced by anybody, and a reader should know that
+          // before reading a price into any number on this page.
+          balBox.appendChild(h('p', { class: 'smallnote', text: 'This account holds every PEER in existence. Nobody else has any, no pool has ever traded it, and nothing has ever priced it \u2014 which is the ordinary state of a token on the day it is deployed, and not a claim about what it is worth.' }));
+        }
+        if (!btc) {
+          balBox.appendChild(h('p', { class: 'smallnote', text: 'This host has no cbBTC address configured (PEER_BTC_ADDR is unset), so this card cannot say whether that account holds any. A pool trades PEER against cbBTC, so it is the other number to know before opening one.' }));
+        } else if (l2Bal.btc === null) {
+          balBox.appendChild(h('p', { class: 'smallnote', text: 'The cbBTC balance was not read.' }));
+        } else {
+          var btcRaw = BigInt(l2Bal.btc);
+          var btcKv = h('div', { class: 'kv' });
+          btcKv.appendChild(h('span', { text: 'and cbBTC' }));
+          btcKv.appendChild(h('b', { class: 'num', text: l2Human(btcRaw, l2Bal.btcDec) + ' cbBTC' }));
+          btcKv.appendChild(h('span', { text: 'raw, at ' + l2Bal.btcDec + ' decimals' }));
+          btcKv.appendChild(h('b', { class: 'num', text: btcRaw.toString() }));
+          balBox.appendChild(btcKv);
+          if (btcRaw === 0n) {
+            // Said here, where it is cheap, rather than three clicks later at
+            // a wallet prompt that reverts.
+            balBox.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text: 'This account holds no cbBTC. Every pool here is PEER against cbBTC \u2014 bitcoin custodied by Coinbase and issued as a token on Base \u2014 so opening a pool or adding to one needs some in this same account. Nothing in this app can create it: it is bridged or bought on Base like any other coin.' }));
+          }
+        }
+        balBox.appendChild(h('p', { class: 'smallnote', text: 'Read from the chain by this browser at ' + new Date(l2Bal.at).toLocaleTimeString() + ', through the connected wallet \u2014 not from this host, and not from the log.' }));
+      }
+
+      function drawWallet() {
+        wRow.innerHTML = '';
+        balBox.innerHTML = '';
+        // The row is not in the document at all without a wallet, nor
+        // without a chain from the host to point one at.
+        if (!window.ethereum || !chainHex) return;
+        if (!l2Wallet) {
+          wRow.appendChild(h('button', { class: 'btn small', text: 'Connect wallet', onclick: function () {
+            l2Connect(chainHex, chainName).then(function (a) { if (a) drawWallet(); })
+              .catch(function (e) { toast('Connect failed: ' + l2Err(e)); });
+          } }));
+          wRow.appendChild(h('span', { class: 'smallnote', text: 'Connecting shows an address and reads two balances. It signs nothing, and this page never sees a key.' }));
+          return;
+        }
+        wRow.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: l2Wallet + ' \u00b7 ' + chainName }));
+        wRow.appendChild(h('button', { class: 'btn small', text: 'Read again', onclick: function () { readBalances(); } }));
+        // A remembered read is shown at once and its clock time with it; a
+        // stale or missing one is re-read. Re-rendering this tab should not
+        // cost three more calls through somebody's wallet.
+        if (l2Bal && l2Bal.acct === l2Wallet && l2Bal.token === token && Date.now() - l2Bal.at < 60000) showBalances();
+        else readBalances();
+      }
+
+      // The wallet's own events reach whichever card is on screen through
+      // this one slot; the pools card sets it the same way when it renders,
+      // and the two are never mounted at once. Only claimed if this card is
+      // actually in the document — a fetch that lands after the reader has
+      // moved on must not take the hook away from the card they moved to.
+      if (card.isConnected) l2Redraw = function () { drawWallet(); };
+      drawWallet();
+    }
+
+    only('Asking this host which token it serves\u2026');
+    // One fetch per render of this tab, like the pools card: the host answers
+    // from a 30-second cache, so flipping between tabs cannot become load on
+    // the public Base RPC.
+    fetch(API + '/api/token/onchain', { cache: 'no-store' })
+      .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
+      .then(function (x) { draw(x.status, x.d); })
+      .catch(function () {
+        only('Could not reach this host to ask which token it serves, so there is no address here that anybody verified \u2014 and this card will not print one from memory. Nothing above is affected: that PEER is the epoch token in this network\u2019s log and was never on a chain.');
+      });
+    return card;
+  }
+
   function econTab(st) {
     var l0 = st.l0;
     var w = l0.bal(who);
@@ -8030,6 +8899,9 @@ button, .btn { touch-action: manipulation; }
         tCard.appendChild(h('p', { class: 'smallnote', text: 'Your last distributions — ' + dl }));
       }
       wrap.appendChild(tCard);
+      // Directly under the epoch token, because the two are only confusable
+      // while they are apart.
+      wrap.appendChild(l2TokenCard());
 
     }
 
@@ -8053,6 +8925,13 @@ button, .btn { touch-action: manipulation; }
         h('p', { class: 'smallnote', text: 'These pools settle on the real chain: the PEER token against cbBTC \u2014 bitcoin custodied by Coinbase and issued as an ERC-20 on Base. The sandbox pools below settle only in this log; everything in this card is actual money.' }));
       var ocBody = h('div', {});
       ocCard.appendChild(ocBody);
+      // Where a multi-step sequence says what it is doing and what it did.
+      // Outside ocBody on purpose: ocRefresh() rebuilds ocBody, so an account
+      // written inside the form would be erased by the very redraw that shows
+      // the pool it opened — and a half-finished sequence's account of which
+      // approvals landed is the one thing nobody should have to remember.
+      var ocSeq = h('div', {});
+      ocCard.appendChild(ocSeq);
       wrap.appendChild(ocCard);
 
       // Hardcoded 4-byte selectors, each with the signature it hashes from —
@@ -8253,6 +9132,24 @@ button, .btn { touch-action: manipulation; }
         if (n === 0) return '0';
         return n >= 0.001 ? String(Math.round(n * 1e6) / 1e6) : n.toExponential(3);
       }
+      // Raw -> the exact decimal string, every digit of it. This is the one
+      // for a FIELD, where ocFmt is the one for a sentence: what sits in an
+      // input is parsed straight back into a transaction by ocUnits, and a
+      // "max" filled from a double is not the balance. Rounded up it reverts
+      // after costing gas; rounded down it silently strands the remainder.
+      // This round-trips through ocUnits exactly, by construction.
+      function ocDec(raw, dec) {
+        var t = BigInt(raw).toString().padStart(dec + 1, '0');
+        var whole = t.slice(0, t.length - dec);
+        var frac = dec ? t.slice(t.length - dec).replace(/0+$/, '') : '';
+        return frac ? whole + '.' + frac : whole;
+      }
+      // A price for the eye only, in the two shapes the pool rows already
+      // use. Nothing that has been through a double is ever signed.
+      function ocPx(n) {
+        if (!isFinite(n) || n <= 0) return '?';
+        return n >= 0.001 ? String(Math.round(n * 1e8) / 1e8) : n.toExponential(3);
+      }
       // The UniswapV2 integer quote, exactly as the contract computes it and
       // as replay.cjs mirrors it for the sandbox (eff = amt * 0.997): fee on
       // the way in, integer division, the 0.3% staying in the pool. Run in
@@ -8285,7 +9182,7 @@ button, .btn { touch-action: manipulation; }
           if (had) toast(why);
           if (l2Redraw) l2Redraw();
         };
-        window.ethereum.on('chainChanged', function () { ocForget('The wallet left Base. Nothing here signs until it is back on Base and connected again.'); });
+        window.ethereum.on('chainChanged', function () { ocForget('The wallet changed network. Nothing here reads or signs until it is back on the chain this host serves and connected again.'); });
         window.ethereum.on('accountsChanged', function () { ocForget('The wallet switched accounts. Connect again \u2014 the address shown here is only ever the one that connected.'); });
       }
 
@@ -8432,6 +9329,15 @@ button, .btn { touch-action: manipulation; }
         throw new Error('that wallet holds ' + ocFmt(have, dec) + ' ' + symbol + ' and this needs ' + ocFmt(need, dec) + ' \u2014 nothing was signed');
       }
 
+      // The balance as a number rather than as a verdict. ocHave above asks
+      // "is it enough" and throws if it is not, which is the right shape for
+      // a trade; opening a pool needs the figure itself — to fill a max field
+      // with it, and to tell a wallet that is SHORT from one holding none of
+      // that coin at all. Those two want opposite sentences.
+      async function ocBal(token, symbol) {
+        return ocUint(await ocEth('eth_call', [{ to: token, data: OC_SEL.balanceOf + ocAddr(l2Wallet) }, 'latest']), 'your ' + symbol + ' balance');
+      }
+
       // Which two tokens get approved? Asked of the factory itself, not
       // taken from this host's env: peer() and btc() are immutables the
       // factory was deployed with, and an approve aimed anywhere else is a
@@ -8491,6 +9397,53 @@ button, .btn { touch-action: manipulation; }
         return ocUint(await ocEth('eth_call', [{ to: factory, data: OC_SEL.taken + ocAddr(who) + hexName }, 'latest']), 'the name claim') !== 0n;
       }
 
+      // The reserves every quote and every guard on a pool row is computed
+      // from are frozen into that row's closure when it is drawn, and
+      // between the press and the signature sit up to two approvals, each
+      // polled for as long as four minutes. This screen's own repaint is
+      // suppressed the whole time \u2014 safeToRepaint() returns false while
+      // any non-persistent mini-form is in the document, and this view
+      // always has several \u2014 so ocLoad() does not re-run and those
+      // integers can be hours old, not the half-minute the old comment
+      // claimed. A minOut that is 98% of a stale quote is not a loose
+      // guard: if the pool moved the user's WAY it sits far below the fair
+      // output, the user is never shown the better number, and a
+      // sandwicher can push the fill down to it and keep the rest \u2014 with
+      // the 2% band holding perfectly the whole time.
+      //
+      // So the pool is asked again, from the factory itself, after the last
+      // approval has confirmed. Five static words: name, resPeer, resBtc,
+      // totalShares, creator \u2014 the same decode the id lookup does. It is
+      // a free read and it signs nothing.
+      async function ocFresh(factory, id) {
+        var ret = await ocEth('eth_call', [{ to: factory, data: OC_SEL.poolInfo + ocWord(id) }, 'latest']);
+        var body = String(ret == null ? '' : ret).replace(/^0x/, '');
+        if (body.length < 64 * 5) throw new Error('the pool would not read back before signing, so the guard could not be set against a live price \u2014 nothing was signed');
+        return {
+          rp: BigInt('0x' + body.slice(64, 128)),
+          rb: BigInt('0x' + body.slice(128, 192)),
+          ts: BigInt('0x' + body.slice(192, 256))
+        };
+      }
+      // Did the number on screen survive the wait? Inside the 2% band is
+      // what the reader agreed to; outside it is a different trade, and
+      // they get to look at it before pressing again. BOTH directions: a
+      // move in their favour is exactly the one a stale minimum gives away.
+      function ocDrift(shown, now) {
+        if (shown <= 0n) return false;
+        if (now <= 0n) return true;
+        return now < shown * 98n / 100n || now > shown * 102n / 100n;
+      }
+      // The guard actually sent: 2% under what the pool pays NOW, but never
+      // under what the line on screen promised. Those are two different
+      // protections and the trade needs both \u2014 the first against a pool
+      // that moved since the quote, the second against this page quietly
+      // lowering a minimum somebody read.
+      function ocFloor(shown, now) {
+        var a = ocGuard(now), b = ocGuard(shown);
+        return a > b ? a : b;
+      }
+
       // One fetch per render of this tab. The host caches the answer for 30
       // seconds, so flipping between tabs cannot become load on the public
       // Base RPC.
@@ -8535,7 +9488,21 @@ button, .btn { touch-action: manipulation; }
           return;
         }
         if (!d.namedPools) {
-          ocBody.appendChild(h('p', { class: 'smallnote', text: 'The token is deployed, but the pools factory is not configured (PEER_POOLS_ADDR is unset) \u2014 so there is nothing here to trade in yet.' }));
+          ocBody.appendChild(h('p', { class: 'smallnote', text: 'The PEER token is deployed, but no pools factory is: PEER_POOLS_ADDR is unset on this host, so there is no contract here to open a pool in and nothing to trade against. That is the operator\u2019s move and not yours \u2014 chain-l2/DEPLOY.md is the runbook for it. The form for opening a pool is deliberately not drawn below, because a button that cannot work is worse than no button.' }));
+          return;
+        }
+        // Every button below says \u201con Base\u201d and every check below
+        // compares against OC_CHAIN, but the factory address comes from a
+        // host that can be configured for any EVM chain. Pointing a Base
+        // wallet at another chain's factory address does not fail loudly:
+        // the same deployer at the same nonce lands on the same address
+        // everywhere, so it either reaches nothing \u2014 and a data-carrying
+        // call to a codeless address returns status 0x1, which this card
+        // would report as a trade \u2014 or it reaches somebody else's
+        // contract with a real approval already standing in front of it.
+        // So this card refuses rather than quietly translating itself.
+        if (Number(d.chainId) !== 8453) {
+          ocBody.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text: 'This host serves chain ' + d.chainId + ', and everything in this card is written for Base (8453): the addresses, the checks and every signature. The factory address would be read and approved on the wrong chain, where it can hold nothing at all or hold a different contract entirely, so nothing is drawn here rather than drawn wrong. The sandbox pools below are unaffected \u2014 they never leave this log.' }));
           return;
         }
         var np = d.namedPools;
@@ -8765,6 +9732,13 @@ button, .btn { touch-action: manipulation; }
             kv.appendChild(h('b', { class: 'num', text: '1 PEER = ' + (px >= 0.001 ? Math.round(px * 1e8) / 1e8 : px.toExponential(3)) + ' BTC' }));
           }
           box.appendChild(kv);
+          // Beside every price, because a price is the thing people read
+          // meaning into. A pool's ratio is whatever its opener put in,
+          // moved by whoever has traded since \u2014 and neither this card nor
+          // the token card above can see how the PEER supply is held, so
+          // nothing here establishes that anybody but one holder has ever
+          // agreed to this number.
+          if (rp > 0n && rb > 0n) box.appendChild(h('p', { class: 'smallnote', text: 'That price is this pool\u2019s own ratio and nothing more: what its opener deposited, moved by whoever has traded since. It is not a market price, and this page cannot show how the PEER supply is held \u2014 a ratio one holder chose is a number, not a valuation.' }));
           // Provenance on every row, not only the ambiguous ones: a creator
           // shown only where there is a clash would make its absence read
           // like a guarantee. Where the host reports no creator, that is what
@@ -8804,12 +9778,16 @@ button, .btn { touch-action: manipulation; }
           }
           amtIn.addEventListener('input', requote);
           sellSel.addEventListener('change', requote);
-          box.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn,
-            h('button', { class: 'btn small primary', text: 'Swap on Base', onclick: function () {
+          var swapBusy = false;
+          var swapBtn = h('button', { class: 'btn small primary', text: 'Swap on Base', onclick: function () {
               var q = quoteNow();
               if (!q) { toast('Say how much.'); return; }
               if (q.out <= 0n) { toast('The pool cannot fill this.'); return; }
+              if (swapBusy) { toast('That swap is already going through \u2014 the wallet may be asking for an approval before the trade itself. Pressing again would start a second one, and an approval that lands after the first swap lets the second one through too.'); return; }
               var led = ocLedger();
+              swapBusy = true;
+              swapBtn.disabled = true;
+              swapBtn.textContent = 'Working\u2026';
               (async function () {
                 try {
                   if (!l2Wallet && !(await ocConnect())) { toast('Trading needs a wallet on Base.'); return; }
@@ -8829,24 +9807,39 @@ button, .btn { touch-action: manipulation; }
                   // filling at a price this screen never showed. deadline is
                   // ten minutes on the chain's clock, so a transaction held
                   // back and replayed later is void rather than merely late —
-                  // minOut says nothing about WHEN. These reserves may be up
-                  // to thirty seconds old, which can only make the trade
-                  // revert, never fill worse than the line above promised.
-                  var data = OC_SEL.swap + ocWord(p.id) + ocWord(q.sellPeer ? 1n : 0n) + ocWord(q.vin) + ocWord(q.min) + ocWord(await ocDeadline());
+                  // minOut says nothing about WHEN. And it is only worth
+                  // what it is measured against, so the pool is asked again
+                  // HERE \u2014 after the approval above has confirmed, not
+                  // before it \u2014 and the minimum is set from what it pays
+                  // now, floored at what the quote line promised.
+                  var fr = await ocFresh(factory, p.id);
+                  var nowOut = ocQuote(q.vin, q.sellPeer ? fr.rp : fr.rb, q.sellPeer ? fr.rb : fr.rp);
+                  if (ocDrift(q.out, nowOut)) {
+                    ocRefresh();
+                    throw new Error('the pool moved while this was waiting \u2014 ' + ocFmt(q.out, q.dec) + ' ' + q.sym + ' was quoted and it would fill ' + ocFmt(nowOut, q.dec) + ' ' + q.sym + ' now. Nothing was signed against the old number; press Swap again to trade at a price you can see.');
+                  }
+                  var data = OC_SEL.swap + ocWord(p.id) + ocWord(q.sellPeer ? 1n : 0n) + ocWord(q.vin) + ocWord(ocFloor(q.out, nowOut)) + ocWord(await ocDeadline());
                   await ocSend(factory, data, 'Swapping in ' + label, led, 'the swap of ' + ocFmt(q.vin, sellDec) + ' ' + sellSym + ' in ' + label);
                   toast('Swapped in ' + label + '. ' + OC_LAG);
                   ocRefresh();
                 } catch (e) { toast(led.sentence('The swap stopped', e)); }
+                finally {
+                  swapBusy = false;
+                  swapBtn.disabled = false;
+                  swapBtn.textContent = 'Swap on Base';
+                }
               })();
-            } }), quote));
+            } });
+          box.appendChild(h('div', { class: 'mini-form' }, sellSel, amtIn, swapBtn, quote));
 
           var addP = h('input', { type: 'text', placeholder: 'PEER', style: 'width:90px', inputmode: 'decimal' });
           var addB = h('input', { type: 'text', placeholder: 'cbBTC', style: 'width:90px', inputmode: 'decimal' });
           var slot = h('span', {});
-          box.appendChild(h('div', { class: 'mini-form' }, addP, addB,
-            h('button', { class: 'btn small', text: 'Add liquidity', onclick: function () {
+          var addBusy = false;
+          var addBtn = h('button', { class: 'btn small', text: 'Add liquidity', onclick: function () {
               var vp = ocUnits(addP.value, pdec), vb = ocUnits(addB.value, bdec);
               if (vp === null || vb === null) { toast('Both amounts, please.'); return; }
+              if (addBusy) { toast('That deposit is already going through \u2014 it takes up to two approvals and the wallet asks for each in turn. Pressing again would start a second deposit.'); return; }
               // What the pool would mint, computed the way the contract does:
               // the smaller of the two offers measured in shares. Free
               // arithmetic, and it catches the deposit too small to mint
@@ -8858,6 +9851,9 @@ button, .btn { touch-action: manipulation; }
                 if (expect <= 0n) { toast('That deposit is too small to mint a share in ' + label + ' \u2014 the contract would refuse it, so nothing was signed.'); return; }
               }
               var led = ocLedger();
+              addBusy = true;
+              addBtn.disabled = true;
+              addBtn.textContent = 'Working\u2026';
               (async function () {
                 try {
                   if (!l2Wallet && !(await ocConnect())) { toast('Adding liquidity needs a wallet on Base.'); return; }
@@ -8879,16 +9875,36 @@ button, .btn { touch-action: manipulation; }
                   // binds and can mint fewer shares for the same coins. 2%
                   // under what these reserves say, floored — and a deadline,
                   // for the same reason the swap has one.
-                  await ocSend(factory, OC_SEL.addLiquidity + ocWord(p.id) + ocWord(vp) + ocWord(vb) + ocWord(ocGuard(expect)) + ocWord(await ocDeadline()), 'Adding liquidity to ' + label, led, 'the deposit into ' + label);
+                  var fr = await ocFresh(factory, p.id);
+                  var nowExp = 0n;
+                  if (fr.ts > 0n && fr.rp > 0n && fr.rb > 0n) {
+                    var nP = vp * fr.ts / fr.rp, nB = vb * fr.ts / fr.rb;
+                    nowExp = nP < nB ? nP : nB;
+                    if (nowExp <= 0n) {
+                      ocRefresh();
+                      throw new Error('that deposit is too small to mint a share in ' + label + ' at the ratio the pool holds NOW, so the contract would refuse it \u2014 nothing was signed');
+                    }
+                  }
+                  if (ocDrift(expect, nowExp)) {
+                    ocRefresh();
+                    throw new Error('the pool moved while this was waiting: this deposit was going to mint ' + expect + ' raw share units and it would mint ' + nowExp + ' now. Nothing was signed \u2014 press Add liquidity again against the ratio it holds now.');
+                  }
+                  await ocSend(factory, OC_SEL.addLiquidity + ocWord(p.id) + ocWord(vp) + ocWord(vb) + ocWord(ocFloor(expect, nowExp)) + ocWord(await ocDeadline()), 'Adding liquidity to ' + label, led, 'the deposit into ' + label);
                   toast('Added to ' + label + ' \u2014 the proportional part of what you offered. ' + OC_LAG);
                   ocRefresh();
                 } catch (e) { toast(led.sentence('The deposit stopped', e)); }
+                finally {
+                  addBusy = false;
+                  addBtn.disabled = false;
+                  addBtn.textContent = 'Add liquidity';
+                }
               })();
-            } }), slot));
+            } });
+          box.appendChild(h('div', { class: 'mini-form' }, addP, addB, addBtn, slot));
           if (ts <= 0n) {
             // No total-shares figure, nothing to compute a minimum from, and
             // 0 means no guard — the contract says so and so does this row.
-            box.appendChild(h('p', { class: 'smallnote', text: 'This host did not report this pool\u2019s total shares, so an add here goes in with no minimum-shares guard: the ratio can move under you between pressing and mining.' }));
+            box.appendChild(h('p', { class: 'smallnote', text: 'This host did not report this pool\u2019s total shares, so the figure above the button is missing rather than zero. The minimum-shares guard does not come from it: the pool is read again on chain the moment you press, and the minimum is set from that. A deposit here goes in unguarded only if the chain also answers zero \u2014 which means the pool holds nothing and there is no ratio to be moved.' }));
           }
 
           // The withdraw button appears only when the connected wallet
@@ -8904,26 +9920,46 @@ button, .btn { touch-action: manipulation; }
                 // silence is to offer nothing rather than to raise.
                 try { sh = ocUint(res, 'your share balance'); } catch (e) { return; }
                 if (sh <= 0n) return;
-                slot.appendChild(h('button', { class: 'btn small', text: 'Withdraw all', onclick: function () {
+                var wdBusy = false;
+                var wdBtn = h('button', { class: 'btn small', text: 'Withdraw all', onclick: function () {
+                  if (wdBusy) { toast('That withdrawal is already going through. Pressing again would sign a second one.'); return; }
                   // The slice is proportional whatever happens, but WHAT it
                   // is made of moves with the pool: a swap landing ahead of
                   // this turns some of one side into the other, so a
                   // withdrawal aimed at one coin can be sandwiched into the
-                  // other. Both minimums are 2% under what these reserves
-                  // say the slice is, floored so a tiny side still gets a
-                  // minimum. The reserves may be half a minute old, which can
-                  // only cause a revert, never a worse payout than shown.
+                  // other. Both minimums are 2% under what the pool holds
+                  // WHEN THIS IS SIGNED \u2014 read again below rather than
+                  // taken from the render, which on a screen that has stopped
+                  // repainting can be hours behind \u2014 and floored at the
+                  // slice printed above, so neither a stale number nor a live
+                  // one can lower what was promised.
                   var expP = ts > 0n ? sh * rp / ts : 0n;
                   var expB = ts > 0n ? sh * rb / ts : 0n;
                   var led = ocLedger();
+                  wdBusy = true;
+                  wdBtn.disabled = true;
+                  wdBtn.textContent = 'Working\u2026';
                   (async function () {
                     try {
-                      await ocSend(factory, OC_SEL.removeLiquidity + ocWord(p.id) + ocWord(sh) + ocWord(ocGuard(expP)) + ocWord(ocGuard(expB)), 'Withdrawing from ' + label, led, 'the withdrawal of your whole share of ' + label);
+                      var fr = await ocFresh(factory, p.id);
+                      var nowP = fr.ts > 0n ? sh * fr.rp / fr.ts : 0n;
+                      var nowB = fr.ts > 0n ? sh * fr.rb / fr.ts : 0n;
+                      if (ocDrift(expP, nowP) || ocDrift(expB, nowB)) {
+                        ocRefresh();
+                        throw new Error('the pool moved while this row sat open: your slice reads ' + ocFmt(nowP, pdec) + ' PEER and ' + ocFmt(nowB, bdec) + ' BTC now, not ' + ocFmt(expP, pdec) + ' and ' + ocFmt(expB, bdec) + '. Nothing was signed \u2014 press Withdraw all again against what it holds now.');
+                      }
+                      await ocSend(factory, OC_SEL.removeLiquidity + ocWord(p.id) + ocWord(sh) + ocWord(ocFloor(expP, nowP)) + ocWord(ocFloor(expB, nowB)), 'Withdrawing from ' + label, led, 'the withdrawal of your whole share of ' + label);
                       toast('Withdrew from ' + label + ' \u2014 both sides, proportional to your shares. ' + OC_LAG);
                       ocRefresh();
                     } catch (e) { toast(led.sentence('The withdrawal stopped', e)); }
+                    finally {
+                      wdBusy = false;
+                      wdBtn.disabled = false;
+                      wdBtn.textContent = 'Withdraw all';
+                    }
                   })();
-                } }));
+                } });
+                slot.appendChild(wdBtn);
               })
               .catch(function () { /* a provider that refuses eth_call just means no button */ });
           }
@@ -8985,63 +10021,249 @@ button, .btn { touch-action: manipulation; }
           h('span', { class: 'smallnote', text: window.ethereum ? 'A free read straight to Base \u2014 it signs nothing, and it works for ids this host\u2019s scan never reached.' : 'Needs a wallet: asking Base directly is the only way to reach a pool this host did not list.' })));
         ocBody.appendChild(idSlot);
 
-        // ── open a pool ──
-        // The pair is preset: every pool this factory can make is PEER
-        // against cbBTC, fixed at its deployment. The name is the only
-        // choice, which is the point — one press, two amounts, a pool.
-        // Several pools of the same pair is deliberate; liquidity
-        // fragmentation was the accepted price of pools people can NAME.
+        // ── open a pool — one press, all the way through ──
+        // Three fields and one button. The pair is not one of the fields:
+        // every pool this factory can make is PEER against cbBTC, fixed in
+        // its immutables at deployment, so offering a choice would be
+        // offering a lie.
+        //
+        // Opening a pool is not one action on chain. It is up to three —
+        // approve PEER, approve cbBTC, createPool — and three wallet prompts
+        // arriving with no account of which is which is exactly where people
+        // stop, having paid for an approval and got no pool. So the button
+        // carries all three and names each one while it is on screen.
+        //
+        // Everything that can refuse this is asked FIRST and asked for FREE.
+        // An eth_call costs nothing; an approval costs gas and leaves a
+        // standing permission behind, so any refusal discovered after it is a
+        // refusal somebody paid for:
+        //   · the wallet is connected and answering for Base
+        //   · the factory's two token addresses hold actual code
+        //   · sqrt(PEER × cbBTC) clears the factory's own MIN_LIQ
+        //   · this creator has not used this name before
+        //   · this wallet holds both amounts
         //
         // The name is yours alone in one direction only: you cannot reuse one
         // of your own, and somebody else opening theirs under the same word
         // takes nothing from you. That is what stops a watcher copying a name
         // out of the mempool and paying a higher fee to steal it.
-        var cName = h('input', { type: 'text', placeholder: 'pool name', style: 'flex:1', maxlength: '32' });
-        var cPeer = h('input', { type: 'text', placeholder: 'PEER', style: 'width:90px', inputmode: 'decimal' });
-        var cBtc = h('input', { type: 'text', placeholder: 'cbBTC', style: 'width:90px', inputmode: 'decimal' });
-        ocBody.appendChild(h('p', { class: 'eyebrow', style: 'margin:10px 0 0', text: 'open a pool \u2014 PEER / cbBTC, named by you' }));
-        ocBody.appendChild(h('div', { class: 'mini-form persistent' }, cName, cPeer, cBtc,
-          h('button', { class: 'btn small primary', text: 'Open pool on Base', onclick: function () {
-            var nm = String(cName.value || '').trim();
-            if (!nm) { toast('A pool needs a name.'); return; }
-            var nb = new TextEncoder().encode(nm);
-            if (nb.length > 32) { toast('That name is ' + nb.length + ' bytes as UTF-8; 32 is all a bytes32 holds.'); return; }
-            var vp = ocUnits(cPeer.value, pdec), vb = ocUnits(cBtc.value, bdec);
-            if (vp === null || vb === null) { toast('Both starting amounts, please.'); return; }
-            // bytes32: the UTF-8 bytes hex-encoded, right-padded with NULs —
-            // the exact shape the host strips back off to show the name.
-            var hexName = '';
-            for (var i = 0; i < nb.length; i++) hexName += nb[i].toString(16).padStart(2, '0');
-            while (hexName.length < 64) hexName += '0';
-            var led = ocLedger();
+        var cName = h('input', { type: 'text', placeholder: 'pool name', style: 'flex:1; min-width:110px', maxlength: '32' });
+        var cPeer = h('input', { type: 'text', placeholder: 'PEER', style: 'width:104px', inputmode: 'decimal' });
+        var cBtc = h('input', { type: 'text', placeholder: 'cbBTC', style: 'width:104px', inputmode: 'decimal' });
+        var cPrice = h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px' });
+        var cBtn = h('button', { class: 'btn small primary', text: 'Open pool on Base' });
+        var cBusy = false;
+
+        // The two sentences a zero balance has to be answered with, because a
+        // field filled with 0 and no explanation is the dead end this card
+        // exists to remove. Neither invents a way to get the coin: where to
+        // buy bitcoin is not this page's business, and a page that points
+        // somewhere is a page that has picked somebody.
+        var NO_PEER = 'This wallet holds no PEER token on Base at all. The PEER counted in the Wallet tab is a different thing that happens to share the name: a number in this network\u2019s own log, not in any wallet, and there is no bridge that turns one into the other. Opening a pool needs the Base token itself, in this address.';
+        var NO_BTC = 'This wallet holds no cbBTC at all. A pool has two sides and cbBTC is the other one: it is bitcoin on Base \u2014 an ERC-20 that stands for BTC \u2014 and no amount of PEER becomes it. It has to be bought or bridged onto Base, into this address, before a pool can be opened.';
+
+        function cSay(t, warn) {
+          ocSeq.appendChild(h('p', { class: 'smallnote', style: warn ? 'border-left:2px solid var(--ember); padding-left:9px' : 'padding-left:9px', text: t }));
+        }
+
+        // The most consequential line on this screen, and it used to be
+        // nowhere at all. There is no market in PEER/BTC, so nothing prices
+        // this pool but the two numbers above it: whatever ratio goes in is
+        // what the first trader pays, and against a pool this thin the first
+        // trade moves it a long way. Said live, both ways round, before
+        // anything is signed — a price you learn afterwards is a price you
+        // did not choose.
+        function cRatio() {
+          var vp = ocUnits(cPeer.value, pdec), vb = ocUnits(cBtc.value, bdec);
+          if (vp === null || vb === null) {
+            cPrice.textContent = 'The two amounts ARE the opening price \u2014 there is no market to take one from. Fill both in and the price they set appears here, before anything is signed.';
+            return;
+          }
+          var pf = Number(vp) / Math.pow(10, pdec), bf = Number(vb) / Math.pow(10, bdec);
+          cPrice.textContent = 'You are setting the price: 1 PEER = ' + ocPx(bf / pf) + ' BTC, and 1 BTC = ' + ocPx(pf / bf) + ' PEER. Nothing else prices PEER against bitcoin, so this ratio is the market until somebody trades against it \u2014 and against a pool this thin the first trade moves it a long way, in whichever direction pays the trader. Nor can this page show how the PEER supply is held, so nothing outside this form agrees with the number you are about to set.';
+        }
+        cPeer.addEventListener('input', cRatio);
+        cBtc.addEventListener('input', cRatio);
+        cRatio();
+
+        // "The number of peer tokens you have", as one tap rather than
+        // arithmetic. Exact to the last raw unit, because this value is
+        // parsed straight back into the transaction. Gas is paid in ETH, so
+        // emptying either of these two balances strands nothing.
+        function cMax(input, sym) {
+          return h('button', { class: 'btn small', text: 'max ' + sym, onclick: function () {
+            // Not during the open-pool sequence. This rewrites the amount
+            // field and the price line under it, while the amounts being
+            // signed were captured when Open pool was pressed \u2014 so the
+            // \u201cYou are setting the price\u201d sentence on screen would
+            // drift away from the transaction in the wallet, which is the
+            // one thing this form exists to prevent.
+            if (cBusy) { toast('The pool is being opened with the amounts already captured \u2014 the fields are held still until that finishes.'); return; }
             (async function () {
               try {
-                if (!l2Wallet && !(await ocConnect())) { toast('Opening a pool needs a wallet on Base.'); return; }
+                if (!l2Wallet && !(await ocConnect())) { toast('Reading your balance needs the wallet connected on Base. It signs nothing.'); return; }
                 drawWallet();
-                // Both ways createPool can refuse, asked for free and asked
-                // FIRST. An approval that lands ahead of a revert costs gas
-                // and leaves a standing permission behind; a square root and
-                // one eth_call cost neither.
-                var s0 = ocSqrt(vp * vb);
-                var minLiq = await ocMinLiq(factory);
-                if (s0 <= minLiq) { toast('Too small to open: the opening shares are sqrt(PEER \u00d7 cbBTC) = ' + s0 + ' raw units and this factory locks ' + minLiq + ' of them forever, so an opener has to mint more than that. Nothing was signed.'); return; }
-                if (await ocTaken(factory, l2Wallet, hexName)) { toast('You already have a pool called \u201c' + nm + '\u201d \u2014 your own names are claimed once and never reused, even after a pool is drained. Pick another; nothing was signed.'); return; }
                 var toks = await ocGetTokens(factory);
-                // The third knowable refusal, and the one that was missing:
-                // MIN_LIQ and the name claim were already asked for free, but
-                // a wallet without the coins still paid for two approvals
-                // before the pull reverted.
-                await ocHave(toks.peer, vp, 'PEER', pdec);
-                await ocHave(toks.btc, vb, 'cbBTC', bdec);
-                await ocAllow(toks.peer, factory, vp, 'PEER', pdec, led);
-                await ocAllow(toks.btc, factory, vb, 'cbBTC', bdec, led);
-                await ocSend(factory, OC_SEL.createPool + hexName + ocWord(vp) + ocWord(vb), 'Opening \u201c' + nm + '\u201d', led, 'opening the pool \u201c' + nm + '\u201d');
-                toast('Opened \u201c' + nm + '\u201d on Base \u2014 the starting ratio IS the starting price. The name is yours, not the network\u2019s: somebody else may open one called the same thing. ' + OC_LAG);
-                ocRefresh();
-              } catch (e) { toast(led.sentence('Opening the pool stopped', e)); }
+                var isPeer = sym === 'PEER';
+                var raw = await ocBal(isPeer ? toks.peer : toks.btc, sym);
+                input.value = ocDec(raw, isPeer ? pdec : bdec);
+                cRatio();
+                if (raw === 0n) cSay(isPeer ? NO_PEER : NO_BTC, true);
+              } catch (e) { toast('Could not read your ' + sym + ' balance: ' + ocErr(e)); }
             })();
-          } })));
-        ocBody.appendChild(h('p', { class: 'smallnote', text: 'The first 1000 raw share units of every pool are locked forever \u2014 the standard guard that stops the first depositor being robbed by rounding, and the reason an opening deposit has to mint more than that. A name is claimed per creator: you cannot reuse one of your own, and a stranger using the same word neither takes anything from you nor gains anything by it. The factory pulls amounts only after your wallet approves each token, and your wallet shows you every one before it signs.' }));
+          } });
+        }
+
+        cBtn.addEventListener('click', function () {
+          if (cBusy) return;
+          ocSeq.innerHTML = '';
+          var nm = String(cName.value || '').trim();
+          if (!nm) { cSay('A pool needs a name \u2014 it is the label this one is listed under, and it is claimed for you alone: a stranger opening theirs under the same word takes nothing from you.', true); return; }
+          var nb = new TextEncoder().encode(nm);
+          if (nb.length > 32) { cSay('That name is ' + nb.length + ' bytes as UTF-8, and 32 is all a bytes32 holds. Nothing was signed.', true); return; }
+          var vp = ocUnits(cPeer.value, pdec), vb = ocUnits(cBtc.value, bdec);
+          if (vp === null || vb === null) { cSay('Both starting amounts, both above zero \u2014 a pool has two sides and they go in together. \u201cmax PEER\u201d and \u201cmax cbBTC\u201d fill in what this wallet actually holds.', true); return; }
+          // bytes32: the UTF-8 bytes hex-encoded, right-padded with NULs —
+          // the exact shape the host strips back off to show the name.
+          var hexName = '';
+          for (var bi = 0; bi < nb.length; bi++) hexName += nb[bi].toString(16).padStart(2, '0');
+          while (hexName.length < 64) hexName += '0';
+          var led = ocLedger();
+          cBusy = true;
+          cBtn.disabled = true;
+          cBtn.textContent = 'Working\u2026';
+          // Everything the price line is computed from goes still with it.
+          // vp and vb are captured above and the wallet is about to be
+          // asked about exactly those two numbers; a field that can still
+          // be typed into leaves a sentence on screen describing a trade
+          // nobody is making.
+          cName.disabled = true;
+          cPeer.disabled = true;
+          cBtc.disabled = true;
+          cMaxP.disabled = true;
+          cMaxB.disabled = true;
+          (async function () {
+            try {
+              cSay('Checking everything that can be checked for free. Nothing is signed and no gas is spent until all of it passes.');
+              if (!l2Wallet && !(await ocConnect())) { cSay('Opening a pool needs a wallet connected on Base. Nothing was signed.', true); return; }
+              drawWallet();
+              // Asked before the READS, not only before the signature. On
+              // another chain every check below answers about a different
+              // world — eth_getCode comes back empty at an address that holds
+              // a token on Base — and a page that blamed the operator's
+              // factory for the user's network switch would be confidently
+              // wrong about whose problem it is.
+              var chain = await ocEth('eth_chainId');
+              if (chain !== OC_CHAIN) {
+                l2Wallet = null;
+                l2Tokens = null;
+                if (l2Redraw) l2Redraw();
+                cSay('That wallet answers for chain ' + chain + ', not Base (' + OC_CHAIN + '). Every check below would be about a different chain, so none of them ran and nothing was signed. Put the wallet on Base and connect again.', true);
+                return;
+              }
+              var toks = await ocGetTokens(factory);
+              // The dead-factory check, and it is free. A factory deployed
+              // with a wrong immutable — a plain wallet address where the
+              // token address belonged — answers peer() with something
+              // perfectly well formed that no ERC-20 lives at. Every later
+              // failure then blames the wrong thing: balanceOf answers '0x',
+              // which reads as "check you are on Base", and an approve sent
+              // there costs gas and permits nothing.
+              var codeP = await ocEth('eth_getCode', [toks.peer, 'latest']);
+              var codeB = await ocEth('eth_getCode', [toks.btc, 'latest']);
+              var dead = [];
+              if (!codeP || codeP === '0x') dead.push('PEER as ' + toks.peer);
+              if (!codeB || codeB === '0x') dead.push('cbBTC as ' + toks.btc);
+              if (dead.length) {
+                cSay('This factory names ' + dead.join(' and ') + ', and no contract lives at that address. A factory pointed at something that is not a token cannot open a pool at all, and an approval sent there would cost gas and permit nothing. Nothing was signed. Fixing it means redeploying the factory, which is the operator\u2019s move \u2014 chain-l2/DEPLOY.md.', true);
+                return;
+              }
+              // MIN_LIQ from the deployed factory rather than from the
+              // source, and the square root in BigInt: sqrt of an 18-decimal
+              // amount times an 8-decimal one leaves Math.sqrt's exactness
+              // far behind.
+              var s0 = ocSqrt(vp * vb);
+              var minLiq = await ocMinLiq(factory);
+              if (s0 <= minLiq) {
+                cSay('Too small to open. The opening shares are sqrt(PEER \u00d7 cbBTC) = ' + s0 + ' raw units, and this factory locks ' + minLiq + ' of them forever, so an opening deposit has to mint more than that. Raise either amount. Nothing was signed.', true);
+                return;
+              }
+              if (await ocTaken(factory, l2Wallet, hexName)) {
+                cSay('You already opened a pool called \u201c' + nm + '\u201d. Your own names are claimed once and never reused, even after a pool is drained \u2014 pick another word. Nothing was signed.', true);
+                return;
+              }
+              var haveP = await ocBal(toks.peer, 'PEER');
+              var haveB = await ocBal(toks.btc, 'cbBTC');
+              if (haveP === 0n) { cSay(NO_PEER + ' Nothing was signed.', true); return; }
+              if (haveP < vp) {
+                cSay('This wallet holds ' + ocDec(haveP, pdec) + ' PEER on Base and the pool asks for ' + ocDec(vp, pdec) + '. \u201cmax PEER\u201d fills in the figure it actually holds. Nothing was signed.', true);
+                return;
+              }
+              if (haveB === 0n) { cSay(NO_BTC + ' Nothing was signed.', true); return; }
+              if (haveB < vb) {
+                cSay('This wallet holds ' + ocDec(haveB, bdec) + ' cbBTC and the pool asks for ' + ocDec(vb, bdec) + '. Both sides go in together, so the smaller side is what caps the pool. Nothing was signed.', true);
+                return;
+              }
+              // How many signatures this actually is, asked rather than
+              // assumed. An approval that already stands is not asked for
+              // again by the wallet, so promising three prompts and showing
+              // one is its own small lie — and this is the count the steps
+              // below are numbered against.
+              var alwP = ocUint(await ocEth('eth_call', [{ to: toks.peer, data: OC_SEL.allowance + ocAddr(l2Wallet) + ocAddr(factory) }, 'latest']), 'the PEER allowance');
+              var alwB = ocUint(await ocEth('eth_call', [{ to: toks.btc, data: OC_SEL.allowance + ocAddr(l2Wallet) + ocAddr(factory) }, 'latest']), 'the cbBTC allowance');
+              var need = (alwP < vp ? 1 : 0) + (alwB < vb ? 1 : 0) + 1;
+              var step = 0;
+              cSay('Every check passed. ' + need + ' signature' + (need === 1 ? '' : 's') + ' from here, and the wallet asks for each one in turn.' + (need < 3 ? ' An approval you gave earlier still stands, so it is not asked for again.' : ''));
+              if (alwP < vp) {
+                step++;
+                cSay(step + ' of ' + need + ': approving PEER. This permits the pools contract to pull exactly ' + ocDec(vp, pdec) + ' PEER \u2014 that amount, once, and nothing else you hold. Confirm it in the wallet.');
+                await ocSend(toks.peer, OC_SEL.approve + ocAddr(factory) + ocWord(vp), 'Approving PEER', led,
+                  'your approval of ' + ocFmt(vp, pdec) + ' PEER to the pools contract');
+                cSay(step + ' of ' + need + ': PEER approved, and confirmed on chain.');
+              }
+              if (alwB < vb) {
+                step++;
+                cSay(step + ' of ' + need + ': approving cbBTC. Exactly ' + ocDec(vb, bdec) + ' cbBTC \u2014 that amount, once, and nothing else. Confirm it in the wallet.');
+                await ocSend(toks.btc, OC_SEL.approve + ocAddr(factory) + ocWord(vb), 'Approving cbBTC', led,
+                  'your approval of ' + ocFmt(vb, bdec) + ' cbBTC to the pools contract');
+                cSay(step + ' of ' + need + ': cbBTC approved, and confirmed on chain.');
+              }
+              step++;
+              cSay(step + ' of ' + need + ': opening \u201c' + nm + '\u201d. This is the one that moves the coins \u2014 both amounts go in, the pool opens at the price above, and the shares are minted to this address.');
+              await ocSend(factory, OC_SEL.createPool + hexName + ocWord(vp) + ocWord(vb), 'Opening \u201c' + nm + '\u201d', led, 'opening the pool \u201c' + nm + '\u201d');
+              cSay('Done. \u201c' + nm + '\u201d is open on Base holding ' + ocDec(vp, pdec) + ' PEER against ' + ocDec(vb, bdec) + ' cbBTC, and that ratio is its price until somebody trades against it. The name is yours and not the network\u2019s: somebody else may open one called the same thing.');
+              cSay(OC_LAG + ' The list above is being re-read now and once more when that window rolls \u2014 you do not have to reload the page.');
+              toast('Opened \u201c' + nm + '\u201d on Base.');
+              ocRefresh();
+            } catch (e) {
+              // Never "it did not work". The ledger knows which legs landed,
+              // which were broadcast and never seen again, and which never
+              // went out at all — and an approval that landed cost gas and
+              // still stands.
+              cSay(led.sentence('Opening the pool stopped', e), true);
+              cSay('Press Open pool again once that is dealt with: the free checks run again from the top, and an approval that already stands is reused rather than signed and paid for twice \u2014 that is a prompt your wallet simply will not show a second time.');
+              toast('The pool did not open \u2014 what landed and what did not is written under the button.');
+            } finally {
+              cBusy = false;
+              cBtn.disabled = false;
+              cBtn.textContent = 'Open pool on Base';
+              cName.disabled = false;
+              cPeer.disabled = false;
+              cBtc.disabled = false;
+              cMaxP.disabled = false;
+              cMaxB.disabled = false;
+            }
+          })();
+        });
+
+        ocBody.appendChild(h('p', { class: 'eyebrow', style: 'margin:10px 0 0', text: 'open a pool \u2014 one press, PEER against cbBTC' }));
+        ocBody.appendChild(h('p', { class: 'smallnote', text: 'Name it, say how much of each side goes in, press once. Both sides are fixed by the factory \u2014 every pool it makes is the PEER token on Base against cbBTC \u2014 so the name and the two amounts are the only choices here.' }));
+        var cMaxP = cMax(cPeer, 'PEER'), cMaxB = cMax(cBtc, 'cbBTC');
+        ocBody.appendChild(h('div', { class: 'mini-form persistent' }, cName, cPeer, cMaxP, cBtc, cMaxB));
+        ocBody.appendChild(cPrice);
+        ocBody.appendChild(h('div', { class: 'mini-form persistent' }, cBtn,
+          h('span', { class: 'smallnote', text: 'Up to three signatures in one press: approve PEER, approve cbBTC, then open the pool. Each is named here as your wallet asks for it, and everything that could refuse it is checked \u2014 for free \u2014 before the first one.' })));
+        ocBody.appendChild(h('p', { class: 'smallnote', text: 'The first 1000 raw share units of every pool are locked forever \u2014 the standard guard that stops the first depositor being robbed by rounding, and the reason an opening deposit has to mint more than that. A name is claimed per creator: you cannot reuse one of your own, and a stranger using the same word neither takes anything from you nor gains anything by it. The factory pulls each amount only after your wallet approves that token, and your wallet shows you every transaction before it signs it.' }));
 
         // The wallet's own events reach the screen through here. Assigned on
         // every render so the handler always drives the card that is actually
@@ -9145,7 +10367,9 @@ button, .btn { touch-action: manipulation; }
       var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'Buy a placement' }));
       adCard2.appendChild(h('p', { class: 'smallnote', text:
-        'A box in the feed, paid for in PEER — and the PEER is DESTROYED rather than paid to anyone. PEER is earned by drawing engagement, or bought from the pool on Base, so buying attention means buying it from the people who earned it. It goes live immediately.' }));
+        'A box in the feed, paid for in PEER — and the PEER is DESTROYED rather than paid to anyone. This is the EPOCH token \u2014 the number counted in the Wallet tab, earned by drawing engagement or bought in one of the sandbox pools further down this page, which settle in this log and nowhere else. Buying attention means buying it from the people who earned it. It goes live immediately.' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text:
+        'Not the PEER on Base. The ERC-20 in the Wallet tab shares this name and this symbol and nothing else: it cannot pay for a placement, and no act, no host and no contract in this network turns one into the other. Buying it will not buy you this box.' }));
       adCard2.appendChild(h('p', { class: 'smallnote', text:
         'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
 
@@ -9235,7 +10459,7 @@ button, .btn { touch-action: manipulation; }
         } })));
       if (!myTbtc) {
         adCard2.appendChild(h('p', { class: 'smallnote warn', text:
-          'You hold no PEER. It arrives when an epoch closes and people have engaged with what you made — or buy some from the pool on Base.' }));
+          'You hold no epoch PEER. It arrives when an epoch closes and people have engaged with what you made — or from a sandbox pool in this log, which is where this PEER lives. The PEER on Base is a different token that shares the name: it cannot pay for a placement, and nothing here converts it into one that can.' }));
       }
 
       // Your own placements, and the one control that matters after publishing.

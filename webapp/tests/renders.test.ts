@@ -210,6 +210,38 @@ describe('the built page is an application, not just valid JavaScript', () => {
     }
   }, 40000);
 
+  it('groups the network identically on every boot of the same log', async () => {
+    // The whole application is replayable by doctrine: same acts in, same
+    // answer out. Grouping is the one figure on the Network screen that is
+    // chosen rather than read, which makes it the one most able to drift — a
+    // partition that came out of iteration order would repaint the legend for
+    // no reason and quietly make the colours meaningless. This boots the same
+    // world twice and compares the community of every node, in document order.
+    const view = JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'net' });
+    const keys = {
+      'peer-sandbox-who-v2': JSON.stringify('alice'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': view,
+    };
+
+    const read = async () => {
+      const { dom, errors, root } = await boot(keys);
+      expect(errors, 'the network view threw: ' + errors.join(' | ')).toEqual([]);
+      const groups = Array.from(root!.querySelectorAll('.node-g'));
+      const stamped = groups.map((g) => g.getAttribute('data-comm') ?? '');
+      dom.window.close();
+      return stamped;
+    };
+
+    const first = await read();
+    // The view has to have actually drawn, or this test proves nothing.
+    expect(first.length, 'the network view drew no nodes').toBeGreaterThan(5);
+    expect(first.some((c) => c !== '' && c !== '-1'), 'no node carries a group').toBe(true);
+
+    const second = await read();
+    expect(second).toEqual(first);
+  }, 40000);
+
   it('draws the chat tab over a world that has timestamps', async () => {
     // The sandbox seed carries no `ts` at all, so every "how long ago" path in
     // the app short-circuits and is never executed by the other tests. That is
