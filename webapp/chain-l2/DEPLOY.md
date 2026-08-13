@@ -356,6 +356,9 @@ do not copy the list.
 | `anchor-address.txt` | `PEER_ANCHOR_ADDR` | your PeerAnchor from §4 |
 | `claim-address.txt` | `PEER_CLAIM_ADDR` | your PeerClaim from §4 |
 | `epoch-from-block.txt` | `PEER_EPOCH_FROM_BLOCK` | the **lower** of the two blocks §4 deployed in |
+| `peerburn-factory.txt` | `PEER_PEERBURN_FACTORY` | the factory holding the **official pool** — §6, optional |
+| `peerburn-pool-id.txt` | `PEER_PEERBURN_POOL_ID` | which pool id in it — §6, optional |
+| `peerburn-from-block.txt` | `PEER_PEERBURN_FROM_BLOCK` | the block §1 deployed in — §6, optional |
 
 Then restart the host: `.\start-host.ps1`. Or let
 `chain-l2/auto-deploy.ps1` write the first four and restart for you — it
@@ -401,6 +404,7 @@ The epoch contracts are walked by that same scan, with a memory file each:
 | `pools-scan.json` | how far the `PoolCreated` scan got, and each pool's last measured BTC reserve |
 | `anchor-scan.json` | how far the `Anchored` scan got, and the anchors it has seen |
 | `claim-scan.json` | how far the `EpochOpened` scan got, and which epochs exist |
+| `peerburn-scan.json` | how far the PEER-burn scan got, and the transfers to the dead address it has seen (§6) |
 
 All three are caches, none of them is a source of truth, and each is keyed to
 its own contract — delete any of them and the next refresh rebuilds it from
@@ -422,6 +426,22 @@ Two more the reader honours, both with working defaults and neither needing
 a file: `PEER_L2_RPC` (Base mainnet) and `PEER_L2_CHAIN_ID` (8453). The
 authoritative list is the header comment of `chain-l2/onchain.mjs` — these
 are only the ones an operator normally sets.
+
+The PEER door in §6 adds four more of the same kind, all defaulted and none
+needing a file: `PEER_PEERBURN_MIN_CONF` (30 blocks), how deep a burn must
+be buried; `PEER_PEERBURN_WATCH_INTERVAL` (120s), how often the dead address
+is checked for burns nobody claimed; and two memos that exist so a public
+read door cannot be turned into a request amplifier against your endpoint —
+`PEER_PEERBURN_TICK_MEMO_MS` (10s) and `PEER_PEERBURN_QUOTE_MEMO_MS` (15s).
+The quote memo is safe at that length precisely because the price it holds
+is averaged over half an hour; it would not be safe for a spot price, and
+there is no spot price here to hold.
+
+Note also what §6 asks of your **endpoint**, not just your configuration:
+the price is read at past blocks, so `PEER_L2_RPC` must serve recent
+historical state. A pruning node that answers only for its own head cannot
+produce a window, and the host says exactly that rather than falling back to
+a spot read — the fallback is the attack.
 
 Then `GET /api/token/onchain` reports live supply, reserves, any account's
 balance and — with `PEER_POOLS_ADDR` set — every named pool with its
@@ -452,6 +472,144 @@ arithmetic rather than a hunch. And whether **you** have already claimed an
 epoch is never in the cached body: it comes back under `account.claims` only
 when you ask with `?of=YOUR_ADDRESS`, because a claimed flag inside the
 30-second cache would answer for everyone out of the first asker's wallet.
+
+## 6. The official pool — burning PEER for reserve (optional)
+
+Reserve is **value destroyed**, and until now the only way to destroy value
+was to destroy bitcoin. Requiring real BTC before anybody may say a word is
+a large part of why this network has twelve actors, so there is a second
+door: burn PEER, and get reserve worth the same as the bitcoin that PEER was
+worth. The bitcoin door is untouched and both credit reserve at the same
+rate — two prices for reserve would be two classes of speaker.
+
+The pair is PEER/cbBTC, so **the pool already quotes PEER in satoshis** and
+no currency oracle is needed anywhere. A euro figure is a caption for humans
+and never enters the arithmetic: if the euro source is down you lose a
+label, not a number.
+
+### Which pool, and why it is never a name
+
+A PEER burn is priced by **one** pool, and which one is an operator's
+decision written down as a factory **address** plus a numeric **id**:
+
+| file in `server-data/` | what goes in it |
+|---|---|
+| `peerburn-factory.txt` | the PeerPools factory holding the pool — usually the same address as `pools-address.txt`, typed again on purpose |
+| `peerburn-pool-id.txt` | the pool id, as `poolInfo` indexes it |
+| `peerburn-from-block.txt` | the block your **token** was deployed in (§1) — this scan walks the token's Transfer logs, not the factory's |
+
+Never a name. Names in PeerPools are claimed **per creator** (see §2), so
+"the pool called main" is a phrase two strangers can both satisfy — and a
+host that resolved its price source by name could be re-pointed at a pool
+opened at any ratio at all, for the price of one transaction. That is an
+oracle attack whose entire cost is gas, aimed at the one thing this network
+says cannot be bought.
+
+The factory deliberately does **not** fall back to `pools-address.txt`. That
+file decides which factory the pool *list* is read from; a price that
+silently followed it would re-point itself the day you aimed the list at
+somebody else's factory to look at it.
+
+Unset, this door is **off** and every route says so in words — which is the
+state as shipped, since no factory is deployed and the wallet holds no
+cbBTC. There is no price today, and a host that guessed one would be
+inventing the exchange rate at which speech is sold.
+
+### What the host checks before it credits anything
+
+The price is **time-weighted** across a window of real blocks — the reserves
+read at each of a spread of past blocks, weighted by how long each stood,
+never the spot price one trade left behind. The window length, the minimum
+number of readings, the minimum pool depth, how many blocks inside the
+window are read, and both ceilings are the **engine's** constants
+(`social/replay.cjs`), not this file's, so the page, the host and replay
+refuse in the same numbers. The act records the reserves it used, the pool's
+factory and id, the block range, the reference block's hash and every block
+read, so anyone replaying the log recomputes the satoshi figure and can
+re-fetch the pool at the same blocks instead of believing this host — and
+replay refuses any act whose recorded price and recorded value disagree.
+
+**Which blocks inside the window are read is not the host's choice.** A host
+cannot read nine hundred blocks per burn, so it reads sixteen; if those
+sixteen came from public arithmetic, whoever burns would know all of them in
+advance (they choose the block their own burn lands in) and could push the
+price at exactly those, holding a lie across 1.4% of the window instead of
+all of it. Measured against this reader with a fixed grid: 16 of 16 readings
+manipulated for 864,000 sat of swap fees, after which one epoch's whole
+allowance cost 10 PEER instead of 1,010. The blocks are therefore chosen by
+the **hash of the block the window ends at** — unknowable until that block
+exists — so the same spend now moves 0 of 16 readings, and pushing the price
+for a quarter of the window moves 4 of 16, for half 8 of 16. Cost is
+proportional to how long the lie is held, which is what a time-weighted
+price is for. `node tools/oracle-attack.mjs` runs all of that.
+
+Below the depth floor a burn is refused **in words** rather than priced
+badly: a shallow pool does not have a price, it has a last trade, and
+treating one as the other mints the right to speak out of somebody's
+rounding error.
+
+**Two ceilings, not one.** An account creates at most 100 reserve this way
+per epoch — and because handles are free, that alone bounds nothing: three
+hundred of them filling it once against a pool holding 0.01 cbBTC created
+27,100 reserve, 3.6× what selling that PEER into that pool could realise. So
+a pool also creates at most as many satoshis of reserve in an epoch as it
+holds satoshis of bitcoin, first come first served. A burn worth more than
+what is left is **not** forfeited: the act states the slice it credits and
+the host finishes the rest in later epochs.
+
+`GET /api/peerburn` shows the pool, the price, the readings behind it and
+what a given amount would credit; `POST /api/peerburn/claim {id, txid, auth}`
+binds a burn you already made; `GET /api/peerburn/pending` lists burns the
+chain shows and this log does not. The host also watches the dead address on
+its own, so closing the tab cannot lose a burn.
+
+### Whose burn it is — bind first, then burn
+
+Unlike the bitcoin door this one needs no intents, because an ERC-20
+transfer names its sender. What it does need is a rule about **which**
+binding counts, and the obvious one was a hole: a `bindAddress` act costs
+nothing but the binding handle's own PIN, so under "the handle that has
+bound this address", a stranger bound somebody else's address, claimed their
+burn, and took the reserve — while the real burner got
+`PEERBURN_ALREADY_CLAIMED` on every host, for ever, because the dedupe is by
+transaction hash. The public pending list was the target list.
+
+Two rules close it, both enforced in replay rather than at this door:
+
+* **exactly one handle** must have bound the sending address. An address two
+  handles have bound is credited to neither. First-binder-wins would make
+  pre-binding a stranger's address a silent capture; newest-wins was the
+  hole. Ambiguity costs a burn and never hands one over — and if somebody
+  binds your address, bind a fresh one and burn from that.
+* **the binding must predate the burn.** A binding filed after the coins
+  were destroyed reaches nothing, by anybody, including their owner. That is
+  the honest cost of closing the pending-list harvest, and every surface
+  says it: *bind the address first, then burn from it.*
+
+Epoch earnings are unaffected — that map is still newest-wins per handle,
+and one address may still name two handles, which is a state the live log is
+already in.
+
+### The one place the two doors are not equals
+
+**Say this wherever they appear together.** The bitcoin address is a P2WSH
+commitment to a script that can never be satisfied: unspendable by
+*arithmetic*, and anyone can check the arithmetic. The PEER sink is
+`0x000000000000000000000000000000000000dEaD`, which is unspendable only
+because nobody is believed to know a key for it — a claim about the size of
+a search space, not a proof. Both destroy value; only one of them is
+provable, and an interface that prints them side by side without that
+sentence is lying on the chain's behalf.
+
+`address(0)` is not an option here: `PeerToken` refuses transfers to it
+deliberately, so that its supply figure keeps exactly one meaning, and two
+burn mechanisms with two meanings would make that figure a lie.
+
+And what a PEER burn buys is bounded on purpose: **reserve only**. It never
+touches the weight that decides a share of the epoch mint or a vote in the
+writer election — those weigh bitcoin destroyed, whose price nobody here can
+move. A PEER burn has a price, and a price can be lied to, so the most a
+manipulated window can ever buy is speech, capped per account per epoch.
 
 ## What to expect, plainly
 

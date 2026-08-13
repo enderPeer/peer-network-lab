@@ -232,6 +232,362 @@ function replayUncached(acts) {
   // whole host down — a replay that crashes on input is a denial of service
   // with extra steps. Unknown actors are skipped, everywhere, always.
   function known(id) { return !!ledgerById[id]; }
+  // ── Pricing a PEER burn from the numbers the act carries ────────────────
+  //
+  // A raw token amount as the chain states it: an unsigned decimal integer.
+  // Kept as a STRING through the act and into BigInt, never through a double
+  // — an 18-decimal amount does not survive Number() intact, and two honest
+  // hosts that both round it would still have to agree on how, which is a
+  // thing no comment can enforce.
+  var RAW_INT = /^[0-9]{1,48}$/;
+  var BIG0 = BigInt(0);
+  /**
+   * What the pool says N PEER is worth, in satoshis, from three recorded
+   * numbers and nothing else.
+   *
+   *   sats = floor( amt · resBtc / (resPeer + amt) )
+   *
+   * That is the constant-product OUTPUT, not the marginal ratio
+   * resBtc/resPeer. The two agree for a small burn and diverge for a large
+   * one, and the divergence is exactly the point: the marginal ratio is a
+   * price no trade can actually get, so paying it for a burn big enough to
+   * move the pool would credit satoshis nobody could ever have realised. The
+   * operator's sentence was "ask the pool what N PEER is worth" — this is the
+   * pool's answer to that question, and the marginal ratio is the answer to a
+   * different, easier one. It also carries a ceiling PER ACT for free: no
+   * single burn, however enormous, can be worth more than the pool's whole
+   * bitcoin side.
+   *
+   * That is true of one act and it is NOT true of a log, which is worth being
+   * exact about because the sentence used to be written without the two words
+   * "per act" and read as a promise about the network. The reserves never move
+   * — the PEER is destroyed, not sold — so a hundred burns are each priced as
+   * if they were the first, and the total reserve a pool can create in an epoch
+   * is unbounded by this expression alone. Measured, at the minimum permitted
+   * depth: three hundred accounts each filling the per-account ceiling once
+   * created 27,100 reserve — 2,710,000 satoshis of "value destroyed" — against
+   * a pool whose entire bitcoin side was 1,000,000 satoshis, and whose PEER
+   * side could only have realised about 749,600 of them. What bounds the total
+   * is PEER_BURN_POOL_CAP below, which is a separate rule and had to be.
+   *
+   * No swap fee is applied. The PEER is DESTROYED, not sold — the reserves do
+   * not move and nobody makes a market — so charging a fee would invent a
+   * cost as surely as ignoring the slippage would invent a price.
+   *
+   * The units need no scaling constant, which is the reason this pair was
+   * worth choosing: cbBTC has 8 decimals, so a raw cbBTC unit IS a satoshi,
+   * and PEER's 18 decimals cancel between numerator and denominator. There is
+   * no 1e18 anywhere for a host to get subtly and silently wrong.
+   */
+  function peerBurnSats(amtRaw, resPeerRaw, resBtcRaw) {
+    // Strings, not numbers, and this is checked rather than hoped for: a raw
+    // 18-decimal amount written into the log as a JSON number is ALREADY
+    // rounded by the time anyone reads it, and two logs that look identical
+    // would then price the same burn differently.
+    if (typeof amtRaw !== 'string' || typeof resPeerRaw !== 'string' || typeof resBtcRaw !== 'string') return null;
+    if (!RAW_INT.test(amtRaw) || !RAW_INT.test(resPeerRaw) || !RAW_INT.test(resBtcRaw)) return null;
+    var amt = BigInt(amtRaw), rp = BigInt(resPeerRaw), rb = BigInt(resBtcRaw);
+    if (amt <= BIG0 || rp <= BIG0 || rb <= BIG0) return null;
+    // Floor, so rounding never runs in the burner's favour.
+    var n = Number((amt * rb) / (rp + amt));
+    if (!Number.isSafeInteger(n)) return null; // more satoshis than will ever exist
+    return n;
+  }
+  /** 18 raw units to one PEER, as text, without going through a double. */
+  function peerText(raw) {
+    var s = String(raw).replace(/[^0-9]/g, '') || '0';
+    while (s.length < 19) s = '0' + s;
+    var whole = s.slice(0, s.length - 18).replace(/^0+(?=\d)/, '');
+    var frac = s.slice(s.length - 18).replace(/0+$/, '').slice(0, 6);
+    return whole + (frac ? '.' + frac : '');
+  }
+  /**
+   * WHICH BLOCKS THE PRICE WAS SAMPLED AT — derived, not asserted.
+   *
+   * The host cannot read every block of a half-hour window (nine hundred
+   * blocks, two chain calls each, per burn), so it samples. WHICH blocks it
+   * samples is the whole security of the average, and the first version of
+   * this door got it wrong in a way worth writing down: the samples were laid
+   * on a fixed arithmetic grid, `floor(refBlock / stride) * stride` counting
+   * back by `stride`. That grid is public arithmetic. An attacker who picks
+   * the block of their own burn knows all sixteen of the blocks that will be
+   * read, so they do not have to hold a false price across the window at all —
+   * they pump and dump sixteen times, once per sampled block, and the average
+   * comes out ~100% manipulated while the pool sits at its true price for
+   * 98.6% of the window. Measured against a fake chain: 16 blocks read out of
+   * ~1125 in the window, 1.4% of it, at a round-trip fee cost of roughly
+   * 864,000 sat at the minimum permitted depth — after which reserve costs
+   * about 1 satoshi a unit instead of a hundred.
+   *
+   * So the grid is SEEDED BY THE REFERENCE BLOCK'S HASH, which nobody knows
+   * until that block exists. The window [startsAt, endsAt) is cut into `n`
+   * equal buckets and one block is read from each, its position inside the
+   * bucket taken from four hex characters of the hash. An attacker must now
+   * either hold the false price across a whole bucket to be sure of hitting
+   * its sample — which is holding it across the window, at their own expense,
+   * against every arbitrageur, which is what a time-weighted price is FOR — or
+   * accept that a pump lasting f of the window is sampled about f of the time.
+   * Cost becomes proportional to duration, which is the property the window
+   * was always claimed to have and did not.
+   *
+   * It is deterministic and re-derivable: the act records startsAt, endsAt,
+   * the reference hash and the blocks, so this function reproduces the same
+   * list from the log alone, forever, and a reader can re-fetch poolInfo at
+   * exactly those blocks and recompute the two reserves.
+   *
+   * BE EXACT ABOUT WHAT REPLAY CAN AND CANNOT CHECK HERE. It can check that
+   * the recorded blocks are the ones this seed produces — that is arithmetic,
+   * and it is done below. It cannot check that the seed is the real hash of
+   * block endsAt, because that would be a chain read during replay and replay
+   * asks nothing of any chain. A reader with a Base endpoint can, in one call,
+   * and the act carries the hash for exactly that reason.
+   */
+  function peerBurnGrid(startsAt, endsAt, refHash, n) {
+    var out = [];
+    if (!Number.isInteger(startsAt) || !Number.isInteger(endsAt) || !Number.isInteger(n)) return out;
+    var width = endsAt - startsAt;
+    if (!(width > 0) || !(n > 0) || n > 64) return out;
+    var hex = String(refHash == null ? '' : refHash).replace(/^0x/, '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hex)) return out;
+    for (var i = 0; i < n; i++) {
+      var lo = startsAt + Math.floor((width * i) / n);
+      var hi = startsAt + Math.floor((width * (i + 1)) / n);
+      if (hi <= lo) hi = lo + 1;
+      var r = parseInt(hex.slice((i % 16) * 4, (i % 16) * 4 + 4), 16);
+      var b = lo + (r % (hi - lo));
+      if (!out.length || b > out[out.length - 1]) out.push(b);
+    }
+    return out;
+  }
+  /**
+   * Every reason replay will refuse a peerBurn, as a sentence, or null.
+   *
+   * Exposed on the returned state for the same reason tokenActError is: the
+   * screen and the host door should ask this question in these words BEFORE
+   * anything claims to have happened, rather than filing an act that replay
+   * will then quietly ignore. Note carefully what a refusal here means once
+   * an act is already in the log — a host that recorded a price and a value
+   * which do not match each other is either broken or lying, and replay is
+   * where that gets CAUGHT rather than trusted.
+   *
+   * It reads only the act's own fields, the bindings already in the log, and
+   * the epoch counter. No clock, no network, no pool.
+   */
+  function peerBurnActError(a, epoch) {
+    if (!a || !known(a.id)) return 'unknown actor';
+    if (typeof a.txid !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(a.txid)) return 'a PEER burn is identified by its Base transaction hash, and this one is not a transaction hash';
+    // ONE SPELLING, decided here and used for every table below.
+    //
+    // The pattern above accepts upper-case hex because a hash is a number and
+    // wallets disagree about how to print one. The dedupe table used to be
+    // keyed on the raw string, so 0xABAB… and 0xabab… were one transaction to
+    // Base and two keys here: the same burn credited twice, measured at 19.98
+    // reserve where the burn was worth 9.99. Folded once, at the top, and
+    // nothing below is allowed to look at a.txid again.
+    var txk = a.txid.toLowerCase();
+    // The destination is part of what makes this a burn at all. Recorded on
+    // the act — like btcBurn's addr — so that changing the sink later cannot
+    // make an old burn ambiguous about where its value went.
+    if (String(a.addr || '').toLowerCase() !== PEER_BURN_ADDR) {
+      return 'a PEER burn must pay ' + PEER_BURN_ADDR + ' — the deployed token refuses address(0) on purpose, so the sink is a dead-but-nonzero address and nothing else counts';
+    }
+    // ── Whose burn this is ───────────────────────────────────────────────
+    //
+    // The act names the address the coins left, and the log decides who that
+    // address belongs to. This check lives HERE, not at the host door, and
+    // the reason is a hole that was demonstrated end to end against the real
+    // server: the door asked only "did this transfer come from the address
+    // bound to the claiming handle", and a bindAddress act needs nothing but
+    // the BINDING handle's own PIN. So a stranger bound somebody else's
+    // address, claimed their burn, and took the reserve — 200 OK, 24.99
+    // reserve — while the person who actually destroyed the PEER got
+    // PEERBURN_ALREADY_CLAIMED, permanently, on every host. The pending list
+    // published the target set and the route's own note recommended the
+    // vulnerable flow.
+    //
+    // Two rules close it, and both are rules of the LOG:
+    //
+    //   1. AN ADDRESS BOUND BY MORE THAN ONE HANDLE BELONGS TO NOBODY here.
+    //      Not to the first, not to the newest. First-binder-wins would make
+    //      pre-binding a stranger's address a silent theft; newest-wins is
+    //      what the hole above was. Ambiguity is refused, so the worst a
+    //      griefer can do by binding your address is close THIS door against
+    //      it — never take what comes through it. Binding is otherwise
+    //      untouched: epoch earnings still pay the handle's own newest
+    //      binding, and two handles may still name one address, which is a
+    //      real state in the live log and must keep meaning what it meant.
+    //   2. THE BINDING MUST PREDATE THE BURN. Otherwise the pending list is a
+    //      shopping list: a burn from an unbound address sits there, and
+    //      whoever binds that address first collects it. With this rule a
+    //      binding filed after the coins were destroyed cannot reach them —
+    //      by anybody, including their owner, which is the honest cost and is
+    //      said in those words at the door and on the card. Bind first, then
+    //      burn.
+    //
+    // What is NOT closed, said plainly: an attacker who binds an address
+    // before its owner ever does, and before the burn, is that address's only
+    // binder. They cannot be detected by this file. What they can be detected
+    // by is the owner's own bind attempt — which succeeds, makes the address
+    // ambiguous, and shuts the door rather than handing it over. Proving key
+    // control would close it properly and needs a signature this codebase
+    // cannot verify without a keccak library it does not have.
+    var src = String(a.from == null ? '' : a.from).toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(src)) return 'a PEER burn must record the address the coins were sent from, and this one does not';
+    var own = addrBinders[src];
+    if (!own || own.n === 0) {
+      return 'no handle had bound ' + src + ' when those coins were destroyed, so this burn belongs to nobody — a burn is credited by a binding that was already in the log, never by one filed afterwards';
+    }
+    if (own.n > 1) {
+      return 'more than one handle has bound ' + src + ', so whose burn this is cannot be decided from the log — an ambiguous address closes this door rather than guessing which handle to pay';
+    }
+    if (own.id !== a.id) {
+      return src + ' is bound to ' + own.id + ' and this act credits ' + a.id + ' — a burn is credited to whoever destroyed the coins, and the log says who that was';
+    }
+    if (!Number.isInteger(a.blockMs) || a.blockMs <= 0) {
+      return 'a PEER burn must record the timestamp of the block that destroyed the coins, and this one does not';
+    }
+    if (!(typeof own.ts === 'number' && own.ts <= a.blockMs)) {
+      return own.ts === null
+        ? src + ' was bound by an act that carries no time, so nothing here can say the binding came before the burn'
+        : src + ' was bound after those coins were destroyed, so the binding cannot reach them — bind the address first, then burn from it';
+    }
+    // ── Which pool these reserves came out of ────────────────────────────
+    //
+    // A pool id ALONE is not an identity and this act used to carry only the
+    // id. PeerPools indexes by id and lets two creators claim one name, so
+    // "the reserves were 3 and 4" is checkable only if it also says WHOSE
+    // contract's pool 3 — and a reader replaying the log saw `pool: 0` and
+    // could not tell the operator's PEER/cbBTC pool from one anybody deployed
+    // an hour earlier. The factory address is recorded for that reason.
+    //
+    // The engine does NOT pin a particular factory. It cannot honestly: no
+    // pools factory is deployed anywhere yet, so a constant here would be an
+    // address this codebase invented. What it does is make the choice VISIBLE
+    // in every act, which is the difference between host configuration a
+    // reader can audit and host configuration a reader cannot see.
+    if (!Number.isInteger(a.pool) || a.pool < 0) return 'a PEER burn must name the pool it was priced against';
+    if (typeof a.factory !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(a.factory)) {
+      return 'a PEER burn must name the factory contract the pool lives in — a pool id with no factory behind it is not an identity, because two factories both have a pool ' + a.pool;
+    }
+    var sats = peerBurnSats(a.amtRaw, a.resPeerRaw, a.resBtcRaw);
+    if (sats === null) return 'the recorded amount and pool reserves are not three positive whole numbers, so there is no price to check';
+    // ── The two cross-checks that make the act self-proving ──────────────
+    // The act states a satoshi value and a reserve credit. Both are RECOMPUTED
+    // here from the reserves the same act recorded, and any disagreement
+    // refuses the whole thing. This is what makes "the act carries what was
+    // verified" a checkable statement instead of a promise.
+    if (a.sats !== sats) {
+      return 'this act records ' + a.sats + ' sat but its own reserves price the burn at ' + sats + ' sat — a host that disagrees with itself is not evidence of anything';
+    }
+    if (a.reserve !== sats / SATS_PER_RESERVE) {
+      return 'this act records ' + a.reserve + ' reserve for ' + sats + ' sat, and the rate is ' + SATS_PER_RESERVE + ' sat per unit for BOTH doors';
+    }
+    // ── The anti-manipulation floors, checked against what was recorded ───
+    // The host does the time-weighting; replay cannot, and should not try.
+    // What replay CAN do is refuse an act whose own record admits it was
+    // priced from too short a window, too few samples, a pool too thin to have
+    // a price — or a sample grid that is not the one its own recorded seed
+    // produces, which is the check that makes the window mean anything.
+    if (!(BigInt(a.resBtcRaw) >= BigInt(PEER_BURN_MIN_POOL_SATS))) {
+      return 'the pool held ' + a.resBtcRaw + ' sat of bitcoin and a burn needs at least ' + PEER_BURN_MIN_POOL_SATS + ' — below that a pool has no price, only a last trade';
+    }
+    if (!(Number(a.twapMs) >= PEER_BURN_TWAP_MS)) {
+      return 'the price was averaged over ' + a.twapMs + ' ms and at least ' + PEER_BURN_TWAP_MS + ' is required — a spot price is whatever the last trade left behind';
+    }
+    if (!(Number(a.obs) >= PEER_BURN_TWAP_OBS)) {
+      return 'the price came from ' + a.obs + ' observation(s) and at least ' + PEER_BURN_TWAP_OBS + ' are required';
+    }
+    // Where the window sat, and which blocks inside it were actually read.
+    if (!Number.isInteger(a.startsAt) || !Number.isInteger(a.endsAt) || a.startsAt < 0 || a.endsAt <= a.startsAt) {
+      return 'a PEER burn must record the block range its price was averaged over, and this one does not';
+    }
+    if (typeof a.refHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(a.refHash)) {
+      return 'a PEER burn must record the hash of the block its window ends at — that hash is what decides which blocks were sampled, and without it the sampling is unauditable';
+    }
+    if (!Array.isArray(a.blocks) || a.blocks.length !== Number(a.obs)) {
+      return 'a PEER burn must list the blocks its price was read at, one per observation it claims';
+    }
+    var grid = peerBurnGrid(a.startsAt, a.endsAt, a.refHash, PEER_BURN_GRID);
+    var gi = 0;
+    for (var bi = 0; bi < a.blocks.length; bi++) {
+      var bb = a.blocks[bi];
+      if (!Number.isInteger(bb)) return 'a PEER burn lists a sampled block that is not a whole number';
+      while (gi < grid.length && grid[gi] < bb) gi++;
+      if (gi >= grid.length || grid[gi] !== bb) {
+        // Not on the grid its own seed produces. That is either a host that
+        // sampled where it liked — the whole attack this seeding exists to
+        // stop — or a host running different sampling rules from the network's.
+        return 'block ' + bb + ' is not one the recorded window and block hash select, so these readings were not sampled by the rule this network uses';
+      }
+      gi++;
+    }
+    // ── The ceilings ─────────────────────────────────────────────────────
+    //
+    // Counted in SATOSHIS rather than in reserve. Reserve is a divided number
+    // and accumulating it drifted (99.99000000000252 against a cap of 100 was
+    // measured); satoshis are integers all the way and two hosts adding them
+    // in different orders still agree.
+    if (!Number.isInteger(a.creditsSats) || a.creditsSats <= 0 || a.creditsSats > sats) {
+      return 'a PEER burn must state how many of its own satoshis this act converts to reserve, between 1 and ' + sats;
+    }
+    // 1. ONE TRANSACTION, CREDITED UP TO ITS OWN VALUE AND NEVER PAST IT.
+    //
+    //    This used to be "claimed once, ever", the promise burnedTx makes for
+    //    bitcoin, and it made a burn LARGER than one epoch's allowance
+    //    permanently worthless: the ceiling test refused the act whole, `used`
+    //    resets every epoch, so `0 + reserve > 100` was true in every epoch
+    //    that will ever exist. Against the project's own fixture pool that
+    //    line is crossed at about 1,101 PEER — an ordinary amount — and the
+    //    refusal said 'claim the rest next epoch' when there was no rest and
+    //    no such epoch. The engine now credits a transaction ACROSS epochs and
+    //    each act states its own slice, so the property that mattered ("the
+    //    act says what it credited") is kept without the lie beside it.
+    var doneSats = peerBurnTxSats[txk] || 0;
+    if (doneSats > 0 && peerBurnTxBy[txk] !== a.id) {
+      return 'that transaction has already been claimed, by ' + peerBurnTxBy[txk] + ' — a burn is claimed once, ever';
+    }
+    if (doneSats + a.creditsSats > sats) {
+      return 'that transaction is worth ' + sats + ' sat and ' + doneSats + ' of it has already been credited, so this act cannot credit another ' + a.creditsSats + ' — a burn is claimed once, ever, up to its own value';
+    }
+    // 2. THE PER-ACCOUNT PER-EPOCH CEILING.
+    if (epoch >= PEER_BURN_CAP_FROM_EPOCH) {
+      var used = peerBurnEpochUse[a.id + '@' + epoch] || 0;
+      if (used + a.creditsSats > PEER_BURN_SATS_PER_EPOCH) {
+        var leftR = (PEER_BURN_SATS_PER_EPOCH - used) / SATS_PER_RESERVE;
+        return 'burning PEER creates at most ' + PEER_BURN_RESERVE_PER_EPOCH + ' reserve per account per epoch and this handle has ' + leftR + ' left — the burn stays valid and what is left of it is claimable after the next epoch closes';
+      }
+      // 3. THE PER-POOL PER-EPOCH AGGREGATE.
+      //
+      //    Without this the per-account ceiling bounds nothing at all, because
+      //    handles are free and open at zero: three hundred of them filling
+      //    the allowance against a pool holding 1,000,000 sat created
+      //    2,710,000 sat of "value destroyed", 3.6x what selling the same PEER
+      //    into that pool could ever have realised, and it scales linearly
+      //    with the number of accounts. Reserve is defined as value destroyed
+      //    measured in satoshis; a door that mints more of them than existed
+      //    on the bitcoin side it is priced against is not measuring anything.
+      //
+      //    The bound is the pool's OWN bitcoin side, as this act recorded it:
+      //    in one epoch, a pool cannot create more reserve than it holds
+      //    bitcoin. It is still generous — the pool could not actually pay
+      //    that out — and it is a CHOICE, like every number in this block. It
+      //    is first come, first served within an epoch, which is a real cost:
+      //    a busy pool can be exhausted by early burners. The alternative was
+      //    a queue, and a queue would decide the price of speech by who was
+      //    awake.
+      var pk = String(a.factory).toLowerCase() + '#' + a.pool + '@' + epoch;
+      var poolUsed = peerBurnPoolUse[pk] || 0;
+      // Reserve is sats ÷ SATS_PER_RESERVE, so "no more reserve than the pool
+      // holds bitcoin" is, in satoshis, exactly the pool's bitcoin side.
+      var poolCap = Number(BigInt(a.resBtcRaw));
+      if (!Number.isSafeInteger(poolCap)) return 'the pool records more satoshis than will ever exist';
+      if (poolUsed + a.creditsSats > poolCap) {
+        return 'pool ' + a.pool + ' at ' + String(a.factory).toLowerCase() + ' held ' + a.resBtcRaw
+          + ' sat and has already created ' + (poolUsed / SATS_PER_RESERVE) + ' reserve this epoch — one pool cannot create more reserve in an epoch than it holds bitcoin, so the rest of this burn is claimable after the next epoch closes';
+      }
+    }
+    return null;
+  }
   function debit(id) {
     var l = ledgerById[id];
     if (!l) return;
@@ -275,6 +631,179 @@ function replayUncached(acts) {
   // Satoshis per unit of reserve — the price of the energy acts are debited
   // from, when that energy comes from a real burn. See the btcBurn branch.
   var SATS_PER_RESERVE = 100;
+  // ── The second door: PEER destroyed, priced by the pool ────────────────
+  //
+  // Reserve is VALUE DESTROYED. Until now the only way to destroy value here
+  // was to destroy bitcoin, and that is a large part of why this network has
+  // twelve actors: demanding real BTC before anyone may say a word is a toll
+  // most people will not pay to try something out. So a second door opens —
+  // burn PEER, and get reserve worth the same as the bitcoin that PEER was
+  // worth. The first door is untouched: every btcBurn already in the log
+  // credits exactly what it credited yesterday.
+  //
+  // Both doors buy reserve at SATS_PER_RESERVE, the SAME constant, and that
+  // sharing is the whole design rather than a convenience. If the two doors
+  // priced reserve differently, one of them would be a discount on speech and
+  // this network would have two classes of speaker.
+  //
+  // THE PRICE COMES FROM THE POOL, AND REACHES REPLAY ONLY THROUGH THE ACT.
+  // The official pair is PEER/cbBTC, so the pool already quotes PEER in
+  // satoshis and no currency oracle is needed at all. A euro figure is a
+  // DISPLAY conversion for humans and never enters any arithmetic below: if
+  // the euro source is down a screen loses a caption and not one number here
+  // moves. And a price fetched DURING replay would end this engine's central
+  // claim — that anyone can recompute the world from the public log without
+  // asking any host or any chain — and would stop every published epoch
+  // certificate from reproducing. So the act RECORDS the reserves the host
+  // read, and replay does arithmetic on those recorded numbers and nothing
+  // else. Exactly the btcBurn discipline: the act carries what was verified,
+  // the chain carries the proof.
+  //
+  // ── What a thin pool would otherwise let you buy ───────────────────────
+  //
+  // Constant-product price is whatever the last trade left behind. With a
+  // shallow pool an attacker pumps it, burns PEER at the inflated rate,
+  // harvests reserve, and lets the price fall back. That is the ordinary
+  // oracle attack, except that here it is pointed at the one thing this
+  // network says cannot be bought. Six defences answer it, and every one of
+  // them is a CHOICE about the price of speech rather than a measurement of
+  // anything. Nobody should read these numbers as discoveries.
+  //
+  // 1. The price must be TIME-WEIGHTED over at least this long, from at least
+  //    this many observations — never the spot price of one block. Thirty
+  //    minutes on a two-second chain is roughly nine hundred blocks.
+  //
+  //    Be careful with the sentence that used to sit here. It said an attacker
+  //    "has to hold a false price across all of them", and that was FALSE as
+  //    written, because a window is only as good as where inside it the host
+  //    looks. Sixteen readings on a publicly derivable arithmetic grid meant
+  //    holding the price for 1.4% of the window, not all of it. What makes the
+  //    sentence true is peerBurnGrid above: the sampled blocks are chosen by
+  //    the reference block's own hash, so they cannot be known in advance and
+  //    a pump that lasts f of the window is caught about f of the time. The
+  //    window is the claim; the seeded grid is what makes the claim hold.
+  //
+  //    A longer window costs an honest burner accuracy; a shorter one costs
+  //    the network its defence. There is no market setting this and no theory
+  //    that picks it.
+  var PEER_BURN_TWAP_MS = 30 * 60 * 1000;
+  var PEER_BURN_TWAP_OBS = 12;
+  //    ...and this many buckets are cut across the window, one sampled block
+  //    per bucket. Declared HERE rather than in the host's chain reader for
+  //    the reason every other floor is: replay re-derives the grid and refuses
+  //    an act whose blocks are not on it, so the number the host samples with
+  //    and the number replay checks with have to be one number. Sixteen
+  //    against an observation floor of twelve, so a few unreadable blocks cost
+  //    accuracy rather than the whole quote.
+  var PEER_BURN_GRID = 16;
+  // 2. Below this much bitcoin in the pool a burn is REFUSED IN WORDS rather
+  //    than priced badly. 0.01 cbBTC, in satoshis. A pool this shallow does
+  //    not have a price; it has a last trade, and treating one as the other
+  //    would mint the right to speak out of somebody's rounding error. Note
+  //    what this means today: there is no PEER/cbBTC pool at all, so this
+  //    door is shut and says so, which is the honest state and not a bug.
+  var PEER_BURN_MIN_POOL_SATS = 1000000;
+  // 3. The most reserve ONE ACCOUNT can create this way in ONE EPOCH. 100
+  //    reserve is 10,000 satoshis' worth — deliberately the same example the
+  //    SATS_PER_RESERVE comment above already uses, about 190 acts at
+  //    θ ≈ 0.0528. Enough to speak freely for an epoch; not enough for one
+  //    manipulated half-hour to buy a year of it.
+  //
+  //    The bitcoin door carries no such ceiling and needs none. Nobody
+  //    manipulates the price of bitcoin to themselves, and a BTC burn
+  //    destroys exactly the number of satoshis it says it destroys — there is
+  //    no price in it to be wrong about. This ceiling exists precisely
+  //    because the PEER door has a price, and a price can be lied to.
+  var PEER_BURN_RESERVE_PER_EPOCH = 100;
+  // The same ceiling in satoshis, which is the unit it is actually counted in.
+  // Reserve is a divided number; adding divided numbers drifted (a measured
+  // 99.99000000000252 against a cap of 100), and while that drift happened to
+  // run in the network's favour, "happens to round the right way" is not a
+  // rule. Satoshis are integers from the pool read to the ledger.
+  var PEER_BURN_SATS_PER_EPOCH = PEER_BURN_RESERVE_PER_EPOCH * SATS_PER_RESERVE;
+  //
+  // 4. THE PER-POOL PER-EPOCH AGGREGATE. The per-account ceiling on its own
+  //    bounds one account and nothing else, and accounts are free — a handle
+  //    "opens at zero, nothing granted", so three hundred of them cost three
+  //    hundred registrations. Measured: 300 handles each filling the ceiling
+  //    once against a pool at exactly the minimum depth created 27,100
+  //    reserve, 2,710,000 satoshis of value-destroyed, against a pool holding
+  //    1,000,000 satoshis in total and able to realise about 749,600 of them.
+  //    So one pool creates at most as many satoshis of reserve in one epoch as
+  //    it holds satoshis of bitcoin. See the check in peerBurnActError; the
+  //    figure is the pool's own recorded bitcoin side, not a constant, because
+  //    a constant would be this file guessing how deep a pool ought to be.
+  //
+  //    ...and it binds from epoch 0, which is the one place this departs from
+  //    FAUCET_CAP_FROM_EPOCH. That bound had to start ahead of the live
+  //    record, because applying it backwards would have recomputed standings
+  //    already sealed inside published epoch certificates. This one has no
+  //    history to rewrite: `peerBurn` is a new act type and there is not one
+  //    of them in any log anywhere, so "from epoch 0" and "from a future
+  //    epoch" name the same set of acts — the empty one. The constant is
+  //    written out rather than inlined as `always` so that a LATER tightening
+  //    has somewhere to start that is ahead of the record, the way the
+  //    faucet's did.
+  var PEER_BURN_CAP_FROM_EPOCH = 0;
+  // 5. The burn must be a REAL, VERIFIED, ON-CHAIN DESTRUCTION — and this is
+  //    where the two doors stop being equals. SAY SO WHEREVER THEY ARE SHOWN
+  //    TOGETHER. The bitcoin address is a P2WSH commitment to a script that
+  //    cannot be satisfied: unspendable by ARITHMETIC, and anyone can check
+  //    the arithmetic themselves. This address is unspendable only because
+  //    nobody knows a key for it — a far weaker claim, resting on the size of
+  //    a search space rather than on a proof. Both are called "burns"; only
+  //    one of them is provable, and an interface that prints them side by
+  //    side without that sentence is lying on the chain's behalf.
+  //
+  //    address(0) is not an option: the deployed PeerToken REFUSES transfers
+  //    to it, deliberately, so that its supply figure keeps exactly one
+  //    meaning. The destination is therefore the conventional dead address —
+  //    chosen because it is the most-watched non-zero sink on every EVM chain
+  //    and the one a reader recognises without being told what it is.
+  //    Lowercase here because every comparison below folds case first.
+  var PEER_BURN_ADDR = '0x000000000000000000000000000000000000dead';
+  // 6. AND IT MUST BE YOURS, decided by the log rather than by whoever asks.
+  //    The address the coins left has to have been bound by exactly one handle
+  //    — that handle — before the block that destroyed them. See the ownership
+  //    block inside peerBurnActError for the theft this answers and for what
+  //    it still does not close.
+  //
+  // Base tx hash (LOWER CASE) -> account, so one PEER burn is claimed by
+  // exactly one handle, ever — the promise burnedTx makes for bitcoin, kept in
+  // a SEPARATE table because these are different chains. Sharing one table
+  // would make a bitcoin txid and a Base transaction hash interchangeable
+  // inside the one structure whose entire job is to say which burn was already
+  // paid for.
+  var peerBurnTxBy = bare();
+  // ...and, beside it, HOW MUCH of that transaction has been converted so far,
+  // in satoshis. Two tables rather than one boolean because a burn worth more
+  // than an epoch's allowance is credited across several epochs: the promise is
+  // "claimed once, ever, up to its own value", not "claimed once and the rest
+  // is forfeit". The old shape made a 100,000 PEER burn worth nothing at all,
+  // permanently, while telling the burner to come back next epoch.
+  var peerBurnTxSats = bare();
+  // (id '@' epoch) -> SATOSHIS this account has already converted to reserve by
+  // burning PEER in that epoch. Satoshis, not reserve: see
+  // PEER_BURN_SATS_PER_EPOCH.
+  var peerBurnEpochUse = bare();
+  // (factory '#' pool '@' epoch) -> satoshis that pool has created this epoch.
+  // The aggregate bound, which is the one that makes the per-account ceiling
+  // mean something on a network where accounts are free.
+  var peerBurnPoolUse = bare();
+  // id -> raw PEER destroyed, all-time. Display only: it is deliberately NOT
+  // burnedSats and it weighs NOTHING. See the peerBurn branch.
+  var peerBurnedRaw = bare();
+  // address -> who may claim burns from it, decided by the bindings in the log.
+  //   { n: how many distinct handles have ever bound it,
+  //     id: that handle when n === 1, else null,
+  //     ts: that handle's EARLIEST binding time, else null,
+  //     seen: handle -> earliest binding time }
+  // Filled in the bindAddress branch, which is otherwise unchanged: this map is
+  // read only by the PEER door, so nothing about where epoch earnings are paid
+  // moves. That separation is deliberate — the live log already contains one
+  // address bound by two handles, and making binding itself first-come would
+  // have rewritten an earnings root that is already published.
+  var addrBinders = bare();
   var TBTC_CLAIM = 0.01;
   var TOK_MINLIQ = 1e-9; // locked forever at pool birth — kills the classic
                          // first-depositor share-inflation attack
@@ -984,8 +1513,16 @@ function replayUncached(acts) {
       // log — so the act carries what was verified and the chain carries the
       // proof.
       if (!known(a.id)) continue;
-      if (burnedTx[a.txid]) continue;            // a burn is claimed once, ever
-      burnedTx[a.txid] = a.id;
+      // Keyed on ONE spelling. A transaction hash is a number and two
+      // spellings of one number are one burn; keying on the raw string made
+      // 0xABAB… and 0xabab… two entries in the table whose entire job is to
+      // say which burn was already paid for. Verified before changing it: no
+      // btcBurn in this network's log carries an upper-case hash, so every
+      // existing burn credits exactly what it credited yesterday and no
+      // published epoch certificate moves.
+      var btcTx = String(a.txid == null ? '' : a.txid).toLowerCase();
+      if (burnedTx[btcTx]) continue;             // a burn is claimed once, ever
+      burnedTx[btcTx] = a.id;
       burnedSats[a.id] = (burnedSats[a.id] || 0) + a.sats;
       // …and it buys the right to speak, not only a share of the mint.
       //
@@ -1006,6 +1543,67 @@ function replayUncached(acts) {
       if (!payloadGone) {
         chron.push({ who: a.id, line: 'burned ' + a.sats + ' sat to the dead address → +' + gained.toFixed(4)
           + ' reserve · tx ' + String(a.txid).slice(0, 12) + '… (irreversible, verifiable by anyone)' });
+      }
+    } else if (a.t === 'peerBurn') {
+      // The SECOND door into reserve: PEER destroyed on Base, priced by the
+      // official PEER/cbBTC pool, credited at the SAME SATS_PER_RESERVE the
+      // bitcoin door uses. See the constant block above for why one price for
+      // both doors is the design and not a shortcut.
+      //
+      // Everything below is arithmetic on numbers this act carries. Replay
+      // fetches nothing — not the pool, not the chain, not a euro rate — for
+      // the reason the btcBurn branch gives: a replay that needed the
+      // internet would not be a pure function of the log, and every published
+      // epoch certificate would stop reproducing the day a price moved.
+      if (!known(a.id)) continue;
+      var pbWhy = peerBurnActError(a, certsSoFar);
+      if (pbWhy) {
+        // Refused, and SAID SO. A silent skip here would leave a burner
+        // staring at destroyed PEER and an unchanged balance with no account
+        // of why — and would hide the far more serious case, which is a host
+        // that recorded a price and a value that do not match each other.
+        if (!payloadGone) chron.push({ who: a.id, line: 'a PEER burn was refused by replay — ' + pbWhy });
+        continue;
+      }
+      var pbTx = String(a.txid).toLowerCase();   // one spelling; see the checker
+      peerBurnTxBy[pbTx] = a.id;                 // a burn is claimed by one handle, ever
+      peerBurnTxSats[pbTx] = (peerBurnTxSats[pbTx] || 0) + a.creditsSats;
+      peerBurnedRaw[a.id] = String(BigInt(peerBurnedRaw[a.id] || '0') + BigInt(a.amtRaw));
+      var pbKey = a.id + '@' + certsSoFar;
+      peerBurnEpochUse[pbKey] = (peerBurnEpochUse[pbKey] || 0) + a.creditsSats;
+      var pbPool = String(a.factory).toLowerCase() + '#' + a.pool + '@' + certsSoFar;
+      peerBurnPoolUse[pbPool] = (peerBurnPoolUse[pbPool] || 0) + a.creditsSats;
+      // Reserve, and reserve ONLY.
+      //
+      // Note what is deliberately absent: burnedSats is not touched. That map
+      // is the weight in the epoch mint and in the writer election, and it is
+      // documented as value destroyed ON THE BITCOIN CHAIN, proven by a txid
+      // anyone can check against an asset whose price nobody here can move.
+      // A PEER burn has a PRICE, and a price can be lied to — which is
+      // precisely the attack the ceilings and the seeded window exist to
+      // bound. So what a manipulated half-hour can buy is BOUNDED SPEECH: at
+      // most one epoch's ceiling for an account, at most one pool's own
+      // bitcoin side across everybody. It can never buy a share of the mint
+      // and never a vote for the writer.
+      //
+      // What it does NOT say — and what an earlier version of this comment
+      // claimed — is "never standing that was not earned". That sentence was
+      // contradicted ninety lines up by this file's own account of the faucet:
+      // reserve buys acts, acts append the graph edges CoGra solves standing
+      // over, and two hundred faucet calls once took an account to fifty-two
+      // times its standing. One epoch's ceiling here is about 1,894 acts at
+      // θ ≈ 0.0528, which is an order of magnitude more activity than that.
+      // The two clauses above are true and this one was not, so it is gone
+      // rather than softened.
+      var pbGained = a.creditsSats / SATS_PER_RESERVE;
+      ledgerById[a.id].burnBal += pbGained;
+      if (!payloadGone) {
+        var pbPart = a.creditsSats < a.sats
+          ? ' (' + a.creditsSats + ' of the burn’s ' + a.sats + ' sat — the rest after the next epoch closes)'
+          : '';
+        chron.push({ who: a.id, line: 'burned ' + peerText(a.amtRaw) + ' PEER → ' + a.sats + ' sat → +'
+          + pbGained.toFixed(4) + ' reserve' + pbPart + ' · tx ' + pbTx.slice(0, 12)
+          + '… (priced by the pool, dead-address burn — unspendable because no key is known for it, not provably unspendable like the bitcoin burn beside it)' });
       }
     } else if (a.t === 'resetTokens') {
       // The ledger starts again. Nothing is rewritten: every act that ever
@@ -1432,6 +2030,30 @@ function replayUncached(acts) {
         var boundTo = bindableAddress(a.addr);
         if (boundTo) {
           addrOf[a.id] = boundTo;                 // newest wins, forward only
+          // ...and, separately, WHO MAY CLAIM A PEER BURN FROM IT.
+          //
+          // Not the same question, and answered with a different rule on
+          // purpose. Earnings flow OUT to a bound address, so a handle naming
+          // an address it does not hold only hurts itself and newest-wins is
+          // right. A PEER burn flows IN from one, so the same rule would let a
+          // stranger bind your address and take the reserve your destroyed
+          // coins bought — which is exactly what was demonstrated. Recorded
+          // here as a COUNT of distinct binders and the earliest time each
+          // one said it: an address two handles have named belongs to neither,
+          // and a binding filed after a burn cannot reach it.
+          //
+          // `ts` is the host's stamp on the act. A host could backdate one —
+          // but the act sits at a fixed position in an append-only log that
+          // everybody has, so a binding dated before burns that were recorded
+          // before it is visible to any reader. That is the same standard the
+          // rest of this file holds a recorded number to.
+          var bnd = addrBinders[boundTo] || (addrBinders[boundTo] = { n: 0, id: null, ts: null, seen: bare() });
+          if (!(a.id in bnd.seen)) {
+            bnd.seen[a.id] = typeof a.ts === 'number' && isFinite(a.ts) ? a.ts : null;
+            bnd.n += 1;
+            bnd.id = bnd.n === 1 ? a.id : null;
+            bnd.ts = bnd.n === 1 ? bnd.seen[a.id] : null;
+          }
           if (!payloadGone) {
             chron.push({ who: a.id, line: 'bound epoch earnings to ' + boundTo.slice(0, 10) + '…' + boundTo.slice(-6)
               + ' on Base — takes effect at the NEXT epoch close; roots already published cannot change' });
@@ -1881,6 +2503,12 @@ function replayUncached(acts) {
   // Raw handles stayed intact for mention determinism; the UI sees '[deleted]'.
   var dispHandles = {};
   for (var hk in handles) dispHandles[hk] = deletedActors[hk] ? '[deleted]' : handles[hk];
+  // The per-epoch PEER-burn use, divided into reserve for the surfaces that
+  // speak in reserve. Derived here, once, from the integer satoshis the rule
+  // is actually enforced on — never accumulated as reserve, which is how the
+  // drift this replaces got in.
+  var peerBurnUsedReserve = bare();
+  for (var pbk in peerBurnEpochUse) peerBurnUsedReserve[pbk] = peerBurnEpochUse[pbk] / SATS_PER_RESERVE;
   return {
     follows: follows, followers: followers, profiles: profiles,
     events: events, eventInvites: eventInvites, eventGoing: eventGoing,
@@ -1911,6 +2539,62 @@ function replayUncached(acts) {
     adverts: adverts,
     adPricePerDay: AD_PEER_PER_DAY,
     tokenActError: tokenActError,
+    // ── The PEER door, as the log leaves it ────────────────────────────────
+    // `by` is raw PEER destroyed per account and `tx` is who claimed which
+    // Base transaction. Neither is a balance and neither weighs anything: the
+    // mint and the writer election read burnedSats, which this door does not
+    // write. `usedThisEpoch` is what the ceiling is measured against, keyed
+    // (id '@' epoch), so a screen can show somebody their remaining headroom
+    // instead of letting them burn into a refusal.
+    //
+    // `limits` is published for the same reason marketLimits is: the page and
+    // the host door must refuse in the same words, using the same numbers,
+    // that replay will use — a button that says 'Burned.' at a burn replay is
+    // about to ignore is a lie the interface told on the network's behalf.
+    peerBurn: {
+      by: peerBurnedRaw,
+      tx: peerBurnTxBy,
+      // How many satoshis of each transaction have been converted so far, and
+      // by whom. Published because the host's watcher has to know the
+      // difference between "already credited" and "credited as far as this
+      // epoch allowed" — a burn bigger than one epoch's ceiling is finished
+      // over several, and a watcher that treated the first act as the end of
+      // it would strand the remainder forever.
+      txCreditedSats: peerBurnTxSats,
+      // Counted in satoshis; `usedThisEpoch` is the same numbers divided, kept
+      // because every screen and the host door already read it as reserve.
+      usedSatsThisEpoch: peerBurnEpochUse,
+      usedThisEpoch: peerBurnUsedReserve,
+      poolUsedSatsThisEpoch: peerBurnPoolUse,
+      // Who may claim a burn from which address, as the log decides it. `n`
+      // above one means nobody: see the ownership block in peerBurnActError.
+      binders: addrBinders,
+      limits: {
+        satsPerReserve: SATS_PER_RESERVE,
+        reservePerEpoch: PEER_BURN_RESERVE_PER_EPOCH,
+        satsPerEpoch: PEER_BURN_SATS_PER_EPOCH,
+        capFromEpoch: PEER_BURN_CAP_FROM_EPOCH,
+        minPoolSats: PEER_BURN_MIN_POOL_SATS,
+        twapMs: PEER_BURN_TWAP_MS,
+        twapObs: PEER_BURN_TWAP_OBS,
+        // How many buckets the window is cut into. The host samples with this
+        // number and replay re-derives the grid with it, so it is one number
+        // and not two that happen to agree today.
+        twapGrid: PEER_BURN_GRID,
+        addr: PEER_BURN_ADDR,
+        // Written out so no screen has to phrase it from memory. The two
+        // doors are not equally provable and every surface that shows them
+        // together owes the reader this sentence.
+        provenance: 'A bitcoin burn pays a P2WSH commitment to a script that cannot be satisfied — unspendable by arithmetic, checkable by anyone. A PEER burn pays a dead address that is unspendable only because nobody knows a key for it. Both destroy value; only one of them is a proof.',
+      },
+    },
+    peerBurnActError: peerBurnActError,
+    // Handed out rather than transcribed into the chain reader. The host has
+    // to sample the blocks replay will insist on, and a second copy of this
+    // arithmetic is a rule that will one day be enforced at one place and not
+    // the other — which here would mean a host that reads honestly and files
+    // acts replay throws away.
+    peerBurnGrid: peerBurnGrid,
     // act index -> the node that act minted. Exposed because API clients were
     // deriving ids themselves and deriving them wrong — the counter also ticks
     // for hyperedge legs (quotes, mentions), which nothing documented, so a

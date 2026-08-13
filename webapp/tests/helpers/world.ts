@@ -30,6 +30,29 @@ export interface WorldState {
   epochHistory: Array<{ epoch: number; acts: number; stamp: number; headroom: number; pass: boolean }>;
   deleted: Record<string, boolean>;
   epochNow: number;
+  /**
+   * The PEER door. `by` is raw PEER destroyed per account and `tx` is who
+   * claimed which Base transaction — neither is a balance and neither weighs
+   * anything, which is the property peer-burn.test.ts exists to hold down.
+   * `limits` is published so the page, the host door and replay can refuse in
+   * the same numbers instead of three sets that drift apart.
+   */
+  peerBurn: {
+    by: Record<string, string | undefined>;
+    tx: Record<string, string | undefined>;
+    txCreditedSats: Record<string, number | undefined>;
+    usedThisEpoch: Record<string, number | undefined>;
+    usedSatsThisEpoch: Record<string, number | undefined>;
+    poolUsedSatsThisEpoch: Record<string, number | undefined>;
+    /** address -> who may claim burns from it. n > 1 means nobody. */
+    binders: Record<string, { n: number; id: string | null; ts: number | null } | undefined>;
+    limits: {
+      satsPerReserve: number; reservePerEpoch: number; satsPerEpoch: number; capFromEpoch: number;
+      minPoolSats: number; twapMs: number; twapObs: number; twapGrid: number; addr: string; provenance: string;
+    };
+  };
+  peerBurnActError: (act: unknown, epoch: number) => string | null;
+  peerBurnGrid: (startsAt: number, endsAt: number, refHash: string, n: number) => number[];
 }
 interface Edge { id: string; family: string; src: string; tgt: string; pd: number; pi: number; appendIndex: number; weight: number; sign: number; tau: number }
 

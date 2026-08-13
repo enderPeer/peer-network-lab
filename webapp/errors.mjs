@@ -141,6 +141,82 @@ export const CATALOGUE = {
     why: 'That transaction is already recorded. A burn counts once, whoever presents it — otherwise one payment could be replayed into unlimited weight, which is the same as no cost at all.',
     fix: 'If it is your burn and it is credited to another handle, the burn was claimed before you got to it. Bind future burns quickly, and remember the log shows exactly which handle holds which txid.',
   },
+  // ── Burning PEER: the second door into reserve ──────────────────────────
+  // Reserve is value destroyed, and there are now two ways to destroy it.
+  // They are NOT equally provable, and every refusal below says so where it
+  // matters: a bitcoin burn pays a script that cannot be satisfied, which
+  // anyone can check by arithmetic, while a PEER burn pays an address nobody
+  // is believed to hold a key for. Both destroy value; only one is a proof.
+  PEER_BURN_HOST_ONLY: {
+    http: 400,
+    why: 'A PEER burn cannot be self-declared, and neither can its price. The host verifies two separate things before it records one: that an ERC-20 Transfer really destroyed that many PEER at the dead address, and what the official PEER/cbBTC pool held across the whole averaging window. Letting a client supply either would make the mechanism a statement about itself — and letting a client supply the price would be an oracle attack that never has to touch a pool.',
+    fix: 'Send the transaction hash to the PEER burn endpoint and let the host read the chain. Never send a price; it will not be believed.',
+  },
+  PEER_BURN_MISPRICED: {
+    http: 400,
+    why: 'The act records a satoshi value that its own recorded pool reserves do not produce. Replay recomputes the price from the reserves in the act and refuses any disagreement, because a host that records a price and a value which do not match each other is either broken or lying — and this is the one place that gets caught rather than trusted. Nothing here is fetched during replay: the act carries what was verified, so the act must also survive being checked against itself.',
+    fix: 'Nothing from your side. This is a defect in the host that wrote the act, and the burn itself is untouched — it can be claimed correctly by a host that computes it right.',
+  },
+  PEER_BURN_THIN_POOL: {
+    http: 400,
+    why: 'The PEER/cbBTC pool is too shallow to have a price. Constant-product price is whatever the last trade left behind, so in a thin pool an attacker can pump it, burn PEER at the inflated rate, take the reserve and let it fall — buying the right to speak with a rounding error. Below the minimum depth a burn is refused in words rather than priced badly.',
+    fix: 'Wait for the pool to be deep enough, or use the bitcoin door, which has no price to manipulate and therefore no depth requirement.',
+  },
+  PEER_BURN_STALE_PRICE: {
+    http: 400,
+    why: 'The price behind this burn was not averaged over a long enough window, or came from too few observations. A spot price is one block of history and can be bought for the length of one block; a time-weighted price has to be held against every arbitrageur for the whole window, at the manipulator\'s own expense. The window length is a choice about the price of speech, not a discovered quantity.',
+    fix: 'Try again once the host has a full window of observations for the pool.',
+  },
+  // The four below are the HOST DOOR's half of this door — the refusals that
+  // happen before an act exists, where the five above are replay's, which
+  // happen to acts already written. Both halves have to exist: a door check
+  // stops a burner destroying PEER for nothing, and a replay check is what
+  // makes the rule true on every host rather than on this one.
+  PEERBURN_OFF: {
+    http: 404,
+    why: 'Burning PEER for reserve is not switched on here. It is priced by ONE pool — a factory address and a pool id an operator configured — and with none configured there is no price. That is the shipped state: no pools factory is deployed and no PEER/cbBTC pool exists yet, so this host says so rather than guessing a rate. A guessed rate would be an invented exchange rate for the right to speak, which is worse than a closed door.',
+    fix: 'Burn bitcoin instead — that door needs no price and no pool: GET /api/burn. If you run this host, set PEER_PEERBURN_FACTORY and PEER_PEERBURN_POOL_ID to a pool you chose yourself.',
+  },
+  PEERBURN_NO_BINDING: {
+    http: 400,
+    why: 'A transfer on Base names the address that sent it, and nothing else. What ties that address to a handle here is a bindAddress act — filed with your own credential, public in the log — and without one there is no honest way to say a burn is yours. The bitcoin door has the same problem and solves it with intents, because a bitcoin output names no sender; this door does not need them, precisely because the transfer does.',
+    fix: 'Bind the address you will burn from, then send the PEER from that address. In that order: a binding filed after the coins are destroyed cannot reach them. The binding is the same one epoch earnings are paid to.',
+  },
+  PEERBURN_UNOWNED: {
+    http: 400,
+    why: 'The log does not say that address is yours. A burn belongs to the handle that had bound the sending address — exactly one handle, and it must be yours. An address nobody bound belongs to nobody. An address TWO handles have bound belongs to neither of them, and that is deliberate rather than an oversight: the alternative rules both end in theft. If the newest binding won, anyone could bind your address and take the reserve your coins bought — which was demonstrated against this host, end to end, for 24.99 reserve. If the first binding won, pre-binding a stranger\'s address would do the same thing silently. So ambiguity shuts this door for that address instead, which costs a burn and never hands one to somebody else.',
+    fix: 'Burn from an address only your handle has bound, and bind it before you burn. If somebody else has bound your address, bind a fresh one and use that: nothing can be taken from you here, but that particular address can no longer be used for this door.',
+  },
+  PEERBURN_BOUND_AFTER_BURN: {
+    http: 400,
+    why: 'That address is bound to your handle, but the binding was filed after the block that destroyed the coins, so it cannot reach them. The uncredited list is public — it has to be, or nobody could see their own burn sitting there — and if binding afterwards worked, that list would be a shopping list: anyone could bind the address a stranger burned from and collect the reserve, permanently, because a burn is claimed once. The order is the whole protection.',
+    fix: 'Nothing recovers this particular burn: the coins are destroyed and no binding filed now can claim them. Bind first from here on, then burn from the bound address, and the host credits it on its own.',
+  },
+  PEER_BURN_POOL_CAP: {
+    http: 429,
+    why: 'The pool this burn is priced against has already created as much reserve this epoch as it holds bitcoin. That bound exists because the per-account ceiling on its own bounds nothing: handles are free and open at zero, so three hundred of them filling the ceiling once against a pool holding 1,000,000 satoshis created 2,710,000 satoshis of "value destroyed" — more than the pool could ever have paid out, against a definition of reserve that is value destroyed measured in satoshis. Burning does not move the reserves, so every burn is priced as if it were the first; this is what stops that from being a mint.',
+    fix: 'Nothing is lost. The burn is on-chain and stays valid, and what is left of it is claimable after the next epoch closes — or burn bitcoin, which is priced against nothing and capped by nothing.',
+  },
+  PEERBURN_UNVERIFIED: {
+    http: 400,
+    why: 'The chain does not show what was claimed. The host checks a transaction hash for a Transfer of THIS network\'s PEER, from the address bound to your handle, to the dead address, in a transaction that succeeded — and records nothing unless all of it is true. Anyone can deploy a token, mint a trillion of it and destroy it for the price of gas, so the token address is checked as carefully as the amount.',
+    fix: 'Check the hash on any Base explorer. If the transfer is there and this host disagrees, the act log carries the hash for exactly that reason — the disagreement is checkable by anyone, against any endpoint.',
+  },
+  PEERBURN_UNCONFIRMED: {
+    http: 400,
+    why: 'The transaction is not buried deeply enough yet. A transfer that can still be un-mined is not a destruction. Note honestly what depth means here: Base is a rollup whose sequencer can reorganise unsafe blocks, so a confirmation count is protection against the ordinary case and not the settlement guarantee the same phrase means on Bitcoin.',
+    fix: 'Nothing. The host watches the dead address and credits the burn on its own once it is deep enough, whether or not you are still connected.',
+  },
+  PEERBURN_ALREADY_CLAIMED: {
+    http: 409,
+    why: 'That Base transaction is already recorded. A burn counts once, whoever presents it — otherwise one destruction could be replayed into unlimited standing, which is the same as it costing nothing. Bitcoin burns and PEER burns are deduplicated in separate tables, because they are different chains and a hash from one must never satisfy a claim about the other.',
+    fix: 'Nothing to do — the reserve from that burn is already credited to the handle whose bound address sent it, and the log says which.',
+  },
+  PEER_BURN_CAP: {
+    http: 429,
+    why: 'Burning PEER creates a bounded amount of reserve per account per epoch, and this handle has used its allowance. The ceiling exists because this door has a PRICE and a price can be lied to: it bounds what a manipulated window could ever buy. The bitcoin door has no such ceiling and needs none — nobody manipulates the price of bitcoin to themselves. Note also what a PEER burn never buys at any size: it credits reserve only, and never touches the weight that decides a share of the epoch mint or a vote in the writer election.',
+    fix: 'Nothing is lost, and that sentence is now true — it was not always. A burn worth more than one whole epoch\'s allowance used to be refused entire, in every epoch, forever, while this line promised the remainder. The act records the slice it credits, so the rest of a large burn is credited an epoch at a time until it is finished, by the host\'s own watcher, without you doing anything. Or burn bitcoin, which is uncapped.',
+  },
   ONCHAIN_OFF: {
     http: 404,
     why: 'No on-chain token is configured for this host. A token address written into source code is one nobody verified, so this stays off until an operator points it at a deployment they made and checked themselves.',

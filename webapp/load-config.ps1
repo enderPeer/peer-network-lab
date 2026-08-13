@@ -52,7 +52,32 @@ $peerConfigFiles = @(
   # silently hides everything anchored or opened before it.
   @{ f = 'epoch-from-block.txt';  v = 'PEER_EPOCH_FROM_BLOCK' },
   @{ f = 'burn-address.txt';      v = 'PEER_BURN_ADDRESS' },
-  @{ f = 'btc-address.txt';       v = 'PEER_BTC_ADDRESS' }
+  @{ f = 'btc-address.txt';       v = 'PEER_BTC_ADDRESS' },
+  # The SECOND door into reserve: burning PEER instead of bitcoin. A PEER
+  # burn is priced by ONE pool, and which pool that is has to be written
+  # down - never resolved by name, because PeerPools claims names per
+  # creator on purpose, so two strangers may both own a pool called 'main'
+  # and a host that looked one up by name could be re-pointed at a fake for
+  # the price of one transaction. So: a factory ADDRESS and a numeric id.
+  #
+  # Both unset means burning PEER is OFF and every route says so in words.
+  # That is the shipped state today: no pools factory is deployed and no
+  # PEER/cbBTC pool exists, so there is no price - and a host that guessed
+  # one would be inventing the exchange rate at which speech is sold.
+  # Burning bitcoin is unaffected and needs no pool at all.
+  #
+  # Deliberately NOT defaulted to pools-address.txt. That file decides which
+  # factory the pool LIST is read from; a price that silently followed it
+  # would re-point itself the day an operator aimed the list at somebody
+  # else's factory to look at it. Two questions, two files, both explicit.
+  @{ f = 'peerburn-factory.txt';    v = 'PEER_PEERBURN_FACTORY' },
+  @{ f = 'peerburn-pool-id.txt';    v = 'PEER_PEERBURN_POOL_ID' },
+  # The block the TOKEN was deployed in - the burn scan walks the token's
+  # own Transfer logs, not the factory's. Same err-LOW rule as the other
+  # from-blocks: too low costs a little scanning, too high silently hides
+  # burns made before it, and a burn this scan never sees is reserve
+  # somebody destroyed PEER for and never received.
+  @{ f = 'peerburn-from-block.txt'; v = 'PEER_PEERBURN_FROM_BLOCK' }
 )
 
 foreach ($c in $peerConfigFiles) {

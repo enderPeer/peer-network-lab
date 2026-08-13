@@ -27,6 +27,14 @@
 //   PEER_EPOCH_FROM_BLOCK  first block to scan for Anchored and EpochOpened
 //                      (default 0) — the same shape, and the same tradeoff, as
 //                      PEER_POOLS_FROM_BLOCK below
+//   PEER_PEERBURN_FACTORY  the PeerPools factory holding the OFFICIAL pool —
+//                      the one pool a PEER burn is priced against
+//   PEER_PEERBURN_POOL_ID  which pool id in it. Both unset means burning PEER
+//                      for reserve is OFF and every route says so in words:
+//                      with no pool there is no price, and a guessed price is
+//                      an invented exchange rate for the right to speak
+//   PEER_PEERBURN_FROM_BLOCK  first block to scan for PEER burns (default 0)
+//   PEER_PEERBURN_MIN_CONF    how deep a burn must be buried (default 30)
 //
 // The two epoch contracts are OFF until their addresses are set, and the
 // answer says so in words rather than by leaving a key out: `anchors` and
@@ -53,9 +61,10 @@
 // scan memory per contract it discovers things from — which blocks it has
 // already walked and what it saw in them — under the host's data directory:
 //
-//   server-data/pools-scan.json   PoolCreated,  from PEER_POOLS_ADDR
-//   server-data/anchor-scan.json  Anchored,     from PEER_ANCHOR_ADDR
-//   server-data/claim-scan.json   EpochOpened,  from PEER_CLAIM_ADDR
+//   server-data/pools-scan.json    PoolCreated, from PEER_POOLS_ADDR
+//   server-data/anchor-scan.json   Anchored,    from PEER_ANCHOR_ADDR
+//   server-data/claim-scan.json    EpochOpened, from PEER_CLAIM_ADDR
+//   server-data/peerburn-scan.json Transfer to the dead address, from the token
 //
 // They are caches, never sources of truth: delete any of them and the next
 // refresh rebuilds it from the chain. They exist because without them every
@@ -84,6 +93,47 @@ export const POOLS_ADDR = clean(process.env.PEER_POOLS_ADDR);
 export const ANCHOR_ADDR = clean(process.env.PEER_ANCHOR_ADDR);
 export const CLAIM_ADDR = clean(process.env.PEER_CLAIM_ADDR);
 export const L2_ON = !!TOKEN_ADDR;
+
+// ── The official pool: an address and an id, never a name ──────────────────
+//
+// A `peerBurn` is priced by ONE pool, and which pool that is has to be an
+// operator's decision written down, because in PeerPools a name is not an
+// identity. Names are claimed per creator on purpose (see DEPLOY.md, "A pool
+// name is a label, not a namespace"), so "the pool called main" is a phrase
+// two strangers can both satisfy — and if this host resolved its price source
+// by name, opening a pool with the right name and a wrong ratio would be an
+// oracle attack costing one transaction.
+//
+// So: a factory ADDRESS and a numeric POOL ID, both from configuration. Unset
+// means this door is CLOSED and says so in words, which is the shipped state
+// today — no PeerPools factory is deployed, the operator's wallet holds no
+// cbBTC, so there is no PEER/cbBTC pool and therefore no price. A host that
+// guessed one would be inventing the exchange rate at which speech is sold.
+//
+// The factory deliberately does NOT fall back to PEER_POOLS_ADDR. That
+// variable exists to decide which factory the pool LIST is read from, and a
+// price that silently follows it would re-point itself the day an operator
+// pointed the list at somebody else's factory to look at it. Two questions,
+// two variables, both explicit.
+export const PEERBURN_FACTORY = clean(process.env.PEER_PEERBURN_FACTORY);
+const PEERBURN_POOL_RAW = String(process.env.PEER_PEERBURN_POOL_ID ?? '').trim();
+export const PEERBURN_POOL_ID = /^[0-9]{1,9}$/.test(PEERBURN_POOL_RAW) ? Number(PEERBURN_POOL_RAW) : null;
+export const PEERBURN_ON = !!(TOKEN_ADDR && PEERBURN_FACTORY && PEERBURN_POOL_ID !== null);
+/**
+ * How deep a Base transaction must be buried before a burn counts.
+ *
+ * Thirty blocks is about a minute at Base's two-second blocks. It is a CHOICE
+ * about the price of speech, like every number in this door, and it is a
+ * weaker one than it looks — say so rather than let the count imply Bitcoin's
+ * meaning. Base is a rollup: its sequencer can reorganise unsafe blocks, and
+ * the depth that actually settles a transaction is its inclusion on Ethereum,
+ * which is minutes away, not blocks. What this threshold buys is protection
+ * from the ordinary case (a transaction that is briefly visible and then is
+ * not), not from a sequencer that decides otherwise. The burner's exposure is
+ * bounded either way: an act filed for a transfer that later vanished would
+ * be a claim anyone can check against the chain and see is false.
+ */
+export const PEERBURN_MIN_CONF = Math.max(1, Number(process.env.PEER_PEERBURN_MIN_CONF) || 30);
 
 // Selectors: first 4 bytes of keccak256 of the signature in the comment.
 // Hardcoded so this file needs no hashing library; recompute them yourself
@@ -184,6 +234,14 @@ const POOLS_FROM = fromBlockOf(process.env.PEER_POOLS_FROM_BLOCK);
 // it. Each scan's memory is keyed to its own contract, so sharing the
 // variable does not mix the two.
 const EPOCH_FROM = fromBlockOf(process.env.PEER_EPOCH_FROM_BLOCK);
+// The PEER burn scan walks the TOKEN's Transfer logs, so its from-block is the
+// block the token was deployed in — a different contract from the factory and
+// from the two epoch contracts, hence a variable of its own rather than a
+// fourth meaning bolted onto one of theirs. Same err-LOW rule as all three:
+// too low costs a little scanning, too high silently hides burns made before
+// it, and a burn this scan never sees is reserve somebody destroyed PEER for
+// and never got. Unset means block 0, which is correct and slow.
+const PEERBURN_FROM = fromBlockOf(process.env.PEER_PEERBURN_FROM_BLOCK);
 
 /**
  * Two caps, both surfaced in the answer rather than applied quietly.
@@ -277,6 +335,12 @@ const SCAN_VERSION = 1;
 const POOLS_SCAN_FILE = join(DATA_DIR, 'pools-scan.json');
 const ANCHOR_SCAN_FILE = join(DATA_DIR, 'anchor-scan.json');
 const CLAIM_SCAN_FILE = join(DATA_DIR, 'claim-scan.json');
+// Transfer, from PEER_TOKEN_ADDR, to the dead address — every PEER burn there
+// has ever been. A cache like the other three: delete it and the next refresh
+// re-walks the range from PEER_PEERBURN_FROM_BLOCK. What it must never become
+// is the authority on which burn was already credited; that is the act log,
+// and the credit path asks the log immediately before it writes.
+const PEERBURN_SCAN_FILE = join(DATA_DIR, 'peerburn-scan.json');
 
 /**
  * What a scan remembers between refreshes: the last block it walked, and the
@@ -365,11 +429,19 @@ function saveScan(file, contract, from, lastScanned, ids) {
  * first-refusal rule and every field of the `scan` report are the same for
  * everyone.
  *
+ * `topicsRest` narrows the query past topic0 — the indexed arguments, in
+ * order, with null for "any". It exists for the PEER burn scan, which wants
+ * ERC-20 Transfers to ONE recipient out of a token's entire transfer history:
+ * asking the endpoint for the whole history and discarding 99% of it locally
+ * is the same answer at a hundred times the bandwidth, and on a busy token it
+ * is the difference between a window that serves and one that times out. The
+ * pools and epoch scans pass nothing and are unchanged.
+ *
  * Returns the rows (remembered ones already folded in, so a refused window
  * costs nothing that was learned earlier) and the `scan` block that says
  * plainly how much of the range this refresh actually covered.
  */
-async function walkLogs({ file, contract, topic0, from, fromVar, revive, take }) {
+async function walkLogs({ file, contract, topic0, topicsRest, from, fromVar, revive, take }) {
   const scan = { windowSpan: WINDOW, windows: 0, failed: 0 };
   const remembered = loadScan(file, contract, from);
   if (remembered.note) scan.memory = remembered.note;
@@ -418,7 +490,12 @@ async function walkLogs({ file, contract, topic0, from, fromVar, revive, take })
       try {
         lgs = await rpc(
           'eth_getLogs',
-          [{ address: contract, topics: [topic0], fromBlock: '0x' + cursor.toString(16), toBlock: '0x' + last.toString(16) }],
+          [{
+            address: contract,
+            topics: [topic0, ...(Array.isArray(topicsRest) ? topicsRest : [])],
+            fromBlock: '0x' + cursor.toString(16),
+            toBlock: '0x' + last.toString(16),
+          }],
           20_000,
         );
       } catch (e) {
@@ -1426,4 +1503,871 @@ export async function sharesOf(poolId, addr) {
   const raw = word(await call(POOLS_ADDR, SEL.sharesOf + padUint(id) + pad(a)));
   if (raw === null) return null;
   return { poolId: id, address: a, raw: raw.toString() };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE PEER DOOR: the price, and the proof that the PEER is gone
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Reserve is VALUE DESTROYED. The bitcoin door destroys bitcoin at an address
+// that is unspendable BY ARITHMETIC, and needs no price: a satoshi is the
+// unit reserve is denominated in, so there is nothing to convert and nothing
+// to be wrong about. This door destroys PEER, which has a price, and that one
+// difference is where every hazard in this file comes from.
+//
+// Two things must be true before a peerBurn act is written, and this module
+// answers both:
+//
+//   1. THE PEER IS REALLY GONE. An ERC-20 Transfer, on the chain this host
+//      claims, of the token this host is configured with, from the burner's
+//      own bound address, to the dead address, buried deep enough. Anything
+//      short of that is a claim rather than a burn, and a claim credits
+//      nothing.
+//   2. WHAT IT WAS WORTH IS NOT THIS HOST'S OPINION. The price comes from the
+//      official pool, TIME-WEIGHTED across a window, and the act records the
+//      reserves used so a reader can recompute the satoshi figure instead of
+//      believing it. See the peerBurn branch in social/replay.cjs: replay
+//      recomputes and refuses any disagreement.
+//
+// WHAT THIS MODULE DOES NOT DECIDE. The window, the observation count, the
+// depth floor and the per-epoch ceiling are the ENGINE's constants — they are
+// declared once in social/replay.cjs, published on the replay state as
+// `peerBurn.limits`, and passed IN to the functions below. Restating any of
+// them here would create a second copy of a rule, and a rule with two copies
+// is a rule that will eventually be enforced at one door and not the other:
+// the host would credit a burn replay then refuses, and the burner would be
+// told "recorded" about reserve they never received. What lives here is HOW a
+// time-weighted price is obtained; HOW MUCH is required of it lives there.
+
+/**
+ * The canonical ERC-20 Transfer topic — keccak256 of the event signature,
+ * which is a 4-byte selector with all 32 bytes kept:
+ *
+ *   event Transfer(address indexed from, address indexed to, uint256 value)
+ *   hashed as: Transfer(address,address,uint256)
+ *
+ * Hardcoded like every other topic and selector in this file, and it is the
+ * most-checked constant in the repository rather than the least: the header
+ * comments above describe reproducing it from scratch twice, and
+ * tests/onchain-epoch-decode.test.ts pins this exact word against a transfer
+ * emitted by compiled bytecode running under @ethereumjs/vm. A wrong topic
+ * here would not be an error message — it would be a burn that the chain
+ * shows and this host cannot see, which reads exactly like a burn that never
+ * happened.
+ */
+const TOPIC_TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+/**
+ * The shape of the sampling, and why each number is what it is. None of these
+ * is a floor — the floors are the engine's, and so is the NUMBER OF SAMPLES
+ * (limits.twapGrid), because replay re-derives the sampled blocks and refuses
+ * an act whose readings are not on that grid. These decide how the host GOES
+ * LOOKING for a price it can defend.
+ *
+ * SPAN_OVERSHOOT is how much wider than the required window the oldest sample
+ * is aimed. Block numbers are estimated from an average block time, so aiming
+ * exactly at the window means half the attempts land just inside it and the
+ * span comes out one second short of a floor — refused, correctly, and
+ * uselessly. A quarter more history removes the whole class of near-miss.
+ *
+ * MAX_GAP_FRACTION is the largest hole tolerated between two consecutive
+ * observations, as a fraction of the window. Without it "twelve observations
+ * spanning thirty minutes" is satisfiable by eleven samples in the last two
+ * minutes and one half an hour ago — which is a spot price wearing a TWAP's
+ * clothes, and precisely the thing the window exists to prevent.
+ *
+ * HEAD_STALE_MS is how old the chain head may be before this host refuses to
+ * price anything. An endpoint stuck ten minutes in the past quotes a real
+ * price from a real pool at a time that is not now, and a burner would be
+ * paid at a rate the pool has already left behind.
+ *
+ * QUOTE_REF_STRIDE is the one place a quote and a burn are read differently,
+ * and only a quote is affected. A burn is priced by the window ending at its
+ * OWN block, whose hash nobody could know in advance — that unpredictability
+ * is the defence. A quote is priced at the head, credits nothing, and is asked
+ * for by every visitor: pricing it at a reference block snapped to this many
+ * blocks means everyone within about a minute shares one window, so the
+ * readings are already held and a public GET does not turn this host into a
+ * request amplifier pointed at the operator's endpoint. Snapping costs a quote
+ * up to a minute of freshness against a half-hour average, which is nothing,
+ * and costs the defence nothing at all, because a predictable grid on a number
+ * nobody is credited for buys an attacker exactly no reserve.
+ */
+const SPAN_OVERSHOOT = 1.25;
+const MAX_GAP_FRACTION = 1 / 3;
+const HEAD_STALE_MS = 5 * 60_000;
+const QUOTE_REF_STRIDE = 30n;
+/** How many observations are kept between refreshes. Bounded because it is a
+ *  process-lifetime memory, not a file, and an unbounded map that grows with
+ *  every quote is a slow leak nobody notices. */
+const OBS_KEEP = 96;
+
+/**
+ * One reading of the official pool, at one block, as the chain reports it.
+ * blockNumber -> { block, ms, resPeerRaw, resBtcRaw }.
+ *
+ * Keyed and timestamped by the CHAIN, never by this host's clock. That is not
+ * fussiness: `twapMs` goes into the act as a claim about how long the price
+ * was observed for, and a claim measured by the recorder's own wall clock is
+ * a claim the recorder can make say anything. A block timestamp is a number
+ * the burner, the host and any reader all fetch from the same place.
+ *
+ * In memory only, and it does not survive a restart. That is the honest
+ * behaviour: a restarted host has not observed anything yet and says so — it
+ * refills the window from historical blocks if the endpoint will serve them,
+ * and otherwise waits, which is what "this price has been watched for four of
+ * the required thirty minutes" means in the refusal below.
+ */
+const poolObs = new Map();
+
+/**
+ * The last answer poolTwap gave, and when.
+ *
+ * GET /api/peerburn is public and prices on every request; without this, one
+ * anonymous caller in a loop spends the operator's endpoint quota — and an
+ * endpoint that has run out of quota is a door that credits nobody's burn.
+ * The same lesson the bitcoin pending path already learned from a public
+ * explorer's rate limit.
+ *
+ * Fifteen seconds is safe HERE in a way it would not be for a spot price: the
+ * window this averages over is half an hour long, so an answer computed a few
+ * seconds ago describes very nearly the same window as one computed now. What
+ * it must never do is turn a refusal into an acceptance or the reverse — and
+ * it cannot, because the whole result including its refusal is what is held.
+ */
+const TWAP_MEMO_MS = Math.max(0, Number(process.env.PEER_PEERBURN_QUOTE_MEMO_MS ?? 15_000));
+let twapMemo = { at: 0, key: '', value: null };
+
+/** eth_call at a specific block, for the historical reads the window needs.
+ *  `call` above is 'latest' and stays that way; a helper rather than a
+ *  parameter so no existing caller can be moved off the head by accident. */
+const callAt = (to, data, tag) => rpc('eth_call', [{ to, data }, tag]);
+
+/** One block header — the number, the timestamp in milliseconds, and the hash.
+ *  Nothing else is read: full transaction bodies are megabytes and this needs a
+ *  clock and a seed. The hash is what decides which blocks the window is
+ *  sampled at, so a header without one cannot anchor a window. */
+async function blockAt(tag) {
+  const b = await rpc('eth_getBlockByNumber', [tag, false]);
+  if (!b || typeof b.number !== 'string' || typeof b.timestamp !== 'string') return null;
+  const hash = typeof b.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(b.hash) ? b.hash.toLowerCase() : null;
+  return { block: BigInt(b.number), ms: Number(BigInt(b.timestamp)) * 1000, hash };
+}
+
+/**
+ * Is the configured pool a pool over THIS host's PEER, priced in something
+ * where a raw unit is a satoshi?
+ *
+ * Both halves matter and neither is checkable later. The factory's own
+ * immutables say which two tokens it trades; if its peer() is not the token
+ * this host is configured with, then every price below is the price of a
+ * DIFFERENT COIN with the same name, which is the failure that looks most
+ * like success. And the satoshi arithmetic in the engine — sats = amt·resBtc
+ * / (resPeer + amt), with no scaling constant anywhere — is only true because
+ * cbBTC carries 8 decimals, so one raw unit IS one satoshi. Against an
+ * 18-decimal BTC stand-in the same expression is right by ten orders of
+ * magnitude, silently, in the burner's favour.
+ *
+ * Memoised per process: these are immutable on the contracts, and asking four
+ * times a minute would spend the host's endpoint quota re-confirming
+ * something that cannot change.
+ */
+let pairCheck = null;
+async function checkPair() {
+  if (pairCheck) return pairCheck;
+  const out = { ok: false };
+  try {
+    const fPeer = addrFromWord(await call(PEERBURN_FACTORY, SEL.poolsPeer));
+    const fBtc = addrFromWord(await call(PEERBURN_FACTORY, SEL.poolsBtc));
+    out.peer = fPeer;
+    out.btc = fBtc;
+    if (!fPeer || !fBtc) {
+      out.why = 'nothing at ' + PEERBURN_FACTORY + ' answered peer()/btc() on chain ' + CHAIN_ID
+        + ' — that address is not a PeerPools factory, and a price read off it would be a number from an unknown contract';
+      return out;                       // not memoised: a reachability failure is not an answer
+    }
+    if (fPeer !== TOKEN_ADDR) {
+      out.why = 'the official pool trades ' + fPeer + ', and this host’s PEER is ' + TOKEN_ADDR
+        + ' — that is a different coin with the same name, so nothing here can price a burn of yours';
+      pairCheck = out;
+      return out;
+    }
+    const btcDec = await decimalsOf(fBtc, null);
+    out.btcDecimals = btcDec;
+    if (btcDec !== 8) {
+      out.why = 'the bitcoin side of the official pool ' + (btcDec === null ? 'did not answer decimals() at all' : 'answers ' + btcDec + ' decimals, not 8')
+        + ' — reserve is denominated in satoshis and this whole door rests on one raw unit of that token BEING one satoshi. Against any other scale every price here would be wrong by orders of magnitude, so it refuses rather than guesses a multiplier.';
+      pairCheck = out;
+      return out;
+    }
+    out.ok = true;
+    pairCheck = out;
+    return out;
+  } catch (e) {
+    out.why = 'could not read the factory’s own token pair (' + String(e.message).slice(0, 60) + ')';
+    return out;                         // again: not memoised, this is a failure to look
+  }
+}
+
+/**
+ * Is this door configured at all, and what would a burner need to know?
+ *
+ * Answers in WORDS when it is off, and that is the shipped state today: no
+ * PeerPools factory is deployed and the wallet holds no cbBTC, so there is no
+ * PEER/cbBTC pool and no price. A feature that degraded into a guessed rate
+ * would be worse than one that is closed.
+ */
+export function peerBurnConfig() {
+  if (!PEERBURN_ON) {
+    const missing = [];
+    if (!TOKEN_ADDR) missing.push('PEER_TOKEN_ADDR');
+    if (!PEERBURN_FACTORY) missing.push('PEER_PEERBURN_FACTORY');
+    if (PEERBURN_POOL_ID === null) missing.push('PEER_PEERBURN_POOL_ID');
+    return {
+      on: false,
+      missing,
+      why: 'burning PEER for reserve is off on this host: ' + missing.join(' and ') + ' '
+        + (missing.length > 1 ? 'are' : 'is') + ' unset'
+        + (PEERBURN_POOL_RAW && PEERBURN_POOL_ID === null ? ' (PEER_PEERBURN_POOL_ID is not a whole number)' : '')
+        + '. A PEER burn is priced by ONE named pool, chosen by an operator as a factory address and a pool id — never by pool name, because names in PeerPools are claimed per creator and two strangers may both hold the same one. With no pool configured there is no price, and a host that invented one would be inventing the rate at which speech is sold. Burning bitcoin is unaffected and needs no price at all: GET /api/burn.',
+    };
+  }
+  return {
+    on: true,
+    chainId: CHAIN_ID,
+    token: TOKEN_ADDR,
+    factory: PEERBURN_FACTORY,
+    poolId: PEERBURN_POOL_ID,
+    minConfirmations: PEERBURN_MIN_CONF,
+    fromBlock: PEERBURN_FROM.hex,
+  };
+}
+
+/**
+ * The official pool as it stands RIGHT NOW — one read, at the head.
+ *
+ * This is for display and for the "which pool is this" question, and it is
+ * deliberately NOT what a burn is priced at. The spot reserves are whatever
+ * the last trade left behind; poolTwap below is what a burn is priced at, and
+ * showing them side by side is the point rather than an accident.
+ */
+let poolMemo = { at: 0, value: null };
+export async function officialPool() {
+  const cfg = peerBurnConfig();
+  if (!cfg.on) return cfg;
+  // Memoised on the same clock as the quote, for the same reason: this is
+  // read by a public GET, and two eth_calls per request from one caller in a
+  // loop is a bill the operator's endpoint pays. Nothing decides anything on
+  // this reading — it is the "which pool is this, and what does it hold right
+  // now" panel, deliberately NOT the price a burn is charged at.
+  if (poolMemo.value && Date.now() - poolMemo.at < TWAP_MEMO_MS) {
+    return { ...poolMemo.value, memoAgeMs: Date.now() - poolMemo.at };
+  }
+  const value = await officialPoolFresh();
+  poolMemo = { at: Date.now(), value };
+  return value;
+}
+
+async function officialPoolFresh() {
+  const out = { on: true, factory: PEERBURN_FACTORY, poolId: PEERBURN_POOL_ID, chainId: CHAIN_ID };
+  try {
+    const chain = await chainCheck();
+    if (!chain.ok) { out.chainIdSeen = chain.seen; out.error = chain.error; return out; }
+    const pair = await checkPair();
+    out.tokens = { peer: pair.peer || null, btc: pair.btc || null };
+    if (!pair.ok) { out.error = pair.why; return out; }
+    const ret = await call(PEERBURN_FACTORY, SEL.poolInfo + padUint(PEERBURN_POOL_ID));
+    const body = String(ret || '').replace(/^0x/, '');
+    // Five static words: name, resPeer, resBtc, totalShares, creator. A short
+    // answer is a pool this host could NOT read, which must never be reported
+    // as a pool that is empty — one invites a burn and the other refuses it.
+    if (body.length < 64 * 5) {
+      out.error = 'pool ' + PEERBURN_POOL_ID + ' did not answer poolInfo() on ' + PEERBURN_FACTORY
+        + ' — that is a failure to look, or a pool id that does not exist on this factory. Either way it is not an empty pool.';
+      return out;
+    }
+    out.name = bytes32Name(body.slice(0, 64));
+    out.nameRaw = '0x' + body.slice(0, 64);
+    out.resPeerRaw = word(ret, 1).toString();
+    out.resBtcRaw = word(ret, 2).toString();
+    out.totalSharesRaw = word(ret, 3).toString();
+    // The only thing that tells two pools with the same name apart. Shown
+    // beside the name everywhere, for DEPLOY.md's reason: a name confers no
+    // trust, no seniority and no provenance.
+    out.creator = addrFromWord(ret, 4);
+    out.nameNote = 'a pool name is a per-creator label, not an identity — this pool is identified by the factory address and the id above, which is why both are configuration and neither is a name';
+  } catch (e) {
+    out.error = 'could not read the official pool (' + String(e.message).slice(0, 60) + ')';
+  }
+  return out;
+}
+
+/**
+ * THE PRICE: the official pool's reserves, time-weighted across a window of
+ * real blocks, or a plain sentence saying why there is no price to give.
+ *
+ * ── Why a window at all ──────────────────────────────────────────────────
+ * Constant-product price is whatever the last trade left behind. Against a
+ * shallow pool an attacker pumps it, burns PEER at the inflated rate, takes
+ * the reserve and lets the price fall — the ordinary oracle attack, aimed
+ * here at the one thing this network says cannot be bought. A time-weighted
+ * price makes that expensive in the only currency that is hard to fake: the
+ * attacker must hold the false price against every arbitrageur for the whole
+ * window, at their own cost, and the reserve they get is diluted by however
+ * much of the window they could not hold.
+ *
+ * A window is only worth as much as WHERE INSIDE IT the host looks, which the
+ * first version of this got wrong: sixteen readings on a fixed arithmetic grid
+ * that anyone could compute meant the attacker had to hold the false price for
+ * 1.4% of the window rather than all of it. The blocks are now chosen by the
+ * ENGINE's peerBurnGrid from the reference block's own hash — see the comment
+ * on the grid below, and on peerBurnGrid in social/replay.cjs.
+ *
+ * ── How the observations are obtained ────────────────────────────────────
+ * By reading the pool AT PAST BLOCKS, not by remembering what this host saw.
+ * Every sample carries the block's own timestamp, so the window is measured in
+ * chain time by numbers anyone can re-fetch, and the average is built from
+ * exactly the blocks the grid named — never from whatever this process happens
+ * to have cached. The alternative — a host that polls every minute and averages
+ * its own diary — is a price whose entire provenance is "this host says it
+ * looked", unverifiable by anyone and unavailable for thirty minutes after
+ * every restart.
+ *
+ * The cost is a dependency worth stating: an endpoint that does not serve
+ * historical state answers nothing for old blocks, and then this host cannot
+ * price a burn at all. It says exactly that, with the numbers, rather than
+ * falling back to a spot read — the fallback is the attack.
+ *
+ * ── What is averaged, and the rounding ───────────────────────────────────
+ * Each side of the pool is averaged over time separately, weighted by how
+ * long it stood: sum(res·duration)/sum(duration). The act records those two
+ * averaged reserves, and replay recomputes the satoshi figure from them — so
+ * what is recorded has to be a PAIR OF RESERVES, not a rate. (Averaging the
+ * rate instead would leave no reserves to write down that reproduce it, and
+ * "trust my division" is exactly the property this act exists to avoid.)
+ * Both roundings run AGAINST the burner: the bitcoin side floors, the PEER
+ * side ceils, so the arithmetic can only ever credit fewer satoshis than the
+ * true average, never more.
+ *
+ * The caller passes the floors, from the engine. See the section header for
+ * why they are not repeated here.
+ */
+export async function poolTwap(limits) {
+  const { windowMs, minObs, minPoolSats, atBlock, gridN, gridFn } = limits || {};
+  // Keyed by the floors it was computed under AND by the block it ends at, so
+  // a caller asking with different limits — or about a different burn — can
+  // never be served an answer that satisfied different ones. In practice the
+  // floors come from the engine and never change; the key costs nothing and
+  // removes the class of bug entirely.
+  const memoKey = windowMs + ':' + minObs + ':' + minPoolSats + ':' + (atBlock ?? 'head');
+  if (twapMemo.value && twapMemo.key === memoKey && Date.now() - twapMemo.at < TWAP_MEMO_MS) {
+    return { ...twapMemo.value, memoAgeMs: Date.now() - twapMemo.at };
+  }
+  const value = await poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gridFn });
+  // The refusals are held too, and deliberately: "this pool is too thin to
+  // price" is exactly as expensive to establish as a price, and a caller in a
+  // loop against a thin pool must not cost more than one against a healthy
+  // one.
+  twapMemo = { at: Date.now(), key: memoKey, value };
+  return value;
+}
+
+async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gridFn }) {
+  const cfg = peerBurnConfig();
+  if (!cfg.on) return { ok: false, code: 'PEERBURN_OFF', why: cfg.why };
+  if (!(windowMs > 0) || !(minObs > 0) || !(minPoolSats > 0) || !(gridN > 0) || typeof gridFn !== 'function') {
+    // Called without the engine's floors. Refused rather than defaulted: a
+    // default here would be a second copy of a rule that lives in replay.cjs,
+    // and the day the two disagreed this host would credit burns replay
+    // refuses.
+    return { ok: false, code: 'PEERBURN_OFF', why: 'this host could not read the engine’s burn limits, and it will not invent them — the window, the observation count, the depth floor and the sampling grid are declared once in the replay engine so that the page, this door and replay all refuse in the same numbers' };
+  }
+  const out = { poolId: PEERBURN_POOL_ID, factory: PEERBURN_FACTORY, windowMs, minObs, minPoolSats, gridN };
+  // ── Which block the window ENDS at ────────────────────────────────────
+  //
+  // For a quote: the head, because the question is "what would a burn get".
+  // For a burn: THE BLOCK THAT BURN IS IN, and that is not a detail.
+  //
+  // Priced at claim time instead, a burner would hold free optionality on the
+  // price of speech: burn from an address nobody has bound, watch, and bind
+  // and claim after a pump. The window would be honest — thirty minutes,
+  // twelve readings, all of it — and still be the burner's pick of the best
+  // half hour in a week. Anchoring the window to the burn's own block makes
+  // waiting worth exactly nothing, and it makes the price a permanent fact
+  // about that transaction rather than about when somebody got around to
+  // claiming it. Be exact about how far that goes: the act records the block
+  // range, the reference block's hash and every block read, so anyone can
+  // re-fetch poolInfo at those exact blocks and recompute the same two
+  // reserves, forever — and replay checks that those blocks are the ones the
+  // recorded seed selects. What replay cannot check, because it asks no chain
+  // anything, is that the seed is really that block's hash. A reader with any
+  // Base endpoint can, in one call.
+  let ref;
+  try {
+    const chain = await chainCheck();
+    if (!chain.ok) return { ...out, ok: false, code: 'L2_UNREACHABLE', why: chain.error };
+    const pair = await checkPair();
+    if (!pair.ok) return { ...out, ok: false, code: 'PEERBURN_OFF', why: pair.why };
+    if (atBlock == null) {
+      // A quote: snapped to a shared reference so every visitor within about a
+      // minute reads the same window. See QUOTE_REF_STRIDE.
+      const headHex = await rpc('eth_blockNumber', []);
+      const head = BigInt(headHex);
+      const snapped = (head / QUOTE_REF_STRIDE) * QUOTE_REF_STRIDE;
+      ref = await blockAt('0x' + (snapped > 0n ? snapped : head).toString(16));
+      if (!ref) ref = await blockAt('latest');
+    } else {
+      ref = await blockAt('0x' + BigInt(atBlock).toString(16));
+    }
+    if (!ref) {
+      return atBlock == null
+        ? { ...out, ok: false, code: 'L2_UNREACHABLE', why: 'this endpoint did not answer eth_getBlockByNumber for its own head — there is no clock to measure a window against' }
+        // Not unreachable: the head reads fine. This endpoint keeps no state
+        // as old as the burn, and the price of a burn is the window ending at
+        // its own block, so there is nothing honest to quote.
+        : { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+          why: 'this host has no reading of block ' + atBlock + ', which is the block that burn is in — a burn is priced by the window ending at its OWN block, so that waiting for a better price buys nothing, and this endpoint does not serve state that old' };
+    }
+  } catch (e) {
+    return { ...out, ok: false, code: 'L2_UNREACHABLE', why: 'could not reach the chain to read the pool (' + String(e.message).slice(0, 60) + ')' };
+  }
+  out.endsAt = Number(ref.block);
+  // The seed. Without it there is no way to choose sample blocks that an
+  // attacker cannot compute in advance, and a window sampled on a public grid
+  // is a window an attacker holds for 1.4% of its length. Refused rather than
+  // fallen back to arithmetic snapping — the fallback is the attack.
+  if (!ref.hash) {
+    return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'this host’s chain endpoint returned block ' + out.endsAt + ' without its hash, and that hash is what decides which blocks inside the window are read. Without it the sampled blocks would be public arithmetic an attacker could pump one at a time, so no price is offered.' };
+  }
+  out.refHash = ref.hash;
+  // Staleness is only a question for a quote. A window anchored to a burn is
+  // deliberately in the past, and calling that stale would refuse every burn
+  // older than five minutes.
+  const behind = Date.now() - ref.ms;
+  if (atBlock == null && behind > HEAD_STALE_MS) {
+    return {
+      ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'this host’s chain endpoint is ' + Math.round(behind / 60_000) + ' minutes behind — its newest block is older than that, so any price read from it is a real price from a time that is not now',
+    };
+  }
+
+  // ── Which blocks to read ───────────────────────────────────────────────
+  //
+  // Estimated from the chain's own average block time over a recent stretch,
+  // never from a constant: "Base makes a block every two seconds" is true
+  // until it is not, and a hardcoded two would quietly aim every sample at
+  // the wrong depth on any other chain this config-driven reader is pointed
+  // at. The estimate only decides WHERE to look — each sample's weight comes
+  // from the block timestamp it actually carries — so an estimate that is off
+  // costs coverage, never correctness.
+  //
+  // Probed at a ladder of depths rather than one, because the endpoints that
+  // fail here fail in a specific way: a pruning node serves the last hundred
+  // or so blocks and refuses everything older. One probe a thousand deep would
+  // read that node as unusable when it can still measure a block time
+  // perfectly well from four blocks back — and the refusal a burner then gets
+  // would be "the chain is unreachable", which is false and unactionable.
+  const spanTarget = windowMs * SPAN_OVERSHOOT;
+  let msPerBlock = null;
+  for (const back of [1000n, 200n, 32n, 4n, 1n]) {
+    if (msPerBlock) break;
+    try {
+      const older = await blockAt('0x' + (ref.block > back ? ref.block - back : 0n).toString(16));
+      if (older && older.block < ref.block && older.ms < ref.ms) {
+        msPerBlock = (ref.ms - older.ms) / Number(ref.block - older.block);
+      }
+    } catch { /* try a shallower probe */ }
+  }
+  if (!msPerBlock || !(msPerBlock > 0)) {
+    // Not "unreachable": the head read fine a moment ago. This endpoint keeps
+    // no historical state at all, so no window can be built from it — which is
+    // a refusal to price, not a failure to connect, and the operator's fix is
+    // an endpoint that serves history rather than a retry.
+    return {
+      ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'this host’s chain endpoint answers for its own head but for no earlier block, so there is no history to average over. A price from one block is a spot price — whatever the last trade left behind — and a burn is refused rather than priced from one. The operator needs an endpoint that serves recent historical state (PEER_L2_RPC).',
+    };
+  }
+  out.msPerBlock = Math.round(msPerBlock);
+  // ── WHICH BLOCKS, and why not the obvious ones ─────────────────────────
+  //
+  // The obvious answer — a fixed arithmetic grid, `floor(ref/stride)*stride`
+  // counting back — is the one this used to use, and it was broken in a way
+  // that made the whole window decorative. The grid is public arithmetic and
+  // the attacker chooses the block of their own burn, so they know all sixteen
+  // blocks that will be read: pump and dump sixteen times and the "average" is
+  // fully manipulated while the pool sits at its true price for 98.6% of the
+  // window. Measured on a fake chain at the minimum permitted depth: 16 blocks
+  // of ~1125, 1.4% of the window, ~864,000 sat of round-trip fees, after which
+  // reserve cost about 1 satoshi a unit instead of 100.
+  //
+  // So the blocks come from the ENGINE's peerBurnGrid, seeded by the reference
+  // block's own hash: the window is cut into gridN buckets and one block is
+  // read from each, its position inside the bucket taken from the hash. Nobody
+  // knows a block's hash before it exists, so nobody can pre-pump the blocks
+  // that will be read, and a pump lasting f of the window is sampled about f
+  // of the time — cost proportional to duration, which is what a time-weighted
+  // price was always supposed to charge for.
+  //
+  // startsAt is derived from the measured block time and is RECORDED in the
+  // act, so a reader never has to reproduce this host's estimate: they read
+  // the range, the hash and the grid rule out of the log and re-fetch. An
+  // estimate that is off makes the window longer or shorter, and a window that
+  // came out too short is refused by the engine's own floor.
+  const spanBlocks = BigInt(Math.max(1, Math.round(spanTarget / msPerBlock)));
+  const startsAt = ref.block > spanBlocks ? ref.block - spanBlocks : 0n;
+  out.startsAt = Number(startsAt);
+  const wanted = gridFn(Number(startsAt), Number(ref.block), ref.hash, gridN).map((n) => BigInt(n));
+  if (wanted.length < minObs) {
+    return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'the window between blocks ' + out.startsAt + ' and ' + out.endsAt + ' is too short to hold '
+        + minObs + ' separate readings, so there is nothing to average' };
+  }
+
+  // ── Read the ones not already held ─────────────────────────────────────
+  // Two calls per block — the header for its timestamp, poolInfo for its
+  // reserves — in small parallel batches, exactly as namedPools reads pools.
+  const missing = wanted.filter((b) => !poolObs.has(b.toString()));
+  let unreadable = 0;
+  for (let i = 0; i < missing.length; i += 8) {
+    const batch = missing.slice(i, i + 8);
+    const rets = await Promise.all(batch.map(async (b) => {
+      const tag = '0x' + b.toString(16);
+      try {
+        const [hdr, ret] = await Promise.all([
+          blockAt(tag),
+          callAt(PEERBURN_FACTORY, SEL.poolInfo + padUint(PEERBURN_POOL_ID), tag),
+        ]);
+        const body = String(ret || '').replace(/^0x/, '');
+        if (!hdr || body.length < 64 * 5) return null;
+        return { block: b, ms: hdr.ms, resPeerRaw: word(ret, 1).toString(), resBtcRaw: word(ret, 2).toString() };
+      } catch {
+        // An endpoint that prunes state answers an error for old blocks. That
+        // is a fact about the endpoint, counted and reported below, never a
+        // reason to price the burn off whatever is left.
+        return null;
+      }
+    }));
+    for (const r of rets) {
+      if (!r) { unreadable++; continue; }
+      poolObs.set(r.block.toString(), r);
+    }
+  }
+  // Bounded memory: the oldest observations go first, and they are the ones
+  // no window will ask for again.
+  if (poolObs.size > OBS_KEEP) {
+    const keys = [...poolObs.keys()].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+    for (const k of keys.slice(0, poolObs.size - OBS_KEEP)) poolObs.delete(k);
+  }
+
+  // ── The window ─────────────────────────────────────────────────────────
+  //
+  // Built from EXACTLY the blocks the grid named, and from nothing else.
+  //
+  // This used to read `[...poolObs.values()].filter(inside the window)`, which
+  // is a different thing wearing the same name: poolObs is a process-lifetime
+  // cache that accumulates every reading from every previous quote, so any
+  // stray reading whose timestamp fell inside the window was folded into the
+  // average. A host that had served quotes in the previous half hour priced a
+  // burn differently from one that had not, the same host priced it
+  // differently after a restart, and eviction (OBS_KEEP) could turn a
+  // priceable burn into a stale one and back. The reserves in the act are
+  // supposed to be a fact about a transaction, not a fact about this process's
+  // memory. The cache is now purely an optimisation: it decides what has to be
+  // FETCHED, never what is averaged.
+  const samples = wanted
+    .map((b) => poolObs.get(b.toString()))
+    .filter((o) => o && o.ms <= ref.ms)
+    .sort((a, b) => a.ms - b.ms || (a.block < b.block ? -1 : 1));
+  out.observed = samples.length;
+  out.blocks = samples.map((s) => Number(s.block));
+  out.unreadable = unreadable;
+  if (samples.length < 2) {
+    return {
+      ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'this host has ' + samples.length + ' usable reading of the official pool and needs at least ' + minObs
+        + ' spread across ' + Math.round(windowMs / 60_000) + ' minutes'
+        + (unreadable ? ' — ' + unreadable + ' historical block(s) were refused by this chain endpoint, which is what a node that keeps no old state answers' : '')
+        + '. A spot price is whatever the last trade left behind, so a burn is refused rather than priced from one.',
+    };
+  }
+  const span = ref.ms - samples[0].ms;
+  out.twapMs = span;
+  out.from = samples[0].ms;
+  out.to = ref.ms;
+  // The samples travel with the answer, so "time-weighted" is a claim with
+  // its evidence attached: every block, its timestamp and the reserves read
+  // at it, re-fetchable by anyone who doubts the average.
+  out.samples = samples.map((s) => ({ block: Number(s.block), ms: s.ms, resPeerRaw: s.resPeerRaw, resBtcRaw: s.resBtcRaw }));
+  if (samples.length < minObs) {
+    return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'the price came from ' + samples.length + ' observation(s) and at least ' + minObs + ' are required'
+        + (unreadable ? ' — ' + unreadable + ' historical block(s) were refused by this chain endpoint' : '') };
+  }
+  if (span < windowMs) {
+    return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'the readings available cover ' + Math.round(span / 60_000) + ' minutes and at least '
+        + Math.round(windowMs / 60_000) + ' are required — a spot price is whatever the last trade left behind' };
+  }
+  // A hole in the middle. Checked because the two floors above can both be
+  // satisfied by a cluster of recent samples plus one old one, which is a
+  // spot price with a long shadow rather than an average.
+  const maxGap = windowMs * MAX_GAP_FRACTION;
+  for (let i = 1; i < samples.length; i++) {
+    const gap = samples[i].ms - samples[i - 1].ms;
+    if (gap > maxGap) {
+      return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+        why: 'the readings have a ' + Math.round(gap / 60_000) + '-minute hole in them, and a window with a hole is not a window — the price was unobserved for longer than this host is willing to average across' };
+    }
+  }
+  if (ref.ms - samples[samples.length - 1].ms > maxGap) {
+    return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
+      why: 'the newest reading of the pool is older than this host will average up to the present from' };
+  }
+
+  // ── The weighted average ───────────────────────────────────────────────
+  // Each observation stands until the next one, and the last stands to the
+  // head. BigInt throughout: these are raw 18-decimal and 8-decimal integers,
+  // and a double loses the low digits of the first one before any arithmetic
+  // happens.
+  let wPeer = 0n, wBtc = 0n, total = 0n;
+  let minBtc = null;
+  for (let i = 0; i < samples.length; i++) {
+    const until = i + 1 < samples.length ? samples[i + 1].ms : ref.ms;
+    const dur = BigInt(Math.max(0, Math.round(until - samples[i].ms)));
+    if (dur === 0n) continue;
+    wPeer += BigInt(samples[i].resPeerRaw) * dur;
+    wBtc += BigInt(samples[i].resBtcRaw) * dur;
+    total += dur;
+    const b = BigInt(samples[i].resBtcRaw);
+    if (minBtc === null || b < minBtc) minBtc = b;
+  }
+  if (total === 0n) {
+    return { ...out, ok: false, code: 'PEER_BURN_STALE_PRICE', why: 'every reading of the pool carries the same timestamp, so there is no elapsed time to weight them by' };
+  }
+  // Against the burner in both directions: more PEER in the pool and less
+  // bitcoin both mean fewer satoshis out. Rounding is never a gift here.
+  const resPeer = (wPeer + total - 1n) / total;      // ceil
+  const resBtc = wBtc / total;                       // floor
+  out.resPeerRaw = resPeer.toString();
+  out.resBtcRaw = resBtc.toString();
+  out.minBtcRaw = (minBtc ?? 0n).toString();
+
+  // ── The depth floor ────────────────────────────────────────────────────
+  // Refused IN WORDS rather than priced badly. Checked on the average (which
+  // is what the act records and what replay re-checks) and on the shallowest
+  // moment in the window: a pool that was thin at any point did not have a
+  // price for the whole of the window it is being averaged over, and the
+  // averaging is what would hide that.
+  const floor = BigInt(minPoolSats);
+  if (resBtc < floor) {
+    return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL',
+      why: 'the official pool averaged ' + resBtc.toString() + ' sat of bitcoin across the window and a burn needs at least '
+        + minPoolSats + ' — below that a pool has no price, only a last trade' };
+  }
+  if (minBtc !== null && minBtc < floor) {
+    return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL',
+      why: 'the official pool fell to ' + minBtc.toString() + ' sat of bitcoin during the window, under the ' + minPoolSats
+        + ' floor — the average hides that, so it is refused on the shallowest moment rather than the comfortable mean' };
+  }
+  if (resPeer <= 0n) {
+    return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL', why: 'the official pool holds no PEER, so it prices nothing' };
+  }
+  out.ok = true;
+  out.note = 'time-weighted across ' + samples.length + ' readings of pool ' + PEERBURN_POOL_ID + ' spanning '
+    + Math.round(span / 60_000) + ' minutes of chain time, between blocks ' + out.startsAt + ' and ' + out.endsAt
+    + '. The blocks read are not chosen by this host: the range is cut into ' + gridN
+    + ' buckets and one block is taken from each at a position decided by the hash of block ' + out.endsAt
+    + ' (' + out.refHash + '), so nobody — including whoever is about to burn — can know in advance which blocks will be read, and a price held for part of the window is sampled about that part of the time. Every reading is listed with its block, so the average is re-fetchable rather than asserted, and a burn is priced by the window ending at ITS OWN block, so a quote is what a burn made now would get and not a rate held open for anybody.';
+  return out;
+}
+
+/**
+ * THE PROOF: did this transaction really destroy that PEER, from that address?
+ *
+ * The bitcoin door asks two independent explorers and requires them to agree,
+ * because an explorer is somebody's API and this host's economy must not sit
+ * inside it. Here there is one RPC endpoint, and it is worth being plain that
+ * this is a WEAKER arrangement rather than pretending the two doors are the
+ * same shape: what protects a reader is that the act records the transaction
+ * hash, so anyone can put the same question to any Base endpoint, or to their
+ * own node, and get a yes or a no. A host that lied here would be lying in a
+ * way that is checkable by everyone, forever.
+ *
+ * What is checked, and why each one is a way to steal reserve if it is not:
+ *   - the chain id, so the "burn" is not on some other chain entirely;
+ *   - the receipt exists and SUCCEEDED — a reverted transaction has logs of
+ *     nothing and moved no coins;
+ *   - the token is this host's PEER, not something else with a Transfer event
+ *     (anyone can deploy a token, mint a trillion, and send it to the dead
+ *     address for the price of gas);
+ *   - the recipient is the dead address, summed across every matching log, so
+ *     a transaction that burns in two legs is not under-credited;
+ *   - and depth, because a transaction that can still be un-mined is not a
+ *     burn yet.
+ *
+ * WHOSE burn it is, is deliberately NOT decided here. This function reports
+ * the sender the chain names and stops. Ownership is a question about the act
+ * log — which handle had bound that address, and when — and it is answered by
+ * the engine, in replay, where a mirror or a fork cannot skip it. Deciding it
+ * here was the shape of a real hole: the caller passed in the address bound to
+ * whoever was asking, this function checked the transfer against that, and
+ * nothing anywhere checked that the asker controlled it.
+ *
+ * The block's timestamp comes back too, because "the binding was already in
+ * the log when the coins were destroyed" needs the time the coins were
+ * destroyed, and the chain is the only honest source for it.
+ */
+export async function verifyPeerBurnTx(txid, { sink, minConf }) {
+  const cfg = peerBurnConfig();
+  if (!cfg.on) return { ok: false, code: 'PEERBURN_OFF', why: cfg.why };
+  const tx = String(txid || '').trim().toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(tx)) {
+    return { ok: false, code: 'BAD_TXID', why: 'a Base transaction hash is 0x followed by 64 hex characters' };
+  }
+  const dead = clean(sink);
+  if (!dead) return { ok: false, code: 'PEERBURN_OFF', why: 'this host could not read the engine’s burn address and will not guess one' };
+  const conf = Math.max(1, Number(minConf) || PEERBURN_MIN_CONF);
+  try {
+    const chain = await chainCheck();
+    if (!chain.ok) return { ok: false, code: 'L2_UNREACHABLE', why: chain.error };
+    const receipt = await rpc('eth_getTransactionReceipt', [tx]);
+    if (!receipt || typeof receipt.blockNumber !== 'string') {
+      return { ok: false, code: 'PEERBURN_UNVERIFIED',
+        why: 'no mined transaction with that hash on chain ' + CHAIN_ID + ' — either it is still pending, it was replaced, or it is not on this chain. Nothing was recorded.' };
+    }
+    // status 0x0 is a transaction that ran and reverted. It is on the chain,
+    // it cost gas, and it moved nothing: crediting it would credit a failure.
+    if (receipt.status !== undefined && receipt.status !== null && BigInt(receipt.status) !== 1n) {
+      return { ok: false, code: 'PEERBURN_UNVERIFIED', why: 'that transaction is on the chain but it FAILED — it reverted, so no PEER left your wallet and there is nothing to credit' };
+    }
+    const block = BigInt(receipt.blockNumber);
+    const headHex = await rpc('eth_blockNumber', []);
+    const head = BigInt(headHex);
+    const depth = head >= block ? Number(head - block) + 1 : 0;
+    // Summed PER SENDER. A transaction may carry burns from two addresses —
+    // rare, but a contract call can — and crediting the total to one of them
+    // would credit somebody for coins that were not theirs. The largest single
+    // sender is reported and the rest is named, so the refusal can say so.
+    const bySender = new Map();
+    const otherTokens = new Set();
+    for (const lg of (Array.isArray(receipt.logs) ? receipt.logs : [])) {
+      const topics = lg && Array.isArray(lg.topics) ? lg.topics : [];
+      if (topics.length < 3 || String(topics[0]).toLowerCase() !== TOPIC_TRANSFER) continue;
+      const to = addrFromWord(topics[2]);
+      if (to !== dead) continue;
+      const token = clean(lg.address);
+      if (token !== TOKEN_ADDR) { otherTokens.add(token || String(lg.address)); continue; }
+      const src = addrFromWord(topics[1]);
+      const amt = word(lg.data);
+      if (amt === null || !src) continue;
+      bySender.set(src, (bySender.get(src) || 0n) + amt);
+    }
+    if (!bySender.size) {
+      if (otherTokens.size) {
+        return { ok: false, code: 'PEERBURN_UNVERIFIED',
+          why: 'that transaction sent ' + [...otherTokens].join(', ') + ' to the dead address, not this network’s PEER ('
+            + TOKEN_ADDR + '). Anyone can deploy a token and destroy it; reserve is only created by destroying the one this host is configured with.' };
+      }
+      return { ok: false, code: 'PEERBURN_UNVERIFIED',
+        why: 'that transaction moves no PEER to ' + dead + '. Nothing was recorded — a burn this host cannot see on the chain is a claim, and claims credit nothing.' };
+    }
+    let sender = null, burned = 0n;
+    for (const [src, amt] of bySender) if (amt > burned) { sender = src; burned = amt; }
+    if (depth < conf) {
+      return { ok: false, code: 'PEERBURN_UNCONFIRMED', depth, needed: conf,
+        why: 'that transaction is ' + depth + ' block' + (depth === 1 ? '' : 's') + ' deep and this host waits for ' + conf
+          + ' — about ' + Math.max(1, Math.round(conf * 2 / 60)) + ' minute(s) on Base. It will be credited on its own once it is buried, with nothing open on your side.' };
+    }
+    // The block's own clock, which is what "the binding predates the burn" is
+    // measured against. A header this endpoint cannot serve is a refusal, not
+    // a reason to fall back to this host's wall clock — the recorder's own
+    // clock is a number the recorder can make say anything.
+    const hdr = await blockAt(receipt.blockNumber);
+    if (!hdr || !(hdr.ms > 0)) {
+      return { ok: false, code: 'PEERBURN_UNVERIFIED',
+        why: 'this host could not read the header of block ' + Number(block) + ', so it cannot say WHEN those coins were destroyed — and whether an address binding came before or after a burn is the whole of who the burn belongs to. Nothing was recorded.' };
+    }
+    return { ok: true, txid: tx, amtRaw: burned.toString(), from: sender, addr: dead,
+      block: Number(block), blockMs: hdr.ms, confirmations: depth,
+      senders: bySender.size };
+  } catch (e) {
+    return { ok: false, code: 'L2_UNREACHABLE', why: 'could not read that transaction from the chain (' + String(e.message).slice(0, 60) + ') — try again shortly' };
+  }
+}
+
+/**
+ * Every PEER burn the chain has ever seen: Transfer logs of this host's token
+ * whose recipient is the dead address.
+ *
+ * This is what makes closing the tab safe, and it is the same lesson the
+ * bitcoin watcher was written from — two real burns sat unclaimed for four
+ * days because a browser tab was closed. The bitcoin side needed an INTENT to
+ * say whose a payment was, because a bitcoin output pays a script and nothing
+ * in the transaction says "ender". Here it needs none: an ERC-20 Transfer
+ * names its sender, and this network already binds handles to addresses for
+ * epoch earnings. So ownership is decided by a binding that is already in the
+ * public log, filed with the handle's own credential, rather than by a race
+ * to describe somebody else's transaction first.
+ *
+ * Narrowed at the endpoint by the recipient topic, so a token with a busy
+ * transfer history costs the same as a quiet one. Chunked and resumable
+ * through the same walkLogs every other scan here uses; the memory is a cache
+ * and the act log remains the only authority on what has been credited.
+ */
+export async function peerBurnsSeen({ sink }) {
+  const cfg = peerBurnConfig();
+  if (!cfg.on) return { on: false, why: cfg.why, rows: [] };
+  const dead = clean(sink);
+  if (!dead) return { on: false, why: 'this host could not read the engine’s burn address and will not guess one', rows: [] };
+  const out = { on: true, token: TOKEN_ADDR, addr: dead, fromBlock: PEERBURN_FROM.hex };
+  if (!PEERBURN_FROM.ok) out.fromBlockIgnored = PEERBURN_FROM.raw.slice(0, 40);
+  try {
+    const chain = await chainCheck();
+    if (!chain.ok) return { ...out, rows: [], error: chain.error };
+  } catch (e) {
+    return { ...out, rows: [], error: 'could not reach the chain (' + String(e.message).slice(0, 60) + ')' };
+  }
+  const { scan, rows, walked } = await walkLogs({
+    file: PEERBURN_SCAN_FILE,
+    contract: TOKEN_ADDR,
+    topic0: TOPIC_TRANSFER,
+    // [from, to] — any sender, this recipient. The whole point of asking the
+    // endpoint rather than filtering here.
+    topicsRest: [null, '0x' + pad(dead)],
+    from: PEERBURN_FROM,
+    fromVar: 'PEER_PEERBURN_FROM_BLOCK',
+    revive: (key, v) => (v && typeof v.from === 'string' && typeof v.amt === 'string' && /^[0-9]+$/.test(v.amt)
+      ? { key, txid: key.split(':')[0], from: v.from, amtRaw: v.amt, block: Number(v.blk) || 0 }
+      : null),
+    take: (lg, map) => {
+      const topics = lg && Array.isArray(lg.topics) ? lg.topics : [];
+      if (topics.length < 3) return;
+      const src = addrFromWord(topics[1]);
+      const amt = word(lg.data);
+      const txh = typeof lg.transactionHash === 'string' ? lg.transactionHash.toLowerCase() : '';
+      if (!src || amt === null || amt <= 0n || !/^0x[0-9a-f]{64}$/.test(txh)) return;
+      // One entry per (transaction, log index): a transaction may burn in two
+      // legs, and both are real. Keyed rather than pushed so a re-served log
+      // after a reorg is a duplicate the Map absorbs, not a double credit.
+      const idx = typeof lg.logIndex === 'string' ? Number(BigInt(lg.logIndex)) : 0;
+      map.set(txh + ':' + idx, { key: txh + ':' + idx, txid: txh, from: src, amtRaw: amt.toString(), block: Number(BigInt(lg.blockNumber || '0x0')) });
+    },
+  });
+  const list = [...rows.values()].sort((a, b) => b.block - a.block || a.key.localeCompare(b.key));
+  if (walked !== null) {
+    const ids = {};
+    for (const r of list) ids[r.key] = { from: r.from, amt: r.amtRaw, blk: r.block };
+    const why = saveScan(PEERBURN_SCAN_FILE, TOKEN_ADDR, PEERBURN_FROM, walked, ids);
+    scan.cursor = '0x' + walked.toString(16);
+    if (why) scan.notSaved = 'the scan could not be saved (' + why + ') — every refresh will re-walk this range until it can';
+  }
+  out.scan = scan;
+  out.rows = list;
+  if (scan.failed && !list.length) {
+    out.error = 'could not read PEER transfers to ' + dead + ' from ' + (scan.from || PEERBURN_FROM.hex)
+      + ' (' + (scan.failedWhy || 'no reason given') + ') — so an empty list here says nothing about whether anyone has burned';
+  }
+  return out;
 }
