@@ -59,102 +59,172 @@ curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
 The result decodes to 18,250,000 × 10¹⁸. If it returns `0x`, nothing is
 deployed at that address — stop and check the address.
 
-## 2. Deploy the pools factory (~$0.08)
+## 2. Deploy the pool (~$0.08)
 
-`PeerPools.sol` is the app's own pool contract: named constant-product pools
-over the one PEER/cbBTC pair, Uniswap V2 math with the 0.3% fee staying in
-the pool, and — same as the token — no owner, no fee switch, nothing
-privileged. One deployment holds every pool; anyone can open a named pool
-afterwards by calling it.
+`PeerPool.sol` is the app's own pool: **one** constant-product market over
+the one PEER/cbBTC pair, Uniswap V2 math with the 0.3% fee staying in the
+pool, and — same as the token — no owner, no fee switch, nothing privileged.
+One deployment, one pool, one address. Anyone may add liquidity to it, anyone
+may trade against it, and every add makes it bigger.
 
-### A pool name is a label, not a namespace
+There is no name, no id, and no factory above it. That is the whole change
+from `PeerPools.sol`, which is still in this directory with a header saying
+it is superseded, because somebody will find its dead deployment on a block
+explorer and deserves to learn what it is from this repository rather than
+guess. Read that file for what was given up: under it a stranger could open
+their own market over the pair at a price of their own choosing. Here they
+cannot — they deploy their own contract and persuade people to use it, which
+is exactly as available as it always was and exactly as much work as it
+should be.
 
-Names are claimed **per creator**. Your pool called `main` and a stranger's
-pool called `main` are two different pools, and both are allowed. Nothing
-in the contract arbitrates between them, because arbitrating names would
-mean somebody holding the power to arbitrate, and this contract has no
-privileged anybody.
+What one pool buys is that three defences stop being needed at all. A name
+was front-runnable, so names were claimed per creator, so a name identified
+nothing and every screen had to say whose pool it was. A list was censorable
+— 256 dust pools, a few dollars of gas, and the honest pool falls off the end
+of whatever a reader will walk — so discovery became a chunked, resumable log
+scan with a depth-ranked pre-filter. And "which pool is the official one" was
+two settings, precisely because a name could not be trusted to answer it. One
+address answers all three: there is nothing to squat, nothing to enumerate,
+and nothing to choose.
 
-That is a deliberate choice over the obvious one. A global first-come
-namespace on a chain with a public mempool is a gift to whoever pays the
-higher priority fee: they read the name out of your pending `createPool`,
-land theirs first, and your honest transaction reverts on a name that now
-belongs — permanently, with no reclaim path — to a pool holding dust. The
-attack costs a fee and buys a word. Per-creator claiming makes it buy
-nothing.
+### Any opening size, and what MIN_LIQ actually refuses
 
-The consequence is worth stating plainly, to yourself as much as to anyone
-reading a pool list: **a name confers no trust, no seniority and no
-provenance.** What identifies a pool is its numeric id. What tells you
-whose it is, is the `creator` address that `poolInfo` returns beside the
-reserves. Judge a pool by its reserves and its creator; a list that shows
-a bare name without saying whose pool it is, is a list you cannot safely
-act on. Within one creator a name is still claimed forever, even after the
-pool is drained — reusing your own dead name would let a pool people point
-at quietly change referent.
+**Seed it as small as you can afford.** This is a requirement of the design,
+not a tolerance. With no reserves there is no ratio, so the two amounts in
+the first `add` **are** the opening price — a number of the seeder's own
+invention, exactly like the Uniswap position in §3 — and every later add is
+proportional to what is already there.
 
-Every call that moves value carries the caller's own guards: a minimum on
-what must come back, and, on `swap` and `addLiquidity`, a deadline past
-which the signed transaction is void. The contract has no oracle and wants
-none — those numbers are how a caller states what they will accept, and
-they are the only price protection there is.
+`MIN_LIQ = 1000` is **not a minimum investment** and must never be read as
+one. It is a floor on the SHARE COUNT, which is the geometric mean of the two
+raw deposits, `sqrt(amtPeer · amtBtc)` — and PEER carries 18 decimals against
+cbBTC's 8. Measured, in raw units, with what the floor costs the seeder in the
+last column, because the 1000 locked units go to `address(0)` and every share
+is a pro-rata claim on both sides:
+
+| deposit | shares | locked at address(0) | |
+|---|---|---|---|
+| 100,000 PEER + 10,000 satoshi | 31,622,776,601,683 | 0.000000003% | allowed |
+| 1 PEER + 1 satoshi | 1,000,000,000 | 0.0001% | allowed |
+| 0.001 PEER + 1 satoshi | 31,622,776 | 0.003% | allowed |
+| 10,000,000 wei + 1 satoshi | 3,162 | **31.6%** | allowed |
+| 1,100,000 wei + 1 satoshi | 1,048 | **95.4%** | allowed |
+| 1 wei + 1 satoshi | 1 | — | refused |
+
+So the floor permits arbitrarily small **real** amounts and refuses only the
+degenerate one — a "pool" holding a single indivisible wei against a single
+satoshi, which nobody could add to or trade against without every division
+collapsing to zero. What it buys, since it costs nothing anyone would want to
+do, is the classic first-depositor defence: without it the opener mints one
+share unit, donates coins straight to the contract to skew the share price,
+and the next depositor's shares round to zero while their money stays. The
+1000 locked units also mean `totalShares` never returns to zero, so the
+seeding branch runs exactly once in the life of the contract — nobody can
+drain the pool and re-open the same bookmarked address at a brand new
+invented price.
+
+The bottom two rows are the fine print on "seed it as small as you can
+afford", and they are in the same table as the benefit on purpose. The cost is
+a **fixed** 1000 share units, never a fraction, so it is nothing at every size
+anyone would really seed and almost everything within a factor of a few of the
+floor itself. Your intended seed is the first row and loses nothing. The app's
+first-add panel prints that percentage live as the two amounts are typed,
+rather than printing `1000` as a count with no denominator.
 
 ### Deploying it
 
 Same discipline as §1: the fresh account, wallet on Base.
 
-1. In Remix, create `PeerPools.sol`, paste the contents of
-   [`PeerPools.sol`](./PeerPools.sol). No imports here either — what you
+1. In Remix, create `PeerPool.sol`, paste the contents of
+   [`PeerPool.sol`](./PeerPool.sol). No imports here either — what you
    compile is exactly what you can read.
 2. Compiler **0.8.24**, optimizer **on**, 200 runs — identical settings.
 3. Constructor takes two addresses: `peer_` is **your token address from
    §1**, `btc_` is cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf`.
-4. Deploy, confirm, and **copy the factory address — and the block number it
-   landed in.** Both, together. The block is on the deployment transaction on
-   any explorer, and the one-click page prints it beside the address; §5
-   explains what it is for. Recording it now costs nothing and finding it
-   later is a chore.
+4. Deploy, confirm, and **copy the pool address.** No block number is needed
+   this time: nothing scans for a pool any more, because there is nothing to
+   discover. One `eth_call` to `reserves()` is the whole reading.
 
-(The one-click page covers this step too: `node chain-l2/serve-deploy.mjs`,
-open <http://127.0.0.1:8899/>, cards 4 and 5 — the cbBTC address is
-prefilled there, the PEER address is the one you paste in from §1. The page
-embeds the compiled bytecode and fetches nothing; rebuild it with `node
-chain-l2/build-deploy-page.js` any time `PeerPools.sol` changes, or you
-will deploy the previous contract. `chain-l2/auto-deploy.ps1` runs that
-whole sitting end to end, including §5 below.)
-
-**Check the fingerprint before you sign.** Card 5 prints the SHA-256 of the
-factory bytecode that page will deploy, and `auto-deploy.ps1` refuses to open
-a page whose fingerprint is not the one `chain-l2/PeerPools.build.json`
-produces. This is not paranoia about attackers — it is about copies. A stale
-`deploy.html`, from a git worktree or an old checkout, serving on the same
-port embeds a *previous* immutable contract, and deploying it is irreversible,
-silent, and leaves the app calling functions that contract does not have. If
-you opened the page by hand rather than through the script, compare that line
-against what `node chain-l2/build-deploy-page.js` prints.
+**Check the fingerprint before you sign** if you deploy from a generated
+page rather than from Remix. A stale `deploy.html`, from a git worktree or an
+old checkout, serving on the same port embeds a *previous* immutable
+contract, and deploying it is irreversible, silent, and leaves the app
+calling functions that contract does not have. Compare the printed SHA-256
+against the one `chain-l2/PeerPool.build.json` produces.
 
 Verify before going further:
 
 ```bash
 curl -s https://mainnet.base.org -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"YOUR_POOLS_ADDR","data":"0xf525cb68"},"latest"]}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"YOUR_POOL_ADDR","data":"0x75172a8b"},"latest"]}'
 ```
 
-`0xf525cb68` is `poolCount()` — a fresh factory answers a 32-byte zero. If
-it returns `0x`, nothing is deployed at that address — stop and check.
+`0x75172a8b` is `reserves()` — three 32-byte words: `resPeer`, `resBtc`,
+`totalShares`. A freshly deployed pool answers 96 bytes of zeros. If it
+returns `0x`, nothing is deployed at that address — stop and check.
 
-Zero is the right answer and not a failure: deploying the factory creates no
-pool and moves no coin. The first pool is a `createPool` from a wallet, in
-the app's Pools tab, and it is that call — not this one — that hands over
-real PEER and real cbBTC.
+All zeros is the right answer and not a failure: deploying the pool creates
+no liquidity and moves no coin. The first `add` from a wallet is what hands
+over real PEER and real cbBTC, and it is that call — not this one — that sets
+the opening price.
+
+### The first add is a race, and `minShares` is how you win it
+
+**Seed the pool from the app's first-add panel or from card 5 of the deploy
+page, not from Remix's `add()` box.** Both of those compute the one guard that
+makes the seeding call safe; the Remix box takes four numbers and `0` is the
+obvious thing to type into the third.
+
+The pool is deployed at an address that is public before it holds anything —
+this page just told you to `curl` it, and the app renders it to every visitor.
+So there is no moment when nobody can see it, the seeding branch runs **once,
+ever**, and whoever gets there first sets the only price this network will
+have. Here is the whole robbery in the numbers it costs:
+
+1. A stranger seeds `1,100,000` wei of PEER against **1 satoshi**. `sqrt` of
+   that is 1048, one unit clear of the floor, so it opens. Their outlay is one
+   satoshi and a millionth of a millionth of a PEER.
+2. Your `add(100000 PEER, 10000 sat, 0, deadline)` now lands in the
+   **proportional** branch. The bitcoin side binds: it mints 10,480,000 shares,
+   pulls **all 10,000 of your satoshis** and 11,000,000,000 wei — 0.000000011 —
+   of your PEER. It **succeeds**.
+3. They sell 0.0000011 PEER into the pool and take **9,901 of your 10,000
+   satoshis** straight back out.
+
+`minShares = 0` is the whole of what lets that through: with no minimum named,
+any share count is acceptable — including the 10,480,000 above, which is six
+orders of magnitude under what those same two amounts mint on an empty pool.
+And the right minimum cannot be quoted from the pool the way a proportional
+add's is, because a caller who intends to *seed* has no reserves to quote
+against: any number read off the pool is either unavailable or already the
+front-runner's. It has to come from your own two amounts.
+
+The value that catches it is exact — `sqrt(amtPeer · amtBtc) - MIN_LIQ`, which
+is precisely what the seeding branch mints. No proportional add of the same two
+amounts can ever reach it, so the call reverts unless the pool is still
+unseeded, or somebody seeded it at your exact ratio, in which case they have
+taken nothing. For the seed above that number is `31_622_776_600_683`.
+
+Nobody can do this to you *today*: all 18,250,000 PEER is in your own wallet.
+`PeerClaim` changes that the first time it pays anybody, and every address that
+ever receives a claim qualifies from then on. Use the guard from the first
+seeding, not from the day it starts mattering.
+
+**The dead factory.** A `PeerPools` factory was deployed once at
+`0x5112b892cf190d583f1acc86224812a8fad257ee` and is dead: its immutable
+`peer` address is the operator's wallet rather than the token, so it can
+never trade the pair it claims to. Nothing in this app reads it. It is named
+here so that anyone who finds it on an explorer learns what it is from the
+repository instead of assuming it is live.
 
 ## 3. The Uniswap alternative (~$0.20)
 
-The factory in §2 is what the app reads: named pools, listed live by
-`/api/token/onchain`. Create a Uniswap pool instead if you want the pair on
-infrastructure every aggregator already indexes. Either works; nothing stops
-you doing both, but the two do not share liquidity, so running both splits
-what little there is.
+The pool in §2 is what the app reads, live, at `/api/token/onchain`. Create a
+Uniswap pool instead if you want the pair on infrastructure every aggregator
+already indexes. Either works; nothing stops you doing both, but the two do
+not share liquidity, so running both splits what little there is. The app
+reads only §2 — `PEER_POOL_ADDR` names a `PeerPool`, and pointing it at a
+Uniswap pair will simply fail to answer `reserves()`.
 
 cbBTC on Base is `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` (8 decimals —
 **not** 18; a cbBTC amount of `0.001` is `100000` raw).
@@ -204,7 +274,7 @@ anyone who disagrees.
 **Anyone may post, and that is the design.** No owner, no allowlist, no pause,
 no privileged function of any kind. Records are keyed by `(poster, epoch)`, so
 your epoch 12 and a stranger's epoch 12 are two separate rows and neither can
-touch the other — the same rule PeerPools applies to pool names. Readers
+touch the other. Readers
 decide whose anchors mean anything by choosing whose address to read. An
 impostor anchoring garbage is not an attack on the contract; their garbage
 sits under their own address, next to nothing.
@@ -351,57 +421,59 @@ do not copy the list.
 |---|---|---|
 | `token-address.txt` | `PEER_TOKEN_ADDR` | your PEER token from §1 |
 | `btc-token-address.txt` | `PEER_BTC_ADDR` | cbBTC, `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` |
-| `pools-address.txt` | `PEER_POOLS_ADDR` | your pools factory from §2 |
-| `pools-from-block.txt` | `PEER_POOLS_FROM_BLOCK` | the block §2 deployed in |
+| `pool-address.txt` | `PEER_POOL_ADDR` | your pool from §2 — and the pool §6 prices against |
 | `anchor-address.txt` | `PEER_ANCHOR_ADDR` | your PeerAnchor from §4 |
 | `claim-address.txt` | `PEER_CLAIM_ADDR` | your PeerClaim from §4 |
 | `epoch-from-block.txt` | `PEER_EPOCH_FROM_BLOCK` | the **lower** of the two blocks §4 deployed in |
-| `peerburn-factory.txt` | `PEER_PEERBURN_FACTORY` | the factory holding the **official pool** — §6, optional |
-| `peerburn-pool-id.txt` | `PEER_PEERBURN_POOL_ID` | which pool id in it — §6, optional |
 | `peerburn-from-block.txt` | `PEER_PEERBURN_FROM_BLOCK` | the block §1 deployed in — §6, optional |
 
 Then restart the host: `.\start-host.ps1`. Or let
-`chain-l2/auto-deploy.ps1` write the first four and restart for you — it
-writes the §1–§2 files, and the §4 ones are typed by hand.
+`chain-l2/auto-deploy.ps1` write the token, pool and cbBTC files and restart
+for you — the §4 ones are typed by hand.
 
-The last three are the epoch contracts, and every one of them is optional:
-with none of them set, `GET /api/token/onchain` answers `anchors` and
-`claimState` as `{ configured: false, why: … }` — in words, rather than by
-leaving the keys out, because "this host reads no anchors" and "nothing was
-ever anchored" are opposite claims and a missing key lets an interface render
-either one as the other. `PEER_EPOCH_FROM_BLOCK` covers **both** epoch scans
-with one value, so use the lower of the two deployment blocks; the same
-err-low rule below applies to it word for word.
+**Four files are gone from this list** and are no longer read by anything:
+`pools-address.txt`, `pools-from-block.txt`, `peerburn-factory.txt` and
+`peerburn-pool-id.txt`. All four existed because pools were many: two to tell
+the host which factory to scan and from which block, and two more to say
+which pool inside it set the price, because a *name* could not be trusted to
+say it. One address replaces all four. If they are sitting in your
+`server-data/` from a previous deployment, delete them along with
+`pools-scan.json` — nothing will ever look at them again, and a stale file
+that looks like configuration is worse than no file.
 
-That last one is worth getting right even though the host no longer breaks
-without it. The host finds pools by asking the RPC for the factory's
-`PoolCreated` logs, and public endpoints cap how wide one such query may be —
-Base's answers 9,999 blocks and refuses 10,000. The reader walks the range in
-windows under that cap, remembers how far it got in
-`server-data/pools-scan.json`, and continues on the next refresh, so with no
-starting block it starts at block 0 and simply takes a while: `namedPools.scan`
-reports `windows`, `complete` and how many blocks of history are still
-unwalked while it catches up. Setting the deployment block turns that backfill
-from hours into one query.
+The epoch rows are optional: with neither set, `GET /api/token/onchain`
+answers `anchors` and `claimState` as `{ configured: false, why: … }` — in
+words, rather than by leaving the keys out, because "this host reads no
+anchors" and "nothing was ever anchored" are opposite claims and a missing
+key lets an interface render either one as the other. `PEER_POOL_ADDR` gets
+the same treatment: unset, `pool` comes back as `{ configured: false, why: … }`
+rather than as an absent key or an empty pool.
+
+`PEER_EPOCH_FROM_BLOCK` covers **both** epoch scans with one value, so use
+the lower of the two deployment blocks. It is worth getting right even though
+the host no longer breaks without it. Those scans ask the RPC for logs, and
+public endpoints cap how wide one such query may be — Base's answers 9,999
+blocks and refuses 10,000. The reader walks the range in windows under that
+cap, remembers how far it got, and continues on the next refresh, so with no
+starting block it starts at block 0 and simply takes a while: each `scan`
+block reports `windows`, `complete` and how many blocks of history are still
+unwalked while it catches up. Setting the deployment block turns that
+backfill from hours into one query.
 
 Err **low**, never high. Too low costs a little scanning; too high silently
-hides every pool opened before it. The reader reports `total` — the
-factory's own `poolCount` — beside `discovered`, the number the log scan
-actually saw, precisely so that gap is visible rather than something you
-have to suspect. If those two disagree, this file is the first thing to
-check.
+hides everything anchored or opened before it. Changing it afterwards is safe
+and costs one backfill: each memory file is keyed to the chain, its contract
+and this block, so a value that moved throws the remembered scan away rather
+than reporting a range it never walked.
 
-Changing it afterwards is safe and costs one backfill: `pools-scan.json` is
-keyed to the chain, the factory and this block, so a value that moved throws
-the remembered scan away rather than reporting a range it never walked. The
-file is a cache in every direction — delete it and the next refresh rebuilds
-it from the chain.
+The pool needs none of this. It is one `eth_call` to `reserves()` at the
+head, so there is no window to refuse, no cursor to lose and no backfill to
+wait out — and nothing about the pool that a refused log query could hide.
 
-The epoch contracts are walked by that same scan, with a memory file each:
+Three memory files remain, one per contract that is still discovered by log:
 
 | file in `server-data/` | what it remembers |
 |---|---|
-| `pools-scan.json` | how far the `PoolCreated` scan got, and each pool's last measured BTC reserve |
 | `anchor-scan.json` | how far the `Anchored` scan got, and the anchors it has seen |
 | `claim-scan.json` | how far the `EpochOpened` scan got, and which epochs exist |
 | `peerburn-scan.json` | how far the PEER-burn scan got, and the transfers to the dead address it has seen (§6) |
@@ -415,12 +487,7 @@ is worth and how much of it has been taken is read from `epochInfo` on every
 refresh, because `paid` moves with every claim and a remembered figure would
 show a full pot to somebody whose claim had already come out of it.
 
-The §3 Uniswap pool is the exception, and it is worth knowing before you
-rely on it: **`PEER_POOL_ADDR` has no file behind it.** Exported by hand it
-works, until the watchdog restarts the host without that environment and the
-Uniswap reading goes quiet with nothing to say why. If you take the §3
-alternative and mean to keep it, give it a file of its own beside the others
-in all three launchers rather than trusting a shell to outlive a reboot.
+(`pools-scan.json` was a fourth. It is neither written nor read now.)
 
 Two more the reader honours, both with working defaults and neither needing
 a file: `PEER_L2_RPC` (Base mainnet) and `PEER_L2_CHAIN_ID` (8453). The
@@ -443,19 +510,44 @@ historical state. A pruning node that answers only for its own head cannot
 produce a window, and the host says exactly that rather than falling back to
 a spot read — the fallback is the attack.
 
-Then `GET /api/token/onchain` reports live supply, reserves, any account's
-balance and — with `PEER_POOLS_ADDR` set — every named pool with its
-reserves and its creator, and refuses to report anything if the RPC answers
-for the wrong chain. Unset, the endpoint returns 404 and says why — a token
-address baked into source is one nobody verified. Readings are cached for
-30 seconds, so a pool you just opened can take that long to appear.
+Then `GET /api/token/onchain` reports live supply, any account's balance, and
+— with `PEER_POOL_ADDR` set — the pool: its address, both reserves, the total
+share count, and whether anybody has seeded it yet. Ask with
+`?of=YOUR_ADDRESS` and the answer also carries `account.poolShares`, your own
+share units, read live and deliberately outside the shared cache: shares are
+internal accounting inside `PeerPool`, they do not transfer, no ERC-20
+reports them, and a cached share count would show one viewer's position to
+everyone who asked in the same thirty seconds. It refuses to report anything
+at all if the RPC answers for the wrong chain. With the token unset the
+endpoint returns 404 and says why — an address baked into source is one
+nobody verified. Readings are cached for 30 seconds, so liquidity you just
+added can take that long to appear.
 
-Read the `tokens` field the first time. It is the pair the factory names in
-its own immutables, and if it disagrees with what you configured, a
-`mismatch` key says so instead of quietly scaling amounts by the wrong
-decimals. That is the shape of a factory deployed over the wrong PEER
-address — a mistake worth catching while the pools are still empty, because
-it cannot be corrected afterwards, only abandoned.
+An unseeded pool says so in words (`seeded: false`) rather than showing two
+zeros. Those are different sentences: zero reserves on a live pool is an
+invitation to make the first deposit and set the opening price, and a pool
+that answered nothing is a wrong address to fix.
+
+Read the `tokens` field on `GET /api/peerburn` the first time. It is the pair
+the pool names in its own immutables, and if its `peer()` is not the token
+you configured, the door refuses to price anything rather than quoting a
+different coin with the same name. That is the shape of a pool deployed over
+the wrong PEER address — a mistake worth catching while the pool is still
+empty, because both token addresses are immutable and it cannot be corrected
+afterwards, only abandoned.
+
+`btc()` is compared the same way, against `btc-token-address.txt`, and this is
+why that row is worth filling in even though nothing refuses to start without
+it: `PeerPool.sol` has no imports and anybody may deploy their own copy, so a
+stranger's pool over the real PEER and an 8-decimal token they minted
+themselves answers every other question correctly. With `PEER_BTC_ADDR` unset
+the only fence left is "that token answers 8 decimals", which identifies
+nothing. The host also compares `eth_getCode` at the pool against
+`chain-l2/PeerPool.build.json` — immutables masked, metadata trailer stripped —
+so a contract with an owner and a `reserves()` returning whatever its author
+liked is refused rather than believed. That proves the code is this
+repository's; it does not prove you pointed at the right instance of it, and
+the two token comparisons are what answer that.
 
 With §4 configured the same endpoint also carries `anchors` — the recent
 `Anchored` rows, newest first, each with its poster, epoch, block id,
@@ -473,7 +565,7 @@ epoch is never in the cached body: it comes back under `account.claims` only
 when you ask with `?of=YOUR_ADDRESS`, because a claimed flag inside the
 30-second cache would answer for everyone out of the first asker's wallet.
 
-## 6. The official pool — burning PEER for reserve (optional)
+## 6. Burning PEER for reserve (optional)
 
 Reserve is **value destroyed**, and until now the only way to destroy value
 was to destroy bitcoin. Requiring real BTC before anybody may say a word is
@@ -487,33 +579,45 @@ no currency oracle is needed anywhere. A euro figure is a caption for humans
 and never enters the arithmetic: if the euro source is down you lose a
 label, not a number.
 
-### Which pool, and why it is never a name
+### Which pool
 
-A PEER burn is priced by **one** pool, and which one is an operator's
-decision written down as a factory **address** plus a numeric **id**:
+The one from §2. There is nothing to configure here beyond what §5 already
+set, and that is the point of the whole redesign: this used to take two more
+files — a factory address and a pool id — because pools were many and a
+*name* could not identify one. "The pool called main" was a phrase two
+strangers could both satisfy, so a host that resolved its price source by
+name could be re-pointed at a pool opened at any ratio at all for the price
+of one transaction: an oracle attack whose entire cost is gas, aimed at the
+one thing this network says cannot be bought. One address, one pool, and the
+question stops existing.
+
+One file is still §6's own:
 
 | file in `server-data/` | what goes in it |
 |---|---|
-| `peerburn-factory.txt` | the PeerPools factory holding the pool — usually the same address as `pools-address.txt`, typed again on purpose |
-| `peerburn-pool-id.txt` | the pool id, as `poolInfo` indexes it |
-| `peerburn-from-block.txt` | the block your **token** was deployed in (§1) — this scan walks the token's Transfer logs, not the factory's |
+| `peerburn-from-block.txt` | the block your **token** was deployed in (§1) — this scan walks the token's Transfer logs, not the pool's |
 
-Never a name. Names in PeerPools are claimed **per creator** (see §2), so
-"the pool called main" is a phrase two strangers can both satisfy — and a
-host that resolved its price source by name could be re-pointed at a pool
-opened at any ratio at all, for the price of one transaction. That is an
-oracle attack whose entire cost is gas, aimed at the one thing this network
-says cannot be bought.
-
-The factory deliberately does **not** fall back to `pools-address.txt`. That
-file decides which factory the pool *list* is read from; a price that
-silently followed it would re-point itself the day you aimed the list at
-somebody else's factory to look at it.
-
-Unset, this door is **off** and every route says so in words — which is the
-state as shipped, since no factory is deployed and the wallet holds no
-cbBTC. There is no price today, and a host that guessed one would be
+With `pool-address.txt` unset this door is **off** and every route says so in
+words. There is no price without a pool, and a host that guessed one would be
 inventing the exchange rate at which speech is sold.
+
+### A tiny pool is legitimate; a tiny pool is not a price
+
+These are two different statements and the app makes both. The pool may be
+seeded arbitrarily small (see §2) and anyone may add to it. But a PEER burn
+is refused unless the pool held at least **1,000,000 satoshis** of bitcoin
+across the whole averaging window — and that floor does not move however many
+people have added. Below it, `GET /api/peerburn` answers `PEER_BURN_THIN_POOL`
+and says so in words rather than quoting a number from whatever depth it
+found; with nothing deposited at all it answers `PEER_BURN_POOL_UNSEEDED`,
+which is a different sentence with a different fix.
+
+Be plain about the arithmetic: 1,000,000 satoshis is 0.01 BTC. A pool the
+operator can afford today — on the order of ten thousand satoshis — is a real
+pool, tradeable, and **will not** open this door. That is intended. Reserve is
+value destroyed measured in satoshis, and a shallow pool's ratio is whatever
+the last trade left behind, so pricing speech against one would sell the right
+to speak for a rounding error.
 
 ### What the host checks before it credits anything
 
@@ -523,9 +627,10 @@ never the spot price one trade left behind. The window length, the minimum
 number of readings, the minimum pool depth, how many blocks inside the
 window are read, and both ceilings are the **engine's** constants
 (`social/replay.cjs`), not this file's, so the page, the host and replay
-refuse in the same numbers. The act records the reserves it used, the pool's
-factory and id, the block range, the reference block's hash and every block
-read, so anyone replaying the log recomputes the satoshi figure and can
+refuse in the same numbers. The act records the reserves it used, the pool
+contract they came from, the block range, the reference block's hash and
+every block read, so anyone replaying the log recomputes the satoshi figure
+and can
 re-fetch the pool at the same blocks instead of believing this host — and
 replay refuses any act whose recorded price and recorded value disagree.
 
@@ -619,14 +724,19 @@ the price is whatever the last trade left behind, and the first real trade
 against a thin pool will move it enormously. Seed only what you are content
 to lose — you called this a doability trial, and that is the right frame.
 
-Expect duplicates, too. Nothing stops a second person opening a pool with
-the same name as yours, at whatever price they like, and nothing should.
-Thin lookalike pools beside a real one are the ordinary condition of a
-permissionless list, not a sign something broke. The host orders that list
-by BTC reserve, deepest first, and says so in `rankedBy` — because depth is
-the one thing about a pool that cannot be faked cheaply, and because
-somebody has to choose an order. Depth is not endorsement: it says a trade
-can be filled there, nothing about who opened it or why.
+Expect the depth floor to stay shut for a while, and say so out loud rather
+than being surprised by it. The pool you can afford to seed today is on the
+order of ten thousand satoshis; §6 needs a hundred times that before it will
+price a burn. The pool is real and usable at every point in between, and each
+person who adds liquidity moves it closer — but until it clears the floor,
+burning PEER credits nothing and the app says which of the two it is.
+
+What you no longer have to expect is lookalikes. Under the old design nothing
+stopped a second person opening a pool with the same name as yours, at
+whatever price they liked, and a reader had to rank pools by depth and
+disclaim the name beside every one of them. There is one pool now, at one
+address; a stranger who wants their own market deploys their own contract,
+and nobody can mistake it for this one.
 
 ## What stays impossible, and why that is correct
 
@@ -636,14 +746,28 @@ worth reading — and it is also why the deploying key matters so much. If it
 leaks, whoever has it holds whatever that account holds. Fresh account, paper
 backup, nothing else on it.
 
-The factory has no owner either, and that cuts both ways. Once it is
-deployed there is no upgrade, no pause, no admin call, and no way for you or
-anyone to correct a pool opened at a silly ratio or under a confusing name —
-the only remedies are the ordinary ones anybody has: trade against it, add
-liquidity, or leave it alone. Deploying is the last moment anything about
-that contract can change. That is the same property that makes it worth
-trusting with other people's coins, and it is why this runbook asks you to
-read `PeerPools.sol` rather than take the summary above on trust.
+The pool has no owner either, and that cuts both ways. Once it is deployed
+there is no upgrade, no pause, no admin call, and no way for you or anyone to
+correct a pool seeded at a silly ratio — the only remedies are the ordinary
+ones anybody has: trade against it, add liquidity, or leave it alone. Both
+token addresses are fixed at deployment and the seeding branch runs once,
+ever. Deploying is the last moment anything about that contract can change.
+That is the same property that makes it worth trusting with other people's
+coins, and it is why this runbook asks you to read `PeerPool.sol` rather than
+take the summary above on trust.
+
+**Read "no pause" with its boundary, because half the pool is not yours.**
+That sentence is true of `PeerPool.sol` and says nothing about cbBTC, which is
+an upgradeable Coinbase proxy. If transfers of cbBTC out of the pool's address
+ever revert — a global pause, a blacklist naming the pool — then `remove()`
+reverts too, because it pays the PEER leg and then the bitcoin leg and one call
+either does both or does neither. Liquidity providers cannot withdraw **even
+the PEER side**, and swaps stop in both directions. There is deliberately no
+single-sided escape hatch: one would be exactly the privileged function every
+other line of that contract refuses to have, and a lever over other people's
+money is not made safe by the intentions of whoever holds it. The pool is
+exactly as available as cbBTC is; that is knowable before anybody deposits, and
+this is where it is written down.
 
 PeerAnchor holds to the same line — no owner, no allowlist, no pause, nothing
 privileged, and a row that can never be revised once posted.

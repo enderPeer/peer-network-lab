@@ -37,14 +37,19 @@ $items = @(
   # they are looking for. They are here because this script promises to
   # gather what the project "cannot regenerate", and while the addresses
   # survive, KNOWING WHICH ONES ARE YOURS does not: a rebuilt host with an
-  # empty server-data has no way to tell its own factory from any other,
-  # and pools-from-block is not derivable at all once the deploy receipt is
-  # gone. Losing them does not lose the coins; it loses the pool list, and
-  # an operator who then re-deploys has split their own liquidity in two.
+  # empty server-data has no way to tell its own pool from any other
+  # contract on the chain. Losing that address does not lose the coins or
+  # the liquidity - both stay exactly where they are, and a share is still
+  # a share - but it loses the app's ability to point at them, and an
+  # operator who then deploys a SECOND pool has split their own liquidity
+  # in two with no way to merge it back.
+  #
+  # pools-address.txt and pools-from-block.txt used to sit here. They named
+  # the factory that held many pools, and the block its log scan started
+  # from; neither is read by anything now. See load-config.ps1.
   @{ n = 'token-address.txt';                          p = (Join-Path $data 'token-address.txt');                          req = $false; why = 'the on-chain PEER token is no longer reported by this host' },
   @{ n = 'btc-token-address.txt';                      p = (Join-Path $data 'btc-token-address.txt');                      req = $false; why = 'the asset PEER is paired against has to be set again' },
-  @{ n = 'pools-address.txt';                          p = (Join-Path $data 'pools-address.txt');                          req = $false; why = 'the pools factory is unknown to this host - every named pool disappears from the app' },
-  @{ n = 'pools-from-block.txt';                       p = (Join-Path $data 'pools-from-block.txt');                       req = $false; why = 'the pool scan restarts from block 0 and takes many refreshes to catch up' },
+  @{ n = 'pool-address.txt';                           p = (Join-Path $data 'pool-address.txt');                           req = $false; why = 'THE pool is unknown to this host - no reserves, no price, and burning PEER for reserve goes off' },
   @{ n = 'agent\.env';                                 p = (Join-Path $repo 'agent\.env');                                 req = $false; why = 'the resident bot cannot sign in as itself' },
   @{ n = 'role.json';                                  p = (Join-Path $data 'role.json');                                  req = $false; why = 'the host role has to be set by hand' }
 )

@@ -17,19 +17,27 @@
 #   PeerAnchor and PeerClaim first, then every closed epoch that has something
 #   to pay. That path needs PEER and nothing else, and the operator holds the
 #   whole supply, so it can finish today.
-#   Pools second, and only if the wallet actually holds cbBTC. A pool is PEER
-#   on one side and cbBTC on the other; cbBTC has to be BOUGHT, and buying is
-#   not something a script may do on your behalf, so when there is none the
-#   page does not offer the step and this script says why. Neither of them
-#   pretends it could get you some.
+#   The pool second, and only if the wallet actually holds cbBTC. A pool is
+#   PEER on one side and cbBTC on the other; cbBTC has to be BOUGHT, and
+#   buying is not something a script may do on your behalf, so when there is
+#   none the page does not offer the step and this script says why. Neither of
+#   them pretends it could get you some.
+#
+#   ONE pool, at one address, with no name and no id. There is no factory any
+#   more and nothing to enumerate: PeerPool.sol is the whole market, anybody
+#   may add liquidity to it, and every add makes it bigger. PeerPools.sol -
+#   the superseded factory - stays in the tree so the dead deployment on Base
+#   can be read against its own source, and nothing here deploys it.
 #
 # WHAT IT REFUSES TO DO.
 #   Handle a key, a seed phrase or a signature, in any form, for any reason.
 #   Write an address it has not just read code from on Base. That is not
 #   caution for its own sake: a PeerPools factory was deployed once on this
 #   network with its immutable peer address set to the operator's WALLET
-#   instead of the token. It is real, it has code, it answers, and every
-#   createPool on it reverts forever. A 40-hex regex says yes to that address.
+#   instead of the token. It is real, it has code, it answers, and every pull
+#   from its PEER side reverts forever. A 40-hex regex says yes to that
+#   address. PeerPool pairs its two tokens exactly as immutably, so the same
+#   mistake is available and the same check refuses it.
 #   Asking the contract what it thinks its own token is says no, and this
 #   script asks - of the claim contract too, where the same mistake would be
 #   the same kind of permanent.
@@ -39,8 +47,13 @@
 #   immutable, so nothing migrates.
 #
 # THE FILES IT WRITES are anchor-address.txt, claim-address.txt,
-# epoch-from-block.txt, and on the pools path pools-address.txt,
-# pools-from-block.txt and btc-token-address.txt. Every one is an entry in
+# epoch-from-block.txt, and on the pool path pool-address.txt and
+# btc-token-address.txt. There is no pool-from-block.txt: the old factory
+# needed one because pools were DISCOVERED by walking PoolCreated logs, and a
+# scan with no start block covers the whole chain. One pool is discovered by
+# having its address, so there is no scan for a block number to shorten - and
+# a variable that configures nothing is one somebody later believes does
+# something. Every file here is an entry in
 # webapp\load-config.ps1 - the one list every launcher dot-sources - and that
 # is the only reason this script is allowed to write anything. A file only one
 # launcher reads configures the host until the next watchdog restart and then
@@ -54,14 +67,14 @@
 #                                 story. A ?nonce= on it is answered by nonceOk.
 #   POST /api/setup/deployed      the hand-over. Cumulative and idempotent: the
 #                                 page posts anchor+claim, and later posts the
-#                                 same body again with pools added, so this
+#                                 same body again with the pool added, so this
 #                                 writes what is present and never erases what
 #                                 an earlier post set.
 #     { kind, v, chainId, nonce, account, token, btc,
-#       builds: { anchor, claim, pools },        each "sha256:..."
+#       builds: { anchor, claim, pool },         each "sha256:..."
 #       anchor?: { address, block, tx },
 #       claim?:  { address, block, tx },
-#       pools?:  { address, block, tx },
+#       pool?:   { address, block, tx },
 #       epochFromBlock? }
 #   GET  /state?nonce=...         everything this script decided. Still one curl
 #                                 for a person, and also the FIRST thing the page
@@ -287,14 +300,14 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   )
 }
 
-$artifacts = @('PeerAnchor.build.json', 'PeerClaim.build.json', 'PeerPools.build.json', 'PeerToken.build.json')
+$artifacts = @('PeerAnchor.build.json', 'PeerClaim.build.json', 'PeerPool.build.json', 'PeerToken.build.json')
 $missing = @()
 foreach ($a in $artifacts) { if (-not (Test-Path (Join-Path $here $a))) { $missing += $a } }
 if ($missing.Count -gt 0) {
   Fail @(
     ('ERROR: these compiled artifacts are not in chain-l2\: ' + ($missing -join ', ')),
     'They are what gets deployed, so there is nothing to check the page against.',
-    'Rebuild them:  node chain-l2\build-epoch.js   and   node chain-l2\build-pools.js'
+    'Rebuild them:  node chain-l2\build-epoch.js   and   node chain-l2\build-pool.js'
   )
 }
 
@@ -322,17 +335,17 @@ if (-not (Test-Path $pagePath)) {
 $pageBytes = [System.IO.File]::ReadAllBytes($pagePath)
 $pageText = [System.Text.Encoding]::UTF8.GetString($pageBytes)
 
-# The same check auto-deploy.ps1 makes for the pools factory, extended to all
-# three contracts this page can deploy, and for the same reason: a stale copy
-# of the page deploys a PREVIOUS immutable contract, silently, with real gas,
-# over an interface the host's calls would not reach. PeerAnchor and PeerClaim
-# are required because this flow deploys them. PeerPools is checked when the
-# page carries its fingerprint, and demanded when the page carries the pools
-# BYTECODE without one - a page that can deploy a factory has to say which
-# factory that is.
+# The same check auto-deploy.ps1 makes for the pool, extended to all three
+# contracts this page can deploy, and for the same reason: a stale copy of the
+# page deploys a PREVIOUS immutable contract, silently, with real gas, over an
+# interface the host's calls would not reach. PeerAnchor and PeerClaim are
+# required because this flow deploys them. PeerPool is checked when the page
+# carries its fingerprint, and demanded when the page carries the pool
+# BYTECODE without one - a page that can deploy the pool has to say which
+# pool that is.
 $wantAnchor = Get-BytecodeFingerprint (Join-Path $here 'PeerAnchor.build.json')
 $wantClaim  = Get-BytecodeFingerprint (Join-Path $here 'PeerClaim.build.json')
-$wantPools  = Get-BytecodeFingerprint (Join-Path $here 'PeerPools.build.json')
+$wantPools  = Get-BytecodeFingerprint (Join-Path $here 'PeerPool.build.json')
 if (-not $wantAnchor -or -not $wantClaim -or -not $wantPools) {
   Fail @('ERROR: an artifact in chain-l2\ has no bytecode field. Rebuild: node chain-l2\build-epoch.js')
 }
@@ -342,7 +355,7 @@ function Page-Fingerprint($name) {
 }
 $sawAnchor = Page-Fingerprint 'peeranchor-build'
 $sawClaim  = Page-Fingerprint 'peerclaim-build'
-$sawPools  = Page-Fingerprint 'peerpools-build'
+$sawPools  = Page-Fingerprint 'peerpool-build'
 
 $mismatch = @()
 if (-not $sawAnchor) { $mismatch += '  peeranchor-build:  the page carries no fingerprint at all' }
@@ -356,19 +369,19 @@ elseif ($sawClaim -ne $wantClaim) {
   $mismatch += ('                     here ' + $wantClaim)
 }
 if ($sawPools -and $sawPools -ne $wantPools) {
-  $mismatch += ('  peerpools-build:   page ' + $sawPools)
+  $mismatch += ('  peerpool-build:    page ' + $sawPools)
   $mismatch += ('                     here ' + $wantPools)
 }
 if (-not $sawPools) {
-  # A distinctive slice of the compiled factory, not its first bytes - every
+  # A distinctive slice of the compiled pool, not its first bytes - every
   # solc output starts alike, and a marker that matches every contract catches
   # nothing.
-  $poolsJson = Get-Content -Raw -Path (Join-Path $here 'PeerPools.build.json') | ConvertFrom-Json
+  $poolsJson = Get-Content -Raw -Path (Join-Path $here 'PeerPool.build.json') | ConvertFrom-Json
   $poolsCode = ([string]$poolsJson.bytecode).Trim().ToLowerInvariant()
   if ($poolsCode.Length -gt 400) {
     $marker = $poolsCode.Substring(200, 64)
     if ($pageText.ToLowerInvariant().Contains($marker)) {
-      $mismatch += '  peerpools-build:   the page embeds the pools bytecode but names no fingerprint for it'
+      $mismatch += '  peerpool-build:    the page embeds the pool bytecode but names no fingerprint for it'
     }
   }
 }
@@ -387,8 +400,8 @@ if ($mismatch.Count -gt 0) {
 Say 'page verified against this checkout:'
 Say ('  PeerAnchor  sha256 ' + $wantAnchor)
 Say ('  PeerClaim   sha256 ' + $wantClaim)
-if ($sawPools) { Say ('  PeerPools   sha256 ' + $wantPools) }
-else { Say '  PeerPools   not offered by this page' }
+if ($sawPools) { Say ('  PeerPool    sha256 ' + $wantPools) }
+else { Say '  PeerPool    not offered by this page' }
 
 # The host. Everything after this reads facts out of it - the epoch roots, the
 # totals - and restarts it once the contracts exist, so a host that is down is
@@ -414,16 +427,14 @@ $cfgBtc    = Read-Cfg 'btc-token-address.txt'
 $cfgAnchor = Read-Cfg 'anchor-address.txt'
 $cfgClaim  = Read-Cfg 'claim-address.txt'
 $cfgEpochB = Read-Cfg 'epoch-from-block.txt'
-$cfgPools  = Read-Cfg 'pools-address.txt'
-$cfgPoolsB = Read-Cfg 'pools-from-block.txt'
+$cfgPools  = Read-Cfg 'pool-address.txt'
 Say 'already configured, from server-data\:'
 Say ('  PEER token        ' + (Shown $cfgToken))
 Say ('  BTC token         ' + (Shown $cfgBtc))
 Say ('  PeerAnchor        ' + (Shown $cfgAnchor))
 Say ('  PeerClaim         ' + (Shown $cfgClaim))
 Say ('  epoch from block  ' + (Shown $cfgEpochB))
-Say ('  PeerPools         ' + (Shown $cfgPools))
-Say ('  pools from block  ' + (Shown $cfgPoolsB))
+Say ('  PeerPool          ' + (Shown $cfgPools))
 Say ''
 
 # ...and what the host is ACTUALLY serving, which is a different question. The
@@ -447,14 +458,14 @@ try {
   $oc0 = Get-Json ($HOSTBASE + '/api/token/onchain') 20
   $script:hostAnchorSeen = ([string]$oc0.anchors.contract).Trim().ToLowerInvariant()
   $script:hostClaimSeen = ([string]$oc0.claimState.contract).Trim().ToLowerInvariant()
-  $script:hostPoolsSeen = ([string]$oc0.namedPools.factory).Trim().ToLowerInvariant()
+  $script:hostPoolsSeen = ([string]$oc0.pool.address).Trim().ToLowerInvariant()
   $hostReadOk = $true
 } catch { }
 Say 'and what the host is actually serving, from /api/token/onchain:'
 if ($hostReadOk) {
   Say ('  PeerAnchor        ' + (Shown $script:hostAnchorSeen))
   Say ('  PeerClaim         ' + (Shown $script:hostClaimSeen))
-  Say ('  PeerPools         ' + (Shown $script:hostPoolsSeen))
+  Say ('  PeerPool          ' + (Shown $script:hostPoolsSeen))
 } else {
   Say '  the host answered /api/v1/state but not /api/token/onchain, so this run'
   Say '  cannot say what it is serving. The page asks it directly too, and that'
@@ -473,7 +484,7 @@ if ($hostReadOk) {
   $sides = @(
     @{ n = 'anchor-address.txt'; f = $cfgAnchor; h = $script:hostAnchorSeen },
     @{ n = 'claim-address.txt '; f = $cfgClaim;  h = $script:hostClaimSeen },
-    @{ n = 'pools-address.txt '; f = $cfgPools;  h = $script:hostPoolsSeen }
+    @{ n = 'pool-address.txt  '; f = $cfgPools;  h = $script:hostPoolsSeen }
   )
   foreach ($s in $sides) {
     $fLow = ''
@@ -502,7 +513,7 @@ if ($stale.Count -gt 0) {
 # that turn a confusing failure in the middle of the run - the page adopting an
 # address with nothing at it - into a sentence now. An RPC that will not answer
 # is reported as an RPC that will not answer, never as a verdict on the address.
-foreach ($pair in @(@{ n = 'anchor-address.txt'; a = $cfgAnchor }, @{ n = 'claim-address.txt'; a = $cfgClaim }, @{ n = 'pools-address.txt'; a = $cfgPools })) {
+foreach ($pair in @(@{ n = 'anchor-address.txt'; a = $cfgAnchor }, @{ n = 'claim-address.txt'; a = $cfgClaim }, @{ n = 'pool-address.txt'; a = $cfgPools })) {
   if (-not $pair.a) { continue }
   if ($pair.a -notmatch $ADDR_RE) { Say ('  WARNING: server-data\' + $pair.n + ' does not hold an address: ' + $pair.a); continue }
   try {
@@ -775,7 +786,7 @@ function Build-State() {
     $ocNow = Get-Json ($HOSTBASE + '/api/token/onchain') 5
     $script:hostAnchorSeen = ([string]$ocNow.anchors.contract).Trim().ToLowerInvariant()
     $script:hostClaimSeen = ([string]$ocNow.claimState.contract).Trim().ToLowerInvariant()
-    $script:hostPoolsSeen = ([string]$ocNow.namedPools.factory).Trim().ToLowerInvariant()
+    $script:hostPoolsSeen = ([string]$ocNow.pool.address).Trim().ToLowerInvariant()
   } catch { }
   return @{
     ok = $true
@@ -788,8 +799,8 @@ function Build-State() {
     # What server-data NAMES, which is not the same question as what the host
     # is serving - see hostReports. The page merges the two, and the whole
     # point of publishing both is that it can tell them apart.
-    configured = @{ anchor = $script:cfgAnchorNow; claim = $script:cfgClaimNow; pools = $script:cfgPoolsNow }
-    hostReports = @{ anchor = $script:hostAnchorSeen; claim = $script:hostClaimSeen; pools = $script:hostPoolsSeen }
+    configured = @{ anchor = $script:cfgAnchorNow; claim = $script:cfgClaimNow; pool = $script:cfgPoolsNow }
+    hostReports = @{ anchor = $script:hostAnchorSeen; claim = $script:hostClaimSeen; pool = $script:hostPoolsSeen }
     # Whether this run may record a DIFFERENT address over a recorded one. The
     # page reads it so it can refuse to deploy, rather than deploy and then be
     # refused - a distinction that costs two contracts.
@@ -820,21 +831,28 @@ function Handle-Setup($body) {
   # made against the file on disk, made again against the page that is actually
   # running in the browser. Cheap, and it catches the case where the page on
   # disk was replaced after this run started.
+  # All THREE, because two of three is how the third became decorative: the
+  # page sent "sha256:undefined" for the pool for as long as nothing read it,
+  # and the one field meant to prove that the page deploying the pool is the
+  # page this checkout built was a constant that nothing could fail. A field
+  # that is documented and unchecked is worse than one that is absent.
   $bAnchor = Field $body.builds @('anchor')
   $bClaim = Field $body.builds @('claim')
+  $bPool = Field $body.builds @('pool')
   if ($bAnchor -and $bAnchor -ne ('sha256:' + $wantAnchor)) { Refuse ('the page that posted was built from a different PeerAnchor (' + $bAnchor + ') than this checkout compiles. Nothing was written.'); return }
   if ($bClaim -and $bClaim -ne ('sha256:' + $wantClaim)) { Refuse ('the page that posted was built from a different PeerClaim (' + $bClaim + ') than this checkout compiles. Nothing was written.'); return }
+  if ($bPool -and $bPool -ne ('sha256:' + $wantPools)) { Refuse ('the page that posted was built from a different PeerPool (' + $bPool + ') than this checkout compiles. Nothing was written.'); return }
   $bChain = Field $body @('chainId')
   if ($bChain -and $bChain -ne ([string]$CHAIN_ID)) { Refuse ('the page says it deployed on chain ' + $bChain + ', and this script configures the host for chain ' + $CHAIN_ID + '. Nothing was written.'); return }
 
   $anchor = Field $body.anchor @('address', 'addr')
   $claim  = Field $body.claim  @('address', 'addr')
-  $pools  = Field $body.pools  @('address', 'addr')
+  $pools  = Field $body.pool   @('address', 'addr')
   $account = Field $body @('account')
   if (-not $anchor -and -not $claim -and -not $pools) { Refuse 'that hand-over named no addresses at all.'; return }
 
   # Cumulative: the page posts anchor+claim, then posts the same body again
-  # with pools added. An address already recorded and identical is not a change
+  # with the pool added. An address already recorded and identical is not a change
   # and is not a replacement - it is the second post saying the same true thing.
   $wroteSomething = $false
   $notes = @()
@@ -900,7 +918,7 @@ function Handle-Setup($body) {
     Say '  PeerAnchor answers anchorOf() as an empty anchor should'
 
     # (c) Is the claim contract paying out OUR token? This is the check the
-    #     dead pools factory needed and did not have: its immutable peer
+    #     dead factory needed and did not have: its immutable peer
     #     address was the operator's wallet, so it had code, it answered, and
     #     every call reverted forever. An immutable argument is checkable
     #     exactly once - now - and fixable never.
@@ -965,17 +983,18 @@ function Handle-Setup($body) {
     $notes += 'the epoch pair was already recorded and matches'
   }
 
-  # -- the pools factory -------------------------------------------------
+  # -- the pool ----------------------------------------------------------
   if ($pools -and $pools.ToLowerInvariant() -ne [string]$script:cfgPoolsNow) {
-    if ($pools -notmatch $ADDR_RE) { Refuse ('pools is not an address: ' + $pools); return }
+    if ($pools -notmatch $ADDR_RE) { Refuse ('pool is not an address: ' + $pools); return }
     $pools = $pools.ToLowerInvariant()
     Say ''
-    Say ('the page hands over a pools factory at ' + $pools + ' - checking ...')
+    Say ('the page hands over a pool at ' + $pools + ' - checking ...')
     try { if (-not (Has-Code $pools)) { Refuse ('nothing is deployed at ' + $pools); return } }
     catch { Refuse ('could not reach ' + $RPC + ': ' + $_.Exception.Message); return }
-    # The two immutable constructor arguments, read back from the factory
-    # itself. This is the exact check whose absence produced a factory on this
-    # very network whose peer() is a wallet and whose every createPool reverts.
+    # The two immutable constructor arguments, read back from the contract
+    # itself. They are its ENTIRE configuration, and this is the exact check
+    # whose absence produced a contract on this very network whose peer() is a
+    # wallet and whose every pull from that side reverts.
     $fpAns = Ask-Chain $pools $SEL_poolsPeer
     if (-not $fpAns.answered) { Refuse (Unreachable 'peer()' $pools $fpAns.error); return }
     $fbAns = Ask-Chain $pools $SEL_poolsBtc
@@ -987,24 +1006,25 @@ function Handle-Setup($body) {
     # sentence with an empty space where an address should be. And neither of
     # them is "the RPC was busy", which Ask-Chain has already separated out
     # above - a distinction that used to be lost in the same catch.
-    if (-not $fp -or -not $fb) { Refuse ('the contract at ' + $pools + ' answered peer() and btc() with nothing, so it is not a PeerPools factory. Nothing was written.'); return }
+    if (-not $fp -or -not $fb) { Refuse ('the contract at ' + $pools + ' answered peer() and btc() with nothing, so it is not a PeerPool. Nothing was written.'); return }
     if ($fp -ne $cfgToken.ToLowerInvariant()) {
-      Refuse ('that factory says peer() is ' + $fp + ', not ' + $cfgToken + '. Both sides are fixed at deployment, so every createPool on it would revert forever - this is exactly the dead factory this network already has one of. Nothing was written.')
+      Refuse ('that pool says peer() is ' + $fp + ', not ' + $cfgToken + '. Both sides are fixed at deployment, so every pull from that side would revert forever - this is exactly the dead factory this network already has one of. Nothing was written.')
       return
     }
     if ($fb -ne $CBBTC.ToLowerInvariant()) {
-      Refuse ('that factory says btc() is ' + $fb + ', not cbBTC (' + $CBBTC + '). Nothing was written.')
+      Refuse ('that pool says btc() is ' + $fb + ', not cbBTC (' + $CBBTC + '). Nothing was written.')
       return
     }
-    Say ('  the factory pairs ' + $fp + ' with ' + $fb + ' - correct')
-    $pb = To-BlockNumber (Field $body.pools @('block', 'blockNumber'))
-    Write-Cfg 'pools-address.txt' $pools
-    if ($pb) { Write-Cfg 'pools-from-block.txt' ([string]$pb) }
+    Say ('  the pool pairs ' + $fp + ' with ' + $fb + ' - correct')
+    # The deployment block is posted and is not written anywhere. Nothing
+    # discovers this contract by log, so there is no backfill for it to
+    # shorten - and a file nothing reads is a file somebody later trusts.
+    Write-Cfg 'pool-address.txt' $pools
     if (-not (Test-Path (Join-Path $logDir 'btc-token-address.txt'))) { Write-Cfg 'btc-token-address.txt' $CBBTC }
     $script:cfgPoolsNow = $pools
     $wroteSomething = $true
   } elseif ($pools) {
-    $notes += 'the pools factory was already recorded and matches'
+    $notes += 'the pool was already recorded and matches'
   }
 
   if (-not $wroteSomething) {
@@ -1196,7 +1216,7 @@ try {
         }
         if ($fundable.Count -gt 0 -and $script:verified.Count -ge $fundable.Count -and -not $script:winding) {
           # Everything expected has landed. The listener stays up a little
-          # longer because the pools step, when there is one, comes after this
+          # longer because the pool step, when there is one, comes after this
           # in the page's plan - and then it ends by itself rather than sitting
           # there until a twenty-minute timeout somebody has to wait out.
           $script:winding = $true
@@ -1204,7 +1224,7 @@ try {
           $deadline = (Get-Date).AddMinutes(3)
           Say ''
           Say 'Every epoch that had something to pay is now open on chain and checked.'
-          Say 'Staying up three more minutes in case the pools step follows, then closing.'
+          Say 'Staying up three more minutes in case the pool step follows, then closing.'
         }
       }
 
@@ -1322,8 +1342,7 @@ Say ('  BTC token         ' + (Shown (Read-Cfg 'btc-token-address.txt')))
 Say ('  PeerAnchor        ' + (Shown (Read-Cfg 'anchor-address.txt')))
 Say ('  PeerClaim         ' + (Shown (Read-Cfg 'claim-address.txt')))
 Say ('  epoch from block  ' + (Shown (Read-Cfg 'epoch-from-block.txt')))
-Say ('  PeerPools         ' + (Shown (Read-Cfg 'pools-address.txt')))
-Say ('  pools from block  ' + (Shown (Read-Cfg 'pools-from-block.txt')))
+Say ('  PeerPool          ' + (Shown (Read-Cfg 'pool-address.txt')))
 
 # Is the host actually up, whichever way this ended? A run that leaves the
 # network down is worse than a run that did nothing.
@@ -1383,12 +1402,12 @@ if ($script:verified.Count -gt 0) {
   }
 }
 
-# Pools, and the honest reason they are not set up. The balance is read off the
+# The pool, and the honest reason it is not set up. The balance is read off the
 # chain for the steward this run actually saw, so this is a measurement rather
 # than an assumption.
 Say ''
-if (Read-Cfg 'pools-address.txt') {
-  Say 'Pools: a factory is configured and the host can see it. Opening a pool is a'
+if (Read-Cfg 'pool-address.txt') {
+  Say 'Pool: it is configured and the host can see it. Putting coins in is a'
   Say 'separate act: it puts PEER on one side and cbBTC on the other, at a price you'
   Say 'choose by picking the two amounts, and no script here will pick them.'
 } else {
@@ -1399,7 +1418,7 @@ if (Read-Cfg 'pools-address.txt') {
       $btcBal = Word-Uint ($balWord.Substring(2))
     } catch { $btcBal = $null }
   }
-  Say 'Pools: NOT set up, and this script cannot finish that part.'
+  Say 'Pool: NOT set up, and this script cannot finish that part.'
   if ($null -ne $btcBal) {
     $human = [double]$btcBal / 100000000.0
     Say ('  ' + $script:stewardSeen + ' holds ' + $human.ToString('0.00000000') + ' cbBTC.')

@@ -213,6 +213,90 @@ describe('the built page is an application, not just valid JavaScript', () => {
     }
   }, 40000);
 
+  /**
+   * The pools card, drawn against a real /api/token/onchain body.
+   *
+   * Every other test here runs the page OFFLINE, so ocRender is never reached
+   * — the card shows "could not reach this host" and both branches that matter
+   * go unexercised. That is how the mismatch line disappeared once already: it
+   * was rendered by a reader that was deleted, and nothing on the page side
+   * noticed the key stopped arriving.
+   */
+  describe('the pool card, against a host that answers', () => {
+    const POOL = '0x' + '22'.repeat(20);
+    const TOKEN = '0x' + '11'.repeat(20);
+    const ODD_BTC = '0x' + '77'.repeat(20);
+
+    const serveOnchain = (pool: Record<string, unknown>) => (url: string) => {
+      const u = String(url);
+      if (u.includes('/api/token/onchain')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            deployed: true, chainId: 8453, token: TOKEN, decimals: 18,
+            totalSupplyRaw: (18_250_000n * 10n ** 18n).toString(), totalSupply: 18250000,
+            pool,
+          }),
+        });
+      }
+      return Promise.reject(new Error('offline'));
+    };
+
+    const open = (pool: Record<string, unknown>) => boot({
+      'peer-sandbox-who-v2': JSON.stringify('alice'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'pools' }),
+    }, serveOnchain(pool));
+
+    it('says FIRST when the pool trades coins this host was not configured with', async () => {
+      // The failure this sentence exists for: the card signs approvals against
+      // peer()/btc() read off the POOL, so a pair that disagrees with the
+      // host's configuration means every button below moves coins the operator
+      // did not mean to serve. Nothing is hidden — this page cannot know which
+      // of the two addresses is wrong — but it is said before the address, the
+      // wallet row and every form.
+      const { dom, errors, root } = await open({
+        address: POOL,
+        resPeerRaw: (100_000n * 10n ** 18n).toString(),
+        resBtcRaw: '1000000',
+        totalSharesRaw: '316227766016837',
+        seeded: true,
+        tokens: { peer: TOKEN, btc: ODD_BTC },
+        decimals: { peer: 18, btc: 18 },
+        mismatch: {
+          pairs: [{ side: 'btc', pool: ODD_BTC, configured: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf' }],
+          error: 'this pool trades tokens this host was not configured with — amounts are scaled by the POOL’s tokens.',
+        },
+      });
+      expect(errors, 'the pools view threw: ' + errors.join(' | ')).toEqual([]);
+      const text = root!.textContent || '';
+      expect(text).toContain('this pool trades tokens this host was not configured with');
+      // Before the address it is about, which is what "first" means here.
+      expect(text.indexOf('this pool trades tokens')).toBeLessThan(text.indexOf(POOL));
+      dom.window.close();
+    }, 30000);
+
+    it('draws the first-add panel on three zeros, and says what the floor costs', async () => {
+      const { dom, errors, root } = await open({
+        address: POOL,
+        resPeerRaw: '0', resBtcRaw: '0', totalSharesRaw: '0', seeded: false,
+        tokens: { peer: TOKEN, btc: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf' },
+        decimals: { peer: 18, btc: 8 },
+      });
+      expect(errors, 'the opening panel threw: ' + errors.join(' | ')).toEqual([]);
+      const text = root!.textContent || '';
+      expect(text).toMatch(/nobody has funded this pool yet/i);
+      expect(text).toMatch(/THE FIRST DEPOSIT SETS THE PRICE/);
+      // The count on its own has no denominator, and that is what made "seed
+      // it as small as you like" and "1000 units are locked" read as
+      // compatible at every size. The prose now carries the fraction too.
+      expect(text).toMatch(/three billionths of one percent/);
+      expect(text).toMatch(/95% of one a whisker over the floor/);
+      dom.window.close();
+    }, 30000);
+  });
+
   it('groups the network identically on every boot of the same log', async () => {
     // The whole application is replayable by doctrine: same acts in, same
     // answer out. Grouping is the one figure on the Network screen that is

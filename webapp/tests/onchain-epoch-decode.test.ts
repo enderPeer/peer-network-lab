@@ -625,7 +625,11 @@ describe('the two topic0 constants, taken from the contracts themselves', () => 
  */
 describe('chain-l2/deploy.html carries exactly the built contracts', () => {
   const page = fs.readFileSync(new URL('../chain-l2/deploy.html', import.meta.url), 'utf8');
-  const artifacts = ['PeerToken', 'PeerPools', 'PeerAnchor', 'PeerClaim'];
+  // PeerPool, singular: the page deploys ONE pool at one address now, and the
+  // superseded PeerPools factory is no longer embedded anywhere. Its build.json
+  // is still in the tree so the dead deployment on Base can be read against its
+  // own source; nothing signs it.
+  const artifacts = ['PeerToken', 'PeerPool', 'PeerAnchor', 'PeerClaim'];
 
   it('embeds each bytecode byte for byte', () => {
     for (const name of artifacts) {
@@ -637,7 +641,7 @@ describe('chain-l2/deploy.html carries exactly the built contracts', () => {
 
   it('prints a fingerprint that describes the bytecode it actually embeds', async () => {
     const { createHash } = await import('node:crypto');
-    for (const [meta, name] of [['peerpools', 'PeerPools'], ['peeranchor', 'PeerAnchor'], ['peerclaim', 'PeerClaim']]) {
+    for (const [meta, name] of [['peerpool', 'PeerPool'], ['peeranchor', 'PeerAnchor'], ['peerclaim', 'PeerClaim']]) {
       const b = JSON.parse(fs.readFileSync(new URL('../chain-l2/' + name + '.build.json', import.meta.url), 'utf8')).bytecode;
       const fp = createHash('sha256').update(String(b).trim().toLowerCase(), 'ascii').digest('hex');
       // In the meta tag auto-deploy.ps1 compares, and in the card a human reads.

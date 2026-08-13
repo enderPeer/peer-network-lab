@@ -1960,8 +1960,8 @@ async function burnTick() {
 // rules: the window, the observation count, the depth floor, the per-epoch
 // ceiling and the sink address are the engine's constants, declared once in
 // social/replay.cjs and read from the replay state below. It decides only
-// whether the chain shows what was claimed, and what the official pool held
-// while it was showing it. Every number it finds goes into the act, and replay
+// whether the chain shows what was claimed, and what the pool held while it
+// was showing it. Every number it finds goes into the act, and replay
 // recomputes the price from those recorded numbers and refuses any
 // disagreement — so a host that got this wrong is caught by arithmetic on
 // every other host, rather than believed.
@@ -2012,6 +2012,18 @@ async function peerBurnLimits() {
  * decides how it is spelled back to a human.
  */
 const PEERBURN_SINK_DISPLAY = '0x000000000000000000000000000000000000dEaD';
+
+/**
+ * Which pool inside the priced contract a peerBurn act names: always 0.
+ *
+ * PeerPool is ONE market at one address, so the contract and the pool are the
+ * same thing and there is no id to choose. The act still carries the pair
+ * because the engine still validates the pair — see the note where the act is
+ * built — and this constant exists so that the number is written down once,
+ * with its reason, instead of appearing as a bare `0` in two places that would
+ * have to be kept in step by hand.
+ */
+const PEERBURN_ACT_POOL_INDEX = 0;
 
 /**
  * How much of a Base transaction the log has already turned into reserve, and
@@ -2213,7 +2225,24 @@ async function peerBurnCredit(id, txid) {
   const doneSats = peerBurnCreditedSats(tx).sats;
   const nowPB = now.peerBurn || {};
   const usedSats = (nowPB.usedSatsThisEpoch || {})[id + '@' + epoch] || 0;
-  const poolKey = String(q.twap.factory).toLowerCase() + '#' + q.twap.poolId + '@' + epoch;
+  // ── The pool's identity in the act, and the one field name that lags ──
+  //
+  // The engine (social/replay.cjs) keys the per-pool epoch cap on a CONTRACT
+  // address plus an index inside it, and validates that a peerBurn act carries
+  // both. That pair is a leftover from PeerPools, where the contract was a
+  // factory holding many pools and a name identified nothing. With PeerPool
+  // there is one contract holding one pool, so the contract IS the pool and
+  // the index inside it is 0 — which is what is recorded below, and what the
+  // cap key is built from here in exactly the format replay rebuilds it in.
+  //
+  // Nothing recorded is untrue: `factory` is the address the reserves were
+  // read from, and there is exactly one pool in it. What is stale is the
+  // WORD. Collapsing the two fields into a single pool address belongs in one
+  // change that moves the engine, the act schema and the page together — an
+  // act-log schema is not something a host-side reader gets to change on its
+  // own, because every other host replays the same log.
+  const poolContract = String(q.twap.pool).toLowerCase();
+  const poolKey = poolContract + '#' + PEERBURN_ACT_POOL_INDEX + '@' + epoch;
   const poolUsed = (nowPB.poolUsedSatsThisEpoch || {})[poolKey] || 0;
   const room = [
     { sats: q.sats - doneSats, why: null },
@@ -2222,7 +2251,7 @@ async function peerBurnCredit(id, txid) {
       why: 'burning PEER creates at most ' + limits.reservePerEpoch + ' reserve per account per epoch and this handle has used all of it. The burn stays valid: what is left of it is claimable after the next epoch closes, and the host asks again on its own tick.' },
     { sats: Number(q.twap.resBtcRaw) - poolUsed,
       code: 'PEER_BURN_POOL_CAP',
-      why: 'pool ' + q.twap.poolId + ' has already created as much reserve this epoch as it holds bitcoin, so it can create no more until the next epoch closes. The burn stays valid and is claimed then.' },
+      why: 'the pool at ' + poolContract + ' has already created as much reserve this epoch as it holds bitcoin, so it can create no more until the next epoch closes. The burn stays valid and is claimed then.' },
   ];
   const creditsSats = Math.min(...room.map((r) => r.sats));
   if (!(creditsSats > 0)) {
@@ -2239,8 +2268,10 @@ async function peerBurnCredit(id, txid) {
     txid: tx,
     from: src,
     amtRaw: String(v.amtRaw),
-    factory: String(q.twap.factory).toLowerCase(),
-    pool: q.twap.poolId,
+    // See the pool-identity note above: the address the reserves came out of,
+    // and the index of the pool inside it, which for a PeerPool is 0.
+    factory: poolContract,
+    pool: PEERBURN_ACT_POOL_INDEX,
     startsAt: q.twap.startsAt,
     endsAt: q.twap.endsAt,
     refHash: q.twap.refHash,
@@ -3456,7 +3487,7 @@ const API_DOC = {
     { method: 'GET', path: '/api/v1/tokens?as=ID', purpose: 'PEER/tBTC/custom asset balances, your epoch distributions, and the emission schedule' },
     { method: 'GET', path: '/api/v1/epoch/N/claim?as=ID|address=0x…', purpose: 'one CLOSED epoch\'s earnings as a merkle tree: the root, the total in raw 18-decimal units, every leaf (address, amount, the handles behind it), the handles that earned and had no address bound, and — when you name a claimant — that claimant\'s amount and the bytes32[] proof PeerClaim.claim takes. Every leaf is returned on purpose: rebuild the root yourself and compare it with the one published on-chain rather than trusting this host to have computed it honestly.' },
     { method: 'POST', path: '/api/v1/bind', purpose: 'bind an ethereum address to your handle, so that from the NEXT epoch close your share is a leaf under that address in the epoch\'s earnings tree. That is all binding does. Whether such a leaf is ever payable on Base is a separate question and not this host\'s to answer: PEER has no mint, so every claim is a transfer out of the steward\'s own holdings, and an epoch becomes claimable only if the steward chooses to open and fund it. Credential required — whoever binds collects. Costs no energy. A root already published cannot change, so binding again replaces it forward only.', body: { as: 'id', pin: 'string — your PIN, or the passkey assertion object under `auth` if this handle is secured with a passkey and no PIN', address: '0x + 40 hex — paste it from your wallet, a typo cannot be detected here' } },
-    { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them — this is the in-log AMM; the real on-chain named pools, when a factory is configured, are under namedPools at GET /api/token/onchain' },
+    { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them — this is the in-log AMM. The real on-chain pool is a different thing entirely: ONE PeerPool contract on Base, anyone may add liquidity to it, and it is reported under `pool` at GET /api/token/onchain when an address is configured.' },
     { method: 'GET', path: '/api/v1/gatherings?past=1', purpose: 'the calendar: what is happening, when, where, the fee, and how many are going. Upcoming only unless past=1. NOTE the name — /api/v1/events is the act stream, this is the thing people turn up to.' },
     { method: 'GET', path: '/api/v1/markets?all=1', purpose: 'Prender Markets: every open bet with its answers, what is staked on each, the elected jury, the bond, the fee and the deadlines. Settled ones too with all=1. Read the content id from here — never derive it. Stakes and juries touch no standing.' },
     // Undiscoverable until now, which made it useless: proof of burn is the
@@ -3469,8 +3500,8 @@ const API_DOC = {
     // The second door. Listed beside the first, with the difference between
     // them stated rather than left to be inferred: both destroy value, only
     // one of them is a proof.
-    { method: 'GET', path: '/api/peerburn', purpose: 'the PEER door: the dead address, the official pool it is priced against, the time-weighted price with the block range, the reference block hash and every reading behind it, and what a given amount would credit. Reserve only — a PEER burn never counts toward the epoch mint or the writer election, because those weigh bitcoin destroyed and a price can be lied to. It does buy acts, and acts are what the standing solve reads, which is what the two ceilings bound rather than deny. The sink here is unspendable because nobody is believed to know a key for it; the bitcoin address is unspendable by arithmetic, which is a different and stronger claim. Unconfigured, this answers 404 and says why: with no pool there is no price, and a guessed price is an invented rate for the right to speak.' },
-    { method: 'POST', path: '/api/peerburn/claim', purpose: 'bind a PEER burn you already made. The host checks on Base that the transaction succeeded and moved this network\'s PEER to the dead address deep enough to count, reads the SENDER off the chain, and credits the handle that had already bound that address when the coins were destroyed — exactly one handle, bound before the burn, or nobody. Then it reads the official pool across the averaging window and records the amount, the sender, the factory and pool, the block range, the reference hash, every block read, the reserves, the satoshis, and how much of the burn this act credits — so a reader recomputes the price instead of believing it. A burn worth more than one epoch\'s ceiling is credited in slices across epochs rather than forfeited. Never send a price; a client-supplied price is an oracle attack that never has to touch a pool.', body: { id: 'your handle id', txid: '0x + 64 hex', auth: 'your PIN' } },
+    { method: 'GET', path: '/api/peerburn', purpose: 'the PEER door: the dead address, the ONE pool it is priced against, the time-weighted price with the block range, the reference block hash and every reading behind it, and what a given amount would credit. Reserve only — a PEER burn never counts toward the epoch mint or the writer election, because those weigh bitcoin destroyed and a price can be lied to. It does buy acts, and acts are what the standing solve reads, which is what the two ceilings bound rather than deny. The sink here is unspendable because nobody is believed to know a key for it; the bitcoin address is unspendable by arithmetic, which is a different and stronger claim. Unconfigured, this answers 404 and says why: with no pool there is no price, and a guessed price is an invented rate for the right to speak.' },
+    { method: 'POST', path: '/api/peerburn/claim', purpose: 'bind a PEER burn you already made. The host checks on Base that the transaction succeeded and moved this network\'s PEER to the dead address deep enough to count, reads the SENDER off the chain, and credits the handle that had already bound that address when the coins were destroyed — exactly one handle, bound before the burn, or nobody. Then it reads the pool across the averaging window and records the amount, the sender, the pool contract, the block range, the reference hash, every block read, the reserves, the satoshis, and how much of the burn this act credits — so a reader recomputes the price instead of believing it. A burn worth more than one epoch\'s ceiling is credited in slices across epochs rather than forfeited. Never send a price; a client-supplied price is an oracle attack that never has to touch a pool.', body: { id: 'your handle id', txid: '0x + 64 hex', auth: 'your PIN' } },
     { method: 'GET', path: '/api/peerburn/pending', purpose: 'every PEER burn the chain shows at the dead address whose value this log has not fully recorded, and why each is still uncredited. No intents here and none needed: a Base transfer names its sender. What this list is NOT is an invitation — a burn belongs to the handle that had bound the sending address BEFORE the burn, so binding an address you see here now reaches nothing. Without that ordering rule this page would be a shopping list, and it was: binding a stranger\'s address and claiming their burn worked, and locked the real burner out for good.' },
     { method: 'GET', path: '/api/v1/errors', purpose: 'every refusal this host can return: a stable code, why the rule exists, and what to do about it. Branch on `code`, not on the wording.' },
     { method: 'GET', path: '/api/v1/events?since=N&limit=M', purpose: 'acts after cursor N, decoded into plain language. The cheap way to stay in sync. Each event carries `node`: the content id that act minted (or, for a revision, wrote to) — read it from here, never derive it: the id counter also ticks for hyperedge legs (quotes, mentions), so client-side counting lands off by one and replies go nowhere.' },
@@ -4509,7 +4540,8 @@ function adminBans() {
 //
 // `inFlight` is the other half of that, and the half a cache is usually
 // missing. A cold cache with twenty tabs arriving at once used to start
-// twenty full rounds — a pool scan each, dozens of calls apiece — because
+// twenty full rounds — a whole pool-discovery scan each, dozens of calls
+// apiece, back when pools had to be discovered at all — because
 // every one of them checked the cache before any of them had filled it.
 // The refresh is one promise now: the first caller starts it, everyone else
 // waits on the same one, and the endpoint's load stops depending on how
@@ -4940,7 +4972,7 @@ const server = createServer((req, res) => {
         provenance,
         whatThisIs: 'Send PEER from the address bound to your handle to ' + PEERBURN_SINK_DISPLAY
           + ' and the coins are destroyed. The host watches that address and credits the burn when it is deep enough, with nothing left open on your side; POST /api/peerburn/claim {id, txid, auth} does the same immediately if you have the hash in hand. What you get is reserve — the right to speak — and nothing else: a PEER burn never counts toward the epoch mint or the writer election, because those weigh bitcoin destroyed, and a price can be lied to where a satoshi cannot.',
-        howItIsPriced: 'By the official pool above, time-weighted across '
+        howItIsPriced: 'By the pool above — the one PEER/cbBTC pool this network has, which anyone may add liquidity to — time-weighted across '
           + (limits ? Math.round(limits.twapMs / 60_000) : '?') + ' minutes of chain time and at least '
           + (limits ? limits.twapObs : '?') + ' readings. The act records the reserves used, so anyone replaying the log recomputes the same satoshi figure instead of taking this host\'s word for it — and a host whose recorded price and recorded value disagree has its act refused by replay.',
         priceMayMove: 'This is a quote, not an offer. A burn is priced by the averaging window ending at the block that burn is in — so this number is what a burn made right now would get, and nothing is held open for you. That anchoring is deliberate: priced at claim time instead, anyone could burn from an unbound address, wait for a pump, then bind and claim — a perfectly honest window that was still their pick of the best half hour in a week.',
@@ -5042,8 +5074,10 @@ const server = createServer((req, res) => {
         credited: r.act.creditsSats / 100,
         creditedSats: r.act.creditsSats,
         remainingSats: r.act.sats - r.act.creditsSats,
-        pool: r.act.pool,
-        factory: r.act.factory,
+        // The pool, as one address — which is the whole of its identity. The
+        // act records that address under a field still called `factory`; see
+        // the note where the act is built for why the word lags the design.
+        pool: r.act.factory,
         pricedAt: { resPeerRaw: r.act.resPeerRaw, resBtcRaw: r.act.resBtcRaw, twapMs: r.act.twapMs,
           observations: r.act.obs, startsAt: r.act.startsAt, endsAt: r.act.endsAt,
           refHash: r.act.refHash, blocks: r.act.blocks },
@@ -5095,9 +5129,10 @@ const server = createServer((req, res) => {
   // and accepts no key, so this door cannot move value however it is called.
   if (req.method === 'GET' && url.pathname === '/api/token/onchain') {
     // The same read limiter every other GET on this router spends. The 30s
-    // cache below covers the pool scan, but ?of= deliberately sits OUTSIDE
-    // it — one uncached eth_call per request, aimed at a public RPC on
-    // someone else's rate limit — so an unlimited door here lets one client
+    // cache below covers everything that is the same answer for everybody —
+    // the token, the pool, the epoch contracts — but ?of= deliberately sits
+    // OUTSIDE it: a few uncached eth_calls per request, aimed at a public RPC
+    // on someone else's rate limit, so an unlimited door here lets one client
     // spend the host's endpoint quota walking a list of addresses.
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down — too many requests', code: 'RATE_LIMIT' }); return; }
     import('./chain-l2/onchain.mjs').then(async (m) => {
@@ -5128,11 +5163,11 @@ const server = createServer((req, res) => {
       // an account balance to the shared state would hand it to every other
       // viewer for the rest of the cache window.
       //
-      // Everything the chain says about the epoch contracts — the anchors,
-      // and each recent epoch's root, total, paid and deadline — is already
-      // inside `state`, because it is the same answer for everybody and
-      // belongs in the same 30-second cache as the pool scan that pays for
-      // it. Only the per-account questions are asked per request.
+      // Everything the chain says about the pool and the epoch contracts —
+      // the reserves, the total shares, the anchors, and each recent epoch's
+      // root, total, paid and deadline — is already inside `state`, because it
+      // is the same answer for everybody and belongs in the same 30-second
+      // cache. Only the per-account questions are asked per request.
       const out = { deployed: true, ...state };
       if (q) {
         // If the state above is a refusal — the RPC answered for a chain
@@ -5156,6 +5191,17 @@ const server = createServer((req, res) => {
             : [];
           const claims = eps.length ? await m.claimsOf(q, eps) : null;
           if (claims) out.account = out.account ? { ...out.account, claims } : { address: claims.address, claims };
+          // And what this address holds OF THE POOL. Shares are internal
+          // accounting inside PeerPool — they do not transfer and no ERC-20
+          // reports them — so a liquidity provider has no other way to see
+          // their own position. One eth_call, outside the shared cache for
+          // exactly the reason the balance is: a cached share count would show
+          // one viewer's position to everyone who asked in the same window.
+          //
+          // The pool's own reserves and total shares are in `state` above,
+          // because those are the same answer for everybody; the slice is not.
+          const shares = await m.sharesOf(q);
+          if (shares) out.account = out.account ? { ...out.account, poolShares: shares } : { address: shares.address, poolShares: shares };
         }
       }
       json(res, 200, out);
@@ -5963,7 +6009,7 @@ server.listen(PORT, () => {
   peerChain().then((m) => {
     const cfg = m.peerBurnConfig();
     if (!cfg.on) { console.log('[peerburn] off — ' + cfg.why); return; }
-    console.log(`[peerburn] pricing against pool ${cfg.poolId} on factory ${cfg.factory}`
+    console.log(`[peerburn] pricing against the pool at ${cfg.pool}`
       + `, ${cfg.minConfirmations} confirmations, watching every ${Math.round(PEERBURN_WATCH_MS / 1000)}s`);
     peerBurnTick();
     setInterval(peerBurnTick, PEERBURN_WATCH_MS).unref?.();

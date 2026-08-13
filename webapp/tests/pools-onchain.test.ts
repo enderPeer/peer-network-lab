@@ -2,6 +2,19 @@
  * PeerPools, executed on a real EVM — not a model of the contract, the
  * compiled bytecode itself, running under @ethereumjs/vm.
  *
+ * THE CONTRACT UNDER TEST HERE IS SUPERSEDED. The network runs ONE pool at one
+ * address: PeerPool.sol, covered by tests/one-pool.test.ts, which is the file
+ * to read for the live design. Nothing in the app calls anything asserted
+ * below — chain-l2/onchain.mjs reads a single pool through reserves() and
+ * knows nothing about a factory, and no page embeds this bytecode.
+ *
+ * It is kept, and kept passing, for one reason: a PeerPools was deployed once
+ * and a deployment is immutable. Somebody reading that address off a block
+ * explorer needs the source, the artifact and the selectors in this repository
+ * to agree with what is actually out there. See the SUPERSEDED header on
+ * chain-l2/PeerPools.sol for which address that is, why it is dead, and why
+ * its build.json no longer reproduces the deployed metadata byte for byte.
+ *
  * What must hold:
  *
  * 1. The on-chain pool math is the in-log pool math. replay.cjs applies
@@ -228,10 +241,16 @@ describe('the artifact — what the rest of the pipeline hardcodes', () => {
     expect(poolsBuild.bytecode).toMatch(/^0x[0-9a-f]+$/);
   });
 
-  it('keeps the read selectors onchain.mjs hardcodes, even though poolInfo grew a word', () => {
+  it('keeps its read selectors stable, even though poolInfo grew a word', () => {
     // A selector is keccak of the name and the INPUT types only. poolInfo
-    // now answers five words instead of four and its selector did not move,
-    // which is the whole reason `creator` was appended rather than inserted.
+    // answers five words instead of four and its selector did not move, which
+    // is the whole reason `creator` was appended rather than inserted.
+    //
+    // Nothing in the app hardcodes these any more: chain-l2/onchain.mjs reads
+    // ONE PeerPool through reserves() and knows nothing about a factory. They
+    // are pinned here because this contract is deployed and immutable — a
+    // reader written against it later, by anyone, needs the artifact and the
+    // signature to agree, and this is where that is checked.
     expect(poolsBuild.hashes['poolInfo(uint256)']).toBe('1526fe27');
     expect(poolsBuild.hashes['poolCount()']).toBe('f525cb68');
     expect(poolsBuild.hashes['sharesOf(uint256,address)']).toBe('e78307ca');

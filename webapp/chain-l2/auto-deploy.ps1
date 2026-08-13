@@ -1,4 +1,4 @@
-# Auto-deploy: the pools factory from page to live host, one sitting.
+# Auto-deploy: THE pool from page to live host, one sitting.
 #
 # What this script does and does not automate, stated plainly: it brings the
 # deploy page up, checks the page it found is the one THIS checkout builds,
@@ -9,9 +9,9 @@
 # in MetaMask, on purpose. A script that could do that step would be a script
 # holding your key, and nothing in this repository is allowed to become that.
 #
-# The four files it writes - server-data\token-address.txt,
-# pools-address.txt, pools-from-block.txt and btc-token-address.txt - are
-# four of the entries in webapp\load-config.ps1, the one list every launcher
+# The three files it writes - server-data\token-address.txt,
+# pool-address.txt and btc-token-address.txt - are three of the entries in
+# webapp\load-config.ps1, the one list every launcher
 # dot-sources, and that is the only reason this script is allowed to write
 # anything. A file only one launcher reads would configure the host until
 # the next watchdog restart and then quietly stop, which is worse than never
@@ -60,11 +60,11 @@ function Get-BytecodeFingerprint($jsonPath) {
   try { $bytes = $sha.ComputeHash([System.Text.Encoding]::ASCII.GetBytes($norm)) } finally { $sha.Dispose() }
   return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
-$buildJson = Join-Path $here 'PeerPools.build.json'
+$buildJson = Join-Path $here 'PeerPool.build.json'
 $wantFp = Get-BytecodeFingerprint $buildJson
 if (-not $wantFp) {
-  Say ('ERROR: could not read the PeerPools bytecode out of ' + $buildJson)
-  Say 'Rebuild it first:  node chain-l2\build-pools.js'
+  Say ('ERROR: could not read the PeerPool bytecode out of ' + $buildJson)
+  Say 'Rebuild it first:  node chain-l2\build-pool.js'
   exit 1
 }
 
@@ -99,13 +99,13 @@ if (-not $pageUp) { Say 'ERROR: the deploy page did not come up. Run: node chain
 # The page prints this same number next to the factory card, so an operator
 # who did not run this script can make the comparison by eye.
 $servedFp = $null
-if ($pageHtml -match 'name="peerpools-build"[^>]*content="sha256:([0-9a-f]{64})"') { $servedFp = $Matches[1] }
+if ($pageHtml -match 'name="peerpool-build"[^>]*content="sha256:([0-9a-f]{64})"') { $servedFp = $Matches[1] }
 if ($servedFp -ne $wantFp) {
   Say ''
   Say 'ERROR: DEPLOY PAGE IDENTITY MISMATCH - refusing to go on.'
   Say ''
   Say 'The page answering http://127.0.0.1:8899/ is not the one this checkout builds.'
-  Say ('  this checkout (chain-l2\PeerPools.build.json):  ' + $wantFp)
+  Say ('  this checkout (chain-l2\PeerPool.build.json):   ' + $wantFp)
   if ($servedFp) {
     Say ('  the page being served:                         ' + $servedFp)
   } else {
@@ -137,11 +137,11 @@ if ($servedFp -ne $wantFp) {
     Say 'on disk is out of date with the compiled bytecode beside it. Regenerate'
     Say 'it and run this script again:'
     Say '     node chain-l2\build-deploy-page.js'
-    Say 'If PeerPools.sol changed, compile it first: node chain-l2\build-pools.js'
+    Say 'If PeerPool.sol changed, compile it first: node chain-l2\build-pool.js'
   }
   exit 1
 }
-Say ('deploy page verified: PeerPools sha256 ' + $wantFp)
+Say ('deploy page verified: PeerPool sha256 ' + $wantFp)
 
 # -- 2. Open it where MetaMask lives --------------------------------------
 Say ''
@@ -149,11 +149,13 @@ Say 'Opening  http://127.0.0.1:8899/  - the page numbers its own cards; do them 
 Say '  card 1  Connect MetaMask (account with ~2 USD of ETH on Base).'
 Say '  cards 2-3  Deploy PEER if you have not already - copy the address it prints.'
 Say '  card 4  Paste that PEER address. The cbBTC field is already filled in.'
-Say '  card 5  Deploy the pools factory - copy ITS address AND the block number'
-Say '          it prints underneath. Both are asked for below.'
+Say '  card 5  Deploy the pool - copy ITS address. That is the only thing'
+Say '          asked for below; the block number it prints is not needed by'
+Say '          anything, because nothing discovers this contract by log scan.'
 Say ''
-Say 'Deploying the factory opens no pool and moves no coin. It is an empty'
-Say 'factory until somebody calls createPool from the app.'
+Say 'Deploying the pool puts nothing in it and moves no coin. It holds three'
+Say 'zeros until somebody adds liquidity from the app - and that first add sets'
+Say 'the opening price, which is why no script here will do it for you.'
 Say ''
 Start-Process 'http://127.0.0.1:8899/'
 
@@ -168,24 +170,19 @@ if ($tokIn) {
   Set-Content -Path (Join-Path $logDir 'token-address.txt') -Value $tokIn.Trim() -Encoding Ascii
   Say 'wrote server-data\token-address.txt'
 }
-$poolsIn = Read-Host 'Pools factory address (Enter to skip)'
+$poolsIn = Read-Host 'Pool address (Enter to skip)'
 if ($poolsIn) {
   if ($poolsIn -notmatch $addrRe) { Say ('not an address: ' + $poolsIn); exit 1 }
-  Set-Content -Path (Join-Path $logDir 'pools-address.txt') -Value $poolsIn.Trim() -Encoding Ascii
-  Say 'wrote server-data\pools-address.txt'
+  Set-Content -Path (Join-Path $logDir 'pool-address.txt') -Value $poolsIn.Trim() -Encoding Ascii
+  Say 'wrote server-data\pool-address.txt'
 }
-# The deploy page prints this beside the address, and any explorer shows it
-# on the deployment transaction. Skipping it is allowed and costs you the
-# pool list: the reader would then ask a public RPC for the whole chain's
-# logs, which most refuse. A number that is too HIGH is worse than none,
-# because it hides pools opened before it - so paste the one the page gave
-# you rather than a round number near it.
-$blkIn = Read-Host 'Block the factory was deployed in (Enter to skip)'
-if ($blkIn) {
-  if ($blkIn -notmatch '^(0x[0-9a-fA-F]+|[0-9]+)$') { Say ('not a block number: ' + $blkIn); exit 1 }
-  Set-Content -Path (Join-Path $logDir 'pools-from-block.txt') -Value $blkIn.Trim() -Encoding Ascii
-  Say 'wrote server-data\pools-from-block.txt'
-}
+# No block number is asked for, and that is a deletion rather than an
+# omission. It used to be needed because pools were DISCOVERED by walking the
+# factory's PoolCreated logs, and a scan with no start block asks a public RPC
+# for the whole chain - which most refuse, silently, as an empty list. One
+# pool is discovered by having its address: there is no scan left for a block
+# number to shorten, so there is no file for it and no variable that reads it.
+$blkIn = ''
 if (-not (Test-Path (Join-Path $logDir 'btc-token-address.txt'))) {
   # The pair's other side. Written only if absent - if you ever point this at
   # something other than cbBTC on purpose, a re-run will not undo that.
@@ -208,17 +205,17 @@ try {
   Say ''
   # How to read that, since this is the step that catches a wrong-but-real
   # address - the regex above only ever proved it was 40 hex characters.
-  Say 'Reading the namedPools object above:'
-  Say '  "total":0 with an empty "pools" list is a live, EMPTY factory. That is'
+  Say 'Reading the pool object above:'
+  Say '  "seeded":false with three zero reserves is a live, EMPTY pool. That is'
   Say '  what a fresh deployment looks like and it is correct.'
-  Say '  "tokens" is the pair the factory itself names. Check it is your PEER and'
-  Say '  cbBTC. A "mismatch" key means it is not, and that the address you pasted'
-  Say '  is a real factory over different coins - stop and fix that one now.'
-  Say '  "total" above "discovered" means pools exist that the log scan did not'
-  Say '  see: pools-from-block.txt starts too late. Lower it.'
-  Say '  An "error" key means nothing answered there on this chain at all.'
-  Say 'None of this is urgent while the factory is empty. All of it is urgent'
-  Say 'once somebody has put coins in.'
+  Say '  "resPeerRaw" and "resBtcRaw" are raw integers - wei of PEER against'
+  Say '  satoshis, because cbBTC has 8 decimals and one raw unit of it IS one'
+  Say '  satoshi. "totalSharesRaw" is 0 until the first add.'
+  Say '  An "error" key means nothing answered reserves() there on this chain -'
+  Say '  which is a wrong address, not an empty pool, and the two must not be'
+  Say '  read alike: an empty pool invites the first deposit.'
+  Say 'None of this is urgent while the pool is empty. All of it is urgent once'
+  Say 'somebody has put coins in - and the FIRST person to do that sets its price.'
 } catch {
   Say ('the endpoint did not answer cleanly: ' + $_.Exception.Message)
   Say 'check server-data\host.err.log - and note the RPC needs a moment on first read.'

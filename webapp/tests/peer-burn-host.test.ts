@@ -21,10 +21,12 @@
  * 3. A THIN POOL IS REFUSED IN WORDS. Below the depth floor there is no
  *    price, only a last trade, and pricing a burn off one would mint the
  *    right to speak out of somebody's rounding error.
- * 4. UNCONFIGURED, EVERY ROUTE DEGRADES HONESTLY. That is the shipped state:
- *    no factory is deployed and no PEER/cbBTC pool exists, so there is no
- *    price — and a host that guessed one would be inventing the rate at
- *    which speech is sold.
+ * 4. UNCONFIGURED, EVERY ROUTE DEGRADES HONESTLY. That is the shipped state
+ *    until the pool is deployed and seeded: with no pool there is no price,
+ *    and a host that guessed one would be inventing the rate at which speech
+ *    is sold. It takes ONE address to configure now — the pool contract —
+ *    where it used to take a factory address and a pool id, because pools
+ *    were many and a name identified nothing.
  *
  * The chain is a fake JSON-RPC endpoint on localhost, and everything else is
  * the real server process. A test that needed Base would be a test that only
@@ -34,7 +36,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -54,8 +56,9 @@ const engineGrid = replay([{ t: 'seedWorld' }]).peerBurnGrid;
 const DEAD = '0x000000000000000000000000000000000000dEaD';
 const TOKEN = '0x5d63786095d09210011fd382c0710a7a1bc90e6f';   // the deployed PEER
 const CBBTC = '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf';
-const FACTORY = '0x4444444444444444444444444444444444444444';
-const POOL_ID = 3;
+/** THE pool. One address is the whole of its identity — no factory above it
+ *  and no id inside it, which is why there is only one constant here now. */
+const POOL = '0x4444444444444444444444444444444444444444';
 const ENDER = '0x1111111111111111111111111111111111111111';
 const OTHER = '0x2222222222222222222222222222222222222222';
 const STRANGER = '0x3333333333333333333333333333333333333333';
@@ -108,6 +111,26 @@ const blockHash = (n: number) => '0x' + createHash('sha256').update('block:' + n
  * binding has to carry a time and that time has to be old.
  */
 const BOUND_AT = T0 - 24 * 3600_000;
+
+/**
+ * The code at the pool address, because the host now checks it.
+ *
+ * "The address IS the identity" is the whole argument for one pool, and until
+ * eth_getCode was compared against chain-l2/PeerPool.build.json it was an
+ * assertion: any contract that answered peer(), btc() and reserves()
+ * plausibly set the price at which the right to speak is sold. So this stub
+ * has to serve the real compiled runtime, with the two immutable words filled
+ * in the way a constructor fills them — which is also what proves the host's
+ * comparison masks those ranges rather than getting lucky.
+ */
+const poolBuild = JSON.parse(readFileSync(join(ROOT, 'chain-l2', 'PeerPool.build.json'), 'utf8'));
+const POOL_CODE = (() => {
+  const c = String(poolBuild.deployed.object).replace(/^0x/, '').split('');
+  for (const r of poolBuild.deployed.immutables) {
+    for (let i = r.start * 2; i < (r.start + r.length) * 2; i++) c[i] = 'e';
+  }
+  return '0x' + c.join('');
+})();
 
 /**
  * The chain, as the fake endpoint sees it. Tests mutate this directly.
@@ -177,11 +200,14 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** The 5 static words poolInfo returns: name, resPeer, resBtc, totalShares, creator. */
-const poolInfoReturn = (block: number) => {
+/** The 3 static words reserves() returns: resPeer, resBtc, totalShares.
+ *  totalShares tracks the reserves rather than being a constant, because a
+ *  pool holding nothing has issued no shares — that pairing is exactly what
+ *  tells a freshly deployed pool from a funded one. */
+const reservesReturn = (block: number) => {
   const r = poolAt(block);
-  return '0x' + Buffer.from('official').toString('hex').padEnd(64, '0')
-    + word(r.peer) + word(r.btc) + word(1000n) + addrWord(ENDER);
+  const shares = r.peer === 0n && r.btc === 0n ? 0n : 1000n;
+  return '0x' + word(r.peer) + word(r.btc) + word(shares);
 };
 
 function handleRpc(body: { method: string; params?: unknown[]; id: number }) {
@@ -189,6 +215,12 @@ function handleRpc(body: { method: string; params?: unknown[]; id: number }) {
   chain.calls.push(method);
   if (method === 'eth_chainId') return '0x2105';                       // 8453
   if (method === 'eth_blockNumber') return hex(BigInt(chain.head));
+  // Asked once per process, for the pool and nothing else. A wrong address is
+  // codeless here and the host says so rather than pricing off whatever
+  // answered.
+  if (method === 'eth_getCode') {
+    return String(params[0]).toLowerCase() === POOL.toLowerCase() ? POOL_CODE : '0x';
+  }
   if (method === 'eth_getBlockByNumber') {
     const tag = String(params[0]);
     const n = tag === 'latest' ? chain.head : Number(BigInt(tag));
@@ -212,13 +244,12 @@ function handleRpc(body: { method: string; params?: unknown[]; id: number }) {
     if (!chain.serveHistory && tag !== 'latest' && Number(BigInt(tag)) < chain.head) {
       throw new Error('missing trie node — this node keeps no historical state');
     }
-    if (to === FACTORY.toLowerCase()) {
+    if (to === POOL.toLowerCase()) {
       if (data.startsWith('0x11cda415')) return '0x' + addrWord(TOKEN);      // peer()
       if (data.startsWith('0xa28d57d8')) return '0x' + addrWord(CBBTC);      // btc()
-      if (data.startsWith('0x1526fe27')) {                                    // poolInfo(uint256)
-        const id = Number(BigInt('0x' + data.slice(10)));
+      if (data.startsWith('0x75172a8b')) {                                    // reserves()
         const at = tag === 'latest' ? chain.head : Number(BigInt(tag));
-        return id === POOL_ID ? poolInfoReturn(at) : '0x';
+        return reservesReturn(at);
       }
     }
     if (data.startsWith('0x313ce567')) return '0x' + word(to === CBBTC ? 8n : 18n);   // decimals()
@@ -343,18 +374,19 @@ beforeAll(async () => {
     PEER_L2_CHAIN_ID: '8453',
     PEER_TOKEN_ADDR: TOKEN,
     PEER_BTC_ADDR: CBBTC,
-    // The bitcoin door and the pool list stay out of this host entirely: this
-    // file is about the PEER door, and a second watcher polling explorers
-    // would only add flakiness.
+    // The bitcoin door stays out of this host entirely: this file is about
+    // the PEER door, and a second watcher polling explorers would only add
+    // flakiness.
     PEER_BURN_ADDRESS: '',
-    PEER_POOLS_ADDR: '',
   };
   [child, offChild] = await Promise.all([
     boot(PORT, {
       ...common,
       PEER_DATA_DIR: join(dir, 'on'),
-      PEER_PEERBURN_FACTORY: FACTORY,
-      PEER_PEERBURN_POOL_ID: String(POOL_ID),
+      // One variable configures this whole door now. It used to take two —
+      // a factory and an id — and the pair existed only because a pool NAME
+      // could be claimed by two strangers at once.
+      PEER_POOL_ADDR: POOL,
       PEER_PEERBURN_FROM_BLOCK: String(chain.head - 5000),
       PEER_PEERBURN_MIN_CONF: String(MIN_CONF),
       // Effectively never on its own. The watcher is exercised deliberately
@@ -394,10 +426,11 @@ describe('with nothing configured', () => {
     expect(status).toBe(404);
     expect(body.code).toBe('PEERBURN_OFF');
     expect(body.accepting).toBe(false);
-    expect(String(body.why)).toMatch(/PEER_PEERBURN_FACTORY/);
+    expect(String(body.why)).toMatch(/PEER_POOL_ADDR/);
     // The point of the refusal: no invented rate anywhere in the body.
     expect(JSON.stringify(body)).not.toMatch(/"sats":\s*\d/);
-    expect(body.missing).toContain('PEER_PEERBURN_POOL_ID');
+    // ONE thing can be missing, because one address is the whole of it.
+    expect(body.missing).toEqual(['PEER_POOL_ADDR']);
   });
 
   it('refuses a claim rather than half-accepting it', async () => {
@@ -471,13 +504,24 @@ describe('the price', () => {
     expect(q.reserve).toBe(sats / SATS_PER_RESERVE);
   }, 20_000);
 
-  it('names the pool by factory and id, and says a name is not an identity', async () => {
+  it('names the pool by its address, which is the whole of its identity', async () => {
     const { body } = await get(BASE, '/api/peerburn');
-    const pool = body.pool as unknown as { poolId: number; factory: string; creator: string; nameNote: string };
-    expect(pool.poolId).toBe(POOL_ID);
-    expect(pool.factory).toBe(FACTORY.toLowerCase());
-    expect(String(pool.nameNote)).toMatch(/per-creator label/i);
-    expect(pool.creator).toBe(ENDER.toLowerCase());
+    const pool = body.pool as unknown as {
+      address: string; resPeerRaw: string; resBtcRaw: string; totalSharesRaw: string;
+      seeded: boolean; identity: string; poolId?: number; factory?: string; name?: string;
+    };
+    expect(pool.address).toBe(POOL.toLowerCase());
+    expect(pool.seeded).toBe(true);
+    expect(pool.resBtcRaw).toBe(String(chain.pool.btc));
+    expect(String(pool.identity)).toMatch(/no name, no id, no factory/i);
+    expect(String(pool.identity)).toMatch(/Anyone may add liquidity/i);
+    // The three things that used to identify a pool, and the three the answer
+    // must no longer carry: a bytes32 name nobody could trust, the creator
+    // that had to be shown beside it to stop the name being a lie by
+    // omission, and the factory/id pair that told two of them apart.
+    expect(pool.name).toBeUndefined();
+    expect(pool.factory).toBeUndefined();
+    expect(pool.poolId).toBeUndefined();
   });
 
   it('states the difference between the two doors rather than implying they are equal', async () => {
@@ -600,7 +644,6 @@ describe('a burn that really happened', () => {
     const [act] = await peerBurns('u_ender');
     expect(act).toBeTruthy();
     expect(act.txid).toBe(txid('1'));
-    expect(act.pool).toBe(POOL_ID as unknown as string);
     // Raw amounts are STRINGS. An 18-decimal number that went through JSON as
     // a number is already rounded, and two honest hosts would then price the
     // same burn differently.
@@ -618,17 +661,26 @@ describe('a burn that really happened', () => {
   });
 
   it('records WHOSE burn it was, WHICH pool priced it, and WHERE the window sat', async () => {
-    // Three things were missing, and each one turned a checkable number back
-    // into an assertion. `from` is the address the coins left — ownership is
-    // decided from the bindings in the log and cannot be decided at all if the
-    // act does not say whose transfer this was. `factory` is the other half of
-    // the pool's identity: two factories both have a pool 3, and the act used
-    // to record only the number. The window fields are what let a reader
-    // re-fetch the pool at the same blocks instead of checking the recorded
+    // Three things were missing once, and each one turned a checkable number
+    // back into an assertion. `from` is the address the coins left — ownership
+    // is decided from the bindings in the log and cannot be decided at all if
+    // the act does not say whose transfer this was. The contract the reserves
+    // came out of is the pool's identity, and a reader who cannot re-fetch
+    // that contract cannot check the price. The window fields are what let
+    // them re-fetch it at the same blocks instead of checking the recorded
     // reserves against themselves.
+    //
+    // The act still spells that identity as a CONTRACT plus an index inside
+    // it, under a field called `factory`, which is the shape the engine
+    // (social/replay.cjs) validates and keys its per-pool epoch cap on. With
+    // one pool the contract IS the pool and the index is 0. Nothing recorded
+    // is untrue; the word lags the design, and collapsing the two fields is an
+    // act-schema change that has to move with the engine and the page rather
+    // than with this reader.
     const [act] = await peerBurns('u_ender');
     expect(String(act.from).toLowerCase()).toBe(ENDER.toLowerCase());
-    expect(String(act.factory).toLowerCase()).toBe(FACTORY.toLowerCase());
+    expect(String(act.factory).toLowerCase()).toBe(POOL.toLowerCase());
+    expect(act.pool).toBe(0 as unknown as string);
     expect(Number(act.blockMs)).toBeGreaterThan(0);
     const startsAt = Number(act.startsAt), endsAt = Number(act.endsAt);
     expect(endsAt).toBeGreaterThan(startsAt);
@@ -802,6 +854,44 @@ describe('a pool too thin to have a price', () => {
     expect(q.available).toBe(false);
     expect(q.code).toBe('PEER_BURN_THIN_POOL');
     expect(body.accepting).toBe(true);            // the door is on; the pool is not usable
+  }, 20_000);
+});
+
+/**
+ * A pool nobody has seeded is a state that could not exist before.
+ *
+ * Under the factory, a pool came into being through createPool, which took a
+ * deposit — so a configured pool id either had reserves or did not exist. A
+ * PeerPool exists from the moment it is deployed and holds nothing until
+ * somebody adds liquidity, and that first add is the one that invents the
+ * opening price. So it needs a refusal of its own: "too thin to price" tells
+ * somebody to wait for the pool to grow, which is the wrong instruction when
+ * the pool has not been started.
+ */
+describe('a pool nobody has seeded yet', () => {
+  it('is refused as unseeded, not as thin, and not as a wrong address', async () => {
+    chain.history = [];
+    chain.pool = { peer: 0n, btc: 0n };
+    chain.head += 1500;                       // every held reading falls out of the window
+    chain.txs.push({ txid: txid('a1'), from: ENDER, to: DEAD, token: TOKEN, amt: 10n * E18, block: chain.head - 700 });
+    const r = await post(BASE, '/api/peerburn/claim', { id: 'u_ender', auth: '1234', txid: txid('a1') });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe('PEER_BURN_POOL_UNSEEDED');
+    expect(String(r.body.error)).toMatch(/nobody has added liquidity/i);
+    expect(String(r.body.error)).toMatch(/first add sets the opening price/i);
+    expect((await peerBurns()).some((a) => a.txid === txid('a1'))).toBe(false);
+  }, 20_000);
+
+  it('says the same on the quote, and shows the pool as unseeded rather than as zeros', async () => {
+    const { body } = await get(BASE, '/api/peerburn?peer=10');
+    expect(body.accepting).toBe(true);        // the door is on; there is nothing to price against
+    const q = body.quote as unknown as { available: boolean; code: string };
+    expect(q.available).toBe(false);
+    expect(q.code).toBe('PEER_BURN_POOL_UNSEEDED');
+    const pool = body.pool as unknown as { seeded: boolean; note: string; resBtcRaw: string };
+    expect(pool.seeded).toBe(false);
+    expect(pool.resBtcRaw).toBe('0');
+    expect(String(pool.note)).toMatch(/as small as the depositor likes/i);
   }, 20_000);
 });
 

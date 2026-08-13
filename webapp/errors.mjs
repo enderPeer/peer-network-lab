@@ -159,8 +159,13 @@ export const CATALOGUE = {
   },
   PEER_BURN_THIN_POOL: {
     http: 400,
-    why: 'The PEER/cbBTC pool is too shallow to have a price. Constant-product price is whatever the last trade left behind, so in a thin pool an attacker can pump it, burn PEER at the inflated rate, take the reserve and let it fall — buying the right to speak with a rounding error. Below the minimum depth a burn is refused in words rather than priced badly.',
-    fix: 'Wait for the pool to be deep enough, or use the bitcoin door, which has no price to manipulate and therefore no depth requirement.',
+    why: 'The PEER/cbBTC pool is too shallow to have a price. Constant-product price is whatever the last trade left behind, so in a thin pool an attacker can pump it, burn PEER at the inflated rate, take the reserve and let it fall — buying the right to speak with a rounding error. Below the minimum depth a burn is refused in words rather than priced badly. Note what this does NOT say: the pool is real and usable at any size, and it can be seeded arbitrarily small. This is a floor on what may set the price of speech, not a floor on the pool.',
+    fix: 'Wait for the pool to be deep enough — anyone may add liquidity to it, and every add makes it deeper — or use the bitcoin door, which has no price to manipulate and therefore no depth requirement.',
+  },
+  PEER_BURN_POOL_UNSEEDED: {
+    http: 400,
+    why: 'Nobody has added liquidity to the pool yet, so it holds nothing and there is no ratio to read. This is a real state and not a fault: the pool contract exists from the moment it is deployed, and the FIRST deposit sets the opening price out of the two amounts deposited. Until then a price here would be an invention, and this door prices the right to speak.',
+    fix: 'Add liquidity from your own wallet — any size — or wait for somebody to. Burning bitcoin needs no pool at all: GET /api/burn.',
   },
   PEER_BURN_STALE_PRICE: {
     http: 400,
@@ -174,8 +179,8 @@ export const CATALOGUE = {
   // makes the rule true on every host rather than on this one.
   PEERBURN_OFF: {
     http: 404,
-    why: 'Burning PEER for reserve is not switched on here. It is priced by ONE pool — a factory address and a pool id an operator configured — and with none configured there is no price. That is the shipped state: no pools factory is deployed and no PEER/cbBTC pool exists yet, so this host says so rather than guessing a rate. A guessed rate would be an invented exchange rate for the right to speak, which is worse than a closed door.',
-    fix: 'Burn bitcoin instead — that door needs no price and no pool: GET /api/burn. If you run this host, set PEER_PEERBURN_FACTORY and PEER_PEERBURN_POOL_ID to a pool you chose yourself.',
+    why: 'Burning PEER for reserve is not switched on here. It is priced by THE pool — one PEER/cbBTC contract at one address — and with none configured there is no price, so this host says so rather than guessing a rate. A guessed rate would be an invented exchange rate for the right to speak, which is worse than a closed door. It used to take two settings to answer "which pool", because pools were many and a name identified nothing; one address answers it now.',
+    fix: 'Burn bitcoin instead — that door needs no price and no pool: GET /api/burn. If you run this host, set PEER_POOL_ADDR to the pool contract, and check it yourself rather than taking an address out of a document.',
   },
   PEERBURN_NO_BINDING: {
     http: 400,

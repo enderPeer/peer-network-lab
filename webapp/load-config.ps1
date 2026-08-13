@@ -36,11 +36,19 @@ $peerConfigFiles = @(
   @{ f = 'operator-token.txt';    v = 'PEER_OPERATOR_TOKEN' },
   @{ f = 'token-address.txt';     v = 'PEER_TOKEN_ADDR' },
   @{ f = 'btc-token-address.txt'; v = 'PEER_BTC_ADDR' },
-  @{ f = 'pools-address.txt';     v = 'PEER_POOLS_ADDR' },
-  # The block the pools factory was deployed in. Without it the log scan
-  # walks from block 0 - it still finishes and never claims to be complete
-  # while it is behind, but it takes many refreshes to get there.
-  @{ f = 'pools-from-block.txt';  v = 'PEER_POOLS_FROM_BLOCK' },
+  # THE pool: one PeerPool contract holding PEER and cbBTC. Anyone may add
+  # liquidity to it and every add makes it bigger, so there is nothing to
+  # choose between and nothing to enumerate - one address is the whole of it.
+  # Unset means the host reads no pool AND burning PEER for reserve is off,
+  # both said in words: with no pool there is no price.
+  #
+  # This replaced pools-address.txt (PEER_POOLS_ADDR) and its companion
+  # pools-from-block.txt, which existed because pools used to be MANY, found
+  # by walking the factory's PoolCreated logs from a block an operator had to
+  # supply. Nothing scans for a pool any more; both files are ignored, and a
+  # host upgrading across this change can delete them along with
+  # server-data\pools-scan.json.
+  @{ f = 'pool-address.txt';      v = 'PEER_POOL_ADDR' },
   # The epoch chain on Base: PeerAnchor timestamps each closed epoch's block
   # id and earnings root, PeerClaim pays those earnings out as real PEER.
   # Both are OFF when unset and GET /api/token/onchain says so in words.
@@ -48,32 +56,25 @@ $peerConfigFiles = @(
   @{ f = 'claim-address.txt';     v = 'PEER_CLAIM_ADDR' },
   # ONE from-block for both of those scans - the two contracts are deployed
   # in the same sitting, so use the LOWER of their two deployment blocks.
-  # Same rule as pools: err low. Too low costs a little scanning; too high
-  # silently hides everything anchored or opened before it.
+  # Err LOW: too low costs a little scanning; too high silently hides
+  # everything anchored or opened before it.
   @{ f = 'epoch-from-block.txt';  v = 'PEER_EPOCH_FROM_BLOCK' },
   @{ f = 'burn-address.txt';      v = 'PEER_BURN_ADDRESS' },
   @{ f = 'btc-address.txt';       v = 'PEER_BTC_ADDRESS' },
   # The SECOND door into reserve: burning PEER instead of bitcoin. A PEER
-  # burn is priced by ONE pool, and which pool that is has to be written
-  # down - never resolved by name, because PeerPools claims names per
-  # creator on purpose, so two strangers may both own a pool called 'main'
-  # and a host that looked one up by name could be re-pointed at a fake for
-  # the price of one transaction. So: a factory ADDRESS and a numeric id.
+  # burn is priced by THE pool, which is pool-address.txt above - one file,
+  # because there is one pool. peerburn-factory.txt and peerburn-pool-id.txt
+  # used to live here and are gone: they existed only to answer 'which pool
+  # is the official one' in a world where pools were many and a NAME could
+  # not answer it. An address answers it now.
   #
-  # Both unset means burning PEER is OFF and every route says so in words.
-  # That is the shipped state today: no pools factory is deployed and no
-  # PEER/cbBTC pool exists, so there is no price - and a host that guessed
-  # one would be inventing the exchange rate at which speech is sold.
-  # Burning bitcoin is unaffected and needs no pool at all.
+  # Unset means burning PEER is OFF and every route says so in words - with
+  # no pool there is no price, and a host that guessed one would be inventing
+  # the exchange rate at which speech is sold. Burning bitcoin is unaffected
+  # and needs no pool at all.
   #
-  # Deliberately NOT defaulted to pools-address.txt. That file decides which
-  # factory the pool LIST is read from; a price that silently followed it
-  # would re-point itself the day an operator aimed the list at somebody
-  # else's factory to look at it. Two questions, two files, both explicit.
-  @{ f = 'peerburn-factory.txt';    v = 'PEER_PEERBURN_FACTORY' },
-  @{ f = 'peerburn-pool-id.txt';    v = 'PEER_PEERBURN_POOL_ID' },
   # The block the TOKEN was deployed in - the burn scan walks the token's
-  # own Transfer logs, not the factory's. Same err-LOW rule as the other
+  # own Transfer logs, not the pool's. Same err-LOW rule as the other
   # from-blocks: too low costs a little scanning, too high silently hides
   # burns made before it, and a burn this scan never sees is reserve
   # somebody destroyed PEER for and never received.

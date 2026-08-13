@@ -1,6 +1,6 @@
 // One command that stands this whole network up on a chain that costs nothing.
 //
-// Everything this repo built on-chain — named pools, anchored epochs, merkle
+// Everything this repo built on-chain — the pool, anchored epochs, merkle
 // claims, the wallet card — was checked by unit tests and by read-only reads
 // against Base, and then never USED. Using it needs a funded wallet and a
 // signature; on Base that is real money and a real key. tools/devchain.mjs
@@ -29,17 +29,25 @@
 //     of being wrong is a page that reports invented numbers as Base's.
 //
 // THE ONE DIFFERENCE FROM BASE THAT CAN HIDE A BUG. On Base the bitcoin side
-// of every pool is cbBTC, which has EIGHT decimals. There is no cbBTC on a
+// of the pool is cbBTC, which has EIGHT decimals. There is no cbBTC on a
 // chain that was born ninety seconds ago, so this file deploys a second
 // PeerToken as a stand-in and calls it TBTC — and PeerToken has EIGHTEEN
 // decimals, like PEER. So a display that hardcodes 8, or that scales the
 // bitcoin side by the PEER side's decimals, is WRONG ON BASE AND RIGHT HERE:
-// the two mistakes cancel on this chain. onchain.mjs reads decimals() off the
-// factory's own btc() and gets 18 here, which is the correct behaviour and
-// also the behaviour that hides the bug. Anything that looks right here and is
+// the two mistakes cancel on this chain. Anything that looks right here and is
 // scaled by a constant should be read again against a token with 8 decimals
 // before it is believed. Every amount this file prints says which decimals it
 // used, for the same reason.
+//
+// onchain.mjs reads decimals() off the POOL's own btc() — not off
+// PEER_BTC_ADDR — which is the correct behaviour and also the behaviour that
+// hides the bug here, because this file sets PEER_BTC_ADDR to the very TBTC the
+// pool was deployed against, so the two agree and either would give 18. That
+// sentence was false for one release: the pools card took its scaling from the
+// configured addresses while signing against the pool's own pair, and this
+// devnet could not have surfaced it. Reading the pool's pair is now asserted in
+// tests/onchain-pool-decode.test.ts against a pair that DISAGREES, which is the
+// only place the difference is visible.
 //
 // Nothing here signs with a secret. The devchain's accounts are unlocked:
 // eth_sendTransaction executes straight from whatever `from` names, so this
@@ -120,7 +128,7 @@ if (REAL_CHAINS.has(CHAIN_ID)) {
 const build = (name) => JSON.parse(readFileSync(join(webapp, 'chain-l2', name + '.build.json'), 'utf8'));
 const ART = {
   PeerToken: build('PeerToken'),
-  PeerPools: build('PeerPools'),
+  PeerPool: build('PeerPool'),
   PeerAnchor: build('PeerAnchor'),
   PeerClaim: build('PeerClaim'),
 };
@@ -156,11 +164,12 @@ const SEL = {
   decimals: erc20('decimals()', '313ce567'),
   symbol: erc20('symbol()', '95d89b41'),
   totalSupply: erc20('totalSupply()', '18160ddd'),
-  // PeerPools
-  createPool: sel('PeerPools', 'createPool(bytes32,uint256,uint256)'),
-  poolCount: sel('PeerPools', 'poolCount()'),
-  poolsPeer: sel('PeerPools', 'peer()'),
-  poolsBtc: sel('PeerPools', 'btc()'),
+  // PeerPool - one pool at one address, so there is nothing to create and
+  // nothing to count. `add` is both the seeding call and every later deposit.
+  add: sel('PeerPool', 'add(uint256,uint256,uint256,uint256)'),
+  reserves: sel('PeerPool', 'reserves()'),
+  poolPeer: sel('PeerPool', 'peer()'),
+  poolBtc: sel('PeerPool', 'btc()'),
   // PeerAnchor
   anchor: sel('PeerAnchor', 'anchor(uint256,bytes32,bytes32)'),
   // PeerClaim
@@ -183,13 +192,6 @@ const b32 = (h) => {
   if (!/^[0-9a-f]{64}$/.test(s)) die('not a 32-byte hex word: ' + String(h).slice(0, 80));
   return s;
 };
-/** A pool name as PeerPools stores it: utf-8, RIGHT-padded with zero bytes. */
-function nameWord(text) {
-  const bytes = Buffer.from(text, 'utf8');
-  if (bytes.length > 32) die(`pool name ${JSON.stringify(text)} is ${bytes.length} bytes; a bytes32 name holds 32`);
-  return hex(bytes).padEnd(64, '0');
-}
-
 // ---------------------------------------------------------------------------
 // Talking to the chain
 // ---------------------------------------------------------------------------
@@ -431,7 +433,7 @@ const PEER_SUPPLY = 18_250_000n;
 const TBTC_SUPPLY = 21_000_000n;
 const peer = await deploy(DEPLOYER, 'PeerToken', uint(PEER_SUPPLY), 'PeerToken (PEER)');
 const tbtc = await deploy(DEPLOYER, 'PeerToken', uint(TBTC_SUPPLY), 'PeerToken (TBTC)');
-const pools = await deploy(DEPLOYER, 'PeerPools', addrWord(peer.address) + addrWord(tbtc.address), 'PeerPools');
+const pool = await deploy(DEPLOYER, 'PeerPool', addrWord(peer.address) + addrWord(tbtc.address), 'PeerPool');
 const anchor = await deploy(DEPLOYER, 'PeerAnchor', '', 'PeerAnchor');
 const claim = await deploy(DEPLOYER, 'PeerClaim', addrWord(peer.address) + addrWord(DEPLOYER), 'PeerClaim');
 
@@ -441,17 +443,17 @@ const claim = await deploy(DEPLOYER, 'PeerClaim', addrWord(peer.address) + addrW
 // own wallet, and nothing checked.
 const peerDecimals = Number(readWord(await ethCall(peer.address, SEL.decimals)));
 const tbtcDecimals = Number(readWord(await ethCall(tbtc.address, SEL.decimals)));
-const factoryPeer = '0x' + String(await ethCall(pools.address, SEL.poolsPeer)).slice(-40);
-const factoryBtc = '0x' + String(await ethCall(pools.address, SEL.poolsBtc)).slice(-40);
+const poolPeer = '0x' + String(await ethCall(pool.address, SEL.poolPeer)).slice(-40);
+const poolBtc = '0x' + String(await ethCall(pool.address, SEL.poolBtc)).slice(-40);
 const claimToken = '0x' + String(await ethCall(claim.address, SEL.claimToken)).slice(-40);
 const claimSteward = '0x' + String(await ethCall(claim.address, SEL.steward)).slice(-40);
 const wrong = [];
-if (factoryPeer !== peer.address) wrong.push(`PeerPools.peer() is ${factoryPeer}, not the PEER just deployed`);
-if (factoryBtc !== tbtc.address) wrong.push(`PeerPools.btc() is ${factoryBtc}, not the TBTC just deployed`);
+if (poolPeer !== peer.address) wrong.push(`PeerPool.peer() is ${poolPeer}, not the PEER just deployed`);
+if (poolBtc !== tbtc.address) wrong.push(`PeerPool.btc() is ${poolBtc}, not the TBTC just deployed`);
 if (claimToken !== peer.address) wrong.push(`PeerClaim.token() is ${claimToken}, not the PEER just deployed`);
 if (claimSteward !== DEPLOYER) wrong.push(`PeerClaim.steward() is ${claimSteward}, not the deployer`);
 if (wrong.length) die('the deployed immutables are not what was passed:\n  - ' + wrong.join('\n  - '));
-say(`    immutables check out: the factory trades the two tokens above, and PeerClaim pays PEER with ${DEPLOYER} as steward.`);
+say(`    immutables check out: the pool trades the two tokens above, and PeerClaim pays PEER with ${DEPLOYER} as steward.`);
 say('');
 say(`    DECIMALS: PEER ${peerDecimals}, TBTC ${tbtcDecimals}. On Base the bitcoin side is cbBTC at EIGHT decimals`);
 say('              (0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf). Anything that scales the btc side by a');
@@ -489,13 +491,14 @@ const hostEnv = {
   PEER_L2_CHAIN_ID: String(CHAIN_ID),
   PEER_TOKEN_ADDR: peer.address,
   PEER_BTC_ADDR: tbtc.address,
-  PEER_POOLS_ADDR: pools.address,
+  PEER_POOL_ADDR: pool.address,
   PEER_ANCHOR_ADDR: anchor.address,
   PEER_CLAIM_ADDR: claim.address,
   // The block each contract was deployed in. Not an optimisation here — the
   // chain is a hundred blocks long — but it is the variable an operator gets
   // wrong on Base, so the devnet sets it the way a real deployment would.
-  PEER_POOLS_FROM_BLOCK: String(pools.block),
+  // No from-block for the pool: it is read with one eth_call at the head, so
+  // there is no log range to start from and nothing a wrong block could hide.
   PEER_EPOCH_FROM_BLOCK: String(Math.min(anchor.block, claim.block)),
   // This host federates with nobody. Inheriting any of these from a shell that
   // once ran the live host would point a test world at the real network.
@@ -510,7 +513,7 @@ const HOST = `http://127.0.0.1:${hostPort}`;
 // be probed on /api/token/onchain, which answers from a 30-second cache: the
 // probe filled that cache with the state of a chain where nothing had happened
 // yet, and the first real read after the exercise below then showed a network
-// with no pools, no anchors and no epochs — thirty seconds of a perfectly
+// with an empty pool, no anchors and no epochs — thirty seconds of a perfectly
 // working reader looking utterly broken.
 await waitFor(async () => (await fetch(HOST + '/api/chain/head', { signal: AbortSignal.timeout(4000) })).status > 0,
   `the host to answer on ${HOST} (see ${hostLog})`);
@@ -526,10 +529,10 @@ const summary = {
   rpc: RPC, chainId: CHAIN_ID, host: HOST, dataDir: DATA_DIR,
   pids: { devchain: devchainPid, host: hostPid },
   addresses: {
-    peer: peer.address, tbtc: tbtc.address, pools: pools.address,
+    peer: peer.address, tbtc: tbtc.address, pool: pool.address,
     anchor: anchor.address, claim: claim.address,
   },
-  blocks: { peer: peer.block, tbtc: tbtc.block, pools: pools.block, anchor: anchor.block, claim: claim.block },
+  blocks: { peer: peer.block, tbtc: tbtc.block, pool: pool.block, anchor: anchor.block, claim: claim.block },
   accounts: { deployer: DEPLOYER, steward: DEPLOYER, testWallet: WALLET, secondEarner: SECOND, third: THIRD },
   bindings, pin: PIN, env: hostEnv,
 };
@@ -538,17 +541,29 @@ if (EXERCISE) {
   say('');
   say('  making things happen on the chain, so the reader has something to read:');
 
-  // Two pools, one opened by the test wallet itself.
-  const openPool = async (from, label, amtPeer, amtBtc) => {
-    await send(from, peer.address, SEL.approve + addrWord(pools.address) + uint(amtPeer), `approving PEER for ${label}`);
-    await send(from, tbtc.address, SEL.approve + addrWord(pools.address) + uint(amtBtc), `approving TBTC for ${label}`);
-    await send(from, pools.address, SEL.createPool + nameWord(label) + uint(amtPeer) + uint(amtBtc), `opening the pool "${label}"`);
-    say(`    pool "${label}" opened by ${from} with ${amtPeer / ONE} PEER : ${amtBtc / ONE_B} TBTC`);
+  // TWO adds to the ONE pool, the second from the test wallet - which is the
+  // whole story of the redesign acted out: the first add sets the opening
+  // price out of nothing but the two amounts, and every add after it is
+  // proportional to what is already there and simply makes the pool bigger.
+  // Nobody opens a second market; there is one address and everyone is in it.
+  //
+  // `add` takes (amtPeer, amtBtc, minShares, deadline). minShares is 0 here on
+  // purpose and would be careless on a live chain: it is the caller's guard
+  // against a swap landing in front of them and changing which side binds. On
+  // a devchain nothing else is trading, and the deadline is far future for the
+  // same reason.
+  const FOREVER = 2_000_000_000n;
+  const addLiquidity = async (from, amtPeer, amtBtc, what) => {
+    await send(from, peer.address, SEL.approve + addrWord(pool.address) + uint(amtPeer), `approving PEER for ${what}`);
+    await send(from, tbtc.address, SEL.approve + addrWord(pool.address) + uint(amtBtc), `approving TBTC for ${what}`);
+    await send(from, pool.address, SEL.add + uint(amtPeer) + uint(amtBtc) + uint(0n) + uint(FOREVER), what);
+    say(`    ${what}: ${amtPeer / ONE} PEER : ${amtBtc / ONE_B} TBTC from ${from}`);
   };
-  await openPool(DEPLOYER, 'genesis', 400_000n * ONE, 8n * ONE_B);
-  await openPool(WALLET, 'ender', 120_000n * ONE, 2n * ONE_B);
-  const count = readWord(await ethCall(pools.address, SEL.poolCount));
-  say(`    poolCount() now says ${count}`);
+  await addLiquidity(DEPLOYER, 400_000n * ONE, 8n * ONE_B, 'seeding the pool');
+  await addLiquidity(WALLET, 120_000n * ONE, 2n * ONE_B, 'adding to the pool');
+  const res = String(await ethCall(pool.address, SEL.reserves)).replace(/^0x/, '');
+  say(`    reserves() now says ${BigInt('0x' + res.slice(0, 64)) / ONE} PEER : `
+    + `${BigInt('0x' + res.slice(64, 128)) / ONE_B} TBTC, ${BigInt('0x' + res.slice(128, 192))} shares`);
 
   // The epoch. Its root and total come from the HOST's own computation, not
   // from anything recomputed here — publishing a root this file invented would
@@ -591,25 +606,26 @@ if (EXERCISE) {
 // ── 7. Read it all back through the host ───────────────────────────────────
 //
 // The one request that proves the whole reader path end to end: chain id,
-// token, factory, anchors and claim state, all off a chain that was empty a
+// token, pool, anchors and claim state, all off a chain that was empty a
 // minute ago. Asserted rather than printed and hoped over — an empty surface
 // here is the failure this devnet exists to make visible.
 say('');
 say('  reading it back through the host (GET /api/token/onchain):');
 const readback = await (await fetch(`${HOST}/api/token/onchain`)).json();
 writeFileSync(join(DATA_DIR, 'onchain.json'), JSON.stringify(readback, null, 2) + '\n');
-const np = readback.namedPools ?? {};
+const pl = readback.pool ?? {};
 const an = readback.anchors ?? {};
 const cs = readback.claimState ?? {};
 say(`    chain id       ${readback.chainIdSeen} (matches: ${readback.chainIdMatches})`);
 say(`    total supply   ${readback.totalSupply} PEER at ${readback.decimals} decimals`);
-say(`    namedPools     total ${np.total}, discovered ${np.discovered}, returned ${np.returned}, scan head ${np.scan && np.scan.head}`);
+say(`    pool           ${pl.configured === false ? 'OFF - ' + pl.why : `${pl.address} holding ${pl.resPeerRaw} PEER : ${pl.resBtcRaw} TBTC, ${pl.totalSharesRaw} shares, seeded ${pl.seeded}`}`);
 say(`    anchors        ${an.configured === false ? 'OFF — ' + an.why : `discovered ${an.discovered}, posters ${an.posters}`}`);
 say(`    claimState     ${cs.configured === false ? 'OFF — ' + cs.why : `epochs ${cs.discovered}, holding ${cs.heldRaw} raw PEER`}`);
 const quiet = [];
 if (an.configured === false) quiet.push('anchors reports itself off');
 if (cs.configured === false) quiet.push('claimState reports itself off');
-if (EXERCISE && np.total === 0) quiet.push('the factory says it has no pools, but pools were opened above');
+if (pl.configured === false) quiet.push('the pool reports itself off');
+if (EXERCISE && pl.seeded === false) quiet.push('the pool reads as unseeded, but liquidity was added above');
 if (EXERCISE && summary.anchor && !an.discovered) quiet.push('an anchor was posted above and the scan found none');
 if (EXERCISE && summary.epoch && summary.epoch.opened && !cs.discovered) quiet.push('an epoch was opened above and the scan found none');
 if (quiet.length) {
@@ -620,7 +636,7 @@ if (quiet.length) {
 }
 summary.readback = {
   chainIdMatches: readback.chainIdMatches,
-  pools: np.total, anchors: an.discovered, epochs: cs.discovered, held: cs.heldRaw,
+  poolBtcRaw: pl.resBtcRaw, anchors: an.discovered, epochs: cs.discovered, held: cs.heldRaw,
   wrong: quiet,
 };
 
@@ -635,7 +651,7 @@ say(`  rpc            ${RPC}   chain id ${CHAIN_ID}`);
 say('');
 say(`  PEER           ${peer.address}   ${PEER_SUPPLY} whole, ${peerDecimals} decimals`);
 say(`  TBTC           ${tbtc.address}   ${TBTC_SUPPLY} whole, ${tbtcDecimals} decimals — STAND-IN for cbBTC, which has 8`);
-say(`  PeerPools      ${pools.address}   from block ${pools.block}`);
+say(`  PeerPool       ${pool.address}   the one pool; anyone may add to it`);
 say(`  PeerAnchor     ${anchor.address}   from block ${anchor.block}`);
 say(`  PeerClaim      ${claim.address}   from block ${claim.block}, steward ${DEPLOYER}`);
 say('');
@@ -645,7 +661,7 @@ say(`  third earner   ${THIRD}   bound to handle "cy"`);
 say('');
 say('  open:');
 say(`    ${HOST}/                       the app — sign in as al with PIN ${PIN}`);
-say(`    ${HOST}/api/token/onchain      the whole reader: token, pools, anchors, claim state`);
+say(`    ${HOST}/api/token/onchain      the whole reader: token, pool, anchors, claim state`);
 say(`    ${HOST}/api/v1/epoch/1/claim?as=u_al   the proof the wallet card presses the button with`);
 say('');
 say(`  pids           devchain ${devchainPid ?? '(attached, not started here)'}, host ${hostPid}`);

@@ -3,7 +3,13 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 const build = JSON.parse(fs.readFileSync('chain-l2/PeerToken.build.json', 'utf8'));
-const pools = JSON.parse(fs.readFileSync('chain-l2/PeerPools.build.json', 'utf8'));
+// Singular, and deliberately so. This used to be PeerPools.build.json — a
+// factory holding many named pools — and the network now runs ONE pool at one
+// address: no name, no id, nothing above it. PeerPools.sol is still in the tree
+// with a SUPERSEDED header, because the dead factory on Base deserves to be
+// readable against the source it came from, but nothing here deploys it any
+// more and no page embeds its bytecode.
+const pool = JSON.parse(fs.readFileSync('chain-l2/PeerPool.build.json', 'utf8'));
 const anchor = JSON.parse(fs.readFileSync('chain-l2/PeerAnchor.build.json', 'utf8'));
 const claim = JSON.parse(fs.readFileSync('chain-l2/PeerClaim.build.json', 'utf8'));
 // One line that says WHICH factory this page deploys, for a person and for a
@@ -15,13 +21,13 @@ const claim = JSON.parse(fs.readFileSync('chain-l2/PeerClaim.build.json', 'utf8'
 // be answerable before signing rather than after.
 //
 // Trimmed and lowercased before hashing so that auto-deploy.ps1, computing the
-// same fingerprint from PeerPools.build.json in .NET, hashes the same bytes.
+// same fingerprint from PeerPool.build.json in .NET, hashes the same bytes.
 // solc already emits lowercase hex with no surrounding space, so today that
 // normalisation changes nothing; it is there so the two sides cannot drift
 // apart if that ever stops being true. The bytecode itself is embedded
 // verbatim below — the fingerprint describes it, it does not rewrite it.
 const fingerprint = (b) => createHash('sha256').update(String(b).trim().toLowerCase(), 'ascii').digest('hex');
-const poolsFp = fingerprint(pools.bytecode);
+const poolFp = fingerprint(pool.bytecode);
 // The two epoch contracts get the same treatment, for the same reason and with
 // the same stakes: PeerClaim is deployed once against an immutable token and an
 // immutable steward, and PeerAnchor's rows can never be revised. A stale copy
@@ -30,8 +36,9 @@ const anchorFp = fingerprint(anchor.bytecode);
 const claimFp = fingerprint(claim.bytecode);
 // Constructor encodings, hardcoded, no library:
 //   PeerToken(uint256 wholeTokens)      -> one 32-byte word, hex, left-padded.
-//   PeerPools(address peer, address btc) -> two 32-byte words, the 20 address
-//   bytes right-aligned in each.
+//   PeerPool(address peer, address btc)  -> two 32-byte words, the 20 address
+//   bytes right-aligned in each. That pair is the ENTIRE configuration of
+//   the pool: no name, no id, no owner, nothing else to get wrong.
 //   PeerAnchor()                        -> nothing at all; there is no
 //   constructor argument, so the deployment data IS the bytecode.
 //   PeerClaim(address token, address steward) -> two address words again.
@@ -114,7 +121,7 @@ const mined = async (tx, out) => {
     if (receipt.blockNumber) out('IN BLOCK: ' + Number(BigInt(receipt.blockNumber)), 'ok');
     out('<a href="https://basescan.org/address/' + receipt.contractAddress + '" target="_blank" rel="noopener">View on Basescan</a>');
   } else {
-    // Not a deployment: an approve, an openEpoch, a createPool. The same wait,
+    // Not a deployment: an approve, an openEpoch, a deposit. The same wait,
     // the same failure handling, and a link to the transaction rather than to
     // a contract that this one did not create.
     out('CONFIRMED in block ' + (receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : '?'), 'ok');
@@ -131,12 +138,15 @@ const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 // confirmation screen and the basescan link afterwards are what catch that."
 // They do not. Pasting a WALLET address here sailed through both: MetaMask
 // shows a constructor argument without knowing what it is meant to be, and
-// basescan shows a contract that deployed perfectly. The factory came out
-// immutably paired to an address with no token at it, so every createPool
-// reverted with empty data, and the only repair was deploying it again.
+// basescan shows a contract that deployed perfectly. The contract came out
+// immutably paired to an address with no token at it, so every pull from
+// that side reverted with empty data, and the only repair was deploying it
+// again. That is not a hypothetical: it happened on this network, and the
+// dead PeerPools at 0x5112b892cf190d583f1acc86224812a8fad257ee is what it
+// left behind.
 //
 // The chain can be asked, for free, before the irreversible signature. That
-// is the same rule the pools card follows for its own refusals, applied to
+// is the same rule the pool card follows for its own refusals, applied to
 // the one transaction here that cannot be taken back.
 // Three outcomes, not two. "That address holds no token" and "I could not
 // reach the chain to find out" are different facts, and collapsing them
@@ -225,7 +235,7 @@ const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <title>Deploy PEER — Peer Network</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="peerpools-build" content="sha256:${poolsFp}">
+<meta name="peerpool-build" content="sha256:${poolFp}">
 <meta name="peeranchor-build" content="sha256:${anchorFp}">
 <meta name="peerclaim-build" content="sha256:${claimFp}">
 <style>
@@ -273,8 +283,8 @@ const html = `<!doctype html>
   <div id="log" class="mono"></div>
 </div>
 
-<h2>Deploy the pools factory</h2>
-<p class="sub">PeerPools holds every named PEER/cbBTC pool in one contract — same posture as the token: no owner, no fee switch, nothing privileged. Uses the same Connect from step 1.</p>
+<h2>Deploy the pool</h2>
+<p class="sub">PeerPool is the whole market: ONE constant-product pool over PEER/cbBTC, at one address, with no name, no id and no factory above it. Anyone may add liquidity to it and every add makes it bigger. Same posture as the token — no owner, no fee switch, nothing privileged. Uses the same Connect from step 1.</p>
 
 <div class="card">
   <div class="step"><span class="n">4</span><div>
@@ -288,12 +298,12 @@ const html = `<!doctype html>
 <div class="card">
   <div class="step"><span class="n">5</span><div>
     <b>Deploy</b>
-    <div class="muted">One transaction on Base. Roughly $0.08 of gas — the factory is bigger than the token. MetaMask will show you the exact cost before anything happens.</div>
-    <p><button id="goPools" disabled>Deploy PeerPools</button></p>
+    <div class="muted">One transaction on Base. Roughly $0.06 of gas — the pool is bigger than the token. It deploys the contract and puts nothing in it: an unfunded pool is a real, ordinary state, and the deposit that opens it is a separate decision made later with amounts nobody here will pick for you.</div>
+    <p><button id="goPools" disabled>Deploy PeerPool</button></p>
     <div class="muted" style="font-size:13px">
-      Factory build fingerprint — SHA-256 of the PeerPools bytecode <i>this page</i> will deploy:
-      <div class="mono" style="margin:4px 0">${poolsFp}</div>
-      The same number comes out of <code>chain-l2/PeerPools.build.json</code>, and
+      Pool build fingerprint — SHA-256 of the PeerPool bytecode <i>this page</i> will deploy:
+      <div class="mono" style="margin:4px 0">${poolFp}</div>
+      The same number comes out of <code>chain-l2/PeerPool.build.json</code>, and
       <code>auto-deploy.ps1</code> compares them before it opens this page. If they differ, the
       page you are looking at is an older copy of this repository — a different, and permanent,
       contract. Check it if you did not open this page from that script.
@@ -341,13 +351,13 @@ const html = `<!doctype html>
 </div>
 
 <p class="muted" style="font-size:13px">
-Contracts: no owner, no mint function, no pause, no blacklist, no proxy. The token's whole supply is created once to you and after that it can only do what an ERC-20 does; the factory only does constant-product math on pools anyone can open; the anchor stores two hashes per poster per epoch; the claim contract can only ever pay out PEER that was deposited into it.
-Compiled from <code>PeerToken.sol</code>, <code>PeerPools.sol</code>, <code>PeerAnchor.sol</code> and <code>PeerClaim.sol</code> with solc 0.8.24, optimizer on, 200 runs. All four bytecodes are embedded in this page; nothing is fetched.
+Contracts: no owner, no mint function, no pause, no blacklist, no proxy. The token's whole supply is created once to you and after that it can only do what an ERC-20 does; the pool only does constant-product math on the two reserves anyone may add to; the anchor stores two hashes per poster per epoch; the claim contract can only ever pay out PEER that was deposited into it.
+Compiled from <code>PeerToken.sol</code>, <code>PeerPool.sol</code>, <code>PeerAnchor.sol</code> and <code>PeerClaim.sol</code> with solc 0.8.24, optimizer on, 200 runs. All four bytecodes are embedded in this page; nothing is fetched. <code>PeerPools.sol</code> — the superseded factory of named pools — is still in the repository so the dead deployment on Base can be read against its own source, and nothing here deploys it.
 </p>
 </main>
 <script>
 const BYTECODE = ${JSON.stringify(build.bytecode)};
-const BYTECODE_POOLS = ${JSON.stringify(pools.bytecode)};
+const BYTECODE_POOLS = ${JSON.stringify(pool.bytecode)};
 const BYTECODE_ANCHOR = ${JSON.stringify(anchor.bytecode)};
 const BYTECODE_CLAIM = ${JSON.stringify(claim.bytecode)};
 const log = (m, cls, id) => { const d=document.getElementById(id||'log'); d.innerHTML += '<div class="'+(cls||'')+'">'+m+'</div>'; };
@@ -525,7 +535,8 @@ document.getElementById('goPools').onclick = async () => {
     const receipt = await mined(tx, log2);
     if (!receipt) return;
     const blk = receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : null;
-    log2('The host wants both: the address as PEER_POOLS_ADDR' + (blk !== null ? ', the block as PEER_POOLS_FROM_BLOCK' : '') + '. Then GET /api/token/onchain lists the named pools live.');
+    log2('The host wants one thing: this address as PEER_POOL_ADDR. There is no from-block to record — nothing is discovered by log scan any more, because there is nothing to discover: one address either is the pool or is not. Then GET /api/token/onchain reports its reserves live.');
+    if (blk !== null) log2('It was mined in block ' + blk + '. Nothing needs that number; it is printed because a receipt is the only free place it exists.', 'muted');
     log2('Write them down now — this page keeps nothing.', 'muted');
   } catch (e) {
     log2('Refused or failed: ' + (e.message || e), 'bad');
@@ -584,7 +595,7 @@ document.getElementById('goClaim').onclick = async () => {
     return;
   }
   log4('Checking both addresses against Base before signing…');
-  // The TOKEN is checked exactly the way the pools card checks its pair: it
+  // The TOKEN is checked exactly the way the pool card checks its pair: it
   // must be a real ERC-20 on Base, and pasting a wallet here is the mistake
   // that already cost one factory redeployment.
   let t = await probeToken(peer, 'PEER');
@@ -713,22 +724,28 @@ fs.writeFileSync('chain-l2/deploy.html', html);
 //      "btc":     "0x…",                // cbBTC on Base
 //      "anchor": { "address": "0x…", "block": 34567890, "tx": "0x…" },
 //      "claim":  { "address": "0x…", "block": 34567891, "tx": "0x…" },
-//      "pools":  { "address": "0x…", "block": 34567892, "tx": "0x…" },
+//      "pool":   { "address": "0x…", "block": 34567892, "tx": "0x…" },
 //      "epochFromBlock": 34567890,      // the LOWER of anchor/claim, computed
-//      "builds": { "anchor": "sha256:…", "claim": "sha256:…", "pools": "sha256:…" }
+//      "builds": { "anchor": "sha256:…", "claim": "sha256:…", "pool": "sha256:…" }
 //    }
 //
 //    Every contract key is OPTIONAL and the script writes only what is
-//    present: the page posts again when it later deploys the pools factory,
-//    and a second post must not erase what the first one set. The mapping the
+//    present: the page posts again when it later deploys the pool, and a
+//    second post must not erase what the first one set. The mapping the
 //    script is expected to make, each name straight out of load-config.ps1:
 //
 //      anchor.address  -> server-data\anchor-address.txt   PEER_ANCHOR_ADDR
 //      claim.address   -> server-data\claim-address.txt    PEER_CLAIM_ADDR
 //      epochFromBlock  -> server-data\epoch-from-block.txt PEER_EPOCH_FROM_BLOCK
-//      pools.address   -> server-data\pools-address.txt    PEER_POOLS_ADDR
-//      pools.block     -> server-data\pools-from-block.txt PEER_POOLS_FROM_BLOCK
+//      pool.address    -> server-data\pool-address.txt     PEER_POOL_ADDR
 //      btc             -> server-data\btc-token-address.txt PEER_BTC_ADDR (only if absent)
+//
+//    pool.block is posted and is not mapped anywhere, deliberately. The old
+//    factory needed a from-block because pools were DISCOVERED by walking
+//    PoolCreated logs and a scan with no start block covers the whole chain.
+//    One pool is discovered by having its address, so there is no scan whose
+//    backfill a block number would shorten — and a variable that configures
+//    nothing is a variable somebody will later believe does something.
 //
 //    epochFromBlock is computed HERE rather than left to the script, because
 //    the rule is not obvious and getting it wrong is silent: one from-block
@@ -775,7 +792,7 @@ fs.writeFileSync('chain-l2/deploy.html', html);
 //                                     // verdict; a script that omits the field
 //                                     // is simply an older script.
 //         "nonceWhy": "…",            // words for the operator when it is false
-//         "configured": { "anchor": "0x…"|null, "claim": …, "pools": … },
+//         "configured": { "anchor": "0x…"|null, "claim": …, "pool": … },
 //         "hostReports": { … },       // the same three as the HOST serves them
 //         "allowReplace": true|false }
 //
@@ -803,7 +820,7 @@ const setupHtml = String.raw`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="peeranchor-build" content="sha256:${anchorFp}">
 <meta name="peerclaim-build" content="sha256:${claimFp}">
-<meta name="peerpools-build" content="sha256:${poolsFp}">
+<meta name="peerpool-build" content="sha256:${poolFp}">
 <!-- The setup script MAY rewrite these three before serving this file; a
      ?host= / ?callback= / ?nonce= in the URL wins over them. Left empty here
      because a value baked into a generated file is a value nobody chose. -->
@@ -861,29 +878,28 @@ const setupHtml = String.raw`<!doctype html>
 <div class="card"><div id="log" class="mono">Nothing has happened yet.</div></div>
 
 <div class="card" id="poolCard" style="display:none">
-  <b>Open the first pool</b>
-  <div class="muted">The factory is deployed and the host can see it. Opening a pool is the one thing here that is not setup: it puts your PEER and your cbBTC into a contract at a price you are choosing by picking the two amounts. Nothing on this page will choose them for you.</div>
-  <p><input id="poolName" value="main" spellcheck="false" placeholder="pool name, up to 32 bytes"></p>
+  <b>Fund the pool</b>
+  <div class="muted">The pool is deployed and the host can see it. Putting coins in is the one thing here that is not setup: it moves your PEER and your cbBTC into a contract, and if the pool is still empty the two amounts you pick ARE its opening price. Nothing on this page will pick them for you, and there is no default, because a default here would be this page choosing a price with your money.</div>
   <p><input id="poolPeer" placeholder="PEER to deposit, e.g. 100000" spellcheck="false"></p>
   <p><input id="poolBtc" placeholder="cbBTC to deposit, e.g. 0.001" spellcheck="false"></p>
-  <div class="muted" style="font-size:13px">Those two amounts ARE the opening price, and the first trade will move it. Three more MetaMask prompts: approve PEER, approve cbBTC, then createPool.</div>
-  <p><button id="goPool">Open this pool</button></p>
+  <div class="muted" style="font-size:13px">Any size. The contract refuses exactly one opening — a single wei against a single satoshi — because sqrt(PEER × cbBTC) must clear a floor of 1000 raw share units, and one whole PEER against one satoshi clears it by six orders of magnitude. That floor is on the SHARE COUNT and is not a minimum investment. What it <i>costs</i> is a different question and the line printed after you press says it: those 1000 units go to an address nobody can sign from, which is three billionths of one percent of a serious seed and 95% of one a whisker over the floor. Up to three more MetaMask prompts: approve PEER, approve cbBTC, then the deposit.</div>
+  <p><button id="goPool">Put these in</button></p>
 </div>
 
 <div class="card muted" style="font-size:13px">
   <b>What this page will deploy</b> — SHA-256 of the bytecode embedded here, which is what your wallet is handed:
   <div class="mono" style="margin:6px 0">PeerAnchor  ${anchorFp}</div>
   <div class="mono" style="margin:6px 0">PeerClaim   ${claimFp}</div>
-  <div class="mono" style="margin:6px 0">PeerPools   ${poolsFp}</div>
-  The same numbers come out of <code>chain-l2/PeerAnchor.build.json</code>, <code>PeerClaim.build.json</code> and <code>PeerPools.build.json</code>, and the setup script compares them against this file before it opens it. If they differ, the page you are looking at is an older copy of this repository — a different, and permanent, contract.
-  <p>Compiled from <code>PeerAnchor.sol</code>, <code>PeerClaim.sol</code> and <code>PeerPools.sol</code> with solc 0.8.24, optimizer on, 200 runs. No owner, no mint, no pause, no proxy. All three bytecodes are embedded here; nothing is fetched. The long form of what each contract can and cannot do is on <code>deploy.html</code> beside this file, and in the header of each .sol.</p>
+  <div class="mono" style="margin:6px 0">PeerPool    ${poolFp}</div>
+  The same numbers come out of <code>chain-l2/PeerAnchor.build.json</code>, <code>PeerClaim.build.json</code> and <code>PeerPool.build.json</code>, and the setup script compares them against this file before it opens it. If they differ, the page you are looking at is an older copy of this repository — a different, and permanent, contract.
+  <p>Compiled from <code>PeerAnchor.sol</code>, <code>PeerClaim.sol</code> and <code>PeerPool.sol</code> with solc 0.8.24, optimizer on, 200 runs. No owner, no mint, no pause, no proxy. All three bytecodes are embedded here; nothing is fetched. The long form of what each contract can and cannot do is on <code>deploy.html</code> beside this file, and in the header of each .sol.</p>
 </div>
 </main>
 <script>
 const BYTECODE_ANCHOR = ${JSON.stringify(anchor.bytecode)};
 const BYTECODE_CLAIM = ${JSON.stringify(claim.bytecode)};
-const BYTECODE_POOLS = ${JSON.stringify(pools.bytecode)};
-const FP = { anchor: '${anchorFp}', claim: '${claimFp}', pools: '${poolsFp}' };
+const BYTECODE_POOLS = ${JSON.stringify(pool.bytecode)};
+const FP = { anchor: '${anchorFp}', claim: '${claimFp}', pool: '${poolFp}' };
 // cbBTC on Base, 8 decimals. Only a fallback: the host names its own BTC side
 // and that answer wins, because a constant in a page is a value nobody chose.
 const CBBTC_FALLBACK = '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf';
@@ -907,8 +923,13 @@ const S_MAX_WINDOW  = '0xdeb96634'; // MAX_WINDOW()
 const S_APPROVE     = '0x095ea7b3'; // approve(address,uint256)
 const S_ALLOWANCE   = '0xdd62ed3e'; // allowance(address,address)
 const S_BALANCE_OF  = '0x70a08231'; // balanceOf(address)
-const S_CREATE_POOL = '0xb3a2199d'; // createPool(bytes32,uint256,uint256)
-const S_POOL_COUNT  = '0xf525cb68'; // poolCount()
+// PeerPool's four, from the hashes block of PeerPool.build.json. add()
+// takes one argument fewer than the factory's addLiquidity did, because it
+// no longer has to say WHICH pool; that is why the selector is different
+// rather than merely renamed.
+const S_ADD         = '0xe022d77c'; // add(uint256,uint256,uint256,uint256)
+const S_RESERVES    = '0x75172a8b'; // reserves()
+const S_MIN_LIQ     = '0x5731bb0a'; // MIN_LIQ()
 const S_POOLS_PEER  = '0x11cda415'; // peer()
 const S_POOLS_BTC   = '0xa28d57d8'; // btc()
 
@@ -1191,18 +1212,18 @@ async function deployOne(label, data) {
 }
 
 // Hand over everything known so far. Deliberately idempotent and deliberately
-// cumulative: the pools factory is deployed later than the other two, so this
+// cumulative: the pool is deployed later than the other two, so this
 // is posted more than once and the script must write what is present without
 // erasing what a previous post set.
 async function postToScript(what) {
   const body = {
     kind: 'peer-setup-deployed', v: 1, chainId: BASE_CHAIN_NUM,
     nonce: NONCE || null, account: account, token: S.token, btc: S.btc,
-    builds: { anchor: 'sha256:' + FP.anchor, claim: 'sha256:' + FP.claim, pools: 'sha256:' + FP.pools },
+    builds: { anchor: 'sha256:' + FP.anchor, claim: 'sha256:' + FP.claim, pool: 'sha256:' + FP.pool },
   };
   if (S.anchor) body.anchor = { address: S.anchor, block: S.anchorBlock, tx: S.anchorTx };
   if (S.claim) body.claim = { address: S.claim, block: S.claimBlock, tx: S.claimTx };
-  if (S.pools) body.pools = { address: S.pools, block: S.poolsBlock, tx: S.poolsTx };
+  if (S.pools) body.pool = { address: S.pools, block: S.poolsBlock, tx: S.poolsTx };
   // ONE from-block covers both epoch contracts, so it is the lower of the two,
   // and it is computed here rather than left to the script: the rule is not
   // obvious and getting it wrong is silent — too low costs a little scanning,
@@ -1261,8 +1282,7 @@ function handOverFailed(what, why, filesWritten) {
   if (S.claim) log('  claim-address.txt     ' + S.claim);
   const blocks = [S.anchorBlock, S.claimBlock].filter((b) => typeof b === 'number');
   if (blocks.length) log('  epoch-from-block.txt  ' + Math.min.apply(null, blocks) + '   (the LOWER of the two deployment blocks: too low costs a little scanning, too high hides everything opened before it)');
-  if (S.pools) log('  pools-address.txt     ' + S.pools);
-  if (typeof S.poolsBlock === 'number') log('  pools-from-block.txt  ' + S.poolsBlock);
+  if (S.pools) log('  pool-address.txt      ' + S.pools);
   log('Then restart the host:  powershell -ExecutionPolicy Bypass -File .\\start-host.ps1');
   log('Then press the button again — it reads the host, sees them, and carries on.', 'muted');
   const e = new Error(what + ': the addresses could not be handed over');
@@ -1464,7 +1484,7 @@ async function sequence() {
 
   const hostAnchor = addrOf(oc.anchors && oc.anchors.contract);
   const hostClaim = addrOf(oc.claimState && oc.claimState.contract);
-  const hostPools = addrOf(oc.namedPools && oc.namedPools.factory);
+  const hostPools = addrOf(oc.pool && oc.pool.address);
   // The host wins where both have an answer — but a host serving a DIFFERENT
   // address than the files name is not a precedence question, it is a broken
   // configuration, and neither answer is safe to fund against. Nobody is asked
@@ -1477,7 +1497,7 @@ async function sequence() {
   }
   if (hostAnchor) { S.anchor = hostAnchor; log('The host already points at a PeerAnchor: ' + scan('address', hostAnchor), 'ok'); }
   if (hostClaim) { S.claim = hostClaim; log('The host already points at a PeerClaim: ' + scan('address', hostClaim), 'ok'); }
-  if (hostPools) { S.pools = hostPools; log('The host already points at a pools factory: ' + scan('address', hostPools), 'ok'); }
+  if (hostPools) { S.pools = hostPools; log('The host already points at a pool: ' + scan('address', hostPools), 'ok'); }
 
   // The last thing before the plan is drawn: would this run's deployments be
   // REFUSED? The setup script will not record a different address over a
@@ -1491,19 +1511,20 @@ async function sequence() {
     log('server-data names ' + esc(cfgDead.join(' and ')) + ' with no code at it on Base. This run was told it may replace what is recorded, so a new one is deployed below and the file is rewritten.', 'bad');
   }
 
-  // A factory is only a factory for the pair it was deployed against, and
-  // that pairing is immutable. This is not a hypothetical check: a PeerPools
-  // was deployed here once with the operator's WALLET address where the token
-  // belonged, so peer() answers an address with no token at it and every
-  // createPool on it reverts with empty data. It looks perfectly healthy on an
-  // explorer. So both sides are read back and compared, and a factory that
-  // fails is dropped here rather than offered as somewhere to put coins.
+  // A pool is only a pool for the pair it was deployed against, and that
+  // pairing is immutable — it is the contract's entire configuration. This is
+  // not a hypothetical check: a PeerPools was deployed here once with the
+  // operator's WALLET address where the token belonged, so peer() answers an
+  // address with no token at it and every pull from that side reverts with
+  // empty data. It looks perfectly healthy on an explorer. So both sides are
+  // read back and compared, and a contract that fails is dropped here rather
+  // than offered as somewhere to put coins.
   if (S.pools) {
     const fp = addrOf('0x' + String(await ethCall(S.pools, S_POOLS_PEER)).slice(-40));
     const fb = addrOf('0x' + String(await ethCall(S.pools, S_POOLS_BTC)).slice(-40));
     if (!eqAddr(fp, S.token) || !eqAddr(fb, S.btc)) {
-      log('That factory is NOT over this pair: its peer() is ' + esc(fp || 'unreadable') + ' and its btc() is ' + esc(fb || 'unreadable') + ', against PEER ' + esc(S.token) + ' and cbBTC ' + esc(S.btc) + '.', 'bad');
-      log('Both are fixed at deployment and cannot be changed, so that contract can never trade this pair — it is dead, whatever an explorer shows. It is ignored from here; a new factory is deployed instead if there is cbBTC to open a pool with.', 'bad');
+      log('That pool is NOT over this pair: its peer() is ' + esc(fp || 'unreadable') + ' and its btc() is ' + esc(fb || 'unreadable') + ', against PEER ' + esc(S.token) + ' and cbBTC ' + esc(S.btc) + '.', 'bad');
+      log('Both are fixed at deployment and cannot be changed, so that contract can never trade this pair — it is dead, whatever an explorer shows. It is ignored from here; a new pool is deployed instead if there is cbBTC to fund one with.', 'bad');
       S.pools = null;
     } else {
       log('  its peer() and btc() are this PEER and this cbBTC.', 'ok');
@@ -1639,27 +1660,27 @@ async function sequence() {
   // of the pair, because a pool is two assets and nothing on this page can get
   // the second one.
   if (btcBal !== null && btcBal > 0n && S.pools) {
-    push('The pools factory is already there and is over this pair', false, async () => {
+    push('The pool is already there and is over this pair', false, async () => {
       log('Adopted ' + scan('address', S.pools) + '. No transaction.', 'ok');
       $('poolCard').style.display = 'block';
-      log('The card below opens a pool. It is deliberately not part of this sequence: the two amounts you put in are the price the pool opens at, and nothing here will pick them for you.', 'muted');
+      log('The card below puts coins into it. It is deliberately not part of this sequence: if the pool is still empty, the two amounts you put in are the price it opens at, and nothing here will pick them for you.', 'muted');
     });
   } else if (btcBal !== null && btcBal > 0n && !S.pools) {
-    push('Deploy a new pools factory (you hold cbBTC, so a pool is possible)', true, stepPools);
-    push('Hand the factory to the setup script and wait for the host', false, async () => {
-      await postToScript('handing over the pools factory');
+    push('Deploy the pool (you hold cbBTC, so funding it is possible)', true, stepPools);
+    push('Hand the pool to the setup script and wait for the host', false, async () => {
+      await postToScript('handing over the pool');
       await waitForHost((o) => {
-        const f = addrOf(o.namedPools && o.namedPools.factory);
+        const f = addrOf(o.pool && o.pool.address);
         if (!f) return false;
-        if (!eqAddr(f, S.pools)) return 'the host came back pointing at a different pools factory (' + f + ') than the one just deployed (' + S.pools + '). Stopping — that is a configuration to look at, not something waiting will fix.';
+        if (!eqAddr(f, S.pools)) return 'the host came back pointing at a different pool (' + f + ') than the one just deployed (' + S.pools + '). Stopping — that is a configuration to look at, not something waiting will fix.';
         return true;
-      }, 'the host taking the pools factory', 240000);
-      log('The host reports the factory. It is empty, which is what a fresh factory looks like and is correct.', 'ok');
-      // Revealed, not run. Opening a pool needs two amounts, and those two
+      }, 'the host taking the pool', 240000);
+      log('The host reports the pool. It holds nothing, which is what a fresh pool looks like and is correct — an unfunded pool is a state, not a fault.', 'ok');
+      // Revealed, not run. The first deposit needs two amounts, and those two
       // amounts ARE the opening price — a number this page has no business
       // choosing with somebody else's coins.
       $('poolCard').style.display = 'block';
-      log('A card has appeared below to open the first pool. It is deliberately not part of this sequence: the two amounts you put in are the price the pool opens at, and nothing here will pick them for you.', 'muted');
+      log('A card has appeared below to fund it. It is deliberately not part of this sequence: the two amounts you put in are the price the pool opens at, and nothing here will pick them for you.', 'muted');
     });
   }
 
@@ -1713,7 +1734,8 @@ async function stepPools() {
   // The dead factory is why this is a fresh deployment rather than a reuse: a
   // PeerPools was once deployed here with the operator's WALLET as its peer
   // address instead of the token, and since that pairing is immutable every
-  // createPool on it reverts. Both sides are probed here for exactly that.
+  // pull from that side reverts. Both sides are probed here for exactly that,
+  // and PeerPool pairs its two tokens exactly as immutably.
   for (const t of [{ a: S.token, n: 'PEER' }, { a: S.btc, n: 'cbBTC' }]) {
     let r = await probeToken(t.a, t.n);
     if (!r.ok && !r.sure) { await sleep(1200); r = await probeToken(t.a, t.n); }
@@ -1721,7 +1743,7 @@ async function stepPools() {
     log('  ' + t.n + ' ' + esc(t.a) + ' — ' + esc(r.note), 'ok');
   }
   if (eqAddr(S.token, S.btc)) throw new Error('PEER and cbBTC are the same address. The constructor rejects that; nothing was sent.');
-  const r = await deployOne('PeerPools', BYTECODE_POOLS + addrWord(S.token) + addrWord(S.btc));
+  const r = await deployOne('PeerPool', BYTECODE_POOLS + addrWord(S.token) + addrWord(S.btc));
   S.pools = r.address; S.poolsBlock = r.block; S.poolsTx = r.tx; remember();
 }
 
@@ -1935,36 +1957,73 @@ sync();
 // answers is a button that can spend money on a run that will not record it.
 readSetupScript();
 
-// ---- the pool, which is not setup ----
+// ---- funding the pool, which is not setup ----
 // Deliberately behind its own button and its own numbers. Everything above is
-// configuration that has one right answer; this is a price. The two amounts
-// are the opening ratio of the pool and the first trade moves it, so no
+// configuration that has one right answer; this is a price. On an empty pool
+// the two amounts ARE its opening ratio and the first trade moves it, so no
 // default here would be a fact — it would be this page picking a number with
 // somebody else's money.
+//
+// The pool is read first, because the same button does two different things
+// and they must not be described alike. With three zeros in it this deposit
+// SETS the price and can only happen once, ever — the contract's seeding
+// branch runs one time, since MIN_LIQ shares are locked at an address nobody
+// can sign from. With coins already in it, this deposit is proportional at
+// the ratio that exists, moves no price, and only the binding side is pulled.
 $('goPool').onclick = async () => {
   const out = log;
   const btn = $('goPool');
   if (btn.disabled) return;
   btn.disabled = true;
   try {
-    if (!S.pools) throw new Error('there is no pools factory yet — run the setup first.');
+    if (!S.pools) throw new Error('there is no pool yet — run the setup first.');
     sameAccount();
-    const nm = String($('poolName').value || '').trim();
-    if (!nm) throw new Error('a pool needs a name; the contract refuses an empty one.');
-    const bytes = new TextEncoder().encode(nm);
-    if (bytes.length > 32) throw new Error('that name is ' + bytes.length + ' bytes and a bytes32 holds 32.');
-    // bytes32: the utf-8 bytes, LEFT aligned and right-padded with zeros —
-    // which is how Solidity holds a short string and how the host decodes one
-    // back (it stops at the first zero byte).
-    let nameWord = '';
-    for (const b of bytes) nameWord += b.toString(16).padStart(2, '0');
-    nameWord = nameWord.padEnd(64, '0');
     const amtPeer = toRaw($('poolPeer').value, S.peerDec, 'PEER');
     const amtBtc = toRaw($('poolBtc').value, S.btcDec, 'cbBTC');
+    // reserves(): three static words, in the order PeerPool.sol's own comment
+    // fixes — resPeer, resBtc, totalShares. Read BEFORE anything is said about
+    // what this deposit does, because the answer decides which of two entirely
+    // different things it is.
+    const resRaw = String(await ethCall(S.pools, S_RESERVES) || '').replace(/^0x/, '');
+    if (resRaw.length < 192) throw new Error('the pool at ' + S.pools + ' did not answer reserves() in three words, so nothing here knows whether it is empty. Nothing was sent.');
+    const resPeer = BigInt('0x' + resRaw.slice(0, 64));
+    const resBtc = BigInt('0x' + resRaw.slice(64, 128));
+    const totalShares = BigInt('0x' + resRaw.slice(128, 192));
     out('');
-    out('— OPENING A POOL —', 'hd');
-    out('Name "' + esc(nm) + '" = 0x' + nameWord);
-    out('Depositing ' + units(amtPeer, S.peerDec) + ' PEER and ' + units(amtBtc, S.btcDec) + ' cbBTC. That ratio is the opening price.');
+    out(totalShares === 0n ? '— OPENING THE POOL —' : '— ADDING TO THE POOL —', 'hd');
+    let minShares;
+    if (totalShares === 0n) {
+      // Seeding. sqrt(amtPeer x amtBtc) minus the locked floor is exactly what
+      // the contract mints, so it is also the strictest honest minimum: if
+      // anything at all has changed by the time this lands — somebody else
+      // funding it first — it reverts rather than depositing at a price nobody
+      // read.
+      const minLiq = bigWord(await ethCall(S.pools, S_MIN_LIQ));
+      let z = amtPeer * amtBtc, x = z / 2n + 1n, y = z;
+      if (z > 3n) { while (x < y) { y = x; x = (z / x + x) / 2n; } } else { y = z === 0n ? 0n : 1n; }
+      if (y <= minLiq) throw new Error('too small to open: the opening shares are sqrt(PEER x cbBTC) = ' + y.toString() + ' raw units and this pool locks ' + minLiq.toString() + ' of them forever, so the deposit has to mint more than that. One whole PEER against one satoshi mints a billion, so raising either amount clears it. Nothing was sent.');
+      minShares = y - minLiq;
+      out('This pool is empty, so THIS DEPOSIT SETS ITS PRICE: ' + units(amtPeer, S.peerDec) + ' PEER against ' + units(amtBtc, S.btcDec) + ' cbBTC, and that ratio is what every later trade starts from. It happens once and cannot be undone — the pool can never be re-opened at another number, because ' + minLiq.toString() + ' share units are locked at an address nobody can sign from.');
+      // The count with its denominator. MIN_LIQ is a FIXED number of share
+      // units, so it is three billionths of one percent of a serious seed and
+      // most of one a whisker over the floor — and "1000 units are locked"
+      // reads identically in both cases, which is how a count with no
+      // denominator misleads.
+      const lockPct = Number(minLiq) / Number(y) * 100;
+      out('You would receive ' + minShares.toString() + ' share units, and ' + minLiq.toString()
+        + ' — ' + (lockPct >= 0.0001 ? lockPct.toPrecision(3) : lockPct.toExponential(1)) + '% of this deposit — would be locked forever at an address nobody can sign from.'
+        + (lockPct >= 1 ? ' READ THAT FIGURE: at this size the floor is a real fraction of what you are putting in rather than a rounding error. Raising either amount shrinks it fast.' : ''));
+    } else {
+      // Proportional. The binding side is the smaller of the two offers
+      // measured in shares — the contract's own rule — and only the used
+      // amounts are pulled, so the excess never leaves the wallet.
+      const byPeer = amtPeer * totalShares / resPeer;
+      const byBtc = amtBtc * totalShares / resBtc;
+      minShares = byPeer < byBtc ? byPeer : byBtc;
+      if (minShares <= 0n) throw new Error('that deposit is too small to mint a share at the ratio this pool holds (' + resPeer.toString() + ' wei against ' + resBtc.toString() + ' sat). The contract would refuse it; nothing was sent.');
+      out('This pool already holds ' + units(resPeer, S.peerDec) + ' PEER against ' + units(resBtc, S.btcDec) + ' cbBTC, so this deposit is PROPORTIONAL at that ratio and moves no price.');
+      out('The ' + (byPeer < byBtc ? 'PEER' : 'cbBTC') + ' side binds. It would mint ' + minShares.toString() + ' share units, and the excess on the other side never leaves your wallet.');
+    }
     for (const leg of [{ t: S.token, d: S.peerDec, a: amtPeer, n: 'PEER' }, { t: S.btc, d: S.btcDec, a: amtBtc, n: 'cbBTC' }]) {
       const bal = bigWord(await ethCall(leg.t, S_BALANCE_OF + addrWord(account)));
       if (bal < leg.a) throw new Error('this wallet holds ' + units(bal, leg.d) + ' ' + leg.n + ' and the pool would take ' + units(leg.a, leg.d) + '. Nothing was sent.');
@@ -1978,26 +2037,40 @@ $('goPool').onclick = async () => {
       });
       const r = await mined(tx, out);
       if (!r) throw new Error('the ' + leg.n + ' approve did not land.');
-      stands('Approved ' + units(leg.a, leg.d) + ' ' + leg.n + ' to the pools factory ' + S.pools + ', cost ' + charge(r) + ' — a standing allowance.');
+      stands('Approved ' + units(leg.a, leg.d) + ' ' + leg.n + ' to the pool ' + S.pools + ', cost ' + charge(r) + ' — a standing allowance.');
     }
-    const data = S_CREATE_POOL + nameWord + u256Word(amtPeer) + u256Word(amtBtc);
+    // Ten minutes on the CHAIN's clock, not this computer's: a browser an
+    // hour slow signs deadlines already expired and one an hour fast signs a
+    // protection that has not begun. If the block will not answer, the local
+    // clock stands in — that is a worse clock, and this is the disclosure.
+    let nowSec = Math.floor(Date.now() / 1000);
+    try {
+      const blk = await window.ethereum.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
+      if (blk && blk.timestamp) nowSec = Number(BigInt(blk.timestamp));
+    } catch (e) { /* the local clock stands in */ }
+    const data = S_ADD + u256Word(amtPeer) + u256Word(amtBtc) + u256Word(minShares) + u256Word(BigInt(nowSec + 600));
     try { await ethCall(S.pools, data, account); }
-    catch (e) { throw new Error('the chain refused createPool before it was signed: ' + ((e && (e.message || e)) || 'no reason') + '. Nothing was sent. (The usual causes: a name you already used, or starting liquidity so small that sqrt(peer x btc) does not clear MIN_LIQ.)'); }
+    catch (e) { throw new Error('the chain refused the deposit before it was signed: ' + ((e && (e.message || e)) || 'no reason') + '. Nothing was sent. (The usual causes: an allowance that is not there yet, a balance that will not cover it, or a deposit too small to mint a share at the ratio the pool holds.)'); }
     out('The chain accepts it in a dry run. Sending it for real.', 'ok');
     if (!(await requireBase(out))) return;
-    out('MetaMask is about to ask. This one opens the pool and moves both amounts.');
+    out('MetaMask is about to ask. This one moves the coins.');
     const tx = await window.ethereum.request({
       method: 'eth_sendTransaction',
       params: [{ from: account, chainId: BASE_CHAIN_ID, to: S.pools, data: data }],
     });
     const r = await mined(tx, out);
-    if (!r) throw new Error('createPool did not land.');
-    // Escaped where it is STORED, not where it is printed: this line goes into
-    // DONE, which the summary writes into innerHTML, and the name is the one
-    // thing on this page somebody typed.
-    stands('Pool "' + esc(nm) + '" opened on ' + S.pools + ' with ' + units(amtPeer, S.peerDec) + ' PEER and ' + units(amtBtc, S.btcDec) + ' cbBTC, cost ' + charge(r) + '.');
-    const cnt = bigWord(await ethCall(S.pools, S_POOL_COUNT));
-    out('The factory now holds ' + cnt.toString() + ' pool(s). GET /api/token/onchain lists them under namedPools.', 'ok');
+    if (!r) throw new Error('the deposit did not land.');
+    stands('Deposited ' + units(amtPeer, S.peerDec) + ' PEER and ' + units(amtBtc, S.btcDec) + ' cbBTC into the pool at ' + S.pools + ', cost ' + charge(r) + '.');
+    // Read back rather than assumed, like every other step here: what the
+    // pool holds now is the chain's answer, not this page's arithmetic about
+    // what it should hold.
+    const after = String(await ethCall(S.pools, S_RESERVES) || '').replace(/^0x/, '');
+    if (after.length >= 192) {
+      const aP = BigInt('0x' + after.slice(0, 64)), aB = BigInt('0x' + after.slice(64, 128)), aS = BigInt('0x' + after.slice(128, 192));
+      out('The pool now holds ' + units(aP, S.peerDec) + ' PEER against ' + units(aB, S.btcDec) + ' cbBTC, over ' + aS.toString() + ' share units. GET /api/token/onchain reports the same three numbers under pool.', 'ok');
+    } else {
+      out('The deposit landed; reading the reserves back afterwards did not answer, so nothing is claimed here about what the pool holds now. GET /api/token/onchain is the other way to ask.', 'muted');
+    }
   } catch (e) {
     out('STOPPED: ' + esc((e && (e.message || e)) || 'something went wrong'), 'bad');
     summary();
@@ -2026,7 +2099,7 @@ fs.writeFileSync('chain-l2/setup.html', setupHtml);
 // has been seen coming out of the build once, in the terminal that made it.
 console.log('wrote chain-l2/deploy.html (' + html.length + ' bytes, bytecode embedded)');
 console.log('wrote chain-l2/setup.html (' + setupHtml.length + ' bytes, bytecode embedded)');
-console.log('PeerPools  build fingerprint sha256:' + poolsFp);
+console.log('PeerPool   build fingerprint sha256:' + poolFp);
 console.log('PeerAnchor build fingerprint sha256:' + anchorFp);
 console.log('PeerClaim  build fingerprint sha256:' + claimFp);
 
@@ -2038,8 +2111,8 @@ console.log('PeerClaim  build fingerprint sha256:' + claimFp);
 // reads them back OUT of the generated HTML rather than out of the variables,
 // because the variables are not what an operator's wallet is handed.
 const PAGES = [
-  ['chain-l2/deploy.html', html, [['PeerToken', build], ['PeerPools', pools], ['PeerAnchor', anchor], ['PeerClaim', claim]]],
-  ['chain-l2/setup.html', setupHtml, [['PeerPools', pools], ['PeerAnchor', anchor], ['PeerClaim', claim]]],
+  ['chain-l2/deploy.html', html, [['PeerToken', build], ['PeerPool', pool], ['PeerAnchor', anchor], ['PeerClaim', claim]]],
+  ['chain-l2/setup.html', setupHtml, [['PeerPool', pool], ['PeerAnchor', anchor], ['PeerClaim', claim]]],
 ];
 for (const [file, text, wanted] of PAGES) {
   for (const [name, artifact] of wanted) {

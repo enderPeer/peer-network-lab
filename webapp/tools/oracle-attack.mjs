@@ -8,7 +8,7 @@
 // scripted pool history. The pool CONTRACT is not under test and is not run
 // here: reserves are moved by the constant-product identity directly, because
 // what is being asked is "what does the reader make of a pool that moved",
-// not "does PeerPools swap correctly", which has its own tests. Nothing here
+// not "does PeerPool swap correctly", which has its own tests. Nothing here
 // touches Base, and nothing here signs anything.
 //
 // THE ATTACK. Constant-product price is whatever the last trade left behind.
@@ -42,8 +42,9 @@ const require = createRequire(import.meta.url);
 const CHAIN_ID = 8453;
 const TOKEN = '0x5d63786095d09210011fd382c0710a7a1bc90e6f';
 const CBBTC = '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf';
-const FACTORY = '0x4444444444444444444444444444444444444444';
-const POOL_ID = 0;
+/** THE pool. One address, no factory above it and no id inside it — which is
+ *  also why this file no longer stages a pool id that has to match. */
+const POOL = '0x4444444444444444444444444444444444444444';
 const E18 = 10n ** 18n;
 const BLOCK0 = 30_000_000;
 const HEAD = BLOCK0 + 2000;
@@ -92,15 +93,14 @@ function handle({ method, params = [] }) {
     const data = String(p.data).toLowerCase();
     const tag = String(params[1] ?? 'latest');
     const at = tag === 'latest' ? HEAD : Number(BigInt(tag));
-    if (to === FACTORY.toLowerCase()) {
+    if (to === POOL.toLowerCase()) {
       if (data.startsWith('0x11cda415')) return '0x' + addrWord(TOKEN);   // peer()
       if (data.startsWith('0xa28d57d8')) return '0x' + addrWord(CBBTC);   // btc()
-      if (data.startsWith('0x1526fe27')) {                                 // poolInfo(uint256)
-        const id = Number(BigInt('0x' + data.slice(10)));
-        if (id !== POOL_ID) return '0x';
+      if (data.startsWith('0x75172a8b')) {                                 // reserves()
+        // Three words: resPeer, resBtc, totalShares. The reader cuts by
+        // offset, so the order here is the contract's order or nothing.
         const r = poolAt(at);
-        return '0x' + Buffer.from('official').toString('hex').padEnd(64, '0')
-          + word(r.peer) + word(r.btc) + word(1000n) + addrWord(FACTORY);
+        return '0x' + word(r.peer) + word(r.btc) + word(1000n);
       }
     }
     if (data.startsWith('0x313ce567')) return '0x' + word(to === CBBTC ? 8n : 18n);   // decimals()
@@ -130,8 +130,7 @@ process.env.PEER_L2_RPC = 'http://127.0.0.1:' + port;
 process.env.PEER_L2_CHAIN_ID = String(CHAIN_ID);
 process.env.PEER_TOKEN_ADDR = TOKEN;
 process.env.PEER_BTC_ADDR = CBBTC;
-process.env.PEER_PEERBURN_FACTORY = FACTORY;
-process.env.PEER_PEERBURN_POOL_ID = String(POOL_ID);
+process.env.PEER_POOL_ADDR = POOL;
 process.env.PEER_PEERBURN_QUOTE_MEMO_MS = '0';
 
 /**
@@ -310,6 +309,6 @@ if (!full.refused) {
 }
 
 console.log('\nRPC calls to price one burn on a cold reader: ' + calls);
-console.log('(' + GRID_N + ' blocks × a header and a poolInfo, plus the chain id, the pair and the'
+console.log('(' + GRID_N + ' blocks × a header and a reserves() read, plus the chain id, the pair and the'
   + ' block-time probe)\n');
 server.close();

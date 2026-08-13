@@ -2,6 +2,36 @@
 pragma solidity ^0.8.24;
 
 /**
+ * SUPERSEDED by PeerPool.sol — singular. Read that file first; this one is
+ * kept in the tree so the contract already on Base can be read against the
+ * source it was compiled from, not so it can be deployed again.
+ *
+ * WHAT REPLACED IT AND WHY. The network runs ONE official pool now: one
+ * address, no name, no id, no factory, anybody may add liquidity to it and
+ * every add makes it bigger. Everything below about per-creator names, the
+ * front-running they were namespaced to survive, and enumerating a growing
+ * array of pools exists to solve problems that a single address does not have.
+ * That is the whole argument for the change — the defensive machinery was
+ * correct, and it was correct about a design that has been withdrawn.
+ *
+ * THE DEPLOYED ADDRESS IS DEAD. A PeerPools was deployed once at
+ * 0x5112b892cf190d583f1acc86224812a8fad257ee on Base and it is broken beyond
+ * use: its immutable `peer` was set to the operator's wallet address rather
+ * than to the PEER token, so every pull from the PEER side calls transferFrom
+ * on an account with no code. Nothing in this repository points at it, no pool
+ * was ever opened in it, and no funds are in it. If you found it on a block
+ * explorer, that is what it is; do not send anything to it.
+ *
+ * ONE CONSEQUENCE OF THIS HEADER, SAID PLAINLY. solc appends a hash of the
+ * source to the bytecode it emits, so adding these paragraphs changed the last
+ * 43 bytes of PeerPools.build.json — code, ABI and selectors all byte-identical,
+ * metadata digest not. A source-verification of the dead address above against
+ * this file will therefore MISMATCH, and that is the trade taken knowingly: the
+ * artifact in this tree is kept reproducible from the source in this tree
+ * (rerun build-pools.js and diff), rather than frozen to match a deployment
+ * that is broken, empty, and referenced by nothing. To reproduce the deployed
+ * bytecode exactly, compile this file with the header above removed.
+ *
  * PeerPools — named constant-product pools for exactly one pair: PEER/BTC.
  *
  * The same shape as PeerToken: no owner, no admin, no pause, no fee switch,

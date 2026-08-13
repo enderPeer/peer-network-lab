@@ -16,25 +16,51 @@
 //   PEER_L2_RPC        JSON-RPC endpoint      (default Base mainnet)
 //   PEER_L2_CHAIN_ID   expected chain id      (default 8453 = Base)
 //   PEER_TOKEN_ADDR    the deployed PEER ERC-20
-//   PEER_BTC_ADDR      the BTC-representing ERC-20 (cbBTC on Base)
-//   PEER_POOL_ADDR     the AMM pair/pool holding PEER + BTC
-//   PEER_POOLS_ADDR    the PeerPools factory: named PEER/BTC pools
-//   PEER_POOLS_FROM_BLOCK  first block to scan for PoolCreated (default 0)
+//   PEER_BTC_ADDR      the BTC-representing ERC-20 (cbBTC on Base). Worth
+//                      setting even though nothing refuses to start without it:
+//                      it is what the pool's own btc() is COMPARED against, and
+//                      with it unset the only fence left is "that token answers
+//                      8 decimals", which any 8-decimal token anybody minted
+//                      also answers
+//   PEER_POOL_ADDR     THE pool: the one PeerPool contract holding PEER + BTC.
+//                      Unset means burning PEER for reserve is OFF and every
+//                      route says so in words — with no pool there is no
+//                      price, and a guessed price is an invented exchange rate
+//                      for the right to speak
 //   PEER_ANCHOR_ADDR   the PeerAnchor contract: epoch ids and earnings roots,
 //                      timestamped by the chain
 //   PEER_CLAIM_ADDR    the PeerClaim contract: epoch earnings, claimable as
 //                      real PEER against a published merkle root
 //   PEER_EPOCH_FROM_BLOCK  first block to scan for Anchored and EpochOpened
-//                      (default 0) — the same shape, and the same tradeoff, as
-//                      PEER_POOLS_FROM_BLOCK below
-//   PEER_PEERBURN_FACTORY  the PeerPools factory holding the OFFICIAL pool —
-//                      the one pool a PEER burn is priced against
-//   PEER_PEERBURN_POOL_ID  which pool id in it. Both unset means burning PEER
-//                      for reserve is OFF and every route says so in words:
-//                      with no pool there is no price, and a guessed price is
-//                      an invented exchange rate for the right to speak
+//                      (default 0)
 //   PEER_PEERBURN_FROM_BLOCK  first block to scan for PEER burns (default 0)
 //   PEER_PEERBURN_MIN_CONF    how deep a burn must be buried (default 30)
+//
+// ── WHAT ONE POOL DELETED FROM THIS FILE ───────────────────────────────────
+// PeerPools.sol held MANY pools under human-chosen names, and this reader paid
+// for that in defensive code. PeerPool.sol replaces it with one contract at
+// one address, and the following are GONE rather than left inert — dead
+// defensive code reads as a defence that is still running:
+//
+//   PEER_POOLS_ADDR, PEER_POOLS_FROM_BLOCK and the whole `namedPools` reader:
+//     the chunked resumable PoolCreated log scan, the depth-ranked pre-filter
+//     that decided which pools were worth an eth_call, the READ/LIST caps and
+//     the truncation counters beside them, and server-data/pools-scan.json.
+//     All of it existed because a LIST is censorable: 256 dust pools, a few
+//     dollars of gas, and the operator's real pool falls off the end of
+//     whatever a reader was willing to walk. One address has no discovery
+//     problem — you either have it or you do not — so there is nothing to
+//     enumerate, nothing to rank, and no cap to disclose.
+//
+//   PEER_PEERBURN_FACTORY and PEER_PEERBURN_POOL_ID: two variables that
+//     existed only to answer "which pool is the official one" in a world where
+//     a NAME could not answer it. PeerPools claimed names per creator, so
+//     resolving the price source by name would have been an oracle attack
+//     costing one transaction. The address IS the answer now, so the question
+//     is gone with the variables. PEER_POOL_ADDR is the one place it is asked.
+//
+// Reading the pool is now one eth_call to reserves(). No logs, no cursor, no
+// backfill, and nothing about the pool that a refused window could hide.
 //
 // The two epoch contracts are OFF until their addresses are set, and the
 // answer says so in words rather than by leaving a key out: `anchors` and
@@ -43,28 +69,16 @@
 // opposite sentences and a missing key blurs them. Same rule as the token
 // itself — an address baked into source is one nobody verified.
 //
-// PEER_POOLS_FROM_BLOCK deserves its own paragraph. Pools are found by asking
-// for the factory's PoolCreated logs, and the honest default range is the
-// whole chain — no block number is baked into this source for the same reason
-// no address is: it would be a number nobody verified. Public RPCs cap how
-// wide ONE log query may be (Base's answers 9,999 blocks and refuses 10,000),
-// so the scan below is chunked into windows under that cap and walks forward
-// across as many of them as it needs. Setting this to the block your factory
-// was deployed in does not switch the scan on — it shortens the one-time
-// backfill from "the whole chain" to "the pools that exist", which is the
-// difference between minutes and hours of catching up. Set too LATE it
-// silently hides pools opened before it, so the reader reports the on-chain
-// pool total next to what it actually found and a gap between the two is
-// visible rather than inferred.
-//
 // This file writes files of its own, and none of them are on any chain: one
 // scan memory per contract it discovers things from — which blocks it has
 // already walked and what it saw in them — under the host's data directory:
 //
-//   server-data/pools-scan.json    PoolCreated, from PEER_POOLS_ADDR
 //   server-data/anchor-scan.json   Anchored,    from PEER_ANCHOR_ADDR
 //   server-data/claim-scan.json    EpochOpened, from PEER_CLAIM_ADDR
 //   server-data/peerburn-scan.json Transfer to the dead address, from the token
+//
+// (server-data/pools-scan.json is no longer written or read. A host upgrading
+// across this change can delete it; nothing here will ever look at it again.)
 //
 // They are caches, never sources of truth: delete any of them and the next
 // refresh rebuilds it from the chain. They exist because without them every
@@ -88,37 +102,32 @@ const clean = (a) => {
 };
 export const TOKEN_ADDR = clean(process.env.PEER_TOKEN_ADDR);
 export const BTC_ADDR = clean(process.env.PEER_BTC_ADDR);
-export const POOL_ADDR = clean(process.env.PEER_POOL_ADDR);
-export const POOLS_ADDR = clean(process.env.PEER_POOLS_ADDR);
 export const ANCHOR_ADDR = clean(process.env.PEER_ANCHOR_ADDR);
 export const CLAIM_ADDR = clean(process.env.PEER_CLAIM_ADDR);
 export const L2_ON = !!TOKEN_ADDR;
 
-// ── The official pool: an address and an id, never a name ──────────────────
+// ── THE pool: one address, and nothing else to decide ──────────────────────
 //
-// A `peerBurn` is priced by ONE pool, and which pool that is has to be an
-// operator's decision written down, because in PeerPools a name is not an
-// identity. Names are claimed per creator on purpose (see DEPLOY.md, "A pool
-// name is a label, not a namespace"), so "the pool called main" is a phrase
-// two strangers can both satisfy — and if this host resolved its price source
-// by name, opening a pool with the right name and a wrong ratio would be an
-// oracle attack costing one transaction.
+// A `peerBurn` is priced by ONE pool, and this is it. There is no id to pick,
+// no name to resolve and no list to choose from — PeerPool.sol is a single
+// market at a single address, so the address is the whole identity and a
+// wrong one is wrong loudly (reserves() answers nothing) rather than by
+// quietly pointing at somebody else's dust.
 //
-// So: a factory ADDRESS and a numeric POOL ID, both from configuration. Unset
-// means this door is CLOSED and says so in words, which is the shipped state
-// today — no PeerPools factory is deployed, the operator's wallet holds no
-// cbBTC, so there is no PEER/cbBTC pool and therefore no price. A host that
-// guessed one would be inventing the exchange rate at which speech is sold.
+// It stays configuration rather than a constant for the reason nothing else
+// here is baked in either: an address written into source is one nobody
+// verified. Unset means this door is CLOSED and says so in words, which is
+// still the shipped state — the pool has to be deployed and seeded before
+// there is a price at all, and a host that guessed one would be inventing the
+// exchange rate at which speech is sold.
 //
-// The factory deliberately does NOT fall back to PEER_POOLS_ADDR. That
-// variable exists to decide which factory the pool LIST is read from, and a
-// price that silently follows it would re-point itself the day an operator
-// pointed the list at somebody else's factory to look at it. Two questions,
-// two variables, both explicit.
-export const PEERBURN_FACTORY = clean(process.env.PEER_PEERBURN_FACTORY);
-const PEERBURN_POOL_RAW = String(process.env.PEER_PEERBURN_POOL_ID ?? '').trim();
-export const PEERBURN_POOL_ID = /^[0-9]{1,9}$/.test(PEERBURN_POOL_RAW) ? Number(PEERBURN_POOL_RAW) : null;
-export const PEERBURN_ON = !!(TOKEN_ADDR && PEERBURN_FACTORY && PEERBURN_POOL_ID !== null);
+// PEER_POOL_ADDR used to name a UniswapV2-style PAIR that tokenState read
+// through getReserves(). That reading is gone with the variable's meaning:
+// the network has its own pool now, the panel this fed is the pool panel, and
+// two contracts behind one variable would be a display that is right about
+// whichever one the operator happened to point at.
+export const POOL_ADDR = clean(process.env.PEER_POOL_ADDR);
+export const PEERBURN_ON = !!(TOKEN_ADDR && POOL_ADDR);
 /**
  * How deep a Base transaction must be buried before a burn counts.
  *
@@ -144,16 +153,14 @@ const SEL = {
   balanceOf: '0x70a08231',    // balanceOf(address)
   decimals: '0x313ce567',     // decimals()
   symbol: '0x95d89b41',       // symbol()
-  getReserves: '0x0902f1ac',  // getReserves()            — UniswapV2-style pair
-  token0: '0x0dfe1681',       // token0()
-  token1: '0xd21220a7',       // token1()
-  // PeerPools factory — values from the compiler's own methodIdentifiers
-  // table in PeerPools.build.json, not recomputed here.
-  poolCount: '0xf525cb68',    // poolCount()
-  poolInfo: '0x1526fe27',     // poolInfo(uint256)
-  sharesOf: '0xe78307ca',     // sharesOf(uint256,address)
-  poolsPeer: '0x11cda415',    // peer()                   — the factory's own PEER
-  poolsBtc: '0xa28d57d8',     // btc()                    — the factory's own BTC
+  // PeerPool — values from the compiler's own methodIdentifiers table in
+  // PeerPool.build.json, not recomputed here. tests/one-pool.test.ts calls the
+  // compiled bytecode through that same table, so a selector that drifted from
+  // the artifact fails there before it can fail here.
+  reserves: '0x75172a8b',     // reserves()               — resPeer, resBtc, totalShares
+  poolSharesOf: '0xf5eb42dc', // sharesOf(address)        — one holder's share units
+  poolPeer: '0x11cda415',     // peer()                   — the pool's own PEER
+  poolBtc: '0xa28d57d8',      // btc()                    — the pool's own BTC
   // PeerAnchor and PeerClaim — again the compiler's own methodIdentifiers
   // tables, in PeerAnchor.build.json and PeerClaim.build.json, copied rather
   // than recomputed. tests/epoch-onchain.test.ts calls the compiled bytecode
@@ -165,27 +172,6 @@ const SEL = {
   epochInfo: '0x3894228e',    // epochInfo(uint256)
   claimed: '0x120aa877',      // claimed(uint256,address)
 };
-
-/**
- * The PoolCreated topic0: keccak256 of the event signature, which is the
- * same rule as a 4-byte selector with all 32 bytes kept. Hardcoded for the
- * same reason the selectors are — this file grows no hashing library — and
- * the `indexed` markers are NOT part of the string it is taken over:
- *
- *   event PoolCreated(uint256 indexed id, bytes32 name, address indexed by,
- *                     uint256 amtPeer, uint256 amtBtc)
- *   hashed as: PoolCreated(uint256,bytes32,address,uint256,uint256)
- *
- * Verified twice rather than trusted once, because a wrong topic here is not
- * an error message, it is an empty pool list that looks like an empty
- * network. First: a from-scratch Keccak-256 that reproduces the canonical
- * ERC-20 Transfer topic (ddf252ad…) and every one of the eleven selectors in
- * PeerPools.build.json, which solc produced independently. Second: the
- * compiled PeerPools bytecode itself, run under @ethereumjs/vm — createPool
- * put exactly this word in topics[0]. Anyone can redo the second in one
- * command; tests/pools-onchain.test.ts already deploys that bytecode.
- */
-const TOPIC_POOL_CREATED = '0xdbc17b6ce8216b142cb8dab25e6228bd0965d99cb4a9f8f2e45cd8e7df33df81';
 
 /**
  * The two epoch topics, by the same rule and checked the same two ways.
@@ -226,46 +212,33 @@ function fromBlockOf(value) {
   const ok = raw === '' || /^(0x[0-9a-f]+|[0-9]+)$/i.test(raw);
   return { raw, ok, hex: ok && raw ? '0x' + BigInt(raw).toString(16) : '0x0' };
 }
-const POOLS_FROM = fromBlockOf(process.env.PEER_POOLS_FROM_BLOCK);
 // One from-block for both epoch contracts. They are deployed in the same
 // sitting, minutes apart, and two variables here would be two chances to set
-// the wrong one — the rule is the same as for pools, err LOW: too low costs
-// a little scanning, too high silently hides anchors and epochs opened before
-// it. Each scan's memory is keyed to its own contract, so sharing the
-// variable does not mix the two.
+// the wrong one. The rule is err LOW: too low costs a little scanning, too
+// high silently hides anchors and epochs opened before it. Each scan's memory
+// is keyed to its own contract, so sharing the variable does not mix the two.
+//
+// The honest default is the whole chain — no block number is baked into this
+// source for the same reason no address is: it would be a number nobody
+// verified. Public RPCs cap how wide ONE log query may be (Base's answers
+// 9,999 blocks and refuses 10,000), so the scan below is chunked into windows
+// under that cap and walks forward across as many of them as it needs.
+// Setting this to the deployment block does not switch anything on; it
+// shortens the one-time backfill from "the whole chain" to "since these
+// contracts existed", which is the difference between minutes and hours of
+// catching up.
 const EPOCH_FROM = fromBlockOf(process.env.PEER_EPOCH_FROM_BLOCK);
 // The PEER burn scan walks the TOKEN's Transfer logs, so its from-block is the
-// block the token was deployed in — a different contract from the factory and
-// from the two epoch contracts, hence a variable of its own rather than a
-// fourth meaning bolted onto one of theirs. Same err-LOW rule as all three:
+// block the token was deployed in — a different contract from the two epoch
+// contracts, hence a variable of its own rather than a third meaning bolted
+// onto theirs. Same err-LOW rule as above:
 // too low costs a little scanning, too high silently hides burns made before
 // it, and a burn this scan never sees is reserve somebody destroyed PEER for
 // and never got. Unset means block 0, which is correct and slow.
 const PEERBURN_FROM = fromBlockOf(process.env.PEER_PEERBURN_FROM_BLOCK);
 
 /**
- * Two caps, both surfaced in the answer rather than applied quietly.
- *
- * READ_CAP is how many poolInfo eth_calls one refresh will spend: a factory
- * with ten thousand pools must not turn every cache miss into ten thousand
- * round trips against a public RPC. LIST_CAP is how many pools come back in
- * the payload — a list nobody scrolls is not a feature, and the deepest
- * pools are the ones a trade can actually fill. READ_CAP is deliberately
- * twice LIST_CAP: the list is ranked on CURRENT reserves, which are only
- * knowable by reading, so the reader must read more pools than it shows or
- * the ranking is decided by whatever the pre-filter guessed.
- *
- * Neither cap is allowed to be invisible: `total` is the factory's own
- * poolCount(), `discovered` is how many the log scan saw, `returned` is the
- * length of the list, and `truncated` says plainly that those numbers differ.
- * A cap you cannot see is indistinguishable from censorship, which is the
- * exact bug this whole path exists to fix.
- */
-const READ_CAP = 64;
-const LIST_CAP = 32;
-
-/**
- * The same two caps for the epoch contracts, and one more for the memory.
+ * Caps for the epoch contracts, and one more for the memory.
  *
  * ANCHOR_LIST_CAP is how many anchors come back, newest first. Nothing is read
  * per anchor — an Anchored log carries the whole row and the contract can
@@ -287,8 +260,8 @@ const LIST_CAP = 32;
  * the answer says when it was.
  *
  * Every one of these is reported next to what it actually is — discovered,
- * returned, truncated — for the reason the pools list already gives: a cap you
- * cannot see is indistinguishable from censorship.
+ * returned, truncated — because a cap you cannot see is indistinguishable from
+ * censorship.
  */
 const ANCHOR_LIST_CAP = 32;
 const ANCHOR_MEMORY = 400;
@@ -302,10 +275,12 @@ const CLAIM_ACCOUNT_CAP = 8;
  * span of 9,999 blocks and refuses 10,000 with "eth_getLogs is limited to a
  * 10,000 range", so this sits one block under the refusal and every window is
  * a query the endpoint will actually serve. A single unchunked query from the
- * deploy block to 'latest' worked for exactly as long as the factory was
+ * deploy block to 'latest' worked for exactly as long as the contract was
  * younger than 10,000 blocks — five and a half hours at Base's two-second
  * blocks — and then threw on every refresh forever, telling the operator to
- * set the variable they had already set correctly.
+ * set the variable they had already set correctly. That is a lesson paid for
+ * on the pools scan, which no longer exists; it is kept because the three
+ * scans that remain would have learned it the same way.
  *
  * WINDOW_CAP is how many of those windows ONE refresh will spend, so a host
  * pointed at block 0 of a chain thirty million blocks long does not hang the
@@ -318,7 +293,7 @@ const CLAIM_ACCOUNT_CAP = 8;
  * scanned. The cursor is saved at the head we asked for, which may still be
  * reorganised out from under us; re-walking the last minute or two of blocks
  * costs one small window and makes a re-served log a duplicate (harmless — the
- * ids are a Map) rather than a pool nobody ever sees.
+ * rows are a Map) rather than an anchor or a burn nobody ever sees.
  */
 const WINDOW = 9_999;
 const WINDOW_CAP = 24;
@@ -331,12 +306,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 // places. server-data is gitignored wholesale, so this file is too.
 const DATA_DIR = resolve(process.env.PEER_DATA_DIR || join(here, '..', 'server-data'));
 const SCAN_VERSION = 1;
-/** One memory per contract walked. See the header for what each holds. */
-const POOLS_SCAN_FILE = join(DATA_DIR, 'pools-scan.json');
+/** One memory per contract walked. See the header for what each holds. The
+ *  pool is not among them: it is read with one eth_call and has no history to
+ *  remember. */
 const ANCHOR_SCAN_FILE = join(DATA_DIR, 'anchor-scan.json');
 const CLAIM_SCAN_FILE = join(DATA_DIR, 'claim-scan.json');
 // Transfer, from PEER_TOKEN_ADDR, to the dead address — every PEER burn there
-// has ever been. A cache like the other three: delete it and the next refresh
+// has ever been. A cache like the other two: delete it and the next refresh
 // re-walks the range from PEER_PEERBURN_FROM_BLOCK. What it must never become
 // is the authority on which burn was already credited; that is the act log,
 // and the credit path asks the log immediately before it writes.
@@ -354,10 +330,11 @@ const PEERBURN_SCAN_FILE = join(DATA_DIR, 'peerburn-scan.json');
  * walked.
  *
  * The stored field is still called `factory`, which is what the pools scan
- * wrote before this file was shared with the two epoch contracts. Renaming it
- * to `contract` would be tidier and would throw away every live host's pools
- * memory on the deploy that landed it, for nothing: one whole-chain backfill
- * per host to improve a word nobody reads.
+ * wrote before this file was shared with the epoch contracts and the burn
+ * watcher. That scan is gone; the WORD stays, because renaming it to
+ * `contract` would be tidier and would throw away every live host's anchor,
+ * claim and burn memories on the deploy that landed it — three whole-chain
+ * backfills per host to improve a word nobody reads.
  *
  * A missing file is the normal first run and says nothing. A file that exists
  * and will not parse DOES say something, so it is reported: silently starting
@@ -414,14 +391,16 @@ function saveScan(file, contract, from, lastScanned, ids) {
  * ONE chunked, resumable log scan, walked by every contract this module
  * discovers things from.
  *
- * There used to be exactly one of these and it lived inside namedPools, which
- * was fine while pools were the only thing found by log. The moment a second
- * caller needed the same walk, copying it would have meant two window
+ * There used to be exactly one of these and it lived inside the pools reader,
+ * which was fine while pools were the only thing found by log. The moment a
+ * second caller needed the same walk, copying it would have meant two window
  * chunkers, two cursors, two rewind rules and two ways to report a refused
- * window — and the pools one is the one that has already been wrong twice in
+ * window — and the pools one is the one that had already been wrong twice in
  * production (an unchunked query that died at 10,000 blocks; a cursor that
  * skipped past a refused window and left a permanent hole). Whatever is
- * learned about scanning is worth learning once.
+ * learned about scanning is worth learning once. The pools reader is gone now;
+ * everything it taught this helper stays, because the three callers below can
+ * be wrong in exactly those two ways.
  *
  * The caller supplies only what differs: which contract, which topic, where to
  * start, how to revive a remembered row, and what to do with a log. The
@@ -435,7 +414,7 @@ function saveScan(file, contract, from, lastScanned, ids) {
  * asking the endpoint for the whole history and discarding 99% of it locally
  * is the same answer at a hundred times the bandwidth, and on a busy token it
  * is the difference between a window that serves and one that times out. The
- * pools and epoch scans pass nothing and are unchanged.
+ * two epoch scans pass nothing.
  *
  * Returns the rows (remembered ones already folded in, so a refused window
  * costs nothing that was learned earlier) and the `scan` block that says
@@ -607,21 +586,42 @@ function human(v, dec) {
   return Number(v) / Math.pow(10, dec);
 }
 
-/** A bytes32 pool name back to the utf-8 someone typed: decode hex pairs and
- *  stop at the first NUL, because Solidity right-pads short names with zero
- *  bytes and the padding is not part of the name. The raw word travels
- *  alongside the decoded string everywhere this is used — a name is the
- *  pool's on-chain identity, and a caller who wants to call createPool's
- *  namesake or check uniqueness needs the exact 32 bytes, not our reading
- *  of them. */
-function bytes32Name(hexWord) {
-  const bytes = [];
-  for (let i = 0; i + 2 <= hexWord.length && i < 64; i += 2) {
-    const b = parseInt(hexWord.slice(i, i + 2), 16);
-    if (b === 0) break;
-    bytes.push(b);
+/**
+ * THE pool's three words, decoded, or a sentence saying why there are none.
+ *
+ *   reserves() -> resPeer, resBtc, totalShares
+ *
+ * Three static words, in that order, cut by offset — the order is written
+ * down in PeerPool.sol beside the function, because nothing but that comment
+ * tells this side where to cut. A SHORT answer is a pool this host could not
+ * read, and it is reported as exactly that: "nothing answered" and "the pool
+ * is empty" are opposite sentences, one a misconfiguration to fix and the
+ * other an invitation to make the first deposit.
+ *
+ * All three zero IS a real state and says so: the contract exists and nobody
+ * has seeded it. The first add() sets the opening price, so an unseeded pool
+ * is not an error — it is the one state from which a price can still be
+ * invented by whoever gets there first, and every caller of this is told
+ * `seeded: false` rather than being handed a zero to divide by.
+ */
+async function readPool() {
+  const out = { address: POOL_ADDR };
+  // At the head, always. The historical reads the averaging window needs go
+  // through callAt in the burn section, and they decode two of these three
+  // words rather than all of them — keeping them separate is what stops a
+  // display read from quietly becoming a price.
+  const ret = await call(POOL_ADDR, SEL.reserves);
+  const body = String(ret || '').replace(/^0x/, '');
+  if (body.length < 64 * 3) {
+    out.error = 'nothing at ' + POOL_ADDR + ' answered reserves() on chain ' + CHAIN_ID
+      + ' — that address is not a PeerPool. This is a misconfiguration to fix, not a pool with nothing in it.';
+    return out;
   }
-  return new TextDecoder().decode(new Uint8Array(bytes));
+  out.resPeerRaw = word(ret, 0).toString();
+  out.resBtcRaw = word(ret, 1).toString();
+  out.totalSharesRaw = word(ret, 2).toString();
+  out.seeded = out.totalSharesRaw !== '0';
+  return out;
 }
 
 /**
@@ -634,7 +634,7 @@ function bytes32Name(hexWord) {
  */
 export async function tokenState() {
   if (!L2_ON) return null;
-  const out = { chainId: CHAIN_ID, rpc: RPC, token: TOKEN_ADDR, btc: BTC_ADDR || null, pool: POOL_ADDR || null };
+  const out = { chainId: CHAIN_ID, rpc: RPC, token: TOKEN_ADDR, btc: BTC_ADDR || null };
   // The chain id is checked every time, cheaply. Pointing at the wrong
   // network and reading confident numbers off it is the failure that looks
   // most like success.
@@ -654,37 +654,61 @@ export async function tokenState() {
     out.error = 'no ERC-20 answered at ' + TOKEN_ADDR + ' on chain ' + CHAIN_ID;
     return out;
   }
+  // THE pool: reserves(), plus the pool's own account of which two coins it
+  // moves. This whole block used to be two — a UniswapV2 pair read through
+  // getReserves, and a factory whose pools were discovered from logs, ranked by
+  // depth and capped twice with the caps disclosed. One address needs none of
+  // it.
+  //
+  // WHICH TOKENS, asked of the POOL and never taken from this host's env. The
+  // decimals that scale every amount on the pools card must come from the same
+  // two contracts a signed trade actually moves coins in, because that card
+  // reads peer()/btc() off the pool for its approvals and its add: taking the
+  // scaling from PEER_TOKEN_ADDR / PEER_BTC_ADDR while the transaction targets
+  // the pool's own pair is a display that is wrong by a hundred million while
+  // looking perfectly ordinary. checkPair is the reader that asks — already
+  // written, already memoised per process — and this used to be the one path
+  // that did not call it. The factory reader it replaced did; the check went
+  // out with the factory and it was never the factory's.
+  //
+  // Fenced on its own so that a wrong or dead pool address degrades to an
+  // error note under its own key and never takes the token report down with
+  // it, and OFF says so in words rather than by leaving the key out: "this
+  // host reads no pool" and "the pool is empty" are opposite sentences.
   if (POOL_ADDR) {
     try {
-      const res = await call(POOL_ADDR, SEL.getReserves);
-      const r0 = word(res, 0), r1 = word(res, 1);
-      const t0 = word(await call(POOL_ADDR, SEL.token0));
-      if (r0 !== null && r1 !== null && t0 !== null) {
-        // token0 is whichever address sorts lower; ask rather than assume.
-        const token0 = '0x' + t0.toString(16).padStart(40, '0');
-        const peerIs0 = token0 === TOKEN_ADDR;
-        out.pool = {
-          address: POOL_ADDR,
-          peerReserveRaw: (peerIs0 ? r0 : r1).toString(),
-          btcReserveRaw: (peerIs0 ? r1 : r0).toString(),
-          note: 'reserves are raw integers; a price is only meaningful once both sides are non-zero',
-        };
+      const pair = await checkPair();
+      const p = await readPool();
+      out.pool = { ...p, tokens: { peer: pair.peer || null, btc: pair.btc || null } };
+      out.pool.decimals = {
+        // tokenState already asked TOKEN_ADDR for its decimals, and checkPair
+        // asked the pool's own two tokens for theirs, so nothing here is asked
+        // twice. 18 and 8 are the expected answers and never the assumed ones:
+        // they are what a token that would not answer at all falls back to, and
+        // that case is the one the mismatch/tokensNote lines above are for.
+        peer: pair.peer && pair.peer !== TOKEN_ADDR ? (pair.peerDecimals == null ? 18 : pair.peerDecimals) : dec,
+        btc: pair.btc ? (pair.btcDecimals == null ? 8 : pair.btcDecimals) : await decimalsOf(BTC_ADDR, 8),
+      };
+      // Where the pool's pair and this host's configuration disagree, that
+      // sentence is reported and the CARD prints it first, above the wallet
+      // row: it means every button below moves coins the operator did not mean
+      // to serve. Nothing is hidden and nothing is disabled — this module
+      // cannot know which of the two addresses is the wrong one, and the trades
+      // are perfectly real either way — but nobody should approve a token
+      // without having read it.
+      if (pair.mismatch) out.pool.mismatch = pair.mismatch;
+      else if (pair.note) out.pool.tokensNote = pair.note;
+      if (p.seeded === false) {
+        out.pool.note = 'this pool exists and nobody has added liquidity to it yet. The FIRST add sets the opening price — the two amounts deposited are the ratio, invented by whoever deposits them — and every add after that is proportional to what is already here.';
       }
     } catch (e) {
-      // A v3 pool has no getReserves, and a wrong address has nothing at all.
-      // Neither is fatal to reporting the token itself.
-      out.pool = { address: POOL_ADDR, error: 'no UniswapV2-style reserves here (' + String(e.message).slice(0, 60) + ')' };
+      out.pool = { address: POOL_ADDR, error: 'could not read the pool (' + String(e.message).slice(0, 60) + ')' };
     }
-  }
-  if (POOLS_ADDR) {
-    // Fenced exactly like POOL_ADDR above: a wrong or dead factory address
-    // degrades to an error note under its own key and never takes the token
-    // report down with it.
-    try {
-      out.namedPools = await namedPools(dec);
-    } catch (e) {
-      out.namedPools = { factory: POOLS_ADDR, error: 'could not read the pools factory (' + String(e.message).slice(0, 60) + ')' };
-    }
+  } else {
+    out.pool = {
+      configured: false,
+      why: 'PEER_POOL_ADDR is unset, so this host reads no pool. That is not a claim that none exists — an address baked into source is one nobody verified, so this stays off until an operator points it at a deployment they made themselves. With no pool there is no price, and burning PEER for reserve is off for the same reason.',
+    };
   }
   // The epoch chain's two contracts, each fenced the same way and each saying
   // plainly when it is off. "This host reads no anchors" and "this network has
@@ -713,302 +737,6 @@ export async function tokenState() {
       configured: false,
       why: 'PEER_CLAIM_ADDR is unset, so no epoch earnings are claimable through this host. Epoch tokens still exist in the act log exactly as before; nothing about them is on a chain until a claim contract is deployed and funded.',
     };
-  }
-  return out;
-}
-
-/**
- * The named-pools factory (PeerPools.sol): constant-product pools over the
- * one fixed PEER/BTC pair, each under a human-chosen bytes32 name. Several
- * pools of the same pair coexisting is deliberate — the network chose named
- * pools and accepts the liquidity fragmentation that comes with it.
- *
- * Pools are found from the PoolCreated LOG. They used to be found by walking
- * ids 0, 1, 2 … and stopping at 256, and that was a censorship hole with a
- * price tag on it: open 256 pools with dust — a few dollars of gas on Base,
- * total — and every id from 256 up, including the operator's real pool, is
- * never returned by this host again. Permanently, with no privileged
- * function anywhere in PeerPools to undo it, because there is no privileged
- * function anywhere in PeerPools. That property is worth keeping, so the
- * reader is what changes.
- *
- * Indexing by event and ranking by depth prices the attack in the one thing
- * dust cannot buy. To sit above a real pool in this list you must hold more
- * bitcoin in your pool than it holds in its own — at which point you have
- * not buried anybody, you have provided liquidity. Array position buys
- * nothing here; it is not read.
- *
- * "Hold", present tense, everywhere — including in the pre-filter that picks
- * which pools get read at all. It once ranked candidates by the opening
- * deposit in the PoolCreated log, which is a number an attacker writes once
- * and can take straight back out: open sixty-four pools with a real deposit,
- * drain them in the same block, and the log still says you are the deepest
- * liquidity on the factory for as long as the log exists. That inverted the
- * exact property this module advertises. Nothing on the ranking path reads an
- * opening amount now; see the pre-filter below for what the cap does and does
- * not buy.
- *
- * Every number a UI could mistake for "all of them" is reported next to what
- * it actually is: `total` from the factory's own poolCount(), `discovered`
- * from the scan, `returned` from the list, plus `skipped`, `unread` and the
- * `scan` block — windows walked, windows refused, how far behind the backfill
- * still is. A scan that only half happened must never look like a whole one.
- */
-async function namedPools(peerDec) {
-  const out = { factory: POOLS_ADDR };
-  // poolCount() first, because it is one cheap word and it settles whether
-  // this address is the factory at all. Nothing answering is NOT an empty
-  // factory: an empty factory invites a first deposit and a wrong address
-  // must not. The two sentences are kept apart here rather than blurred
-  // into a zero.
-  const countWord = word(await call(POOLS_ADDR, SEL.poolCount));
-  if (countWord === null) {
-    out.error =
-      'nothing at ' + POOLS_ADDR + ' answered poolCount() on chain ' + CHAIN_ID +
-      ' — that address is not a PeerPools factory. This is a misconfiguration to fix, not an empty pool list to deposit into.';
-    return out;
-  }
-  const total = Number(countWord);
-
-  // WHICH tokens? The factory's own immutables, not this host's env. The
-  // decimals that scale every amount below must come from the same two
-  // contracts a signed trade actually moves coins in; reading them off
-  // PEER_BTC_ADDR while the transaction targets the factory's btc() is how
-  // a display ends up a hundred million times wrong while looking fine.
-  const fPeer = addrFromWord(await call(POOLS_ADDR, SEL.poolsPeer));
-  const fBtc = addrFromWord(await call(POOLS_ADDR, SEL.poolsBtc));
-  out.tokens = { peer: fPeer, btc: fBtc };
-  const disagree = [];
-  if (fPeer && TOKEN_ADDR && fPeer !== TOKEN_ADDR) disagree.push({ side: 'peer', factory: fPeer, configured: TOKEN_ADDR });
-  if (fBtc && BTC_ADDR && fBtc !== BTC_ADDR) disagree.push({ side: 'btc', factory: fBtc, configured: BTC_ADDR });
-  if (disagree.length) {
-    // Neither address is silently preferred, because neither is obviously
-    // right: an operator pointing a host at a factory over different tokens
-    // than they configured is exactly the failure that looks like success.
-    // The decimals below follow the FACTORY, since those are the coins that
-    // move — and this field says so, naming both, so the operator can see
-    // which of the two they got wrong.
-    out.mismatch = {
-      pairs: disagree,
-      error: 'this factory trades tokens this host was not configured with — amounts below are scaled by the FACTORY’s tokens, because those are the coins a trade here actually moves. One of the two is wrong: fix PEER_TOKEN_ADDR / PEER_BTC_ADDR, or point PEER_POOLS_ADDR at the factory you meant.',
-    };
-  } else if (!fPeer || !fBtc) {
-    // The cross-check is the whole point of asking; when it cannot be made,
-    // say so rather than letting the env pass for confirmed.
-    out.tokensNote =
-      'this factory did not answer peer()/btc(), so the decimals below come from this host’s configured addresses with nothing to check them against';
-  }
-  // PEER at 18 and cbBTC at 8 are the expected answers, never the assumed
-  // ones. tokenState already asked TOKEN_ADDR, so that call is not repeated
-  // when the factory names the same token.
-  out.peerDecimals = fPeer && fPeer !== TOKEN_ADDR ? await decimalsOf(fPeer, 18) : peerDec;
-  out.btcDecimals = await decimalsOf(fBtc || BTC_ADDR, 8);
-
-  // ── The scan ──────────────────────────────────────────────────────────
-  //
-  // Chunked, and it remembers. The whole range is walked in windows the
-  // endpoint will serve (see WINDOW), forward from wherever the last refresh
-  // stopped, with a budget of windows per refresh so a cold host with a
-  // from-block of 0 catches up over several refreshes instead of hanging one.
-  // In steady state that is one window: sixty-odd blocks of rewind plus the
-  // minute of new chain since the last refresh.
-  if (!POOLS_FROM.ok) out.fromBlockIgnored = POOLS_FROM.raw.slice(0, 40);
-  out.fromBlock = POOLS_FROM.hex;
-  out.discoveredBy = 'PoolCreated logs — never by array position, so no one can bury a pool by opening dust ones ahead of it';
-
-  const { scan, rows: found, walked } = await walkLogs({
-    file: POOLS_SCAN_FILE,
-    contract: POOLS_ADDR,
-    topic0: TOPIC_POOL_CREATED,
-    from: POOLS_FROM,
-    fromVar: 'PEER_POOLS_FROM_BLOCK',
-    revive: (key, v) => (!/^[0-9]+$/.test(key) ? null : {
-      id: Number(key),
-      openTx: v && typeof v.tx === 'string' ? v.tx : null,
-      // The bitcoin reserve this pool was last MEASURED at, not the amount it
-      // was opened with. Only used to decide who gets read first when there
-      // are more pools than reads; it is never displayed, because by the time
-      // it is displayed it would be a stale number wearing a current one's
-      // clothes.
-      lastBtc: v && typeof v.btc === 'string' && /^[0-9]+$/.test(v.btc) ? v.btc : null,
-    }),
-    take: (lg, rows) => {
-      const topics = lg && Array.isArray(lg.topics) ? lg.topics : [];
-      if (topics.length < 3) return;
-      const id = word(topics[1]); // topic1 = the indexed uint256 id
-      if (id === null) return;
-      const key = id.toString();
-      const had = rows.get(key);
-      // One entry per id, whatever the endpoint served: reorged and duplicated
-      // logs are the endpoint's business, not the list's. A re-served log may
-      // fill in a transaction hash we did not have; it never overwrites the
-      // measured reserve, which came from the chain's current state.
-      // The data words (name, amtPeer, amtBtc) are deliberately not read: the
-      // name and the reserves both come from poolInfo, and the opening amounts
-      // are the wash-tradeable number this ranking used to trust.
-      rows.set(key, {
-        id: Number(id),
-        openTx: typeof lg.transactionHash === 'string' ? lg.transactionHash : (had ? had.openTx : null),
-        // topic2 is the indexed creator, and it is deliberately not used: the
-        // creator below comes from poolInfo, which is current state rather
-        // than a log an endpoint chose to serve us.
-        lastBtc: had ? had.lastBtc : null,
-      });
-    },
-  });
-
-  if (scan.failed && found.size === 0) {
-    // Nothing scanned and nothing remembered: say so instead of showing an
-    // empty factory. No fallback to the id walk on purpose either — the walk
-    // is the hole, and a quiet fallback would restore it on exactly the
-    // endpoints that force it.
-    out.error =
-      'could not read PoolCreated logs from ' + (scan.from || POOLS_FROM.hex) + ' (' + (scan.failedWhy || 'no reason given') + '). ' +
-      'The scan asks in ' + WINDOW + '-block windows — the widest Base’s own endpoint serves — so this is not the whole-chain query it used to send: either this endpoint could not be reached, or it caps log ranges tighter than that and nothing here can widen it. ' +
-      'Setting PEER_POOLS_FROM_BLOCK to the block the factory was deployed in shortens the backfill, which is the other reason a scan takes long enough to time out. ' +
-      'This host will not fall back to walking pool ids 0,1,2… — that scan is censorable by anyone willing to open a few dust pools.';
-    out.total = total;
-    out.scan = scan;
-    return out;
-  }
-
-  const candidates = [...found.values()];
-  out.discovered = candidates.length;
-
-  // ── Which pools get read ───────────────────────────────────────────────
-  //
-  // Reading poolInfo is the only way to learn a pool's CURRENT reserves, and
-  // current reserves are what this list ranks on. When there are more pools
-  // than READ_CAP reads to spend, something has to choose, and that chooser
-  // is the whole security of the ranking: whatever it trusts is what an
-  // attacker forges.
-  //
-  // It used to trust the opening deposit out of the log, which costs an
-  // attacker nothing to fake — deposit, drain, and the log still says you are
-  // deep. So the choice is made from two things a flood cannot rewrite:
-  //
-  //   1. What the reserve MEASURED at, last time this host read the pool.
-  //      A pool that really holds bitcoin keeps its slot however many pools
-  //      are opened around it; a whale that drained itself measures near zero
-  //      on the next refresh and falls out. This is the property the module
-  //      claims, and it is now the one doing the work.
-  //   2. Most-recent-first, for ids never read yet. It buys exactly one
-  //      thing: it cannot be forged RETROACTIVELY — no amount of spending
-  //      today puts you ahead of a pool opened tomorrow. It does NOT stop
-  //      somebody opening READ_CAP/4 pools right now to crowd out this
-  //      round's newcomers; nothing cheap does, and pretending otherwise is
-  //      how the old pre-filter got written. What limits that attack is (1):
-  //      the pools they crowd out get read on a later refresh, and once read
-  //      a pool with real depth is never crowded out again.
-  //
-  // Measured pools take priority up to three quarters of the budget; the last
-  // quarter is held for ids never read, so a genuinely new pool is not starved
-  // by a factory full of known ones. Whatever either side does not use goes to
-  // the other, so on any factory with fewer than READ_CAP pools none of this
-  // arithmetic runs at all and everything is read.
-  const known = candidates.filter((c) => c.lastBtc !== null);
-  const fresh = candidates.filter((c) => c.lastBtc === null);
-  known.sort((a, b) => {
-    const x = BigInt(a.lastBtc), y = BigInt(b.lastBtc);
-    return x === y ? b.id - a.id : x > y ? -1 : 1;
-  });
-  fresh.sort((a, b) => b.id - a.id);
-  let unread = 0;
-  let chosen = candidates;
-  if (candidates.length > READ_CAP) {
-    const NEW_FLOOR = Math.max(1, Math.floor(READ_CAP / 4));
-    const knownTake = Math.min(known.length, READ_CAP - Math.min(fresh.length, NEW_FLOOR));
-    const freshTake = Math.min(fresh.length, READ_CAP - knownTake);
-    chosen = [...known.slice(0, knownTake), ...fresh.slice(0, freshTake)];
-    unread = candidates.length - chosen.length;
-    out.preFilteredBy =
-      'more pools than this refresh reads: ' + knownTake + ' chosen by the bitcoin reserve each was last measured at, ' +
-      freshTake + ' by most-recently-opened among ids never read here. Opening amounts are not consulted — they can be deposited and withdrawn in the same block.';
-  }
-
-  // Read in small parallel batches. Sixty-four sequential round trips to a
-  // public endpoint is most of a minute with the whole host waiting on it;
-  // eight at a time is eight waits, and no endpoint minds eight.
-  const pools = [];
-  let skipped = 0;
-  for (let i = 0; i < chosen.length; i += 8) {
-    const batch = chosen.slice(i, i + 8);
-    const rets = await Promise.all(
-      batch.map((c) => call(POOLS_ADDR, SEL.poolInfo + padUint(c.id)).catch(() => null)),
-    );
-    rets.forEach((ret, k) => {
-      const c = batch[k];
-      const body = String(ret || '').replace(/^0x/, '');
-      // Five static words now: name, resPeer, resBtc, totalShares, creator.
-      // A short body is a pool this host could NOT read — it is counted, not
-      // skipped in silence, because "we saw fewer" and "there are fewer" are
-      // different sentences.
-      if (body.length < 64 * 5) { skipped++; return; }
-      const nameHex = body.slice(0, 64);
-      pools.push({
-        id: c.id,
-        name: bytes32Name(nameHex),
-        nameRaw: '0x' + nameHex,
-        resPeerRaw: word(ret, 1).toString(),
-        resBtcRaw: word(ret, 2).toString(),
-        totalSharesRaw: word(ret, 3).toString(),
-        // Provenance, and the only thing that tells two pools with the same
-        // name apart: names in PeerPools are claimed per creator, so a bare
-        // name shown without whose it is would be a lie by omission.
-        creator: addrFromWord(ret, 4),
-        openTx: c.openTx,
-      });
-    });
-  }
-
-  // Deepest bitcoin reserve first — the pool a trade can actually fill —
-  // with the id as a tiebreak so the order never depends on the endpoint's.
-  pools.sort((a, b) => {
-    const x = BigInt(a.resBtcRaw), y = BigInt(b.resBtcRaw);
-    return x === y ? a.id - b.id : x > y ? -1 : 1;
-  });
-  out.pools = pools.slice(0, LIST_CAP);
-  out.returned = out.pools.length;
-  out.total = total;
-  out.skipped = skipped;
-  out.unread = unread;
-  out.truncated = out.returned < total;
-  out.rankedBy = 'BTC reserve as it stands right now, deepest first — never the amount a pool was opened with';
-
-  // What this refresh learned, handed to the next one. Every id that has ever
-  // been seen is kept, including the ones no read was spent on this round —
-  // dropping them would re-discover them from the chain every refresh, which
-  // is the unbounded scan this whole section exists to end. Reserves are
-  // written only for pools actually read, and they are the numbers just
-  // measured, so the pre-filter above ranks on measurement rather than on
-  // anything anybody wrote into a log.
-  if (walked !== null) {
-    const ids = {};
-    for (const c of candidates) {
-      const row = {};
-      if (c.openTx) row.tx = c.openTx;
-      if (c.lastBtc) row.btc = c.lastBtc;
-      ids[String(c.id)] = row;
-    }
-    for (const p of pools) ids[String(p.id)] = { ...(ids[String(p.id)] || {}), btc: p.resBtcRaw };
-    const why = saveScan(POOLS_SCAN_FILE, POOLS_ADDR, POOLS_FROM, walked, ids);
-    scan.cursor = '0x' + walked.toString(16);
-    scan.remembering = candidates.length;
-    if (why) scan.notSaved = 'the scan could not be saved (' + why + ') — every refresh will re-walk this range until it can';
-  }
-  out.scan = scan;
-
-  if (out.truncated || scan.failed || scan.complete === false) {
-    out.note =
-      'showing ' + out.returned + ' of ' + total + ' pools on this factory, deepest first. ' +
-      (unread ? unread + ' were seen but not read this round; ' : '') +
-      (skipped ? skipped + ' would not answer poolInfo; ' : '') +
-      (scan.failed ? 'a log window (' + (scan.failedAt || 'the chain head') + ') was refused, so anything opened in it is not here yet; ' : '') +
-      (scan.backfill || scan.aheadOfHead ? (scan.backfill || scan.aheadOfHead) + '; ' : '') +
-      (out.discovered < total
-        ? (total - out.discovered) + ' were never seen — PEER_POOLS_FROM_BLOCK may start after they were opened, or this endpoint no longer serves logs that old; '
-        : '') +
-      'a pool missing from this list is still perfectly usable by anyone who has its id.';
   }
   return out;
 }
@@ -1046,7 +774,7 @@ async function anchorState() {
   // Is this address a PeerAnchor at all? anchorOf() over an address/epoch
   // nobody could have anchored answers three zero words on the real contract
   // and nothing at all on a wallet or an unrelated contract. Same discipline
-  // as poolCount() above: "no anchors yet" and "wrong address" are different
+  // as reserves() above: "no anchors yet" and "wrong address" are different
   // sentences and an empty list must not be allowed to say both.
   let probe;
   try {
@@ -1175,7 +903,7 @@ async function anchorState() {
  * Epochs are discovered from EpochOpened, and every number that can MOVE is
  * then read live from epochInfo — `paid` changes with each claim, so taking it
  * from the opening log would show a full pot to somebody whose claim had
- * already been paid out of it. Same rule as the pools reader: logs say what
+ * already been paid out of it. One rule everywhere in this file: logs say what
  * exists, calls say what is true now.
  *
  * This list cannot be flooded by strangers, and that is a property of the
@@ -1213,8 +941,8 @@ async function claimState() {
   out.stewardIs =
     'The steward can open an epoch — publish a root, a total and a deadline, once per epoch number, funded with PEER they deposit themselves — and reclaim what nobody claimed after the deadline. The steward cannot mint (there is no mint), cannot alter or re-open a published root, cannot take back a claim already made, cannot reach into an open epoch to stop one named claimant (there is no pause and no allowlist), and cannot sweep early or open a window shorter than MIN_WINDOW. What the steward CAN do that costs claimants: publish a root whose leaves oversum the deposit — including one paying an address they control — which makes that epoch first-come and reverts the late claims. No contract can check that sum, so check it yourself: the leaf list is published beside the root, and it either adds up to the total or it does not.';
   if (TOKEN_ADDR && tk !== TOKEN_ADDR) {
-    // The same refusal-to-guess as namedPools' mismatch: neither address is
-    // silently preferred, because a claim contract paying a different coin
+    // The same refusal-to-guess checkPair makes about the pool: neither
+    // address is silently preferred, because a contract paying a different coin
     // than this host reports is exactly the failure that looks like success.
     out.mismatch = {
       contract: tk,
@@ -1224,8 +952,8 @@ async function claimState() {
   }
   // What the contract holds right now, asked of the token the CONTRACT names
   // rather than the one this host was configured with — those are the coins a
-  // claim here actually moves, the same reason namedPools scales by the
-  // factory's own pair. Asking the configured token would answer the balance
+  // claim here actually moves, the same reason checkPair asks the POOL which
+  // two tokens it trades. Asking the configured token would answer the balance
   // of a coin nobody can claim, precisely in the case the mismatch above is
   // warning about.
   //
@@ -1486,23 +1214,22 @@ export async function balanceOf(addr) {
   return { address: a, raw: raw.toString(), amount: human(raw, dec), decimals: dec };
 }
 
-/** One account's shares in one named pool, straight off the factory. Shares
- *  are internal accounting inside PeerPools, not a token — there is no
- *  ERC-20 to ask, so this reader is the only way to see them. The encoding
- *  is the house encoder again: selector, a uint256 word for the pool id, a
- *  left-padded address. Raw string only; a share count has no decimals to
- *  humanise by. */
-export async function sharesOf(poolId, addr) {
+/** One account's shares in THE pool. Shares are internal accounting inside
+ *  PeerPool, not a token — they do not transfer and there is no ERC-20 to ask,
+ *  so this reader is the only way to see them. The encoding is the house
+ *  encoder: selector plus one left-padded address, and the pool id that used
+ *  to sit in front of it is gone with the factory. Raw string only; a share
+ *  count has no decimals to humanise by. */
+export async function sharesOf(addr) {
   const a = clean(addr);
-  const id = Number(poolId);
   // Garbage is refused before the network is touched; the chain is checked
   // before an answer is given. Same gate as balanceOf, same reason.
-  if (!POOLS_ADDR || !a || !Number.isInteger(id) || id < 0) return null;
+  if (!POOL_ADDR || !a) return null;
   const chain = await chainCheck();
-  if (!chain.ok) return { poolId: id, address: a, chainIdSeen: chain.seen, chainIdMatches: false, error: chain.error };
-  const raw = word(await call(POOLS_ADDR, SEL.sharesOf + padUint(id) + pad(a)));
+  if (!chain.ok) return { pool: POOL_ADDR, address: a, chainIdSeen: chain.seen, chainIdMatches: false, error: chain.error };
+  const raw = word(await call(POOL_ADDR, SEL.poolSharesOf + pad(a)));
   if (raw === null) return null;
-  return { poolId: id, address: a, raw: raw.toString() };
+  return { pool: POOL_ADDR, address: a, raw: raw.toString() };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1655,18 +1382,82 @@ async function blockAt(tag) {
 }
 
 /**
+ * Is the code at POOL_ADDR the code in this repository's PeerPool.build.json?
+ *
+ * "The address IS the identity" (PeerPool.sol) is the whole argument for one
+ * pool, and until this was here it was an assertion: the host asked the
+ * address three questions — reserves(), peer(), btc() — and believed any
+ * contract that answered them plausibly. A contract with an owner, a pause and
+ * a reserves() returning whatever its author liked would have passed every one
+ * of them and set the price at which the right to speak is sold. One
+ * eth_getCode, once, makes it checkable instead.
+ *
+ * WHAT THE CHECK PROVES, exactly: that the code at that address is this file's.
+ * It does NOT prove the operator pointed at the right INSTANCE of it — anybody
+ * may deploy this contract, and two honest deployments are indistinguishable
+ * here. That question is the pair check below, which ties the instance to this
+ * host's own coins. The two are different questions and neither substitutes.
+ *
+ * Two parts of the runtime code are deliberately not compared, and build-pool.js
+ * writes down both so this side does not have to guess:
+ *
+ *   the ten immutable words — `peer` and `btc` are written into the code at
+ *     construction, so real code differs from the artifact at exactly those
+ *     ranges. They are masked here and their values are checked where they can
+ *     be: against peer() and btc() themselves.
+ *   the metadata trailer — solc appends a hash of the SOURCE. Editing a comment
+ *     in PeerPool.sol changes it without changing one instruction, and a host
+ *     that started refusing burns because somebody improved a sentence would be
+ *     a worse failure than the one this catches.
+ */
+const POOL_BUILD = (() => {
+  try {
+    const j = JSON.parse(readFileSync(join(here, 'PeerPool.build.json'), 'utf8'));
+    const d = j.deployed;
+    if (!d || typeof d.object !== 'string' || !Array.isArray(d.immutables) || !(d.metaLen > 0)) return null;
+    return { object: d.object.replace(/^0x/, '').toLowerCase(), immutables: d.immutables, metaLen: d.metaLen };
+  } catch {
+    return null;
+  }
+})();
+
+/** The comparable part of a runtime code string: immutables zeroed, metadata
+ *  trailer cut. Null when the input is not code at all. */
+function poolCodePrint(hex) {
+  const body = String(hex || '').replace(/^0x/i, '').toLowerCase();
+  if (!body.length || !/^[0-9a-f]+$/.test(body)) return null;
+  const chars = body.split('');
+  for (const r of POOL_BUILD.immutables) {
+    for (let i = r.start * 2; i < (r.start + r.length) * 2 && i < chars.length; i++) chars[i] = '0';
+  }
+  return chars.join('').slice(0, Math.max(0, chars.length - POOL_BUILD.metaLen * 2));
+}
+
+/**
  * Is the configured pool a pool over THIS host's PEER, priced in something
  * where a raw unit is a satoshi?
  *
- * Both halves matter and neither is checkable later. The factory's own
+ * Every half matters and none of them is checkable later. The pool's own
  * immutables say which two tokens it trades; if its peer() is not the token
  * this host is configured with, then every price below is the price of a
  * DIFFERENT COIN with the same name, which is the failure that looks most
- * like success. And the satoshi arithmetic in the engine — sats = amt·resBtc
- * / (resPeer + amt), with no scaling constant anywhere — is only true because
- * cbBTC carries 8 decimals, so one raw unit IS one satoshi. Against an
- * 18-decimal BTC stand-in the same expression is right by ten orders of
- * magnitude, silently, in the burner's favour.
+ * like success. The bitcoin side gets the same treatment for the same reason —
+ * it used to get only the decimals gate below, which meant a stranger's
+ * PeerPool over the real PEER and an 8-decimal token they minted themselves
+ * passed every identity check this host made. And the satoshi arithmetic in
+ * the engine — sats = amt·resBtc / (resPeer + amt), with no scaling constant
+ * anywhere — is only true because cbBTC carries 8 decimals, so one raw unit IS
+ * one satoshi. Against an 18-decimal BTC stand-in the same expression is right
+ * by ten orders of magnitude, silently, in the burner's favour.
+ *
+ * The two BTC fences do different work and which one bites depends on the
+ * configuration: with PEER_BTC_ADDR set, the address comparison is the real
+ * gate and the decimals gate is a second fence that can no longer fire. With it
+ * unset — which is legal, since PEERBURN_ON asks only for the token and the
+ * pool — the decimals gate is the ONLY thing standing between this door and a
+ * pool whose "bitcoin" is any 8-decimal coin at all, and it is not enough to
+ * identify one. Setting PEER_BTC_ADDR is how a host says which bitcoin it
+ * means.
  *
  * Memoised per process: these are immutable on the contracts, and asking four
  * times a minute would spend the host's endpoint quota re-confirming
@@ -1677,25 +1468,65 @@ async function checkPair() {
   if (pairCheck) return pairCheck;
   const out = { ok: false };
   try {
-    const fPeer = addrFromWord(await call(PEERBURN_FACTORY, SEL.poolsPeer));
-    const fBtc = addrFromWord(await call(PEERBURN_FACTORY, SEL.poolsBtc));
+    const fPeer = addrFromWord(await call(POOL_ADDR, SEL.poolPeer));
+    const fBtc = addrFromWord(await call(POOL_ADDR, SEL.poolBtc));
     out.peer = fPeer;
     out.btc = fBtc;
     if (!fPeer || !fBtc) {
-      out.why = 'nothing at ' + PEERBURN_FACTORY + ' answered peer()/btc() on chain ' + CHAIN_ID
-        + ' — that address is not a PeerPools factory, and a price read off it would be a number from an unknown contract';
+      out.why = 'nothing at ' + POOL_ADDR + ' answered peer()/btc() on chain ' + CHAIN_ID
+        + ' — that address is not a PeerPool, and a price read off it would be a number from an unknown contract';
+      out.note = 'the pool at ' + POOL_ADDR + ' did not answer peer()/btc(), so nothing here knows which two coins it moves and the scaling below comes from this host’s configured addresses with nothing to check it against';
       return out;                       // not memoised: a reachability failure is not an answer
     }
+    // The pool's own decimals, read from the pool's own tokens, whatever the
+    // comparisons below decide. A display has to be scaled by the coins a
+    // trade actually moves even when — especially when — those are not the
+    // coins this host was configured with.
+    out.btcDecimals = await decimalsOf(fBtc, null);
+    if (fPeer !== TOKEN_ADDR) out.peerDecimals = await decimalsOf(fPeer, 18);
+    // Neither address is silently preferred: an operator whose pool trades
+    // different tokens than they configured has one of the two wrong, and this
+    // module cannot know which. Both are named.
+    const disagree = [];
+    if (fPeer !== TOKEN_ADDR) disagree.push({ side: 'peer', pool: fPeer, configured: TOKEN_ADDR });
+    if (BTC_ADDR && fBtc !== BTC_ADDR) disagree.push({ side: 'btc', pool: fBtc, configured: BTC_ADDR });
+    if (disagree.length) {
+      out.mismatch = {
+        pairs: disagree,
+        error: 'this pool trades tokens this host was not configured with — amounts are scaled by the POOL’s tokens, because those are the coins a trade here actually moves. One of the two is wrong: fix PEER_TOKEN_ADDR / PEER_BTC_ADDR, or point PEER_POOL_ADDR at the pool you meant.',
+      };
+    }
     if (fPeer !== TOKEN_ADDR) {
-      out.why = 'the official pool trades ' + fPeer + ', and this host’s PEER is ' + TOKEN_ADDR
+      out.why = 'the pool at ' + POOL_ADDR + ' trades ' + fPeer + ', and this host’s PEER is ' + TOKEN_ADDR
         + ' — that is a different coin with the same name, so nothing here can price a burn of yours';
       pairCheck = out;
       return out;
     }
-    const btcDec = await decimalsOf(fBtc, null);
-    out.btcDecimals = btcDec;
-    if (btcDec !== 8) {
-      out.why = 'the bitcoin side of the official pool ' + (btcDec === null ? 'did not answer decimals() at all' : 'answers ' + btcDec + ' decimals, not 8')
+    if (BTC_ADDR && fBtc !== BTC_ADDR) {
+      out.why = 'the bitcoin side of the pool at ' + POOL_ADDR + ' is ' + fBtc + ', and this host’s cbBTC is ' + BTC_ADDR
+        + ' — that is a different coin, so nothing here can price a burn against it. Reserve is satoshis destroyed, and satoshis of something else are not satoshis.';
+      pairCheck = out;
+      return out;
+    }
+    // Before the decimals gate, because it answers a prior question: the scale
+    // of the bitcoin token is arithmetic ABOUT the pool, and there is no point
+    // reasoning about a contract's arithmetic until it is established that the
+    // contract is this one.
+    if (!POOL_BUILD) {
+      out.codeChecked = false;
+      out.codeNote = 'chain-l2/PeerPool.build.json is missing or carries no deployed code, so this host could not compare the code at ' + POOL_ADDR + ' against the contract in this repository. The pair checks above still ran; this one did not, and saying so is better than letting an unmade check pass for a made one. Rebuild it with node chain-l2/build-pool.js.';
+    } else {
+      const got = poolCodePrint(await rpc('eth_getCode', [POOL_ADDR, 'latest']));
+      const want = poolCodePrint('0x' + POOL_BUILD.object);
+      out.codeChecked = true;
+      if (got !== want) {
+        out.why = 'the code at ' + POOL_ADDR + ' is not PeerPool. It answers peer() and btc() with the right two tokens, which any contract can do, but its runtime code is not the code in chain-l2/PeerPool.build.json — so what it returns from reserves() is whatever its author decided to return, and pricing the right to speak off that is pricing it off a stranger’s arithmetic.';
+        pairCheck = out;
+        return out;
+      }
+    }
+    if (out.btcDecimals !== 8) {
+      out.why = 'the bitcoin side of the pool ' + (out.btcDecimals === null ? 'did not answer decimals() at all' : 'answers ' + out.btcDecimals + ' decimals, not 8')
         + ' — reserve is denominated in satoshis and this whole door rests on one raw unit of that token BEING one satoshi. Against any other scale every price here would be wrong by orders of magnitude, so it refuses rather than guesses a multiplier.';
       pairCheck = out;
       return out;
@@ -1704,7 +1535,8 @@ async function checkPair() {
     pairCheck = out;
     return out;
   } catch (e) {
-    out.why = 'could not read the factory’s own token pair (' + String(e.message).slice(0, 60) + ')';
+    out.why = 'could not read the pool’s own token pair (' + String(e.message).slice(0, 60) + ')';
+    out.note = 'this host could not ask the pool at ' + POOL_ADDR + ' which two coins it moves, so any amounts shown are scaled by this host’s configured addresses with nothing to check them against';
     return out;                         // again: not memoised, this is a failure to look
   }
 }
@@ -1712,41 +1544,41 @@ async function checkPair() {
 /**
  * Is this door configured at all, and what would a burner need to know?
  *
- * Answers in WORDS when it is off, and that is the shipped state today: no
- * PeerPools factory is deployed and the wallet holds no cbBTC, so there is no
- * PEER/cbBTC pool and no price. A feature that degraded into a guessed rate
- * would be worse than one that is closed.
+ * Answers in WORDS when it is off, and that is the shipped state until the
+ * pool is deployed and seeded: with no pool there is no price. A feature that
+ * degraded into a guessed rate would be worse than one that is closed.
+ *
+ * `missing` used to name two variables — a factory and a pool id — because a
+ * pool NAME could not be trusted to identify anything. There is one address
+ * now, so there is one thing that can be missing.
  */
 export function peerBurnConfig() {
   if (!PEERBURN_ON) {
     const missing = [];
     if (!TOKEN_ADDR) missing.push('PEER_TOKEN_ADDR');
-    if (!PEERBURN_FACTORY) missing.push('PEER_PEERBURN_FACTORY');
-    if (PEERBURN_POOL_ID === null) missing.push('PEER_PEERBURN_POOL_ID');
+    if (!POOL_ADDR) missing.push('PEER_POOL_ADDR');
     return {
       on: false,
       missing,
       why: 'burning PEER for reserve is off on this host: ' + missing.join(' and ') + ' '
         + (missing.length > 1 ? 'are' : 'is') + ' unset'
-        + (PEERBURN_POOL_RAW && PEERBURN_POOL_ID === null ? ' (PEER_PEERBURN_POOL_ID is not a whole number)' : '')
-        + '. A PEER burn is priced by ONE named pool, chosen by an operator as a factory address and a pool id — never by pool name, because names in PeerPools are claimed per creator and two strangers may both hold the same one. With no pool configured there is no price, and a host that invented one would be inventing the rate at which speech is sold. Burning bitcoin is unaffected and needs no price at all: GET /api/burn.',
+        + '. A PEER burn is priced by THE pool — one PeerPool contract at one address, which an operator points this host at. With none configured there is no price, and a host that invented one would be inventing the rate at which speech is sold. Burning bitcoin is unaffected and needs no price at all: GET /api/burn.',
     };
   }
   return {
     on: true,
     chainId: CHAIN_ID,
     token: TOKEN_ADDR,
-    factory: PEERBURN_FACTORY,
-    poolId: PEERBURN_POOL_ID,
+    pool: POOL_ADDR,
     minConfirmations: PEERBURN_MIN_CONF,
     fromBlock: PEERBURN_FROM.hex,
   };
 }
 
 /**
- * The official pool as it stands RIGHT NOW — one read, at the head.
+ * The pool as it stands RIGHT NOW — one read, at the head.
  *
- * This is for display and for the "which pool is this" question, and it is
+ * This is for display and for the "what is in there" question, and it is
  * deliberately NOT what a burn is priced at. The spot reserves are whatever
  * the last trade left behind; poolTwap below is what a burn is priced at, and
  * showing them side by side is the point rather than an accident.
@@ -1758,8 +1590,8 @@ export async function officialPool() {
   // Memoised on the same clock as the quote, for the same reason: this is
   // read by a public GET, and two eth_calls per request from one caller in a
   // loop is a bill the operator's endpoint pays. Nothing decides anything on
-  // this reading — it is the "which pool is this, and what does it hold right
-  // now" panel, deliberately NOT the price a burn is charged at.
+  // this reading — it is the "what does the pool hold right now" panel,
+  // deliberately NOT the price a burn is charged at.
   if (poolMemo.value && Date.now() - poolMemo.at < TWAP_MEMO_MS) {
     return { ...poolMemo.value, memoAgeMs: Date.now() - poolMemo.at };
   }
@@ -1769,35 +1601,29 @@ export async function officialPool() {
 }
 
 async function officialPoolFresh() {
-  const out = { on: true, factory: PEERBURN_FACTORY, poolId: PEERBURN_POOL_ID, chainId: CHAIN_ID };
+  const out = { on: true, address: POOL_ADDR, chainId: CHAIN_ID };
   try {
     const chain = await chainCheck();
     if (!chain.ok) { out.chainIdSeen = chain.seen; out.error = chain.error; return out; }
     const pair = await checkPair();
     out.tokens = { peer: pair.peer || null, btc: pair.btc || null };
     if (!pair.ok) { out.error = pair.why; return out; }
-    const ret = await call(PEERBURN_FACTORY, SEL.poolInfo + padUint(PEERBURN_POOL_ID));
-    const body = String(ret || '').replace(/^0x/, '');
-    // Five static words: name, resPeer, resBtc, totalShares, creator. A short
-    // answer is a pool this host could NOT read, which must never be reported
-    // as a pool that is empty — one invites a burn and the other refuses it.
-    if (body.length < 64 * 5) {
-      out.error = 'pool ' + PEERBURN_POOL_ID + ' did not answer poolInfo() on ' + PEERBURN_FACTORY
-        + ' — that is a failure to look, or a pool id that does not exist on this factory. Either way it is not an empty pool.';
-      return out;
+    const p = await readPool();
+    if (p.error) { out.error = p.error; return out; }
+    out.resPeerRaw = p.resPeerRaw;
+    out.resBtcRaw = p.resBtcRaw;
+    out.totalSharesRaw = p.totalSharesRaw;
+    out.seeded = p.seeded;
+    // What identifies this pool, said once rather than left to be inferred.
+    // There is no name to disclaim any more and no creator to name beside it:
+    // the address is the identity, anyone may add liquidity to it, and nobody
+    // holds any privilege over it — not even whoever deployed it.
+    out.identity = 'this pool is the contract at ' + POOL_ADDR + ' and nothing else identifies it: no name, no id, no factory. Anyone may add liquidity, and every add makes it bigger.';
+    if (!p.seeded) {
+      out.note = 'nobody has added liquidity yet, so there are no reserves and no price. The FIRST add sets the opening price — the two amounts deposited ARE the ratio — and it can be as small as the depositor likes.';
     }
-    out.name = bytes32Name(body.slice(0, 64));
-    out.nameRaw = '0x' + body.slice(0, 64);
-    out.resPeerRaw = word(ret, 1).toString();
-    out.resBtcRaw = word(ret, 2).toString();
-    out.totalSharesRaw = word(ret, 3).toString();
-    // The only thing that tells two pools with the same name apart. Shown
-    // beside the name everywhere, for DEPLOY.md's reason: a name confers no
-    // trust, no seniority and no provenance.
-    out.creator = addrFromWord(ret, 4);
-    out.nameNote = 'a pool name is a per-creator label, not an identity — this pool is identified by the factory address and the id above, which is why both are configuration and neither is a name';
   } catch (e) {
-    out.error = 'could not read the official pool (' + String(e.message).slice(0, 60) + ')';
+    out.error = 'could not read the pool (' + String(e.message).slice(0, 60) + ')';
   }
   return out;
 }
@@ -1882,7 +1708,7 @@ async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gr
     // refuses.
     return { ok: false, code: 'PEERBURN_OFF', why: 'this host could not read the engine’s burn limits, and it will not invent them — the window, the observation count, the depth floor and the sampling grid are declared once in the replay engine so that the page, this door and replay all refuse in the same numbers' };
   }
-  const out = { poolId: PEERBURN_POOL_ID, factory: PEERBURN_FACTORY, windowMs, minObs, minPoolSats, gridN };
+  const out = { pool: POOL_ADDR, windowMs, minObs, minPoolSats, gridN };
   // ── Which block the window ENDS at ────────────────────────────────────
   //
   // For a quote: the head, because the question is "what would a burn get".
@@ -1897,7 +1723,7 @@ async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gr
   // about that transaction rather than about when somebody got around to
   // claiming it. Be exact about how far that goes: the act records the block
   // range, the reference block's hash and every block read, so anyone can
-  // re-fetch poolInfo at those exact blocks and recompute the same two
+  // re-fetch reserves() at those exact blocks and recompute the same two
   // reserves, forever — and replay checks that those blocks are the ones the
   // recorded seed selects. What replay cannot check, because it asks no chain
   // anything, is that the seed is really that block's hash. A reader with any
@@ -2026,8 +1852,9 @@ async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gr
   }
 
   // ── Read the ones not already held ─────────────────────────────────────
-  // Two calls per block — the header for its timestamp, poolInfo for its
-  // reserves — in small parallel batches, exactly as namedPools reads pools.
+  // Two calls per block — the header for its timestamp, reserves() for the
+  // two sides — in small parallel batches, so a window of sixteen samples is
+  // two rounds of waiting rather than sixteen.
   const missing = wanted.filter((b) => !poolObs.has(b.toString()));
   let unreadable = 0;
   for (let i = 0; i < missing.length; i += 8) {
@@ -2037,11 +1864,14 @@ async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gr
       try {
         const [hdr, ret] = await Promise.all([
           blockAt(tag),
-          callAt(PEERBURN_FACTORY, SEL.poolInfo + padUint(PEERBURN_POOL_ID), tag),
+          callAt(POOL_ADDR, SEL.reserves, tag),
         ]);
         const body = String(ret || '').replace(/^0x/, '');
-        if (!hdr || body.length < 64 * 5) return null;
-        return { block: b, ms: hdr.ms, resPeerRaw: word(ret, 1).toString(), resBtcRaw: word(ret, 2).toString() };
+        // Three static words: resPeer, resBtc, totalShares. A short answer is
+        // a block this host could not read, counted below and never
+        // half-decoded into a reading that looks like a measurement.
+        if (!hdr || body.length < 64 * 3) return null;
+        return { block: b, ms: hdr.ms, resPeerRaw: word(ret, 0).toString(), resBtcRaw: word(ret, 1).toString() };
       } catch {
         // An endpoint that prunes state answers an error for old blocks. That
         // is a fact about the endpoint, counted and reported below, never a
@@ -2086,7 +1916,7 @@ async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gr
   if (samples.length < 2) {
     return {
       ...out, ok: false, code: 'PEER_BURN_STALE_PRICE',
-      why: 'this host has ' + samples.length + ' usable reading of the official pool and needs at least ' + minObs
+      why: 'this host has ' + samples.length + ' usable reading of the pool and needs at least ' + minObs
         + ' spread across ' + Math.round(windowMs / 60_000) + ' minutes'
         + (unreadable ? ' — ' + unreadable + ' historical block(s) were refused by this chain endpoint, which is what a node that keeps no old state answers' : '')
         + '. A spot price is whatever the last trade left behind, so a burn is refused rather than priced from one.',
@@ -2160,22 +1990,39 @@ async function poolTwapFresh({ windowMs, minObs, minPoolSats, atBlock, gridN, gr
   // moment in the window: a pool that was thin at any point did not have a
   // price for the whole of the window it is being averaged over, and the
   // averaging is what would hide that.
+  //
+  // Note what this floor is NOT: it is not a statement that a shallower pool
+  // is illegitimate. Anyone may seed this pool at any size and anyone may add
+  // to it, and PeerPool's own MIN_LIQ refuses only the degenerate wei-against-
+  // satoshi case. This floor says something narrower — that below it, this
+  // host will not treat the pool's ratio as a PRICE — and it stays exactly
+  // where it was, because one pool does not make a thin one harder to push.
   const floor = BigInt(minPoolSats);
+  // Nothing on either side, across the whole window: nobody had added
+  // liquidity yet. Its own refusal rather than "too thin", because they are
+  // different sentences with different fixes — a thin pool needs deposits to
+  // grow, an unseeded one needs its FIRST deposit, which is also the act that
+  // invents the opening price. Reporting "0 sat, floor 1,000,000" would be
+  // arithmetically true and would describe a pool that does not exist yet.
+  if (resPeer === 0n && resBtc === 0n) {
+    return { ...out, ok: false, code: 'PEER_BURN_POOL_UNSEEDED',
+      why: 'the pool at ' + POOL_ADDR + ' held nothing at all across this window — nobody has added liquidity to it. The first add sets the opening price out of the two amounts deposited, and until somebody makes it there is no ratio here to price a burn against.' };
+  }
   if (resBtc < floor) {
     return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL',
-      why: 'the official pool averaged ' + resBtc.toString() + ' sat of bitcoin across the window and a burn needs at least '
-        + minPoolSats + ' — below that a pool has no price, only a last trade' };
+      why: 'the pool averaged ' + resBtc.toString() + ' sat of bitcoin across the window and a burn needs at least '
+        + minPoolSats + ' — below that a pool has no price, only a last trade. The pool is real and usable at any size; it is the PRICING of a burn that this refuses, and every add of liquidity moves it toward the floor.' };
   }
   if (minBtc !== null && minBtc < floor) {
     return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL',
-      why: 'the official pool fell to ' + minBtc.toString() + ' sat of bitcoin during the window, under the ' + minPoolSats
+      why: 'the pool fell to ' + minBtc.toString() + ' sat of bitcoin during the window, under the ' + minPoolSats
         + ' floor — the average hides that, so it is refused on the shallowest moment rather than the comfortable mean' };
   }
   if (resPeer <= 0n) {
-    return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL', why: 'the official pool holds no PEER, so it prices nothing' };
+    return { ...out, ok: false, code: 'PEER_BURN_THIN_POOL', why: 'the pool holds no PEER, so it prices nothing — either nobody has seeded it yet, or every unit of PEER has been swapped out of it' };
   }
   out.ok = true;
-  out.note = 'time-weighted across ' + samples.length + ' readings of pool ' + PEERBURN_POOL_ID + ' spanning '
+  out.note = 'time-weighted across ' + samples.length + ' readings of the pool at ' + POOL_ADDR + ' spanning '
     + Math.round(span / 60_000) + ' minutes of chain time, between blocks ' + out.startsAt + ' and ' + out.endsAt
     + '. The blocks read are not chosen by this host: the range is cut into ' + gridN
     + ' buckets and one block is taken from each at a position decided by the hash of block ' + out.endsAt
