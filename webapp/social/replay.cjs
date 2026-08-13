@@ -1413,7 +1413,26 @@ function replayUncached(acts) {
     return id;
   }
 
+  // Which act appended which edge: edgeAct[appendIndex] = act index.
+  //
+  // The graph numbers edges by append order and the log numbers acts by
+  // append order, and those are not the same scale — one act appends zero
+  // edges, one, or two. Anything that has to interleave a graph-derived
+  // record with an act-derived one needs a key both can be read on, and the
+  // act index is the one both genuinely have; the alerts list had been
+  // comparing the two scales directly and getting a fixed, permanent
+  // mis-order out of it.
+  //
+  // Kept beside the graph rather than ON the edge record, deliberately: an
+  // edge is material the epoch hash commits to, and a field added to it would
+  // change what an already-published epoch reproduces.
+  var edgeAct = [];
   for (var i = 0; i < acts.length; i++) {
+    // Everything appended since the last time round the loop came from the
+    // act before this one — which is why the fill sits at the TOP of the body
+    // rather than the bottom, where the branch's `continue`s would skip it.
+    // At i = 0 anything already there predates the log and is left at -1.
+    while (edgeAct.length < g.edges.length) edgeAct.push(i - 1);
     var a = acts[i];
     // An act is muted only when its OWN author removed it — by deleting that
     // act, or by deleting the account that authored it. It is never muted
@@ -2476,6 +2495,12 @@ function replayUncached(acts) {
     }
   }
 
+  // The last act's edges, which no next iteration will claim. Edges appended
+  // AFTER this point — the self-declaration and self-reputation pair below,
+  // recomputed from the solved standing — belong to no act and get no entry,
+  // which is the honest answer for them.
+  while (edgeAct.length < g.edges.length) edgeAct.push(acts.length - 1);
+
   // Deleted actors leave the standings solve entirely: their vouches (given
   // and received) and self-cells are dropped before compilation.
   // Deleted actors STAY in the solve. Removing their vouches retroactively
@@ -2595,6 +2620,10 @@ function replayUncached(acts) {
     // the other — which here would mean a host that reads honestly and files
     // acts replay throws away.
     peerBurnGrid: peerBurnGrid,
+    // appendIndex -> act index, for anything that has to put a graph-derived
+    // record and an act-derived one in one order. Sparse at the end on
+    // purpose: the self edges appended after the log was consumed have no act.
+    edgeAct: edgeAct,
     // act index -> the node that act minted. Exposed because API clients were
     // deriving ids themselves and deriving them wrong — the counter also ticks
     // for hyperedge legs (quotes, mentions), which nothing documented, so a
