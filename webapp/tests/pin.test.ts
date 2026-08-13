@@ -99,7 +99,14 @@ describe('getting back in after the host re-stores your PIN', () => {
 
   it('reads back a PIN the host silently upgraded — the lockout itself', async () => {
     const id = 'u_locked';
-    const PIN = 'Egoplayer133';       // a real one from the incident: mixed case, not digits
+    // Shaped like the one from the incident - mixed case, letters not digits,
+    // which is the property this test is actually about - but INVENTED.
+    // The real one lived here for three commits and was pushed to a public
+    // repository, where it stayed readable while it was still the live
+    // credential for an account that can post, vouch, and rebind where its
+    // epoch earnings are paid. A fixture only has to have the right SHAPE;
+    // borrowing a working secret to get that shape publishes it.
+    const PIN = 'Notarealpin742';
     const legacy = createHash('sha256').update(`${id}:${PIN}`, 'utf8').digest('hex');
 
     await post('/api/act', { t: 'register', id, handle: 'Locked', seed: 1, epoch: 0, pinHash: legacy, since: await total() });
