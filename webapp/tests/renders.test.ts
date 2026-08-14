@@ -24,8 +24,19 @@ import { JSDOM } from 'jsdom';
 
 const PAGE = resolve(__dirname, '../public/peer-social-preview.html');
 
-/** Boot the built page offline, optionally already signed in. */
-async function boot(seed: Record<string, string> = {}, fetchImpl?: (url: string) => Promise<unknown>) {
+/**
+ * Boot the built page offline, optionally already signed in.
+ *
+ * `wire` runs inside beforeParse, after the fetch stub and the seeded keys,
+ * for the one thing neither of those can express: a window.ethereum. The page
+ * reads that at render time and never again, so it has to exist before the
+ * first script runs.
+ */
+async function boot(
+  seed: Record<string, string> = {},
+  fetchImpl?: (url: string) => Promise<unknown>,
+  wire?: (win: unknown) => void,
+) {
   const source = readFileSync(PAGE, 'utf8');
   const dom = new JSDOM(source, {
     runScripts: 'dangerously',
@@ -37,6 +48,7 @@ async function boot(seed: Record<string, string> = {}, fetchImpl?: (url: string)
       (win as unknown as { fetch: unknown }).fetch = fetchImpl
         ?? (() => Promise.reject(new Error('offline')));
       for (const [k, v] of Object.entries(seed)) win.localStorage.setItem(k, v);
+      if (wire) wire(win);
     },
   });
 
@@ -193,25 +205,69 @@ describe('the built page is an application, not just valid JavaScript', () => {
   }, 30000);
 
   it('draws every economy sub-tab without throwing', async () => {
-    // The economy screen holds four unrelated jobs now. Each is a place the
-    // app can go blank on its own.
-    // 'net' joined them when the graph stopped being a tab of its own: it is a
-    // way of looking at the economy, and eight tabs never fitted a phone.
-    // 'chain' is the epoch chain: it fetches three endpoints and recomputes
-    // block ids in the page, so offline (this test) it must still draw its
-    // explanation rather than throwing inside a promise nobody is watching.
-    for (const view of ['wallet', 'net', 'pools', 'chain', 'layer0', 'ledger']) {
+    // Four lanes, each a place the app can go blank on its own.
+    // 'money' is three former lanes in one column — balances, the pool on
+    // Base, the transaction list — so it is also the one place a merge could
+    // have left a section drawing nothing; each heading is asserted below.
+    // 'net' is the graph: it joined the economy when it stopped being a tab of
+    // its own, because eight tabs never fitted a phone.
+    // 'machinery' holds the epoch chain, which fetches three endpoints and
+    // recomputes block ids in the page — so offline (this test) it must still
+    // draw its explanation rather than throwing inside a promise nobody is
+    // watching — and Layer 0 under it.
+    const heads: Record<string, string[]> = {
+      money: ['What you hold', 'Where it trades', 'What moved',
+        'Your balances', 'The pool — PEER / cbBTC on Base', 'every value movement'],
+      net: [],
+      ads: ['Buy a placement', 'Nothing in this network is for sale except this rectangle'],
+      machinery: ['Under the log', 'The epoch chain', 'Layer 0 — the reserve receipt'],
+    };
+    for (const view of Object.keys(heads)) {
       const { dom, errors, root } = await boot({
         'peer-sandbox-who-v2': JSON.stringify('alice'),
         'peer-sandbox-mode-v1': JSON.stringify('geek'),
         'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: view }),
       });
       expect(errors, 'the ' + view + ' view threw: ' + errors.join(' | ')).toEqual([]);
-      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(6);
+      expect(root!.querySelectorAll('.lane').length, 'no sub-tab bar in ' + view).toBe(4);
       expect(root!.textContent!.length, 'the ' + view + ' view rendered nothing').toBeGreaterThan(400);
+      for (const head of heads[view]) {
+        expect(root!.textContent, 'the ' + view + ' view is missing “' + head + '”').toContain(head);
+      }
       dom.window.close();
     }
   }, 40000);
+
+  it('lands a view saved by the old six on the lane that swallowed it', async () => {
+    // The regrouping's one invisible failure. 'wallet', 'pools', 'ledger',
+    // 'chain' and 'layer0' were real lanes for months and are saved in the
+    // localStorage of everyone who ever opened this app; after the merge they
+    // name nothing. Dropped, they would land on the default and look like the
+    // app forgetting where you were. Obeyed, they would draw a blank tab with
+    // a strip where no lane is lit. Mapped, they land on the lane that took
+    // their content over — which is the whole difference between "my tab
+    // moved" and "the app is broken".
+    const landed: Record<string, string> = {
+      wallet: 'Money', pools: 'Money', ledger: 'Money',
+      chain: 'Machinery', layer0: 'Machinery',
+      net: 'Network',
+      // Not a name any build ever had: a hand-edited key, or a link from a
+      // version that does not exist. It opens the first lane, never nothing.
+      'not-a-lane': 'Money',
+    };
+    for (const [saved, lane] of Object.entries(landed)) {
+      const { dom, errors, root } = await boot({
+        'peer-sandbox-who-v2': JSON.stringify('alice'),
+        'peer-sandbox-mode-v1': JSON.stringify('geek'),
+        'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: saved }),
+      });
+      expect(errors, 'a saved “' + saved + '” threw: ' + errors.join(' | ')).toEqual([]);
+      const on = [...root!.querySelectorAll('.lane.on')];
+      expect(on.length, 'a saved “' + saved + '” lit ' + on.length + ' lanes').toBe(1);
+      expect(on[0].textContent, 'a saved “' + saved + '” should open ' + lane).toContain(lane);
+      dom.window.close();
+    }
+  }, 60000);
 
   /**
    * The pools card, drawn against a real /api/token/onchain body.
@@ -246,7 +302,11 @@ describe('the built page is an application, not just valid JavaScript', () => {
     const open = (pool: Record<string, unknown>) => boot({
       'peer-sandbox-who-v2': JSON.stringify('alice'),
       'peer-sandbox-mode-v1': JSON.stringify('geek'),
-      'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'pools' }),
+      // The pool card is the middle section of the Money lane now ('Where it
+      // trades'); 'pools' would land here through the migration map anyway,
+      // but a test that names a lane which no longer exists is a test that
+      // stops proving what it says it proves the day the map is edited.
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'money' }),
     }, serveOnchain(pool));
 
     it('says FIRST when the pool trades coins this host was not configured with', async () => {
@@ -295,7 +355,280 @@ describe('the built page is an application, not just valid JavaScript', () => {
       expect(text).toMatch(/95% of one a whisker over the floor/);
       dom.window.close();
     }, 30000);
+
+    /**
+     * One wallet, and every card that prints its address.
+     *
+     * This is the bug the regrouping created and nothing caught. `l2Redraw` is
+     * the hook the wallet's own events reach the screen through, and the
+     * comment over it said, in these words, "the two are never mounted at
+     * once". That was true while the token card was on the Wallet lane and the
+     * pool card on the Pools lane. On the merged Money lane both render in one
+     * pass, so the second one to render took the wallet's events away from the
+     * first — and the pool card re-arms the slot every 31 seconds, so it won
+     * eventually whichever way the first race went. The consequence is an
+     * address left on screen for an account that is no longer connected, which
+     * is the one thing the module comment says must never happen.
+     *
+     * The second half of the same failure is the flag: the pool card kept a
+     * private copy of the wallet watcher behind the page-lifetime `l2Watching`
+     * guard, and on the merged lane it ran on FIRST PAINT of the default tab —
+     * before any Connect — which left the shared watcher (the only one that
+     * redraws every card) dead for the rest of the page's life.
+     *
+     * So the assertion is deliberately blunt: after the wallet switches
+     * accounts, the old address must not be anywhere on the tab.
+     */
+    it('drops the old address from every card when the wallet switches accounts', async () => {
+      const ACCT = '0x' + 'ab'.repeat(20);
+      const NEXT = '0x' + 'cd'.repeat(20);
+      const handlers: Record<string, ((v: unknown) => void)[]> = {};
+      const { dom, errors, root } = await boot(
+        {
+          'peer-sandbox-who-v2': JSON.stringify('alice'),
+          'peer-sandbox-mode-v1': JSON.stringify('geek'),
+          'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'money' }),
+        },
+        serveOnchain({
+          address: POOL,
+          resPeerRaw: (100_000n * 10n ** 18n).toString(),
+          resBtcRaw: '1000000',
+          totalSharesRaw: '316227766016837',
+          seeded: true,
+          tokens: { peer: TOKEN, btc: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf' },
+          decimals: { peer: 18, btc: 8 },
+        }),
+        (win) => {
+          (win as { ethereum: unknown }).ethereum = {
+            on(ev: string, fn: (v: unknown) => void) { (handlers[ev] ||= []).push(fn); },
+            request({ method }: { method: string }) {
+              if (method === 'eth_requestAccounts' || method === 'eth_accounts') return Promise.resolve([ACCT]);
+              if (method === 'eth_chainId') return Promise.resolve('0x2105');
+              // Every read answers one zero word: enough to be a well-formed
+              // answer, and this test is about the address, not the balances.
+              return Promise.resolve('0x' + '0'.repeat(64));
+            },
+          };
+        },
+      );
+      expect(errors, 'the money lane threw: ' + errors.join(' | ')).toEqual([]);
+
+      const connects = () => [...root!.querySelectorAll('button')]
+        .filter((b) => (b.textContent ?? '').trim() === 'Connect wallet') as HTMLElement[];
+      // Two of them, which is the whole point: the token card's and the pool
+      // card's, in one column, on one tab.
+      expect(connects().length, 'the two connect buttons must both be on this lane').toBeGreaterThan(1);
+      connects()[0].click();                       // the token card — via l2Connect
+      await new Promise((r) => setTimeout(r, 400));
+      const stillThere = connects();
+      if (stillThere.length) stillThere[stillThere.length - 1].click();   // the pool card — via ocConnect
+      await new Promise((r) => setTimeout(r, 400));
+
+      // The token card prints the address in full; the pool card shortens it.
+      const short = ACCT.slice(0, 6) + '…' + ACCT.slice(-4);
+      expect(root!.textContent, 'the token card never showed the connected address').toContain(ACCT);
+      expect(root!.textContent, 'the pool card never showed the connected address').toContain(short);
+
+      expect(handlers.accountsChanged?.length, 'nothing is listening for a wallet change').toBeGreaterThan(0);
+      for (const fn of handlers.accountsChanged) fn([NEXT]);
+      await new Promise((r) => setTimeout(r, 400));
+
+      expect(root!.textContent, 'a card kept printing an address the wallet has moved off').not.toContain(ACCT);
+      expect(root!.textContent, 'a card kept the shortened form of an address the wallet has moved off').not.toContain(short);
+      dom.window.close();
+    }, 30000);
+
+    /**
+     * The second door is under the pool it quotes, not in front of it.
+     *
+     * peerBurnCard is 1,427px tall, it prices PEER against the official pool,
+     * and its own last paragraphs say that where no pool is configured the
+     * door is shut and there is no button. Ending the balances section with it
+     * put two screens of essay about something you cannot do between a
+     * reader's balance and the pool they came to trade on — 45% of that
+     * distance — and quoted a price from a card they had not reached yet.
+     */
+    it('puts the burn door under the pool whose price it quotes', async () => {
+      const { dom, errors, root } = await open({
+        address: POOL,
+        resPeerRaw: (100_000n * 10n ** 18n).toString(),
+        resBtcRaw: '1000000',
+        totalSharesRaw: '316227766016837',
+        seeded: true,
+        tokens: { peer: TOKEN, btc: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf' },
+        decimals: { peer: 18, btc: 8 },
+      });
+      expect(errors, 'the money lane threw: ' + errors.join(' | ')).toEqual([]);
+      const text = root!.textContent ?? '';
+      const at = (s: string) => {
+        const i = text.indexOf(s);
+        expect(i, 'not on the money lane at all: ' + s).toBeGreaterThan(-1);
+        return i;
+      };
+      expect(at('Where it trades')).toBeLessThan(at('The pool — PEER / cbBTC on Base'));
+      expect(at('The pool — PEER / cbBTC on Base'))
+        .toBeLessThan(at('Burn PEER for reserve — the second door'));
+      expect(at('Burn PEER for reserve — the second door')).toBeLessThan(at('What moved'));
+      // And the sentence that named its old neighbour was corrected with it.
+      expect(text, 'the burn card still names the card it used to sit under')
+        .not.toContain('the coin in the card above');
+      dom.window.close();
+    }, 30000);
   });
+
+  it('lets you travel the Money lane instead of only falling down it', async () => {
+    // The merge cost 3,270px to reach the pool and 4,290px to reach the
+    // ledger, in a 4,957px page whose lane strip left the screen at 221px.
+    // Ordering by hold -> trade -> moved is the order a reader would predict;
+    // having no way to move through it is not. The strip is pinned and carries
+    // three jumps, and every one of them has to name a heading that exists —
+    // a jump button pointing at an id nothing renders is the same lie as a
+    // guide button pointing at a screen that does not hold the thing.
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('alice'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'money' }),
+    });
+    expect(errors, 'the money lane threw: ' + errors.join(' | ')).toEqual([]);
+    const stick = root!.querySelector('.econ-stick');
+    expect(stick, 'the lane strip is not in the pinned container').toBeTruthy();
+    expect(stick!.querySelectorAll('.lane').length, 'the strip left the pinned container').toBe(4);
+
+    const jumps = [...stick!.querySelectorAll('.econ-jump button')] as HTMLElement[];
+    expect(jumps.length, 'the Money lane has no jump row').toBe(3);
+    for (const id of ['econ-hold', 'econ-trades', 'econ-moved']) {
+      expect(dom.window.document.getElementById(id), 'no heading with id ' + id).toBeTruthy();
+    }
+    // Pressing one must not throw — jsdom has no layout and no scrollIntoView,
+    // which is exactly the shape of thing that turns a nicety into an outage.
+    jumps[1].click();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(errors, 'a jump button threw: ' + errors.join(' | ')).toEqual([]);
+
+    // A lane with one subject gets no menu: three buttons over one section is
+    // furniture, and this is the assertion that keeps it that way.
+    const other = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('alice'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'ads' }),
+    });
+    expect(other.root!.querySelectorAll('.econ-jump').length, 'Ads grew a jump row').toBe(0);
+    expect(other.root!.querySelector('.econ-stick'), 'Ads lost the pinned strip').toBeTruthy();
+    other.dom.window.close();
+    dom.window.close();
+  }, 40000);
+
+  it('keeps the economy heading class out of the rest of the page', async () => {
+    // `sect` was already a live class here nine times — the events header, the
+    // music section, five blocks of the profile drawer — and it worked because
+    // NOTHING styled it: those elements carry a name, not a style. The first
+    // version of the economy headings took that same word and gave it four
+    // global rules, which put a border and 16px of padding across all nine and
+    // failed no test, because the render tests assert text and never computed
+    // style. This is the assertion that would have caught it: the economy's
+    // own class must be a word this stylesheet uses for nothing else.
+    const { dom, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('alice'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'money' }),
+    });
+    // Read through the CSS PARSER, not through the text. Both halves of this
+    // matter and the first version of this test only had the second: a rule
+    // can be present in the source, spelled correctly, and still reach nothing
+    // — one unterminated comment above it turns the whole block into the
+    // declaration body of a garbage selector, which is exactly what happened
+    // while this was being written and what the text-level check waved through.
+    const selectors: string[] = [];
+    for (const sheet of [...dom.window.document.styleSheets] as CSSStyleSheet[]) {
+      for (const rule of [...sheet.cssRules] as CSSRule[]) {
+        const sel = (rule as CSSStyleRule).selectorText;
+        if (typeof sel === 'string') selectors.push(sel);
+      }
+    }
+    expect(selectors.length, 'no stylesheet was parsed at all').toBeGreaterThan(50);
+    // `.sect` matches nothing in `.econ-sect` — the dot is before 'econ'.
+    const offenders = selectors.filter((sel) => /(^|[\s,>+~])\.sect(?![-\w])/.test(sel) && !/\.drawer/.test(sel));
+    expect(offenders, 'a rule outside .drawer styles .sect: ' + offenders.join(' | ')).toEqual([]);
+    for (const needed of ['.econ-sect', '.econ-stick', '.econ-sect h2']) {
+      expect(selectors, 'the parser never saw a rule for ' + needed).toContain(needed);
+    }
+
+    // Three headings on the lane, and none of them carrying the old name.
+    expect(root!.querySelectorAll('.econ-sect').length, 'the money lane lost its headings').toBe(3);
+    expect(root!.querySelectorAll('.sect').length, 'an economy heading is still a .sect').toBe(0);
+    // The nine that were always there, still there and still unstyled by it.
+    const drawerish = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('alice'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'profile', lqView: 'feed' }),
+    });
+    expect(drawerish.root!.querySelectorAll('.sect').length, 'the profile lost its own .sect elements')
+      .toBeGreaterThan(0);
+    drawerish.dom.window.close();
+    dom.window.close();
+  }, 40000);
+
+  it('lands the guide’s buttons on screens that hold what they name', async () => {
+    // Both of these were pressed, not reasoned about. 'open the pool →' opened
+    // the Money lane at scrollTop 0 with the pool 4,464px below the fold, and
+    // 'see certificates →' opened a lane that has never drawn a certificate —
+    // epoch certificates are on Alerts → The record, and were before this
+    // regrouping touched anything. A button whose label names a thing the
+    // screen it opens does not contain is worse than no button.
+    // A log with one epoch actually closed in it, because 'epoch certificates'
+    // is only drawn where there is a certificate — a test that passed against
+    // an empty history would be asserting the absence of both screens.
+    const acts = [
+      { t: 'register', id: 'u_h', handle: 'Host', seed: 1, epoch: 0 },
+      { t: 'register', id: 'u_g', handle: 'Guest', seed: 1, epoch: 0 },
+      { t: 'burn', id: 'u_h', amt: 4 },
+      { t: 'burn', id: 'u_g', amt: 4 },
+      { t: 'post', author: 'u_h', text: 'hello', a: 0.8, rmen: [] },
+      { t: 'opinion', author: 'u_g', target: 'c1', p: 0.8, r: 0.8 },
+      { t: 'closeEpoch', epoch: 1 },
+    ];
+    const NL = String.fromCharCode(10);
+    const body = acts.map((a) => JSON.stringify(a)).join(NL) + NL;
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.includes('archive/manifest.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: acts.length, sha256: 'x'.repeat(64), at: Date.now() }) });
+      }
+      if (u.includes('archive/acts.jsonl')) return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+      return Promise.reject(new Error('offline'));
+    };
+
+    const press = async (label: string) => {
+      const { dom, errors, root } = await boot({
+        'peer-sandbox-who-v2': JSON.stringify('u_h'),
+        'peer-sandbox-mode-v1': JSON.stringify('geek'),
+        'peer-sandbox-view-v1': JSON.stringify({ tab: 'profile', lqView: 'feed' }),
+      }, serve);
+      expect(errors, 'the profile threw: ' + errors.join(' | ')).toEqual([]);
+      const btn = [...root!.querySelectorAll('button.jump')]
+        .find((b) => (b.textContent ?? '').trim() === label + ' →') as HTMLElement | undefined;
+      expect(btn, 'no guide button named “' + label + '”').toBeTruthy();
+      btn!.click();
+      await new Promise((r) => setTimeout(r, 600));
+      return { dom, errors, root };
+    };
+
+    const certs = await press('see certificates');
+    expect(certs.errors, 'the certificates jump threw: ' + certs.errors.join(' | ')).toEqual([]);
+    expect(certs.root!.textContent, 'the certificates button did not land on the certificates')
+      .toContain('epoch certificates');
+    certs.dom.window.close();
+
+    const pool = await press('open the pool');
+    expect(pool.errors, 'the pool jump threw: ' + pool.errors.join(' | ')).toEqual([]);
+    // The lane, and the section inside it that the button aims at.
+    expect(pool.root!.querySelector('.lane.on')?.textContent).toContain('Money');
+    expect(pool.dom.window.document.getElementById('econ-trades'),
+      'the pool button aims at a section that does not exist').toBeTruthy();
+    expect(pool.root!.textContent, 'the pool button did not land on a lane with a pool on it')
+      .toContain('The pool — PEER / cbBTC on Base');
+    pool.dom.window.close();
+  }, 40000);
 
   it('groups the network identically on every boot of the same log', async () => {
     // The whole application is replayable by doctrine: same acts in, same

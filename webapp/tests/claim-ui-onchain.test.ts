@@ -152,7 +152,9 @@ function page(w: any, acts: any[], claimBody: any, sent: string[][]) {
       win.addEventListener('unhandledrejection', (e: any) => errors.push(String(e.reason)));
       win.localStorage.setItem('peer-sandbox-who-v2', JSON.stringify('u_al'));
       win.localStorage.setItem('peer-sandbox-mode-v1', JSON.stringify('geek'));
-      win.localStorage.setItem('peer-sandbox-view-v1', JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'wallet' }));
+      // 'money' — the claim card lives in that lane's first section, 'What
+      // you hold', which is what the old 'wallet' lane became.
+      win.localStorage.setItem('peer-sandbox-view-v1', JSON.stringify({ tab: 'econ', lqView: 'feed', econView: 'money' }));
     },
   });
   return { dom, errors };
