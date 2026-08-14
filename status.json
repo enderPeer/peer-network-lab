@@ -1,0 +1,17 @@
+{
+  "checked": "2026-08-14T09:00:07.719Z",
+  "anyLive": true,
+  "writer": "https://suit-express-perfect-cms.trycloudflare.com",
+  "hosts": [
+    {
+      "url": "https://suit-express-perfect-cms.trycloudflare.com",
+      "live": true,
+      "acts": 48,
+      "role": "primary",
+      "writer": true,
+      "chainHeight": 2,
+      "error": null
+    }
+  ],
+  "note": "Written every 15 minutes by a scheduled GitHub Action. It probes the hosts named in host.json and repoints that file; it never touches the act log."
+}
