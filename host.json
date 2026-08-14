@@ -1,10 +1,5 @@
 {
-    "url": "",
-    "updated": "2026-08-12T11:28:17Z",
-    "note": "No published host answered at the last check, so this file names none: the app loads the archive published beside it and runs the network read-only, rather than waiting on a dead address. The addresses are kept in `candidates` and restored automatically when one answers again.",
-    "candidates": [
-        "https://plus-magnificent-citizen-telescope.trycloudflare.com"
-    ],
-    "checked": "2026-08-14T07:55:52.089Z",
-    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
+    "url":  "https://suit-express-perfect-cms.trycloudflare.com",
+    "updated":  "2026-08-14T08:02:01Z",
+    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
 }
