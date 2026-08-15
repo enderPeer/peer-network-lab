@@ -446,7 +446,11 @@ function mintIndexOf(idx) {
 function redactNode(mintIdx) {
   for (let ai = 1; ai < acts.length; ai++) {
     const a = acts[ai];
-    if (ai === mintIdx || (a.t === 'post' && a.target === mintIdx && !a.redacted)) redactPostAct(a, ai);
+    // By the walk, not by direct target: the update door now normalises every
+    // revision to its mint, but a log written before it did may carry a
+    // revision that names another revision, and that text belongs to this
+    // node too.
+    if (ai === mintIdx || (a.t === 'post' && Number.isInteger(a.target) && !a.redacted && mintIndexOf(ai) === mintIdx)) redactPostAct(a, ai);
   }
 }
 
@@ -2777,6 +2781,19 @@ function validate(act) {
       // further record about it. Absent target = the ordinary minting case.
       if (act.target !== undefined) {
         if (!Number.isInteger(act.target)) return 'bad update target';
+        // Normalise to the MINT before anything else reads it. A revision is
+        // itself a post act carrying the index it revises, and /api/v1/post
+        // hands the caller that revision's actIndex back — so "revise what I
+        // just revised" arrives here naming a revision, not a mint. The host's
+        // model (mintIndexOf) says that lands on the same node; the replay's
+        // test is `actContent[target] !== undefined`, and actContent is only
+        // ever set for mints. Stored raw, the two disagree: the replay minted
+        // a SECOND node with the new text, and deletePost — which does
+        // normalise — then redacted the original and left the duplicate up,
+        // refusing every further attempt as ALREADY_DELETED. Permanent, in a
+        // log that is hashed into the archive. deletePost already does exactly
+        // this walk (below); the update door has to do the same one.
+        act.target = mintIndexOf(act.target);
         const orig = acts[act.target];
         if (!orig || (orig.t !== 'post' && orig.t !== 'stream')) return 'update target is not a post';
         if (orig.author !== act.author) return 'only the author can update their own post';

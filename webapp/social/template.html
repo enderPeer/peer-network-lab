@@ -1902,13 +1902,15 @@ button, .btn { touch-action: manipulation; }
     render();
   }
   function pollRemote() {
-    var ae = document.activeElement;
-    // Never while a credential is being typed, offline or not: the reconnect
-    // render would wipe the dialog out from under the user mid-PIN. Recovering
-    // the connection can wait the five seconds until the next tick.
-    if (document.querySelector('.pin-dialog')) return;
-    if (!offline && !safeToRepaint()) return;
-    if (repaintOwed) { repaintOwed = false; render(); }
+    // The FETCH always runs; only the REPAINT waits. This used to return
+    // before asking the host whenever a repaint was unsafe — a focused input,
+    // an open form — which is the state a person is in for the whole time they
+    // sit in a chat. So the app never learned that a reply had landed until
+    // they clicked away: "new chat messages do not get pushed properly" (cam,
+    // act 171). Nothing below touches the DOM the guards protect: setOnline
+    // moves a banner outside the render root, mergeTail moves bytes, and both
+    // repaint paths ask safeToRepaint themselves.
+    if (repaintOwed && safeToRepaint()) { repaintOwed = false; render(); }
     // Captured at dispatch, honoured at response. `since` because the world
     // may have GROWN while the request travelled (a push landing mid-poll
     // would double the tail); `gen` because the world may have been REPLACED —
@@ -1922,7 +1924,12 @@ button, .btn { touch-action: manipulation; }
         var wasOffline = offline;
         setOnline(true);
         // The dispatch guard, applied at RESPONSE too: see repaintSoon().
-        if (mergeTail({ acts: d.acts, since: since }) || wasOffline) repaintSoon();
+        // When it says no, the thread you are typing in still gets its new
+        // rows: livePatch redraws only the message list, and leaves the input
+        // — focus, draft and all — exactly where it was.
+        var grew = mergeTail({ acts: d.acts, since: since });
+        if (grew || wasOffline) repaintSoon();
+        if (grew && repaintOwed) livePatch();
         // The drain's second chance: the adoption-time attempt is a single
         // shot that silently loses to pushBusy or a lingering offline flag.
         // Untried entries only — drainOutbox never auto-retries a marked one.
@@ -8795,6 +8802,47 @@ button, .btn { touch-action: manipulation; }
     return out;
   }
 
+  /**
+   * The rows of one conversation, drawn into `tEl`. Shared by the tab and by
+   * livePatch, so a reply that lands while you are typing is drawn by the same
+   * code that drew the thread — never a second, slightly different copy.
+   */
+  function fillChatThread(tEl, st, thread) {
+    tEl.innerHTML = '';
+    if (!thread.length) tEl.appendChild(h('p', { class: 'smallnote', text: 'Say hello — every message is a priced act (−θ).' }));
+    thread.forEach(function (m) {
+      if (m.call) {
+        tEl.appendChild(h('div', { class: 'chat-call', text: (m.from === who ? '' : st.handles[m.from] + ' · ') + callLabel(m.call) + ' · act #' + m.idx }));
+        return;
+      }
+      tEl.appendChild(h('div', { class: 'chat-msg' + (m.from === who ? ' mine' : '') },
+        h('span', { class: 'm-meta num', text: (m.from === who ? 'you' : st.handles[m.from] || m.from) + ' · act #' + m.idx }),
+        h('div', {}, m.text)));
+    });
+  }
+
+  /**
+   * What can be redrawn while a full repaint cannot.
+   *
+   * render() rebuilds the whole root, which is why it waits for a moment when
+   * nothing is focused and no form is open. A conversation is the one screen
+   * where that moment never comes — the input is focused for as long as you
+   * are in it — and it is also the screen where a new act is most wanted at
+   * once. So the message list is redrawn in place, from a fresh replay, and
+   * nothing else is touched: the input keeps its focus and its draft.
+   */
+  function livePatch() {
+    if (tab !== 'chat' || !chatPeer || !who) return;
+    var tEl = document.querySelector('.chat-thread');
+    if (!tEl) return;
+    var st = replay();
+    var thread = dmThreads(st, who)[chatPeer] || [];
+    var atBottom = tEl.scrollHeight - tEl.scrollTop - tEl.clientHeight < 40;
+    var before = tEl.childNodes.length;
+    fillChatThread(tEl, st, thread);
+    if (atBottom || tEl.childNodes.length > before) tEl.scrollTop = tEl.scrollHeight;
+  }
+
   function chatTab(st) {
     var wrap = h('div', {});
     var threads = dmThreads(st, who);
@@ -8907,16 +8955,7 @@ button, .btn { touch-action: manipulation; }
         onclick: function () { openProfile(chatPeer); } }),
       h('button', { class: 'btn small', text: 'Profile', onclick: function () { openProfile(chatPeer); } })));
     var tEl = h('div', { class: 'chat-thread' });
-    if (!thread.length) tEl.appendChild(h('p', { class: 'smallnote', text: 'Say hello — every message is a priced act (−θ).' }));
-    thread.forEach(function (m) {
-      if (m.call) {
-        tEl.appendChild(h('div', { class: 'chat-call', text: (m.from === who ? '' : st.handles[m.from] + ' · ') + callLabel(m.call) + ' · act #' + m.idx }));
-        return;
-      }
-      tEl.appendChild(h('div', { class: 'chat-msg' + (m.from === who ? ' mine' : '') },
-        h('span', { class: 'm-meta num', text: (m.from === who ? 'you' : st.handles[m.from] || m.from) + ' · act #' + m.idx }),
-        h('div', {}, m.text)));
-    });
+    fillChatThread(tEl, st, thread);
     card2.appendChild(tEl);
     var input = h('input', { type: 'text', placeholder: 'Message… (−θ)', maxlength: '500', style: 'flex:1' });
     function send() {
@@ -8926,7 +8965,10 @@ button, .btn { touch-action: manipulation; }
       input.value = '';
     }
     input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') send(); });
-    card2.appendChild(h('div', { class: 'mini-form' }, input,
+    // 'persistent': this composer is always on screen, so its presence alone
+    // must not hold the repaint the way a form the user just opened does —
+    // the stream room's composer says the same, for the same reason.
+    card2.appendChild(h('div', { class: 'mini-form persistent' }, input,
       h('button', { class: 'btn small primary', text: 'Send · −θ', onclick: send })));
     wrap.appendChild(card2);
     setTimeout(function () { tEl.scrollTop = tEl.scrollHeight; }, 30);

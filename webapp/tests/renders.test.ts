@@ -699,6 +699,74 @@ describe('the built page is an application, not just valid JavaScript', () => {
     expect(second).toEqual(first);
   }, 40000);
 
+  it('shows a reply that lands while you are typing in the thread, and keeps your draft', async () => {
+    // "new chat messages do not get pushed properly" (cam, act 171). The poll
+    // returned before FETCHING whenever a repaint was unsafe — a focused input,
+    // an open form — which is the state a person is in for the whole time they
+    // sit in a chat. So the app never learned the reply had landed until they
+    // clicked away. Now the fetch always runs; the full repaint still waits;
+    // and the message list is redrawn in place around the untouched input.
+    const now = Date.now();
+    const log: Record<string, unknown>[] = [
+      { t: 'seedWorld' },
+      { t: 'register', id: 'u_p', handle: 'Pat', seed: 1, epoch: 0, ts: now - 86400000 },
+      { t: 'register', id: 'u_q', handle: 'Quinn', seed: 1, epoch: 0, ts: now - 80000000 },
+      // Real reserve, so the messages are applied: the faucet `burn` credits nothing now.
+      { t: 'btcBurn', id: 'u_p', sats: 30000, addr: 'bc1qdead', txid: '1'.repeat(64), ts: now - 70000000 },
+      { t: 'btcBurn', id: 'u_q', sats: 30000, addr: 'bc1qdead', txid: '2'.repeat(64), ts: now - 60000000 },
+      { t: 'dm', from: 'u_p', to: 'u_q', text: 'first message', ts: now - 40000 },
+    ];
+    // A live host: host.json names it, /api/acts serves the log, and
+    // ?since=N serves the tail — which is where the reply will appear.
+    const HOST = 'https://h.test';
+    const serve = (url: string) => {
+      const u = String(url);
+      if (u.endsWith('host.json') || u.includes('/host.json')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ url: HOST }) });
+      }
+      if (u.startsWith(HOST + '/api/acts')) {
+        const m = /since=(\d+)/.exec(u);
+        const since = m ? Number(m[1]) : 0;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ acts: log.slice(since), total: log.length }) });
+      }
+      return Promise.reject(new Error('offline'));
+    };
+    const { dom, errors, root } = await boot({
+      'peer-sandbox-who-v2': JSON.stringify('u_p'),
+      'peer-sandbox-mode-v1': JSON.stringify('geek'),
+      'peer-sandbox-view-v1': JSON.stringify({ tab: 'chat', lqView: 'feed' }),
+    }, serve);
+    expect(errors, 'the chat tab threw against a live host: ' + errors.join(' | ')).toEqual([]);
+    // Open the conversation with Quinn.
+    const row = [...root!.querySelectorAll('.chat-row')].find((r) => /Quinn/.test(r.textContent || ''));
+    expect(row, 'no conversation row for Quinn').toBeTruthy();
+    (row as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 300));
+    const thread = root!.querySelector('.chat-thread');
+    expect(thread, 'the thread did not open').toBeTruthy();
+    expect(thread!.textContent).toMatch(/first message/);
+    // Sit in it the way a person does: cursor in the box, half a sentence typed.
+    const input = [...root!.querySelectorAll('input')].find((i) => /Message/.test((i as HTMLInputElement).placeholder)) as HTMLInputElement;
+    expect(input, 'no message input').toBeTruthy();
+    input.focus();
+    input.value = 'half typed reply';
+    expect(dom.window.document.activeElement).toBe(input);
+    // Quinn replies on the host.
+    log.push({ t: 'dm', from: 'u_q', to: 'u_p', text: 'the reply that used to wait', ts: Date.now() });
+    // One poll tick is 5s. Give it two, in case the first fired just before.
+    await new Promise((r) => setTimeout(r, 10500));
+    expect(errors, 'the poll threw: ' + errors.join(' | ')).toEqual([]);
+    const threadNow = root!.querySelector('.chat-thread');
+    expect(threadNow, 'the thread vanished — a full repaint tore it down').toBeTruthy();
+    expect(threadNow!.textContent, 'the reply did not appear while typing').toMatch(/the reply that used to wait/);
+    // …and the draft is exactly where it was.
+    const inputNow = [...root!.querySelectorAll('input')].find((i) => /Message/.test((i as HTMLInputElement).placeholder)) as HTMLInputElement;
+    expect(inputNow).toBe(input);                       // the same element, not a rebuilt one
+    expect(inputNow.value).toBe('half typed reply');
+    expect(dom.window.document.activeElement).toBe(input);
+    dom.window.close();
+  }, 30000);
+
   it('draws the chat tab over a world that has timestamps', async () => {
     // The sandbox seed carries no `ts` at all, so every "how long ago" path in
     // the app short-circuits and is never executed by the other tests. That is

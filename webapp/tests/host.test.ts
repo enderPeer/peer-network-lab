@@ -252,6 +252,50 @@ describe('deleting a post that has been revised', () => {
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/only the author/i);
   });
+
+  it('a revision of a revision writes to the same node — never a second one', async () => {
+    // /api/v1/post answers a revision with that revision's actIndex, so the
+    // natural next call — "revise what I just revised" — names a revision,
+    // not the mint. Stored raw, the host thought it was the same node
+    // (mintIndexOf) and the replay minted a fresh one (its update test reads
+    // actContent, which mints alone set): TWO posts on screen with one
+    // author's one story. Found by a bug-hunt skeptic on 2026-08-15.
+    const { mintIdx, revIdx } = await postThenRevise('STORY v1 iota', 'STORY v2 kappa');
+    const before = ((await get('/api/v1/feed?as=u_secured&sort=new&limit=50')).items as Array<Record<string, any>>)
+      .filter((x) => /STORY v/.test(String(x.text)));
+    expect(before.length).toBe(1);
+    // Revise the REVISION, by its raw index — the shape the shortcut hands back.
+    const r3 = await act({ t: 'post', author: 'u_secured', text: 'STORY v3 lambda', a: 0.8, target: revIdx, auth: '1234' });
+    expect(r3.status).toBe(200);
+    // The stored act names the mint, not the revision it was sent with.
+    const list = (await get('/api/acts')).acts as Record<string, unknown>[];
+    const stored = list.filter((a) => a.t === 'post' && a.text === 'STORY v3 lambda').pop()!;
+    expect(stored.target).toBe(mintIdx);
+    // One node, latest text.
+    const after = ((await get('/api/v1/feed?as=u_secured&sort=new&limit=50')).items as Array<Record<string, any>>)
+      .filter((x) => /STORY v/.test(String(x.text)));
+    expect(after.length).toBe(1);
+    expect(after[0].text).toBe('STORY v3 lambda');
+    expect(after[0].id).toBe(before[0].id);
+  });
+
+  it('deleting a thrice-written post removes every version, and does not strand a copy', async () => {
+    // The consequence the duplicate had: deletePost normalised to the mint and
+    // redacted the ORIGINAL, the duplicate stayed up, and a second attempt was
+    // refused as already deleted — a permanent post in a hashed, mirrored log.
+    const { revIdx } = await postThenRevise('STORY v1 mu', 'STORY v2 nu');
+    await act({ t: 'post', author: 'u_secured', text: 'STORY v3 xi', a: 0.8, target: revIdx, auth: '1234' });
+    const thirdIdx = (await total()) - 1;
+    const d = await act({ t: 'deletePost', author: 'u_secured', target: thirdIdx, auth: '1234' });
+    expect(d.status).toBe(200);
+    const log = await served();
+    expect(log).not.toContain('STORY v1 mu');
+    expect(log).not.toContain('STORY v2 nu');
+    expect(log).not.toContain('STORY v3 xi');
+    const feed = ((await get('/api/v1/feed?as=u_secured&sort=new&limit=50')).items as Array<Record<string, any>>)
+      .filter((x) => /STORY v[123] (mu|nu|xi)/.test(String(x.text)));
+    expect(feed.length).toBe(0);
+  });
 });
 
 describe('the rate limit says the number it actually applies', () => {
