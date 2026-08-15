@@ -394,6 +394,12 @@ body[data-standalone='1'] .shell {
    1280x720 and 652px inside 355px on a phone, which put its last tab off the
    edge behind a scrollbar that is deliberately invisible.
 
+   That strip carries FOUR lanes now - Money, Network, Ads, Machinery - and
+   four fit one row in the centre column at 1280 and above. So nothing here is
+   load-bearing today, and it stays anyway: this rule is what makes a FIFTH
+   lane safe to add. Without it a fifth would not appear cramped, it would
+   disappear, which is how three of the six were lost the first time.
+
    Grid rather than flex-wrap: wrap, because flex leaves the final row ragged
    at natural widths or stretches a single leftover button across the whole
    column, and a lane four times the size of its neighbours reads as a banner
@@ -402,9 +408,12 @@ body[data-standalone='1'] .shell {
    ember rule along the top edge answers 'where am I' because the thing it
    marks is otherwise identical to its neighbours.
 
-   The 120px floor is measured, not picked: the widest label in the strip is
-   'Transactions' at 119.2px with this font, padding and letter-spacing, so
-   120px is that rounded up. It holds at the tightest packing there is - the
+   The 120px floor is measured, not picked: it is the widest label this strip
+   has ever carried - 'Transactions' at 119.2px with this font, padding and
+   letter-spacing - rounded up. The widest of the four now is 'Machinery',
+   comfortably inside it, and the floor deliberately stays at the larger
+   number: it is a floor for whatever a later lane gets called, not a
+   measurement of the current set. It holds at the tightest packing there is - the
    376px centre column at 1011px viewport, just above the 1010px breakpoint,
    where auto-fit lands on exactly three 120px columns and every label still
    sits on one line.
@@ -423,6 +432,57 @@ body[data-standalone='1'] .shell {
    of that was ever this strip's business.) */
 .lanes-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   overflow-x: visible; }
+
+/* -- the economy's switcher, pinned, and what travels with it ---------------
+   The Money lane is 4,600px at 1280x720 and 8,000px on a phone. The strip
+   above it was static, so it left the screen at 221px and the only way back
+   to another lane was three to six screens of scrolling. Pinned it stays a
+   control instead of becoming a thing you scrolled past.
+
+   62px is the offset `.rail` is already pinned at, i.e. the topbar's height as
+   this stylesheet has already measured it; z-index 10 is under the topbar's 20
+   so the two stack in the order they are drawn in. The background is opaque
+   because a transparent pinned strip has the page sliding through its letters.
+
+   The jump row rides INSIDE it rather than under it: a menu that scrolls off
+   the top is a menu you have to scroll back to, which is the problem it was
+   added to solve. Everything pinned here is ~114px of a 720px screen, which is
+   why the row is tightened rather than left at the default mini-form size. */
+.econ-stick { position: sticky; top: 62px; z-index: 10; background: var(--paper); }
+.econ-jump { margin: 0 0 8px; padding: 6px 10px; gap: 8px; }
+
+/* -- a heading BETWEEN cards, for a lane that holds more than one subject --
+   The Money lane is three subjects in one column and about fifteen hundred
+   lines of render. A wall of concatenated cards would be a worse tab than the
+   three it replaced, so each subject gets a rule, a name and one line saying
+   what the cards under it are for.
+
+   Deliberately not a card: no background, no border box, so it cannot be read
+   as one more panel in the stack - it is the gap between panels, named. The
+   lane strip is always the first thing on a tab, and a rule immediately under
+   the button you just pressed reads as a mistake rather than as a divider, so
+   that one case drops the border and keeps the name.
+
+   The class is `econ-sect` and NOT `sect`, which is what it was first called.
+   `sect` was already live in this file nine times — the events header, the
+   music section, five blocks of the profile drawer — and had no unscoped rule
+   at all, which is precisely why those elements looked right: they were
+   carrying a name, not a style. Four global rules under that name put a border
+   and 16px of padding across all nine, and nothing failed, because the render
+   tests assert text and not computed style. A name this file has never used
+   cannot do that.
+
+   scroll-margin-top keeps a jumped-to heading clear of what is pinned above
+   it. Measured at 1280x720 rather than guessed: the strip sits at y=62 and is
+   111px tall on the Money lane (56 of lanes, 55 of jump row), so it ends at
+   173 and a heading has to come down below that. Too large only costs a gap
+   above the heading; too small hides it under the very strip that sent you
+   there. The other lanes have no jump row and get the gap. */
+.econ-sect { margin: 26px 0 12px; padding-top: 16px; border-top: 1px solid var(--line-2);
+  scroll-margin-top: 180px; }
+.econ-sect h2 { font-family: var(--display); font-size: 13px; margin: 0 0 5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.econ-sect p { margin: 0; }
+.econ-stick + .econ-sect { border-top: 0; padding-top: 0; margin-top: 4px; }
 
 @media (max-width: 560px) {
   .lane { min-width: 92px; }
@@ -894,15 +954,54 @@ button, .btn { touch-action: manipulation; }
   // 'ledger' and 'net', which have not been tabs for months and have been
   // quietly opening the feed ever since — fixed in this pass.
   var GEEK_TABS = ['feed', 'chat', 'alerts', 'econ', 'profile'];
-  var econView = 'wallet';   // + 'net'  — the graph lives here now
+  // ── The Economy tab's four lanes, and where the old six went ────────────
+  //
+  //   money      what you hold, where it trades, what moved
+  //   net        the graph — a way of LOOKING at the economy
+  //   ads        the only thing in this network that is for sale
+  //   machinery  the epoch chain, and Layer 0 underneath it
+  //
+  // ECON_WAS is the migration, and it is a MAP rather than a filter on
+  // purpose. 'wallet', 'pools', 'ledger', 'chain' and 'layer0' were real
+  // lanes for months and are sitting in the localStorage of every browser
+  // that has ever opened this app; a filter would drop them all to the
+  // default, and a saved value from a version that no longer exists is
+  // exactly the bug that looks like "the app is broken" and reproduces for
+  // nobody else. Each old name lands on the lane that swallowed its content.
+  // Anything unrecognised — a hand-edited key, a link from a build that does
+  // not exist yet — lands on the first lane rather than on a blank tab.
+  var ECON_VIEWS = ['money', 'net', 'ads', 'machinery'];
+  var ECON_WAS = {
+    wallet: 'money',      // balances, the epoch token, the claim, both burn doors
+    pools: 'money',       // the pool on Base and the sandbox pools under it
+    ledger: 'money',      // the transaction list, now that lane's last section
+    chain: 'machinery',   // the epoch chain
+    layer0: 'machinery',  // the reserve receipt underneath it
+    net: 'net',           // unchanged — named here so the map is complete
+  };
+  /**
+   * A stored or linked econView name, translated into one that exists.
+   *
+   * hasOwnProperty rather than a plain lookup: 'constructor' and 'toString'
+   * are strings a URL or a corrupted key can carry, and both would otherwise
+   * come back as a function and be assigned to econView.
+   */
+  function econViewFrom(v) {
+    var k = String(v || '');
+    if (ECON_VIEWS.indexOf(k) >= 0) return k;
+    if (Object.prototype.hasOwnProperty.call(ECON_WAS, k)) return ECON_WAS[k];
+    return ECON_VIEWS[0];
+  }
+  var econView = 'money';
   // The connected Base wallet address, module-level so it survives the
   // re-render that follows every act. An address is public information;
   // no key is ever in this variable — or anywhere else in this file.
   //
   // The three below it are cache that is only true WHILE that connection is.
   // l2Tokens holds the two token addresses read off the pool, which
-  // are meaningless on any other chain; l2Redraw is the hook the on-chain
-  // card installs so the wallet's own events can reach the screen; l2Watching
+  // are meaningless on any other chain; l2Redraw is the hook the TOKEN card
+  // installs so the wallet's own events can reach the screen (the claim card
+  // and the pool card have one each, below — see l2RedrawAll); l2Watching
   // stops those event handlers stacking up one per visit to the tab. When the
   // wallet changes network or account they are dropped together, because an
   // address left on screen after the wallet moved on is a lie the page is
@@ -921,6 +1020,16 @@ button, .btn { touch-action: manipulation; }
   // two cards sit in the SAME view — one slot between them means the second
   // one to render silently takes the wallet's events away from the first.
   var l2ClaimRedraw = null;
+  // And the pool card's, for exactly the same reason a third time. When the
+  // Economy tab's six lanes became four, the pool card joined the token card
+  // and the claim card on Money — so all THREE now render in one pass, and the
+  // sentence that used to sit over l2Redraw ("the two are never mounted at
+  // once") stopped being true without anybody editing it. A shared slot then
+  // means the last card to render owns the wallet's events and the others keep
+  // printing an address that is no longer connected; and this card re-arms
+  // itself every 31 seconds through ocLoad's timer, so it wins that race
+  // eventually whichever way the first pass went.
+  var l2PoolRedraw = null;
   // One epoch's answer from GET /api/v1/epoch/N/claim, keyed by handle and
   // epoch, so re-rendering this tab (which a poll can do at any moment) does
   // not re-ask the host — and, where a claim contract IS configured, does not
@@ -938,12 +1047,17 @@ button, .btn { touch-action: manipulation; }
   // ── the wallet on Base: connecting, the chain check, the read encoders ──
   //
   // These live out here with the state they write because two cards need them
-  // now: the on-chain pools card in the Pools tab, and the token card in the
-  // Wallet tab. The pools card grew its own copies (ocConnect, ocEth, ocWord…)
+  // now: the on-chain pool card and the token card, which are both on the
+  // Money lane (they were the Pools and Wallet lanes). The pool card grew its
+  // own copies (ocConnect, ocEth, ocWord…)
   // inside its own block, back when there was only one caller; both sets write
   // THIS l2Wallet, so a wallet connected in either card is connected in both.
   // The copies down there should be deleted in favour of these rather than
-  // kept in step by hand.
+  // kept in step by hand — the one that mattered most already has been. The
+  // pool card kept a private copy of the WALLET WATCHER as well, guarded by
+  // the same l2Watching flag, and on the merged lane it won that flag on first
+  // paint and left the claim card's redraw hook wired to nothing. There is one
+  // registration now (l2WatchWallet) and one redraw (l2RedrawAll).
   //
   // Nothing here signs and nothing here holds a key. eth_call is a read; the
   // one call in this file that writes anything, wallet_watchAsset, writes to
@@ -1092,12 +1206,32 @@ button, .btn { touch-action: manipulation; }
     var t = new TextDecoder().decode(new Uint8Array(bytes));
     return /^[\x20-\x7e]{1,32}$/.test(t) ? t : '';
   }
+  /**
+   * Every card that prints a connected address, redrawn together.
+   *
+   * There are three, they are all on the Money lane, and they render in one
+   * pass: the token card, the claim card and the pool card. Nothing that drops
+   * l2Wallet may call one slot and leave the others — the whole point of the
+   * hook is that an address on screen is the address that is connected, and a
+   * card that missed the news is worse than one that never showed an address
+   * at all, because it looks like it checked.
+   *
+   * A fourth card added later needs a slot and a line here, and that is the
+   * cheapest place this can be got wrong: it has already been got wrong twice.
+   */
+  function l2RedrawAll() {
+    if (l2Redraw) l2Redraw();
+    if (l2PoolRedraw) l2PoolRedraw();
+    if (l2ClaimRedraw) l2ClaimRedraw();
+  }
   // The wallet is not a thing this page can hold still: a user can switch
   // network or account at any moment, including while a card sits open, and
   // an address left on screen after the wallet moved on is a lie the page is
-  // telling for free. Registered once per page — l2Watching is the same flag
-  // the pools card checks, so whichever of the two runs first installs the
-  // one pair of handlers and the other skips.
+  // telling for free. Registered once per page, and this is now the ONLY
+  // registration — the pool card used to keep a private copy guarded by the
+  // same l2Watching flag, which meant whichever ran first decided which cards
+  // would ever hear about a wallet change. On the merged lane the pool card's
+  // copy ran first, on first paint, before anybody had pressed Connect.
   function l2WatchWallet() {
     if (!window.ethereum || !window.ethereum.on || l2Watching) return;
     l2Watching = true;
@@ -1106,10 +1240,11 @@ button, .btn { touch-action: manipulation; }
       l2Wallet = null;
       l2Tokens = null;
       if (had) toast(why);
-      if (l2Redraw) l2Redraw();
-      // Both cards, always. A claim row shows an address, an amount and a
-      // Claim button that are only true of one account on one chain.
-      if (l2ClaimRedraw) l2ClaimRedraw();
+      // Every card, always. A claim row shows an address, an amount and a
+      // Claim button that are only true of one account on one chain; the
+      // token card shows two balances read for one account; the pool card
+      // shows the account every button on it would send from.
+      l2RedrawAll();
     };
     window.ethereum.on('chainChanged', function () { forget('The wallet changed network. Nothing here reads or signs until it is back on the chain this host serves and connected again.'); });
     window.ethereum.on('accountsChanged', function () { forget('The wallet switched accounts. Connect again \u2014 the address shown here is only ever the one that connected.'); });
@@ -1249,7 +1384,11 @@ button, .btn { touch-action: manipulation; }
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
       if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
-      if (['wallet', 'net', 'pools', 'chain', 'layer0', 'ledger'].indexOf(v0.econView) >= 0) econView = v0.econView;
+      // Mapped, never dropped: a browser that was last standing on 'pools'
+      // or 'ledger' opens on Money, one that was on 'chain' or 'layer0'
+      // opens on Machinery, and anything else opens on the first lane. The
+      // table is ECON_WAS, up beside the tab list.
+      if (typeof v0.econView === 'string' && v0.econView) econView = econViewFrom(v0.econView);
       if (['social', 'all', 'ego'].indexOf(v0.netScope) >= 0) netScope = v0.netScope;
     }
     // #feed / #chat / #profile override the restored view: the installed app's
@@ -2474,7 +2613,7 @@ button, .btn { touch-action: manipulation; }
     epoch: {
       t: 'epoch',
       one: 'A chapter of the record. Closing one stamps every writer with their final standing.',
-      more: 'Closing also checks the wall and the door, advances self-edge tenure, and writes a certificate into Economy → Record. Anyone replaying the log computes the same certificate.',
+      more: 'Closing also checks the wall and the door, advances self-edge tenure, and writes a certificate into Alerts → The record. Anyone replaying the log computes the same certificate.',
       sect: 'Epochs: stamping the record',
     },
     S: {
@@ -5677,7 +5816,14 @@ button, .btn { touch-action: manipulation; }
       'Destroying PEER on Base credits reserve too, priced by the official PEER/cbBTC pool. It is not the same kind of thing as this one, and the difference is worth knowing before choosing: this address is a commitment to a script that cannot be satisfied, so it is unspendable by arithmetic anyone can check, while the PEER sink is unspendable only because nobody knows a key for it. A PEER burn also buys the right to speak and nothing more — no share of the epoch mint and no vote in the writer election, both of which this burn does buy. ');
     second.appendChild(h('button', { class: 'btn small ghost', text: 'the PEER door →', onclick: function () {
       box.remove();
-      tab = 'econ'; econView = 'wallet'; saveView(); render();
+      tab = 'econ'; econView = 'money'; saveView(); render();
+      // The lane is several screens; the card is in its middle section. A
+      // button named after one card that opens a screen showing another is
+      // the same failure as the guide's two broken jumps.
+      setTimeout(function () {
+        var el = document.getElementById('econ-trades');
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }, 40);
     } }));
     box.appendChild(second);
     var amt = h('input', { type: 'text', value: '2000', style: 'width:110px', inputmode: 'numeric' });
@@ -8816,7 +8962,7 @@ button, .btn { touch-action: manipulation; }
     if (!anyHeld) {
       hold.appendChild(h('p', { class: 'smallnote', text: 'Nothing yet. PEER arrives when an epoch closes and someone has engaged with what you made — or from the pool, if somebody is selling.' }));
     }
-    hold.appendChild(h('p', { class: 'smallnote', text: 'These are epoch tokens: numbers in this network\u2019s act log, which anyone can replay and check. They are not on any chain and not in any wallet \u2014 a wallet cannot be shown them. The ERC-20 called PEER on Base is a separate token that shares the name; it has its own card at the bottom of this tab.' }));
+    hold.appendChild(h('p', { class: 'smallnote', text: 'These are epoch tokens: numbers in this network\u2019s act log, which anyone can replay and check. They are not on any chain and not in any wallet \u2014 a wallet cannot be shown them. The ERC-20 called PEER on Base is a separate token that shares the name; it has its own card further down this section.' }));
     wrap.appendChild(hold);
 
     // ── the network-wide picture, so your share has a denominator ──
@@ -9201,10 +9347,12 @@ button, .btn { touch-action: manipulation; }
         else readBalances();
       }
 
-      // The wallet's own events reach whichever card is on screen through
-      // this one slot; the pools card sets it the same way when it renders,
-      // and the two are never mounted at once. Only claimed if this card is
-      // actually in the document — a fetch that lands after the reader has
+      // This card's slot, and only this card's. It used to be shared with the
+      // pool card on the strength of the two never being mounted at once,
+      // which was true while they were on the Wallet and Pools lanes and false
+      // from the moment both became sections of Money; the pool card has
+      // l2PoolRedraw now and l2RedrawAll calls both. Only claimed if this card
+      // is actually in the document — a fetch that lands after the reader has
       // moved on must not take the hook away from the card they moved to.
       if (card.isConnected) l2Redraw = function () { drawWallet(); };
       drawWallet();
@@ -9341,28 +9489,71 @@ button, .btn { touch-action: manipulation; }
 
       var row = h('div', { class: 'mini-form persistent' });
       bindBox.appendChild(row);
-      if (!window.ethereum) {
-        row.appendChild(h('span', { class: 'smallnote', text: 'There is no wallet in this browser to take an address from. Open this app in a browser with one \u2014 the address is never typed here, because a typo in an address cannot be detected and would send these earnings somewhere nobody can reach.' }));
-        return;
+      // Two ways to name the address, and both end at the same read-it-back
+      // confirmation. The wallet path reads the address off an extension so it
+      // cannot be mistyped; the manual path exists because the earlier shape
+      // REFUSED to bind without window.ethereum, and that refused every phone
+      // and every wallet-less browser outright — a reader who had earned a
+      // share and could not open the app in MetaMask had no route to a
+      // binding at all, and their line returned to the steward at every sweep.
+      // The host and the replay never needed a wallet: bindableAddress checks
+      // the shape (0x + 40 hex, not the zero address) and nothing else. So the
+      // typo risk the wallet path removes is met here differently: the address
+      // is typed TWICE, must match to the character, and is then read back in
+      // full on the same confirmation screen the wallet path uses.
+      if (window.ethereum) {
+        if (!l2Wallet) {
+          row.appendChild(h('button', { class: 'btn small', text: 'Connect a wallet', onclick: function () {
+            // The chain to connect to is the one the host names for its claim
+            // contract, and only once an epoch answer has named it. Before
+            // that, Base is the default this page has always used — connecting
+            // reads an address and signs nothing either way.
+            l2Connect(chainHex, chainName).then(function (a) { if (a) redrawAll(); })
+              .catch(function (e) { toast('Connect failed: ' + l2Err(e)); });
+          } }));
+          row.appendChild(h('span', { class: 'smallnote', text: 'Connecting shows an address. It signs nothing, records nothing, and this page never sees a key.' }));
+        } else {
+          row.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: 'wallet ' + l2Wallet }));
+          if (l2Wallet === String(bound).toLowerCase()) {
+            row.appendChild(h('span', { class: 'smallnote', text: '— which is the address already bound. Nothing to change.' }));
+          } else {
+            row.appendChild(h('button', { class: 'btn small', text: bound ? 'Bind this wallet instead' : 'Bind this wallet', onclick: function () { confirmBind(l2Wallet, bound); } }));
+          }
+        }
+      } else {
+        row.appendChild(h('span', { class: 'smallnote', text: 'No wallet extension in this browser, so the address is entered by hand below. Copy it from the wallet that will collect — never retype it from memory.' }));
       }
-      if (!l2Wallet) {
-        row.appendChild(h('button', { class: 'btn small', text: 'Connect a wallet', onclick: function () {
-          // The chain to connect to is the one the host names for its claim
-          // contract, and only once an epoch answer has named it. Before
-          // that, Base is the default this page has always used — connecting
-          // reads an address and signs nothing either way.
-          l2Connect(chainHex, chainName).then(function (a) { if (a) redrawAll(); })
-            .catch(function (e) { toast('Connect failed: ' + l2Err(e)); });
-        } }));
-        row.appendChild(h('span', { class: 'smallnote', text: 'Connecting shows an address. It signs nothing, records nothing, and this page never sees a key.' }));
-        return;
-      }
-      row.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: 'wallet ' + l2Wallet }));
-      if (l2Wallet === String(bound).toLowerCase()) {
-        row.appendChild(h('span', { class: 'smallnote', text: '\u2014 which is the address already bound. Nothing to change.' }));
-        return;
-      }
-      row.appendChild(h('button', { class: 'btn small', text: bound ? 'Bind this wallet instead' : 'Bind this wallet', onclick: function () { confirmBind(l2Wallet, bound); } }));
+
+      // ── the manual path, always present ──
+      var man = h('div', { style: 'margin-top:8px' });
+      bindBox.appendChild(man);
+      var manOpen = false;
+      var manBtn = h('button', { class: 'btn small ghost', text: window.ethereum ? 'Or type an address instead' : 'Type the address to bind', onclick: function () {
+        manOpen = !manOpen; manForm.style.display = manOpen ? '' : 'none'; if (manOpen) a1.focus();
+      } });
+      man.appendChild(manBtn);
+      var manForm = h('div', { style: 'display:none; margin-top:8px' });
+      man.appendChild(manForm);
+      var a1 = h('input', { class: 'num', placeholder: '0x… the address that will collect (40 hex characters)', maxlength: '42', autocomplete: 'off', spellcheck: 'false', style: 'width:100%; box-sizing:border-box; margin-bottom:6px' });
+      var a2 = h('input', { class: 'num', placeholder: 'type it again — it must match to the character', maxlength: '42', autocomplete: 'off', spellcheck: 'false', style: 'width:100%; box-sizing:border-box; margin-bottom:6px' });
+      var manErr = h('p', { class: 'smallnote', style: WARN + '; display:none' });
+      manForm.appendChild(a1); manForm.appendChild(a2); manForm.appendChild(manErr);
+      manForm.appendChild(note('Both fields are compared exactly. This page carries no keccak, so it cannot check a wallet’s checksum casing — the host lowercases the address and the leaf pays that byte string. Paste from the wallet, twice, and read it back on the next screen.'));
+      var manGo = h('div', { class: 'mini-form persistent' });
+      manForm.appendChild(manGo);
+      manGo.appendChild(h('button', { class: 'btn small', text: 'Continue', onclick: function () {
+        var v1 = String(a1.value || '').trim(), v2 = String(a2.value || '').trim();
+        var low = v1.toLowerCase();
+        var msg = '';
+        if (!v1) msg = 'Enter the address first.';
+        else if (!/^0x[0-9a-fA-F]{40}$/.test(v1)) msg = 'That is not an address: it must be 0x followed by exactly 40 hexadecimal characters (' + Math.max(0, v1.length - 2) + ' given).';
+        else if (low === '0x0000000000000000000000000000000000000000') msg = 'The zero address is refused: a line paying it is PEER nobody can ever claim.';
+        else if (v1 !== v2) msg = 'The two entries differ. They must match to the character — that is the whole check.';
+        else if (low === String(bound).toLowerCase()) msg = 'That address is already bound to this handle. Nothing to change.';
+        if (msg) { manErr.textContent = msg; manErr.style.display = ''; return; }
+        manErr.style.display = 'none';
+        confirmBind(low, bound);
+      } }));
     }
 
     /**
@@ -10491,7 +10682,7 @@ button, .btn { touch-action: manipulation; }
       term('officialPool', 'official pool'), ' is asked what that many PEER would fetch in cbBTC, which is already a number of satoshis, and the burn credits reserve at ' + satsPer + ' sat to 1 — the same rate the bitcoin door uses. Both doors stay open; neither replaces the other.'));
 
     // ── which PEER this is, said again rather than assumed ──
-    card.appendChild(h('p', { class: 'smallnote', text: 'The PEER destroyed here is the ERC-20 on Base — the coin in the card above, the one a wallet can hold. It is not the epoch token counted further up this tab, and this door does not join them: no epoch PEER is spent, none is created, and there is still no exchange rate between the two and no bridge in either direction. What crosses here is value, not either token.' }));
+    card.appendChild(h('p', { class: 'smallnote', text: 'The PEER destroyed here is the ERC-20 on Base — the coin the pool above trades, the one a wallet can hold. It is not the epoch token counted further up this tab, and this door does not join them: no epoch PEER is spent, none is created, and there is still no exchange rate between the two and no bridge in either direction. What crosses here is value, not either token.' }));
 
     // ── the provenance difference, in the engine's words ──
     card.appendChild(h('p', { class: 'smallnote' },
@@ -10952,42 +11143,122 @@ button, .btn { touch-action: manipulation; }
     function tbal(sym) { return (tok.bal[sym] && tok.bal[sym][who]) || 0; }
 
     // ── Sub-tabs ─────────────────────────────────────────────────────────
-    // The economy screen had grown into one long scroll holding four
-    // unrelated jobs: what you hold, what the pools are doing, the Layer-0
-    // receipt system, and the history. Splitting them means the wallet is
-    // reachable without scrolling past a ledger of raw addresses.
-    // Six of them do not fit one row, and until this strip wrapped they did
-    // not admit it: 688px of lanes inside a 600px centre column at 1280x720,
-    // 652px inside 355px on a phone, with the overflow behind a scrollbar
-    // `.lanes` hides on purpose. So between one and three of these tabs were
-    // off the edge, reachable only by a sideways drag nothing signposted.
+    // Six lanes said six subjects and three of them were one: what you hold,
+    // where it trades and what moved are the same question asked at three
+    // distances, and answering it cost three lanes, three scrolls and a guess
+    // about which one held the answer. Two more were two names for the same
+    // machinery under the log. Ads was not a lane at all - it was the last
+    // card of the pools lane, which is the last place a person meaning to buy
+    // one would look for it.
     //
-    // The labels are unchanged and so is the count. Every one of the six is
-    // already the shortest phrase that says what its tab is, and the two
-    // longest are the two that name two subjects each - 'Pools & ads' and
-    // 'Epoch chain' - so trimming either would have bought pixels by dropping
-    // half of what the tab holds. `.lanes-wrap` spends a row of height
-    // instead, and its comment in the stylesheet carries the measurements and
-    // what happens when a seventh lane lands here.
-    var views = [['wallet', 'Wallet'], ['net', 'Network'], ['pools', 'Pools & ads'], ['chain', 'Epoch chain'], ['layer0', 'Layer 0'], ['ledger', 'Transactions']];
+    // The names are chosen for a reader who never saw the six.
+    //
+    //   MONEY, not 'Wallet'. The lane holds what you hold, the pool where it
+    //   trades and the list of what moved, so 'Wallet' would name the first
+    //   third and hide the other two - and nobody who came to trade, or to
+    //   check a transaction, would open a tab called Wallet to do it. FIRST,
+    //   because it is the lane this screen is opened for.
+    //
+    //   NETWORK, unchanged. The graph is a way of looking at the economy, its
+    //   name was never the problem, and it is a different subject from the
+    //   other three rather than a part of any of them.
+    //
+    //   ADS, as itself. 'Advertising' is the same word with three more
+    //   syllables and 'Placements' names the act rather than the thing a
+    //   reader wants, which is a box in the feed.
+    //
+    //   MACHINERY, not 'Layer 0 & epoch chain'. Those are two names for one
+    //   subject - what is underneath the log - and a slash-joined pair makes
+    //   a reader learn both names before they can decide whether the tab is
+    //   for them. LAST, because it is the one fewest people need.
+    //
+    // Four lanes are 4 x 120px of grid at most, which the 600px centre column
+    // at 1280 holds in one row with room to spare. `.lanes-wrap` stays - see
+    // its comment in the stylesheet - but it is now insurance for a fifth
+    // lane rather than the thing keeping the fourth on screen.
+    var views = [['money', 'Money'], ['net', 'Network'], ['ads', 'Ads'], ['machinery', 'Machinery']];
+    /**
+     * A heading between cards, for a lane that holds more than one subject.
+     *
+     * Somebody arriving to check a balance must not have to scroll past the
+     * whole pool card to find it, and somebody arriving to trade must not
+     * have to hunt: these are what make that possible, so the tab can be
+     * skimmed in three jumps instead of read in one long fall. `.econ-sect`
+     * draws a rule and a name and no box - it is the gap between cards, named,
+     * rather than another card.
+     *
+     * The id is what makes the skimming possible rather than merely desirable:
+     * a heading is a landmark you can see and not a place you can go, and this
+     * lane is 4,600px at 1280x720. The jump row under the strip and the
+     * guide's 'open the pool' button both scroll to these ids.
+     */
+    function econHead(id, title, note) {
+      return h('div', { class: 'econ-sect', id: id },
+        h('h2', { text: title }),
+        h('p', { class: 'smallnote', text: note }));
+    }
+    /**
+     * Scroll to one of them. Same shape as jumpTo()'s scroll for the feed;
+     * `.econ-sect` carries a scroll-margin-top so the heading does not land
+     * underneath the pinned strip that sent you to it. Guarded on the method
+     * existing because jsdom has no layout and no scrollIntoView, and a render
+     * test pressing this button must not become the thing that breaks.
+     */
+    function econJump(id) {
+      var el = document.getElementById(id);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+
+    // The strip is pinned (`.econ-stick`), and the jump row rides with it.
+    //
+    // Four lanes fit one row, which was the point of the regrouping - but the
+    // Money lane behind them is 4,600px at 1280x720 and 8,000px on a phone,
+    // and a switcher that leaves the screen at 221px is not a switcher, it is
+    // a thing you scrolled past. Pinning it costs ~56px of every screen on
+    // this tab and buys back three to six screens of scrolling every time
+    // somebody wants another lane.
+    //
+    // The three buttons under it are the same journey INSIDE the lane, and
+    // they are only drawn there: the other three lanes are one subject each
+    // and a menu of one entry is furniture. They name the three headings in
+    // the reader's words rather than in the section titles' capitals, because
+    // a control and a heading that say exactly the same thing read as the same
+    // object and one of them is not clickable.
+    var stick = h('div', { class: 'econ-stick' });
     var bar = h('div', { class: 'lanes lanes-wrap' });
     views.forEach(function (v) {
       var b = h('button', { class: 'lane' + (econView === v[0] ? ' on' : '') }, h('b', { text: v[1] }));
       b.onclick = function () { econView = v[0]; saveView(); render(); };
       bar.appendChild(b);
     });
-    wrap.appendChild(bar);
+    stick.appendChild(bar);
+    if (econView === 'money') {
+      var jumps = h('div', { class: 'mini-form persistent econ-jump' });
+      [['econ-hold', 'what you hold'], ['econ-trades', 'where it trades'], ['econ-moved', 'what moved']]
+        .forEach(function (j) {
+          jumps.appendChild(h('button', { class: 'btn small ghost', text: j[1],
+            onclick: function () { econJump(j[0]); } }));
+        });
+      stick.appendChild(jumps);
+    }
+    wrap.appendChild(stick);
 
     if (econView === 'net') {
       // The graph is a way of looking at the economy — every edge in it is a
       // transported rate — so it sits here rather than owning a tab of its own.
       wrap.appendChild(netTab(st));
     }
-    if (econView === 'wallet') {
+    // ── MONEY, 1 of 3: what you hold ───────────────────────────────────
+    // First because it is the question this screen is opened with. The two
+    // 'wallet' branches this replaces were adjacent and identical; they are
+    // one block now, in the order they always rendered in - balances, the
+    // epoch token, the ERC-20 that shares its name, the claim that pays one
+    // against a list of the other, and the second door into reserve. Not one
+    // line of them was rewritten.
+    if (econView === 'money') {
+      wrap.appendChild(econHead('econ-hold', 'What you hold',
+        'Your balances, what generated them, and both tokens that answer to the name PEER — the epoch token this log mints, and the ERC-20 on Base a wallet can hold. Everything in this section is value: none of it is standing, and no amount of it buys a point of standing.'));
       wrap.appendChild(walletView(st));
-    }
-
-    if (econView === 'wallet') {
       var tCard = h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'PEER — the epoch token' }),
         h('p', { class: 'smallnote', text: 'Minted when an epoch closes: 5000/epoch in year one, decaying 0.9 per 365 epochs, capped at 18.25M (the poolsite curve). Distributed to CREATORS by the engagement their work drew — reactions 1.0, comments 1.2, dislikes 0.3, damped per fan (1/(1+0.3·(n−1))), each weigher scaled linearly by the satoshis they have proved destroyed — an account that never burned weighs nothing, and above zero there is no threshold. Value, never standing: no balance enters any score.' }));
@@ -11017,16 +11288,20 @@ button, .btn { touch-action: manipulation; }
       // meet — the operator transferring the second against a list of the
       // first. It reads as nonsense anywhere else on the page.
       wrap.appendChild(l2ClaimCard(st));
-      // The second door into reserve, under BOTH of them, because it needs
-      // both to have been read first: it prices the coin on Base (the card
-      // above) and it must not be taken for the epoch token (the card above
-      // that). Last rather than between them, so the token card's sentence
-      // about 'the card below this one' still names the claim card.
-      wrap.appendChild(peerBurnCard(st));
-
+      // (the second door into reserve used to end this section. It is under
+      //  the pool now - see 'Where it trades'. It is 1,427px tall, it says in
+      //  its own last paragraphs that this host has no price so the door is
+      //  shut, and it stood between a reader's balance and the pool they came
+      //  to trade on: 45% of that distance, for a card about something they
+      //  cannot do. It also quotes the pool, which they had not seen yet.)
     }
 
-    if (econView === 'pools') {
+    // ── MONEY, 2 of 3: where it trades ─────────────────────────────────
+    // The old Pools lane, unchanged, minus the advert card that used to sit
+    // at the bottom of it (its own tab now) and plus a heading.
+    if (econView === 'money') {
+      wrap.appendChild(econHead('econ-trades', 'Where it trades',
+        'One pool on Base, which settles in real money, and the sandbox pools under it, which settle in this log and nowhere else. The second door into reserve is here too, under the pool whose price is what it pays out against.'));
       // ── THE pool on Base — one address, and the only one ──
       // This card sits above the sandbox because it is the one that costs
       // and pays actual money: the PEER ERC-20 against cbBTC — bitcoin held
@@ -11072,6 +11347,13 @@ button, .btn { touch-action: manipulation; }
       // Two pools over one pair are two pools. Directly under the card whose
       // prices could otherwise be read as the market's.
       wrap.appendChild(dexCard());
+      // The second door into reserve, under the pool it is priced by. It was
+      // the last card of 'What you hold', where it was two screens of essay
+      // between a balance and the pool - and where it quoted a price from a
+      // card the reader had not reached. Here the thing it asks about is
+      // directly above it. Both sandbox-pool cards follow, which keeps the
+      // ocCard sentence about 'the sandbox pools below' true.
+      wrap.appendChild(peerBurnCard(st));
 
       // Hardcoded 4-byte selectors, each with the signature it hashes from —
       // the same policy as chain-l2/onchain.mjs: no keccak library in the
@@ -11328,21 +11610,19 @@ button, .btn { touch-action: manipulation; }
       // about the chain a minute later. So the wallet's own event channel is
       // the authority: on either change everything learned under the old
       // connection is dropped — the address, and the token addresses read off
-      // a pool that only exists on Base — and the row redraws to what is
-      // true now. Registered once per page rather than once per render, or a
-      // second visit to this tab would install a second handler.
-      if (window.ethereum && window.ethereum.on && !l2Watching) {
-        l2Watching = true;
-        var ocForget = function (why) {
-          var had = l2Wallet;
-          l2Wallet = null;
-          l2Tokens = null;
-          if (had) toast(why);
-          if (l2Redraw) l2Redraw();
-        };
-        window.ethereum.on('chainChanged', function () { ocForget('The wallet changed network. Nothing here reads or signs until it is back on the chain this host serves and connected again.'); });
-        window.ethereum.on('accountsChanged', function () { ocForget('The wallet switched accounts. Connect again \u2014 the address shown here is only ever the one that connected.'); });
-      }
+      // a pool that only exists on Base — and every card that was printing it
+      // redraws to what is true now.
+      //
+      // This card used to register that itself, with its own forget() and the
+      // same l2Watching flag l2WatchWallet uses. Two registrations behind one
+      // flag is a coin toss over which cards ever hear about a wallet change,
+      // and on the merged Money lane the toss was rigged: this block sits at
+      // statement level, so it ran on the first paint of the DEFAULT tab,
+      // before anybody pressed Connect, and l2WatchWallet was dead for the
+      // rest of the page's life — which left the claim card's hook wired to
+      // nothing for every reader. One registration now, and it redraws all
+      // three cards. Idempotent, so calling it from every render is free.
+      l2WatchWallet();
 
       // A deadline is a second on the CHAIN's clock, so it is read off the
       // chain rather than off this computer: a browser an hour slow would
@@ -11367,6 +11647,12 @@ button, .btn { touch-action: manipulation; }
       // the wallet's current answer, never something remembered for it.
       async function ocConnect() {
         if (!window.ethereum) return null;
+        // The one registration, again: this is a no-op where the render call
+        // above already made it, and the case it is here for is a wallet
+        // injected into the page after this card was drawn — there was no
+        // window.ethereum to attach to then, and this is the first moment
+        // there certainly is one.
+        l2WatchWallet();
         var accs = await ocEth('eth_requestAccounts');
         if (!accs || !accs[0]) return null;
         var chain = await ocEth('eth_chainId');
@@ -11414,7 +11700,7 @@ button, .btn { touch-action: manipulation; }
         if (chain !== OC_CHAIN) {
           l2Wallet = null;
           l2Tokens = null;
-          if (l2Redraw) l2Redraw();
+          l2RedrawAll();
           leg.state = 'rejected';
           throw new Error('the wallet is on chain ' + chain + ', not Base (' + OC_CHAIN + ') \u2014 nothing was signed. Put it back on Base and connect again.');
         }
@@ -12136,7 +12422,7 @@ button, .btn { touch-action: manipulation; }
           var cBtn = h('button', { class: 'btn small primary', text: 'Open the pool on Base' });
           var cBusy = false;
 
-          var NO_PEER = 'This wallet holds no PEER token on Base at all. The PEER counted in the Wallet tab is a different thing that happens to share the name: a number in this network’s own log, not in any wallet, and there is no bridge that turns one into the other. Funding this pool needs the Base token itself, in this address.';
+          var NO_PEER = 'This wallet holds no PEER token on Base at all. The PEER counted at the top of this tab is a different thing that happens to share the name: a number in this network’s own log, not in any wallet, and there is no bridge that turns one into the other. Funding this pool needs the Base token itself, in this address.';
           var NO_BTC = 'This wallet holds no cbBTC at all. A pool has two sides and cbBTC is the other one: it is bitcoin on Base — an ERC-20 that stands for BTC — and no amount of PEER becomes it. It has to be bought or bridged onto Base, into this address, before the pool can be opened.';
 
           function cSay(t, warn) {
@@ -12248,7 +12534,7 @@ button, .btn { touch-action: manipulation; }
                 if (chain !== OC_CHAIN) {
                   l2Wallet = null;
                   l2Tokens = null;
-                  if (l2Redraw) l2Redraw();
+                  l2RedrawAll();
                   cSay('That wallet answers for chain ' + chain + ', not Base (' + OC_CHAIN + '). Every check below would be about a different chain, so none of them ran and nothing was signed. Put the wallet on Base and connect again.', true);
                   return;
                 }
@@ -12377,10 +12663,12 @@ button, .btn { touch-action: manipulation; }
           return box;
         }
 
-        // The wallet's own events reach the screen through here. Assigned on
-        // every render so the handler always drives the card that is actually
-        // on screen, and never the one three renders ago.
-        l2Redraw = function () { drawWallet(); drawPools(); };
+        // This card's own slot — l2Redraw belongs to the token card, which is
+        // now two sections above this one in the same column rather than on a
+        // lane of its own. Assigned on every render so the handler always
+        // drives the card that is actually on screen, and never the one three
+        // renders ago.
+        l2PoolRedraw = function () { drawWallet(); drawPools(); };
         drawWallet();
         drawPools();
       }
@@ -12468,6 +12756,27 @@ button, .btn { touch-action: manipulation; }
             tryAct(who, { t: 'assetCreate', author: who, sym: (faSym.value || '').trim().toUpperCase(), name: (faName.value || '').trim(), supply: sup }, 'Minted. Now give it a pool, or it stays a number on your own screen.');
           } }))));
 
+      // ── MONEY, 3 of 3: what moved ────────────────────────────────────
+      // Last, because it is the question you ask after you know what you
+      // hold and what it is worth. valueLedger reads the act log rather than
+      // a stored list, so this section cannot drift from the two above it.
+      wrap.appendChild(econHead('econ-moved', 'What moved',
+        'Every value movement in this log, newest first: the mints an epoch pays out, and every act somebody spent θ on to move something.'));
+      wrap.appendChild(valueLedger(st));
+    }
+
+    // ── ADS ──────────────────────────────────────────────────────────────
+    // A tab of its own, because a card at the bottom of the pools lane is
+    // not a place anybody looks for the one thing here that is for sale.
+    //
+    // The block below is the old one, moved intact at a boundary it already
+    // had: it declares everything it uses and reads nothing from the pool
+    // cards it used to follow. What DID depend on its old neighbours is the
+    // copy - two sentences pointed at 'the Wallet tab' and at 'the sandbox
+    // pools further down this page', and both now name the Money tab, which
+    // is where those things actually are.
+    if (econView === 'ads') {
+
       // ── Buy a placement ──────────────────────────────────────────────────────
       // Paid in tBTC, live the moment the act lands. There is no review queue in
       // front of it: on a test network with play money, a queue was ceremony
@@ -12479,10 +12788,10 @@ button, .btn { touch-action: manipulation; }
       var adCard2 = h('div', { class: 'card', style: 'margin-top:14px' },
         h('h2', { text: 'Buy a placement' }));
       adCard2.appendChild(h('p', { class: 'smallnote', text:
-        'A box in the feed, paid for in PEER — and the PEER is DESTROYED rather than paid to anyone. This is the EPOCH token \u2014 the number counted in the Wallet tab, earned by drawing engagement or bought in one of the sandbox pools further down this page, which settle in this log and nowhere else. Buying attention means buying it from the people who earned it. It goes live immediately.' }));
+        'A box in the feed, paid for in PEER — and the PEER is DESTROYED rather than paid to anyone. This is the EPOCH token \u2014 the number counted on the Money tab, earned by drawing engagement or bought in one of the sandbox pools there, which settle in this log and nowhere else. Buying attention means buying it from the people who earned it. It goes live immediately.' }));
       adCard2.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text:
-        'Not the PEER on Base. The ERC-20 in the Wallet tab shares this name and this symbol and nothing else: it cannot pay for a placement, and no act, no host and no contract in this network turns one into the other. Buying it will not buy you this box.' }));
-      adCard2.appendChild(h('p', { class: 'smallnote', text:
+        'Not the PEER on Base. The ERC-20 on the Money tab shares this name and this symbol and nothing else: it cannot pay for a placement, and no act, no host and no contract in this network turns one into the other. Buying it will not buy you this box.' }));
+      adCard2.appendChild(h('p', { class: 'smallnote', style: 'border-left:2px solid var(--ember); padding-left:9px', text:
         'What it buys: the box, and only the box. An advert is an act so its payment is verifiable, but it mints no node, joins no graph, holds no standing and cannot move any ranking — including its own. Nothing in this network is for sale except this rectangle.' }));
 
       var adText = h('textarea', { placeholder: 'what the advert says (max 280)', maxlength: '280', style: 'width:100%' });
@@ -12591,11 +12900,18 @@ button, .btn { touch-action: manipulation; }
 
     }
 
-    if (econView === 'chain') {
+    // ── MACHINERY ────────────────────────────────────────────────────────
+    // Two lanes that were two names for one subject. A reader now meets them
+    // together, so the relation between them is stated once at the top -
+    // without it this tab is a chain viewer with an unexplained ledger of
+    // addresses underneath. Both blocks are unchanged below the headings.
+    if (econView === 'machinery') {
+      wrap.appendChild(econHead('econ-chain', 'Under the log',
+        'The epoch chain is what becomes of the record: every closed epoch sealed into one signed block, each carrying the id of the one before it. Layer 0 is the other end of the same machine — where the reserve those acts were debited from comes from, value destroyed and recorded as an attestation Layer 1 reads. One prices acting; the other publishes what acting produced. Neither of them settles anything: replay does.'));
       wrap.appendChild(epochChainView());
-    }
 
-    if (econView === 'layer0') {
+      wrap.appendChild(econHead('econ-layer0', 'Layer 0, and where reserve came from',
+        'The receipt system underneath the network. Its controls are gone — the acts they submitted are refused now — and the arithmetic stays because the acts already in the record still replay.'));
       wrap.appendChild(h('div', { class: 'card' },
         h('h2', { text: 'Layer 0 — the reserve receipt' }),
         h('div', { class: 'kv' },
@@ -12667,10 +12983,8 @@ button, .btn { touch-action: manipulation; }
 
     }
 
-    if (econView === 'ledger') {
-      wrap.appendChild(valueLedger(st));
-    }
-
+    // (the transaction list is the third section of the Money lane, drawn up
+    //  there beside the balances and the pool it is the history of)
     return wrap;
   }
 
@@ -12687,12 +13001,30 @@ button, .btn { touch-action: manipulation; }
      */
     function jump(label, to) {
       var parts = String(to).split('/');
-      var toTab = parts[0], sub = parts[1] || null;
+      var toTab = parts[0], sub = parts[1] || null, sect = parts[2] || null;
       return h('button', { class: 'btn small ghost jump', text: label + ' →', onclick: function () {
         if (GEEK_TABS.indexOf(toTab) < 0) { toast('That screen has moved — nothing here goes to “' + toTab + '” any more.'); return; }
         tab = toTab;
-        if (sub) econView = sub;
+        // Economy's sub-view goes through the same map a stored view goes
+        // through, so a link written against the old six ('econ/pools',
+        // 'econ/ledger') lands where that content lives now instead of on a
+        // lane that does not exist. Alerts has sub-views too, and until now
+        // this helper could not name one — which is why the button for epoch
+        // certificates pointed at Economy, where certificates have not been
+        // drawn for months.
+        if (sub) {
+          if (toTab === 'econ') econView = econViewFrom(sub);
+          else if (toTab === 'alerts') alertView = sub === 'record' ? 'record' : 'inbound';
+        }
         saveView(); render();
+        // And the third part is a section INSIDE the destination. Opening the
+        // right lane is not the same as showing the thing: the Money lane is
+        // 4,600px and 'open the pool →' was landing 4,400px above the pool.
+        // Same scrollIntoView-after-render jumpTo() uses for the feed.
+        if (sect) setTimeout(function () {
+          var el = document.getElementById(sect);
+          if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }, 40);
       } });
     }
     function sect(title, open) {
@@ -12764,17 +13096,17 @@ button, .btn { touch-action: manipulation; }
         P('Transport is conserved (each person disposes exactly one unit over self + recipients), tilted toward higher-standing recipients, and wall-clamped below ' + fmt(SAFE_FLOOR, 3) + '. No mass is created, destroyed, or minted anywhere.')),
 
       sect('Epochs: stamping the record', false,
-        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (left rail, Epoch card) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in Economy → Record.'),
-        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'econ/ledger')),
+        P('You are in epoch ' + st.epochNow + '. ', B('Close epoch'), ' (left rail, Epoch card) stamps every writer with their final reduced standing, checks the wall (each writer ≥ ' + fmt(SAFE_FLOOR, 3) + ') and the door (act-weighted mean ≥ ' + PART_FLOOR + '), and records a certificate in Alerts → The record.'),
+        P('Closing also advances ', B('tenure'), ': each actor’s derived self-edge bond re-reads their standing (p = S/(ν+S)) and its maturity τ steps toward 1 — long-standing identities route more weight. ', jump('see certificates', 'alerts/record')),
         P('Closing also seals an ', B('epoch block'), ': one signed certificate carrying the acts that epoch covered, hashes of the state computed from them, the constants used, and the previous block’s id. The key that signs it is the ', B('producer'), ' — a signing key, not a wallet, holding no money. Changing an old block changes every id after it, which is the whole job: it makes a silent rewrite loud rather than deciding anything.'),
-        P('None of that is what makes a result true. ', B('Replay'), ' is: anyone holding the public act log recomputes the same numbers, without this host and without any chain. A signature says who published these exact bytes. An ', B('anchor'), ' — two hashes posted to a contract on Base by whatever address chose to post them — says a commitment existed by a given moment and was never revised. Neither says the numbers are right, and anyone may anchor anything, so an anchor is worth what its poster is. ', jump('open the epoch chain', 'econ/chain'))),
+        P('None of that is what makes a result true. ', B('Replay'), ' is: anyone holding the public act log recomputes the same numbers, without this host and without any chain. A signature says who published these exact bytes. An ', B('anchor'), ' — two hashes posted to a contract on Base by whatever address chose to post them — says a commitment existed by a given moment and was never revised. Neither says the numbers are right, and anyone may anchor anything, so an anchor is worth what its poster is. ', jump('open the epoch chain', 'econ/machinery'))),
 
       sect('Epoch earnings: binding an address and claiming on Base', false,
         P('Closing an epoch mints ', B('PEER'), ' in this log and credits it to creators by the engagement their work drew. That is a number in a public record: anyone replaying the log computes the same one, and it is true whatever any chain says. Everything below is about the separate question of whether that number ever becomes money.'),
         P(B('There is no mint. '), 'The PEER token on Base has a fixed supply, and this app cannot add to it. Paying an epoch means the operator transferring coins they already hold into a claim contract and opening that epoch against a published payout list. They may never do it. An epoch balance is therefore ', B('not'), ' a debt anybody owes you, and this app will not print it as one — where no claim contract is configured, the card says so in those words.'),
         P(B('Bind an address before the epoch closes, not after. '), 'The payout list is built from the bindings as they stood ', B('at that close'), ', and only handles with an address in it get a line. A handle with none has no line at all — not a line worth zero — and its share returns to whoever funded the epoch at the ', K('sweep'), '. Binding is free, costs no θ, and applies to future epochs only, because a published list cannot be recomputed.'),
         P(B('Whoever holds the address collects. '), 'A binding is as strong as the credential on the handle — a PIN or a passkey — and the host demands one before it records this act. Nothing here can tell whether an address is yours or whether it has a typo in it — the checksum a wallet prints is keccak-based and this codebase deliberately carries no keccak — so the address is taken from the connected wallet and read back to you in full before anything is recorded.'),
-        P(B('Claiming is one transaction, signed by you. '), 'The app asks the contract first, for free, whether the claim would be paid, and refuses with the contract’s own answer rather than letting a doomed claim cost gas. The proof is checked against the address that sends it, so nobody can claim your share and you cannot claim it from a second wallet. ', jump('open the wallet', 'econ/wallet'))),
+        P(B('Claiming is one transaction, signed by you. '), 'The app asks the contract first, for free, whether the claim would be paid, and refuses with the contract’s own answer rather than letting a doomed claim cost gas. The proof is checked against the address that sends it, so nobody can claim your share and you cannot claim it from a second wallet. ', jump('open the money tab', 'econ/money'))),
 
       sect('The economy: Layer 0 (Peer Attestation)', false,
         P('Reserve is no longer a faucet — it is a ', B('full-reserve receipt system'), ' beneath the network. You hold external reserve, deposit it into the pool, and receive receipt units at the next ', B('cycle boundary'), ': (1−f)·ζ live + (1−f)·(1−ζ) time-locked, with fee f to the operator (ζ = f = 0.5, spec placeholders).'),
@@ -12785,13 +13117,13 @@ button, .btn { touch-action: manipulation; }
 
       sect('The coin on Base: pools, prices and explorers', false,
         P('Two different things here are called PEER. The one this guide has been about is the ', B('epoch token'), ': a number in the act log, minted when an epoch closes, on no chain and in no wallet. The other is an ', B('ERC-20 on Base'), ' — a real token in a real wallet, and the only one of the two a pool can trade. There is no exchange rate between them and no automatic bridge in either direction: the coin on Base never becomes epoch PEER, and epoch PEER is never spent to get it. The one crossing is the one described above — the operator may deposit coins they already hold against an epoch’s payout list, and a handle bound to an address before that epoch closed can claim its line — and claiming pays the coin without touching the epoch PEER the line was computed from.'),
-        P('A ', B('DEX'), ' is a place two tokens trade against each other with no company in between: a contract holding both sides, where the ratio between them is the price. This app has one of its own — a single pool contract at a single address, which is what every button in Pools calls. The same pair can also have a pool on Uniswap: a different contract, with different coins in it, its own price and its own fee tier. This app neither reads it nor routes anything to it.'),
+        P('A ', B('DEX'), ' is a place two tokens trade against each other with no company in between: a contract holding both sides, where the ratio between them is the price. This app has one of its own — a single pool contract at a single address, which is what every button on the pool card calls. The same pair can also have a pool on Uniswap: a different contract, with different coins in it, its own price and its own fee tier. This app neither reads it nor routes anything to it.'),
         P(B('Liquidity'), ' is how much of each coin a pool actually holds, and it sits in one pool and nowhere else. The less there is, the further a trade moves the price — so a thin pool moves enormously on a small trade, and coins deposited in one pool do nothing for a trade in the other. Running both splits what depth there is rather than adding it up.'),
         P('A ', B('block explorer'), ' is a public website showing what a chain holds at an address or inside one transaction — basescan, for Base. It is how anything on these screens gets checked against something that is not this page, so every on-chain address and every transaction here carries a link to one. Where this host is configured for another chain there is no link at all: an explorer pointed at the wrong chain does not fail, it draws a confident page about different coins. '),
         P(B('Reserve has a second door, and it is the one with a price. '), 'Burning bitcoin destroys satoshis and there is nothing to argue about: the amount destroyed IS the amount credited. Burning the coin on Base destroys PEER, and PEER has to be valued before it can credit anything — so the ', B('official pool'), ' is asked what that many PEER would fetch in cbBTC, that answer is already in satoshis (cbBTC has 8 decimals, so one raw unit is one satoshi), and the same rate applies as at the bitcoin door. A euro figure never enters that arithmetic anywhere; where one is shown it is a label for humans and nothing else depends on it.'),
         P(B('Which is why the second door is fenced and the first is not. '), 'A pool price is whatever the last trade left behind, so a shallow pool can be pushed for the length of one block — and what it would buy here is the one thing this network says cannot be bought. Six fences answer that: the price is ', B('time-weighted'), ' over a window instead of read off one moment, and the blocks read inside that window are chosen by a block hash nobody can know in advance, so pushing the price costs whatever it costs to HOLD it; a pool below a minimum ', B('depth'), ' is refused in words rather than priced badly; the reserve one account can create this way in one epoch is capped, and so is the reserve any one pool can create in an epoch; the burn must be a transfer that really happened on Base; and it must come from an address bound to your handle, and bound before the burn. The numbers are printed on the card itself.'),
         P(B('And the two burns are not equally provable. '), 'The bitcoin address is a commitment to a script that cannot be satisfied: unspendable by arithmetic, and anyone can check the arithmetic. The PEER sink is a ', B('dead address'), ' — unspendable because nobody knows a key for it, which rests on the size of a search space rather than on a proof. The deployed token refuses transfers to the zero address deliberately, so a nonzero dead address is the only sink available. Note also what a PEER burn never buys: it credits reserve, the right to act, and adds nothing to the satoshis destroyed on the Bitcoin chain — which is the weight the epoch mint shares out and the weight the writer election counts.'),
-        P('Both doors stay open, and neither replaces the other. ', jump('open pools', 'econ/pools'))),
+        P('Both doors stay open, and neither replaces the other. ', jump('open the pool', 'econ/money/econ-trades'))),
 
       sect('Prender Markets: betting on an answer', false,
         P('A ', B('bet'), ' is a post. Ask a question, name two to seven answers, say what it is staked in and when betting closes, and the card carries a pool. It mints a Content node like any other post, so people react to it, comment under it and quote it exactly as they would a note \u2014 and those acts count for the epoch mint the same way.'),
@@ -13295,15 +13627,15 @@ button, .btn { touch-action: manipulation; }
 
     // ── the epoch token, and the wall between value and standing ──
     //
-    // Lane-aware, and only because the Wallet lane already answers it in
-    // full: its centre column prints 'you hold' and 'your share of everything
-    // minted' in the same words and the same formatting this card used, with
-    // a third copy of the balance under 'Your balances' above it. Three
-    // copies of one number on one screen is not a summary. On the other five
-    // lanes the centre column is about pools, the graph, the chain, Layer 0
-    // or the transaction list, and none of them says what you hold — so there
+    // Lane-aware, and only because the Money lane already answers it in
+    // full: its 'what you hold' section prints 'you hold' and 'your share of
+    // everything minted' in the same words and the same formatting this card
+    // used, with a third copy of the balance under 'Your balances' above it.
+    // Three copies of one number on one screen is not a summary. On the other
+    // three lanes the centre column is about the graph, an advert, or the
+    // machinery under the log, and none of them says what you hold — so there
     // the card is the only answer on screen and it earns its place.
-    if (econView !== 'wallet') {
+    if (econView !== 'money') {
       var tok = st.tokens || { bal: {}, supply: {} };
       var held = (tok.bal && tok.bal.PEER && tok.bal.PEER[who]) || 0;
       var supply = (tok.supply && tok.supply.PEER) || 0;
@@ -13317,7 +13649,7 @@ button, .btn { touch-action: manipulation; }
           : 'Nothing has been minted yet: PEER is distributed when an epoch closes, and none has closed with engagement in it.' }),
         h('p', { class: 'smallnote' },
           'Value, never ', term('standing'), '. No balance anywhere buys a point of it, this number enters no score and no feed, and that wall is the reason the economy can exist at all.'),
-        h('p', { class: 'smallnote', text: 'The Wallet lane holds this in full, with what generated it.' })));
+        h('p', { class: 'smallnote', text: 'The Money lane holds this in full, with what generated it.' })));
     }
 
     // The epoch clock, the same card the feed carries. It earns its place on
@@ -13522,7 +13854,7 @@ button, .btn { touch-action: manipulation; }
         'No address is bound. A payout list is built from the bindings as they stood AT THE CLOSE, and a handle with no address gets no line in it — not a line worth zero, no line. That share is not held for you: it returns to whoever funded the epoch at the ',
         term('sweep', 'sweep'), '.'));
       pay.appendChild(h('button', { class: 'btn small primary', style: 'margin-top:6px', text: 'Bind an address →',
-        onclick: function () { tab = 'econ'; econView = 'wallet'; saveView(); render(); } }));
+        onclick: function () { tab = 'econ'; econView = 'money'; saveView(); render(); } }));
     }
     cards.push(pay);
     return cards;
