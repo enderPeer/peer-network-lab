@@ -11,6 +11,7 @@ node_modules/
 webapp/public/peer-social-preview.html
 webapp/server-data/
 dist/
+backend/target/
 
 # --- local tooling ---
 .claude/

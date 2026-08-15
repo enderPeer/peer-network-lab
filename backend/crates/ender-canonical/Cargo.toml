@@ -1,0 +1,18 @@
+[package]
+name = "ender-canonical"
+version = "0.1.0"
+edition = "2021"
+description = "Bit-exact Rust port of the chain's canonical layer (webapp/chain/): canonical encoding, merkle, quantize, block hashing and signature verification"
+
+[dependencies]
+# float_roundtrip: serde_json's default float parse is not correctly
+# rounded; JSON.parse is. Without this feature canonical bytes diverge.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+ryu-js = "1"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+ed25519-dalek = "2"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }

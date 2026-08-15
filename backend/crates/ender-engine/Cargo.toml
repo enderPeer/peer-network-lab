@@ -1,0 +1,15 @@
+[package]
+name = "ender-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Bit-exact Rust port of the deterministic fold (social/replay.cjs) and the engine bundle (src/engine)"
+
+[dependencies]
+ender-canonical = { path = "../ender-canonical" }
+ender-jsmath = { path = "../ender-jsmath" }
+indexmap = "2"
+num-bigint = "0.4"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }

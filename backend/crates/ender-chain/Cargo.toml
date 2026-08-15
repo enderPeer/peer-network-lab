@@ -1,0 +1,13 @@
+[package]
+name = "ender-chain"
+version = "0.1.0"
+edition = "2021"
+description = "Bit-exact Rust port of webapp/chain/acts.mjs: mention resolution, structural/payload act commitments"
+
+[dependencies]
+ender-canonical = { path = "../ender-canonical" }
+ender-engine = { path = "../ender-engine" }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }

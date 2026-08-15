@@ -1,0 +1,12 @@
+[package]
+name = "ender-jsmath"
+version = "0.1.0"
+edition = "2021"
+description = "JS float semantics kernel: Math.round ties-toward-+Inf, and pow/exp/tanh/log bit-identical to V8, proven against recorded vectors"
+
+[dependencies]
+libm = "0.2"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
