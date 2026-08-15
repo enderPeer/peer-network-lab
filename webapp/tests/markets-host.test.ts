@@ -189,6 +189,54 @@ describe('the clock, which is the host’s business and never the replay’s', (
     const ok = await act({ t: 'attest', author: 'u_mod1', cid: shut.cid, opt: 0 });
     expect(ok.body.error).toMatch(/holds no seat/);   // nobody stood: the replay's own words
   });
+
+  it('lets anyone call time at once on a closed bet where nobody ever stood', async () => {
+    // The shape cam's c37 had on the live network: real stakes in, betting
+    // closed, and an empty candidate list — a bond no eligible handle could
+    // post. Standing shut with betting, so no seat can ever be filled and no
+    // certification can ever be taken; the jury window would hold the stakes
+    // for a week against an event the rulebook has already made impossible.
+    const dead = await ask('unseatable', { at: Date.now() + 1500, seats: 3, bond: 10, feeBp: 200 });
+    expect(dead.r.status).toBe(200);
+    const stake = await act({ t: 'bet', author: 'u_backer', cid: dead.cid, opt: 0, amt: 25 });
+    expect(stake.status).toBe(200);
+    // Still open: the window applies as usual, and the market is not yet dead.
+    let row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === dead.cid)!;
+    expect(row.unseatable).toBe(false);
+    const early = await act({ t: 'marketVoid', author: 'u_mod2', cid: dead.cid });
+    expect(early.body.error).toMatch(/jury has until/);
+    await new Promise((res) => setTimeout(res, 1700));
+    // Closed with nobody standing: the API says so, and the door opens.
+    row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === dead.cid)!;
+    expect(row.betting).toBe(false);
+    expect(row.standing).toEqual([]);
+    expect(row.unseatable).toBe(true);
+    const before = (await get('/api/v1/tokens?as=u_backer')).balances.CHIP as number;
+    const now = await act({ t: 'marketVoid', author: 'u_mod2', cid: dead.cid });
+    expect(now.status).toBe(200);
+    // Every stake back in full, no fee: a void can only ever be generous.
+    row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === dead.cid)!;
+    expect(row.state).toBe('void');
+    expect(row.refunded.u_backer).toBe(25);
+    const after = (await get('/api/v1/tokens?as=u_backer')).balances.CHIP as number;
+    expect(after - before).toBeCloseTo(25, 6);
+  });
+
+  it('still makes a bet WITH a candidate wait out the jury window', async () => {
+    // The relaxation is for the arithmetically dead case only. One person
+    // standing is a jury that might still certify, and calling time on them
+    // early would let a loser void a bet the moment the answer went against them.
+    const alive = await ask('one stood', { at: Date.now() + 1500, seats: 1, bond: 10, feeBp: 200 });
+    expect(alive.r.status).toBe(200);
+    expect((await act({ t: 'modStand', author: 'u_mod3', cid: alive.cid, on: true })).status).toBe(200);
+    await new Promise((res) => setTimeout(res, 1700));
+    const row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === alive.cid)!;
+    expect(row.betting).toBe(false);
+    expect(row.unseatable).toBe(false);
+    const soon = await act({ t: 'marketVoid', author: 'u_backer', cid: alive.cid });
+    expect(soon.status).toBe(400);
+    expect(soon.body.error).toMatch(/jury has until/);
+  });
 });
 
 describe('the replay’s rulebook, spoken by the host', () => {

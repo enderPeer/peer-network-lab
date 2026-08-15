@@ -97,6 +97,20 @@ unbacked bet in the position of collecting from a jury that stayed quiet — a
 review could not close the full attack it suggested, and the shape was still
 worth removing.
 
+**If nobody ever stood, there is no jury to wait for.** Standing shuts at the
+same instant betting does, so a bet that closes with an empty candidate list can
+never seat anyone and can never be certified — the seven-day window would hold
+real stakes against an event the rules have already made impossible. On that
+bet, and only that bet, anyone may call time the moment betting closes. It is
+marked `unseatable` at `GET /api/v1/markets`. There is nothing for the early
+void to take: no stake is kept, no fee is charged, and with no candidates there
+is no bond to strike. The live case that showed it: a 100 PEER bond on a market
+where the one handle holding that much and not barred was the market's own
+subject, who had recused. The composer now warns before a bond nobody but the
+author can post is set, and the card names the dead end once betting closes.
+Neither changes what a stander can do — one candidate is a jury that may still
+certify, and that bet waits its full window like any other.
+
 ## Who may not do what
 
 - **The author of a bet may not hold a position on it.** They are paid a fee
@@ -113,7 +127,8 @@ Nowhere near the replay. Settlement happens because an **act landed**, never
 because time passed: the majority certificate settles the bet, and the timeout
 path is its own act that anybody can send. The host is what knows the time — it
 refuses stakes and ballots after the close, refuses certificates before it, and
-refuses calling time before the jury's window is up.
+refuses calling time before the jury's window is up (except on a closed bet
+where nobody stood — there is no jury whose window it would be).
 
 This is not tidiness. A replay that consulted a clock would stop being a pure
 function of the log, and a market that settled differently depending on when

@@ -162,6 +162,16 @@ describe('the built page is an application, not just valid JavaScript', () => {
     acts.push({ t: 'bet', author: 'u_ben', cid: 'c2', opt: 1, amt: 20 });
     acts.push({ t: 'modStand', author: 'u_dee', cid: 'c2', on: true });
     acts.push({ t: 'attest', author: 'u_dee', cid: 'c2', opt: 1 });
+    // c3: the shape cam's c37 had live — betting closed, money on it, and a
+    // bond so high that no eligible handle ever could have stood. Every seat
+    // is empty forever; the card must say so instead of "not yet".
+    acts.push({ t: 'market', author: 'u_ann', text: 'can anyone certify this?',
+      opts: ['yes', 'no'], cur: 'CHIP', at: Date.now() - 1000, seats: 3, bond: 999, feeBp: 200 });
+    acts.push({ t: 'bet', author: 'u_ben', cid: 'c3', opt: 0, amt: 10 });
+    // c4: still open, and the same impossible bond — the card must warn now,
+    // while there is still time to change it.
+    acts.push({ t: 'market', author: 'u_ann', text: 'is this bond postable?',
+      opts: ['yes', 'no'], cur: 'CHIP', at: Date.now() + day, seats: 3, bond: 999, feeBp: 200 });
 
     const body = acts.map((a) => JSON.stringify(a)).map((line) => line + '\n').join('');
     const serve = (url: string) => {
@@ -189,6 +199,15 @@ describe('the built page is an application, not just valid JavaScript', () => {
     // The wall is stated on every card, because this is the screen where
     // somebody is most likely to assume money is buying them something else.
     expect(text).toMatch(/no part of this bet appends an edge/i);
+    // The dead bet names its dead end and offers the one door left, and does
+    // NOT tell the reader to wait for a jury that cannot arrive.
+    expect(text, 'the closed, unseatable bet does not say so').toMatch(/Nobody stood before betting closed/);
+    expect(text, 'the dead end is not named as a void').toMatch(/can only end by being voided/);
+    const callTime = Array.from(root!.querySelectorAll('button'))
+      .filter((b) => (b.textContent ?? '').trim() === 'Call time');
+    expect(callTime.length, 'no Call time on the unseatable bet').toBeGreaterThan(0);
+    // The open bet with an impossible bond warns while it can still be changed.
+    expect(text, 'the open bet does not warn that its bond is unpostable').toMatch(/No handle on this network both holds the 999/);
 
     // …and the composer can ask one.
     const kindBtn = Array.from(root!.querySelectorAll('.uline button'))
@@ -201,6 +220,24 @@ describe('the built page is an application, not just valid JavaScript', () => {
       .map((i) => (i as HTMLInputElement).placeholder);
     expect(placeholders, 'no answer fields').toContain('answer 1');
     expect(placeholders).toContain('bond per seat');
+    // Type a bond nobody else holds: the composer warns before the bet exists.
+    // (Denominate in CHIP first — the only asset anybody in this world holds.
+    // The default is PEER, and a 5 PEER bond nobody holds is correctly flagged.)
+    const curSel = Array.from(root!.querySelectorAll('select'))
+      .find((s) => Array.from(s.options).some((o) => o.value === 'CHIP')) as HTMLSelectElement;
+    expect(curSel, 'no currency picker in the composer').toBeTruthy();
+    curSel.value = 'CHIP';
+    curSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    const bondIn = Array.from(root!.querySelectorAll('input'))
+      .find((i) => (i as HTMLInputElement).placeholder === 'bond per seat') as HTMLInputElement;
+    bondIn.value = '5000';
+    bondIn.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(root!.textContent ?? '', 'no warning for an unpostable bond').toMatch(/no one would be able to stand for this jury/);
+    bondIn.value = '5';
+    bondIn.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(root!.textContent ?? '', 'the warning did not clear for a postable bond').not.toMatch(/no one would be able to stand/);
     dom.window.close();
   }, 30000);
 

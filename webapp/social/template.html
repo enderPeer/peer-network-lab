@@ -6563,6 +6563,23 @@ button, .btn { touch-action: manipulation; }
           onclick: function () { draft.mMods.splice(ni, 1); render(); } }));
       });
       composer.appendChild(nomRow);
+      // A bond higher than anyone else's balance is a bet that cannot be
+      // certified, and nothing said so until the jury failed to appear. Checked
+      // live rather than on submit, and it warns without blocking: the author
+      // may know something about who is about to be paid that this does not.
+      var bondWarn = h('p', { class: 'smallnote warn' });
+      var refreshBondWarn = function () {
+        var b = Number(draft.mBond);
+        if (!(b > 0)) { bondWarn.textContent = ''; return; }
+        var able = whoCouldStand(st, draft.mCur, b, who, null);
+        bondWarn.textContent = able.n
+          ? ''
+          : 'Nobody but you holds ' + b + ' ' + draft.mCur + ' right now, and you may not certify your own question — so as things stand, no one would be able to stand for this jury and the bet could only end by being voided. A smaller bond, or a nomination to somebody you first send the bond to, fixes it.';
+      };
+      refreshBondWarn();
+      mkBond.addEventListener('input', refreshBondWarn);
+      mkCur.addEventListener('change', refreshBondWarn);
+      composer.appendChild(bondWarn);
       composer.appendChild(h('p', { class: 'smallnote', text: 'A nomination is an invitation and nothing more: whoever you name still has to post the bond and win the vote, and so does anybody else who stands. The community elects the jury, weighed by satoshis each voter proved they destroyed — not by standing, and not by what anyone has staked here. You take half the fee and may not hold a position on your own question; the jury takes the other half and forfeits the bond for certifying against the verdict.' }));
     }
     var row = h('div', { class: 'row' });
@@ -7107,6 +7124,29 @@ button, .btn { touch-action: manipulation; }
    * at all, so a button that skipped this would cheerfully report a stake from
    * an account with no balance.
    */
+  /**
+   * How many handles could post `bond` of `cur` on this bet right now.
+   *
+   * The two exclusions are the rulebook's, not a guess: the author may not
+   * certify their own question, and neither may anybody holding a position on
+   * it. Everyone else needs the bond in hand. `by`/`byBettor` are optional so
+   * the composer can ask the same question before a market exists.
+   *
+   * This exists because a bet whose bond nobody can post is dead on arrival and
+   * looked identical, on screen, to one nobody had got round to yet.
+   */
+  function whoCouldStand(st, cur, bond, by, byBettor) {
+    var bal = (st.tokens && st.tokens.bal && st.tokens.bal[cur]) || {};
+    var able = 0, ids = [];
+    (st.ledgers || []).forEach(function (l) {
+      if (l.deleted || l.id === by) return;
+      if (byBettor && byBettor[l.id] !== undefined) return;
+      if (l.burnBal < THETA) return;             // standing is an act, and acts cost theta
+      if ((bal[l.id] || 0) >= bond) { able++; ids.push(l.id); }
+    });
+    return { n: able, ids: ids };
+  }
+
   function marketPanel(st, cid, m) {
     var now = Date.now();
     var betting = m.state === 'open' && m.at > now;
@@ -7196,7 +7236,21 @@ button, .btn { touch-action: manipulation; }
       return (seats.weight[b] || 0) - (seats.weight[a] || 0);
     });
     if (!standing.length) {
-      box.appendChild(h('p', { class: 'smallnote', text: 'Nobody is standing yet. Until somebody does, and the community elects them, this bet has no way to be certified.' }));
+      // Standing shuts at the same instant betting does, so once this bet is
+      // closed with an empty candidate list the arithmetic is finished: no seat
+      // can be filled, no certification can be taken, and the only ending left
+      // is a void. Saying "nobody is standing YET" past that point would be
+      // telling the reader to wait for something that cannot arrive.
+      if (!betting && m.state === 'open') {
+        box.appendChild(h('p', { class: 'smallnote', text: 'Nobody stood before betting closed, and standing shut when betting did — so no seat can be filled and no answer can be certified. This bet can only end by being voided, which returns every stake in full and takes no fee. Anybody may call time on it.' }));
+      } else {
+        var able = whoCouldStand(st, m.cur, m.bond, m.by, m.byBettor);
+        box.appendChild(h('p', { class: 'smallnote', text: 'Nobody is standing yet. Until somebody does, and the community elects them, this bet has no way to be certified.' }));
+        box.appendChild(h('p', { class: able.n ? 'smallnote' : 'smallnote warn',
+          text: able.n
+            ? able.n + ' handle(s) hold the ' + fmt(m.bond, 6) + ' ' + m.cur + ' bond and are free to stand.'
+            : 'No handle on this network both holds the ' + fmt(m.bond, 6) + ' ' + m.cur + ' bond and is allowed to stand: the author and everybody holding a position here are barred from certifying, and nobody else has the bond. Unless that changes before betting closes, this bet cannot be certified at all.' }));
+      }
     }
     var ballotBoxes = {};
     standing.forEach(function (id) {
@@ -7268,7 +7322,10 @@ button, .btn { touch-action: manipulation; }
           'Certified. A strict majority of the seated jury settles the bet the moment it agrees.');
       } }));
     }
-    if (m.state === 'open' && !betting && deadline && now > deadline) {
+    // Past the jury's window, OR the moment a closed bet turns out to have no
+    // candidates at all — there is no jury to keep waiting for, and the host
+    // door agrees: it drops the window for exactly this case.
+    if (m.state === 'open' && !betting && who && (!standing.length || (deadline && now > deadline))) {
       jrow.appendChild(h('button', { class: 'btn small danger', text: 'Call time',
         title: 'The jury had its window and did not settle this. Every stake goes back in full; the seats that never certified forfeit their bonds to the people whose money was held.',
         onclick: function () {

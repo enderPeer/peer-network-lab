@@ -3118,8 +3118,27 @@ function validate(act) {
         return 'this bet is still open — a jury certifies after betting closes, not before';
       }
       if (act.t === 'marketVoid' && Date.now() < m.at + marketResolveMs(st)) {
-        return 'the jury has until ' + new Date(m.at + marketResolveMs(st)).toLocaleString()
-          + ' to certify this bet; time can be called after that';
+        // The jury window exists to give seated moderators time to certify.
+        // Where NOBODY stood before betting closed there is nobody to wait for,
+        // and no amount of waiting can produce one: `modStand` is refused from
+        // the same instant betting is (above), so the candidate set is frozen
+        // empty, `mktSeats` seats `Object.keys(cands).slice(0, seats)` = nobody,
+        // and `attest` refuses every handle for holding no seat. The market is
+        // arithmetically unable to settle, and the full window would hold real
+        // stakes for a week against an event the rulebook has already made
+        // impossible. cam's c37 is the case that showed it: 101 PEER, three
+        // seats, a 100 PEER bond no eligible handle could post.
+        //
+        // Voiding early can only ever be generous: a void refunds every stake
+        // in full and takes no fee, and with no candidates there is no bond to
+        // strike either. The replay is untouched — it has no clock by design,
+        // and `marketVoid` stays unconditional there, so the log still settles
+        // to the same numbers for everyone who replays it.
+        const juryStillPossible = Object.keys(m.cands).length > 0;
+        if (juryStillPossible || !closed) {
+          return 'the jury has until ' + new Date(m.at + marketResolveMs(st)).toLocaleString()
+            + ' to certify this bet; time can be called after that';
+        }
       }
       return marketDoor(act, { author: act.author, cid: act.cid, opt: act.opt, amt: act.amt,
         on: act.on, for: act.for });
@@ -3546,7 +3565,12 @@ const API_DOC = {
     { method: 'POST', path: '/api/v1/bind', purpose: 'bind an ethereum address to your handle, so that from the NEXT epoch close your share is a leaf under that address in the epoch\'s earnings tree. That is all binding does. Whether such a leaf is ever payable on Base is a separate question and not this host\'s to answer: PEER has no mint, so every claim is a transfer out of the steward\'s own holdings, and an epoch becomes claimable only if the steward chooses to open and fund it. Credential required — whoever binds collects. Costs no energy. A root already published cannot change, so binding again replaces it forward only.', body: { as: 'id', pin: 'string — your PIN, or the passkey assertion object under `auth` if this handle is secured with a passkey and no PIN', address: '0x + 40 hex — paste it from your wallet, a typo cannot be detected here' } },
     { method: 'GET', path: '/api/v1/pools', purpose: 'liquidity pools: reserves, prices, and the acts that drive them — this is the in-log AMM. The real on-chain pool is a different thing entirely: ONE PeerPool contract on Base, anyone may add liquidity to it, and it is reported under `pool` at GET /api/token/onchain when an address is configured.' },
     { method: 'GET', path: '/api/v1/gatherings?past=1', purpose: 'the calendar: what is happening, when, where, the fee, and how many are going. Upcoming only unless past=1. NOTE the name — /api/v1/events is the act stream, this is the thing people turn up to.' },
-    { method: 'GET', path: '/api/v1/markets?all=1', purpose: 'Prender Markets: every open bet with its answers, what is staked on each, the elected jury, the bond, the fee and the deadlines. Settled ones too with all=1. Read the content id from here — never derive it. Stakes and juries touch no standing.' },
+    { method: 'GET', path: '/api/v1/markets?all=1', purpose: 'Prender Markets: every open bet with its answers, what is staked on each, the elected jury, the bond, the fee and the deadlines. Settled ones too with all=1. Read the content id from here — never derive it. Stakes and juries touch no standing. A bet marked `unseatable` closed with nobody standing: no jury can ever be seated, and anyone may {t:"marketVoid"} it at once — every stake back, no fee.' },
+    // The market verbs and tokenSend were reachable only through POST /api/act
+    // and appeared nowhere in this index. A tester dug tokenSend out of the
+    // client source and asked, correctly, whether a later ballot replaces an
+    // earlier one — a question the doc should have answered. Now it does.
+    { method: 'POST', path: '/api/act', purpose: 'the raw door every verb goes through, for acts the /api/v1 shortcuts do not cover. Body is the act itself plus `auth` (your PIN). Market verbs: {t:"market", author, text, opts:[2..7], cur, at, seats:1|3|5, bond, feeBp, mods?} asks one; {t:"bet", author, cid, opt, amt} backs an answer; {t:"modStand", author, cid, on} stands for a seat (on:false stands down, bond back); {t:"modVote", author, cid, for:[ids]} elects — approval voting, up to `seats` names, weighed by the satoshis you proved you destroyed. A LATER BALLOT REPLACES YOUR EARLIER ONE, it never stacks; an empty `for` withdraws it. Betting, standing and voting all shut at `at`. {t:"attest", author, cid, opt} certifies after the close (opt -1 = void), seated moderators only, and a certification is final. {t:"marketVoid", author, cid} calls time once the jury window has passed, or at once on an unseatable bet. Value: {t:"tokenSend", author, sym, to, amt} moves a balance between HANDLES inside the log — off-chain, no 0x address involved, keyed by handle exactly like a stake or a bond. The 0x address you bind is a different layer: it only decides where an epoch\'s earnings leaf points. Every one of these costs θ like any act.', body: { t: 'the verb', author: 'your id', auth: 'your PIN', '…': 'the fields that verb takes, listed above' } },
     // Undiscoverable until now, which made it useless: proof of burn is the
     // ONLY source of weight in the PEER distribution since the faucet closed,
     // and a door nobody can find pays nobody. Sixty epochs had minted zero.
@@ -4158,6 +4182,11 @@ async function handleBotApi(req, res, url, ip) {
           certified: m.attests[id] === undefined ? null : m.attests[id],
         })).sort((a, b) => b.votes - a.votes),
         struck: m.struck, paid: m.paid, refunded: m.refunded, earned: m.earned,
+        // Betting closed and nobody ever stood, so no seat can be filled and no
+        // certification can be taken: this bet can only end by being voided.
+        // Stated as a field rather than left to be re-derived, because the one
+        // reader who most needs it is a bot deciding whether to wait.
+        unseatable: m.state === 'open' && !!m.at && m.at <= now && Object.keys(m.cands).length === 0,
       };
     }).filter((m) => (open ? m.state === 'open' : true))
       .sort((a, b) => (a.closesAt ?? Infinity) - (b.closesAt ?? Infinity));
@@ -4166,7 +4195,8 @@ async function handleBotApi(req, res, url, ip) {
       how: 'Ask one with POST /api/act {t:"market", text, opts:[2..7], cur, at, seats:1|3|5, bond, feeBp, mods?}. '
         + 'Back one with {t:"bet", cid, opt, amt}. Stand for a seat with {t:"modStand", cid, on}, elect with '
         + '{t:"modVote", cid, for:[ids]}, certify with {t:"attest", cid, opt} (opt -1 = void), and after the jury '
-        + 'deadline anyone may {t:"marketVoid", cid}. Every one costs θ like any act.',
+        + 'deadline anyone may {t:"marketVoid", cid} — or straight away on a market marked "unseatable", where '
+        + 'betting closed with nobody standing and no jury can ever be seated. Every one costs θ like any act.',
       note: 'Stakes and bonds are value and touch no standing: no market act appends an edge, compiles a vouch, '
         + 'or enters an epoch certificate. Ballots are weighed by satoshis the voter proved they destroyed.',
     });
