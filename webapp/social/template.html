@@ -9459,28 +9459,71 @@ button, .btn { touch-action: manipulation; }
 
       var row = h('div', { class: 'mini-form persistent' });
       bindBox.appendChild(row);
-      if (!window.ethereum) {
-        row.appendChild(h('span', { class: 'smallnote', text: 'There is no wallet in this browser to take an address from. Open this app in a browser with one \u2014 the address is never typed here, because a typo in an address cannot be detected and would send these earnings somewhere nobody can reach.' }));
-        return;
+      // Two ways to name the address, and both end at the same read-it-back
+      // confirmation. The wallet path reads the address off an extension so it
+      // cannot be mistyped; the manual path exists because the earlier shape
+      // REFUSED to bind without window.ethereum, and that refused every phone
+      // and every wallet-less browser outright — a reader who had earned a
+      // share and could not open the app in MetaMask had no route to a
+      // binding at all, and their line returned to the steward at every sweep.
+      // The host and the replay never needed a wallet: bindableAddress checks
+      // the shape (0x + 40 hex, not the zero address) and nothing else. So the
+      // typo risk the wallet path removes is met here differently: the address
+      // is typed TWICE, must match to the character, and is then read back in
+      // full on the same confirmation screen the wallet path uses.
+      if (window.ethereum) {
+        if (!l2Wallet) {
+          row.appendChild(h('button', { class: 'btn small', text: 'Connect a wallet', onclick: function () {
+            // The chain to connect to is the one the host names for its claim
+            // contract, and only once an epoch answer has named it. Before
+            // that, Base is the default this page has always used — connecting
+            // reads an address and signs nothing either way.
+            l2Connect(chainHex, chainName).then(function (a) { if (a) redrawAll(); })
+              .catch(function (e) { toast('Connect failed: ' + l2Err(e)); });
+          } }));
+          row.appendChild(h('span', { class: 'smallnote', text: 'Connecting shows an address. It signs nothing, records nothing, and this page never sees a key.' }));
+        } else {
+          row.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: 'wallet ' + l2Wallet }));
+          if (l2Wallet === String(bound).toLowerCase()) {
+            row.appendChild(h('span', { class: 'smallnote', text: '— which is the address already bound. Nothing to change.' }));
+          } else {
+            row.appendChild(h('button', { class: 'btn small', text: bound ? 'Bind this wallet instead' : 'Bind this wallet', onclick: function () { confirmBind(l2Wallet, bound); } }));
+          }
+        }
+      } else {
+        row.appendChild(h('span', { class: 'smallnote', text: 'No wallet extension in this browser, so the address is entered by hand below. Copy it from the wallet that will collect — never retype it from memory.' }));
       }
-      if (!l2Wallet) {
-        row.appendChild(h('button', { class: 'btn small', text: 'Connect a wallet', onclick: function () {
-          // The chain to connect to is the one the host names for its claim
-          // contract, and only once an epoch answer has named it. Before
-          // that, Base is the default this page has always used — connecting
-          // reads an address and signs nothing either way.
-          l2Connect(chainHex, chainName).then(function (a) { if (a) redrawAll(); })
-            .catch(function (e) { toast('Connect failed: ' + l2Err(e)); });
-        } }));
-        row.appendChild(h('span', { class: 'smallnote', text: 'Connecting shows an address. It signs nothing, records nothing, and this page never sees a key.' }));
-        return;
-      }
-      row.appendChild(h('span', { class: 'smallnote num', style: 'word-break:break-all', text: 'wallet ' + l2Wallet }));
-      if (l2Wallet === String(bound).toLowerCase()) {
-        row.appendChild(h('span', { class: 'smallnote', text: '\u2014 which is the address already bound. Nothing to change.' }));
-        return;
-      }
-      row.appendChild(h('button', { class: 'btn small', text: bound ? 'Bind this wallet instead' : 'Bind this wallet', onclick: function () { confirmBind(l2Wallet, bound); } }));
+
+      // ── the manual path, always present ──
+      var man = h('div', { style: 'margin-top:8px' });
+      bindBox.appendChild(man);
+      var manOpen = false;
+      var manBtn = h('button', { class: 'btn small ghost', text: window.ethereum ? 'Or type an address instead' : 'Type the address to bind', onclick: function () {
+        manOpen = !manOpen; manForm.style.display = manOpen ? '' : 'none'; if (manOpen) a1.focus();
+      } });
+      man.appendChild(manBtn);
+      var manForm = h('div', { style: 'display:none; margin-top:8px' });
+      man.appendChild(manForm);
+      var a1 = h('input', { class: 'num', placeholder: '0x… the address that will collect (40 hex characters)', maxlength: '42', autocomplete: 'off', spellcheck: 'false', style: 'width:100%; box-sizing:border-box; margin-bottom:6px' });
+      var a2 = h('input', { class: 'num', placeholder: 'type it again — it must match to the character', maxlength: '42', autocomplete: 'off', spellcheck: 'false', style: 'width:100%; box-sizing:border-box; margin-bottom:6px' });
+      var manErr = h('p', { class: 'smallnote', style: WARN + '; display:none' });
+      manForm.appendChild(a1); manForm.appendChild(a2); manForm.appendChild(manErr);
+      manForm.appendChild(note('Both fields are compared exactly. This page carries no keccak, so it cannot check a wallet’s checksum casing — the host lowercases the address and the leaf pays that byte string. Paste from the wallet, twice, and read it back on the next screen.'));
+      var manGo = h('div', { class: 'mini-form persistent' });
+      manForm.appendChild(manGo);
+      manGo.appendChild(h('button', { class: 'btn small', text: 'Continue', onclick: function () {
+        var v1 = String(a1.value || '').trim(), v2 = String(a2.value || '').trim();
+        var low = v1.toLowerCase();
+        var msg = '';
+        if (!v1) msg = 'Enter the address first.';
+        else if (!/^0x[0-9a-fA-F]{40}$/.test(v1)) msg = 'That is not an address: it must be 0x followed by exactly 40 hexadecimal characters (' + Math.max(0, v1.length - 2) + ' given).';
+        else if (low === '0x0000000000000000000000000000000000000000') msg = 'The zero address is refused: a line paying it is PEER nobody can ever claim.';
+        else if (v1 !== v2) msg = 'The two entries differ. They must match to the character — that is the whole check.';
+        else if (low === String(bound).toLowerCase()) msg = 'That address is already bound to this handle. Nothing to change.';
+        if (msg) { manErr.textContent = msg; manErr.style.display = ''; return; }
+        manErr.style.display = 'none';
+        confirmBind(low, bound);
+      } }));
     }
 
     /**
