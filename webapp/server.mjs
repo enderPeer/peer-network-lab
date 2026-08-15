@@ -398,19 +398,33 @@ function handlesAt(idx) {
   return h;
 }
 
+// The kinds whose mentions the CHAIN materialises into the structural hash
+// (chain/acts.mjs MENTION_KINDS). rmen is stamped here for exactly these and
+// no others: on a post or event the chain already reads rmen-or-parse, so
+// stamping the same value the parse would give is invisible to it; on any
+// other kind a stamped rmen is a NEW structural field, and a redaction that
+// added one broke every later seal ("structural hash mismatch") and made
+// mirrors read a false fork. Markets were the case that found it.
+const CHAIN_MENTION_KINDS = new Set(['post', 'event']);
 function redactPostAct(orig, idx) {
-  if (orig.rmen === undefined) orig.rmen = parseMentionsSrv(orig.text || '', handlesAt(idx));
+  if (orig.rmen === undefined && CHAIN_MENTION_KINDS.has(orig.t)) {
+    orig.rmen = parseMentionsSrv(orig.text || '', handlesAt(idx));
+  }
   orig.text = '';
   delete orig.media;
   // An event carries a place: where a named person will physically be, at a
   // named time. Blanking only the text would leave that behind after a delete
   // that promised to remove it.
   if (orig.place !== undefined) orig.place = '';
-  // A bet's answers are payload and go with the question. The COUNT is
-  // structure and stays: stakes name an answer by number, and an escrow that
-  // forgot how many answers it had could not pay itself out. Blanking in
-  // place, never splicing.
-  if (Array.isArray(orig.opts)) orig.opts = orig.opts.map(() => '');
+  // A bet's answer LABELS stay. They used to be blanked here as payload, but
+  // the chain never agreed: chain/acts.mjs commits every field except
+  // {text, media, place, redacted} into the STRUCTURAL hash, so `opts` is
+  // structure to every sealed block — and a redaction that rewrote it made
+  // the next seal throw "structural hash mismatch", the verifier fail, and
+  // every mirror read a false fork. Once a market act is inside a block the
+  // labels cannot lawfully change; the question (text) can and does go, and
+  // stakes name an answer by number, so nothing downstream needs the words.
+  // Deletion here is payload-only by contract, and opts are not payload.
   orig.redacted = true;
 }
 
@@ -597,13 +611,24 @@ function mirrorAdoptSafely(remoteActs) {
   mirrorAdopt(remoteActs);
 }
 
+/** Everything derived from `acts` that applyAct maintains incrementally on a
+ *  writer, re-derived after an adoption — credentials AND the deleted set,
+ *  or a promoted mirror would let a deleted account act and validate against
+ *  stale PINs. See rebuildCredentialIndexes. */
+function reindexAfterAdoption() {
+  rebuildCredentialIndexes();
+  deletedIds.clear();
+  for (const a of acts) if (a.t === 'deleteAccount') deletedIds.add(a.id);
+  stateCache = { len: -1, st: null, R: stateCache.R };
+}
+
 /** Replace the whole local log with the primary's — the redaction path. */
 function mirrorAdopt(remoteActs) {
   acts.length = 0;
   for (const a of remoteActs) acts.push(a);
   rewriteLog();
   gcMedia();
-  stateCache = { len: -1, st: null, R: stateCache.R };
+  reindexAfterAdoption();
 }
 
 async function mirrorSync() {
@@ -632,7 +657,7 @@ async function mirrorSync() {
       mediaRefs = full.acts.flatMap(mediaRefsOf);
     } else if (d.acts.length) {
       for (const a of d.acts) { acts.push(a); persist(a); }
-      stateCache = { len: -1, st: null, R: stateCache.R };
+      reindexAfterAdoption();
       mediaRefs = d.acts.flatMap(mediaRefsOf);
     }
     await mirrorMedia(mediaRefs);
@@ -1362,15 +1387,30 @@ const recoveryGrant = new Set();
 // crackable legacy format. Filled by authError, flushed once the act is
 // accepted — never on a failed attempt, or a wrong guess would rewrite the log.
 const pinUpgrades = new Map();
-for (const a of acts) {
-  if ((a.t === 'register' || a.t === 'setPin') && a.pinHash) pinIndex.set(a.id, a.pinHash);
-  if (a.t === 'setRecovery' && a.codeHash) recoveryIndex.set(a.id, a.codeHash);
-  if (a.t === 'setKey') {
-    const list = keyIndex.get(a.id) ?? [];
-    if (a.credId === null) keyIndex.set(a.id, []);            // explicit removal
-    else { keyIndex.set(a.id, list.filter((k) => k.credId !== a.credId).concat([{ credId: a.credId, cose: a.cose, signCount: a.signCount ?? 0, label: a.label ?? 'passkey' }])); }
+/**
+ * The credential indexes, derived from the log — and RE-derived whenever the
+ * log is replaced or extended by adoption. They used to be built once here at
+ * boot and then only updated by applyAct, which a MIRROR never runs: acts
+ * arrive through mirrorSync/mirrorAdopt. So a setPin, setKey or setRecovery
+ * that landed on the primary was never indexed on the mirror, and when the
+ * election promoted that mirror it validated writes against stale
+ * credentials — a rotated PIN was still the old one, a newly secured handle
+ * was still "unsecured" and claimable. Every path that changes `acts` without
+ * applyAct calls this.
+ */
+function rebuildCredentialIndexes() {
+  pinIndex.clear(); recoveryIndex.clear(); keyIndex.clear();
+  for (const a of acts) {
+    if ((a.t === 'register' || a.t === 'setPin') && a.pinHash) pinIndex.set(a.id, a.pinHash);
+    if (a.t === 'setRecovery' && a.codeHash) recoveryIndex.set(a.id, a.codeHash);
+    if (a.t === 'setKey') {
+      const list = keyIndex.get(a.id) ?? [];
+      if (a.credId === null) keyIndex.set(a.id, []);            // explicit removal
+      else { keyIndex.set(a.id, list.filter((k) => k.credId !== a.credId).concat([{ credId: a.credId, cose: a.cose, signCount: a.signCount ?? 0, label: a.label ?? 'passkey' }])); }
+    }
   }
 }
+rebuildCredentialIndexes();
 
 // ── PIN storage ───────────────────────────────────────────────────────────
 //
@@ -1462,9 +1502,19 @@ const PIN_REQUIRED = new Set(['editPost', 'deletePost', 'deleteAccount', 'bindAd
 // 'event' belongs here: a handle whose only acts are events has spoken, and
 // without this a stranger could still claim it as though it never had.
 const SUBSTANTIVE = new Set(['post', 'review', 'opinion', 'tag', 'dm', 'stream', 'call', 'event', 'market']);
+// Reserve counts as history too. A handle that registered without a PIN and
+// then burned real bitcoin has not "spoken", so the set above left it
+// claimable: a stranger's first setPin was accepted, locking the owner out
+// and handing them the reserve the owner destroyed bitcoin for. Value in
+// the ledger is exactly what the PIN gate exists to protect — the same
+// judgment the burn-intent door already makes ("a handle that money is
+// credited into has to be one somebody can prove they own"). These kinds
+// carry their actor in `id`, not `author`/`from`.
+const RESERVE_BEARING = new Set(['btcBurn', 'peerBurn']);
 function hasHistory(id) {
   for (const a of acts) {
     if (SUBSTANTIVE.has(a.t) && (a.author === id || a.from === id)) return true;
+    if (RESERVE_BEARING.has(a.t) && a.id === id) return true;
   }
   return false;
 }
@@ -2529,7 +2579,14 @@ function authError(act) {
   // Correct PIN on a legacy hash: quietly re-store it at the modern cost, so
   // an account stops being offline-crackable the first time its owner logs in
   // and nobody has to be told to do anything.
-  if (pinNeedsUpgrade(stored)) pinUpgrades.set(actor, newPinHash(pin));
+  //
+  // EXCEPT when the act being authorised is itself this handle's setPin: the
+  // owner is REPLACING the proven PIN, and re-storing the old one would be
+  // appended after the rotation act, where "newest wins" made it the live
+  // credential again — the rotation silently undone one line later, the old
+  // (possibly exposed) PIN still working, the new one refused. Reproduced:
+  // rotate 1111→2222 on a legacy hash, then 1111 → 200 and 2222 → 401.
+  if (pinNeedsUpgrade(stored) && !(act.t === 'setPin' && act.id === actor)) pinUpgrades.set(actor, newPinHash(pin));
   return null;
 }
 
@@ -4739,6 +4796,17 @@ const server = createServer((req, res) => {
       if (!/^[a-f0-9]{64}$/.test(txid)) { json(res, 400, { code: 'BAD_TXID', error: 'a Bitcoin txid is 64 hex characters' }); return; }
       await ensureEngine();
       if (!handleExists(id)) { json(res, 404, { code: 'NO_SUCH_HANDLE', error: 'no such handle: ' + id }); return; }
+      // The same rule the intent door and the PEER-burn door already apply:
+      // a handle that money is going to be credited into has to be one
+      // somebody can prove they own. authError alone waves an UNSECURED
+      // handle through (no PIN, no passkey — nothing to check), which let a
+      // burn be credited into a handle anyone could then claim with a first
+      // setPin. Refuse here exactly as /api/burn/intent does.
+      if (!pinIndex.has(id) && !(keyIndex.get(id) ?? []).length) {
+        json(res, 401, { code: 'PIN_REQUIRED',
+          error: 'set a PIN on this handle before burning into it — without one, nothing distinguishes you from anyone else naming it' });
+        return;
+      }
       // The PIN, exactly as every other act by a secured handle needs it —
       // otherwise a stranger could bind a burn they watched on the chain to
       // an account that is not theirs.

@@ -225,7 +225,7 @@ describe('the replay’s rulebook, spoken by the host', () => {
 });
 
 describe('deleting a bet', () => {
-  it('redacts the question and its answers, refuses new money, and still lets the escrow out', async () => {
+  it('redacts the question, keeps the answer labels the chain already committed to, refuses new money', async () => {
     const { cid: id } = await ask('doomed bet', { seats: 1, feeBp: 0 });
     expect((await act({ t: 'bet', author: 'u_backer', cid: id, opt: 0, amt: 50 })).status).toBe(200);
     expect((await act({ t: 'modStand', author: 'u_mod2', cid: id, on: true })).status).toBe(200);
@@ -233,12 +233,24 @@ describe('deleting a bet', () => {
     const acts = (await get('/api/acts')).acts as Array<Record<string, unknown>>;
     let mIdx = -1;
     for (let i = 0; i < acts.length; i++) if (acts[i]!.t === 'market' && acts[i]!.text === 'doomed bet') mIdx = i;
+    // The structural commitment the chain would seal for this act BEFORE the
+    // deletion. chain/acts.mjs keeps every field but {text, media, place,
+    // redacted} in it — opts included — so a lawful redaction must leave the
+    // structural hash exactly where it was, or every later seal throws and
+    // every mirror reads a false fork.
+    const { actCommitments } = await import(new URL('../chain/acts.mjs', import.meta.url).href);
+    const { R } = await import('./helpers/chain');
+    // File indices: /api/acts serves seedWorld at 0, the file starts at 1.
+    const before = actCommitments(acts.slice(1), R.parseMentions).structural[mIdx - 1];
+
     expect((await act({ t: 'deletePost', author: 'u_asker', target: mIdx })).status).toBe(200);
 
     const after = (await get('/api/acts')).acts as Array<Record<string, unknown>>;
-    expect(after[mIdx]!.text).toBe('');
-    expect(after[mIdx]!.opts).toEqual(['', '']);       // labels gone, the COUNT stays
-    expect((after[mIdx]!.opts as string[]).length).toBe(2);
+    expect(after[mIdx]!.text).toBe('');                 // the question goes
+    expect(after[mIdx]!.redacted).toBe(true);
+    expect(after[mIdx]!.opts).toEqual(['yes', 'no']);   // the labels stay: they are structure to the chain
+    const structuralAfter = actCommitments(after.slice(1), R.parseMentions).structural[mIdx - 1];
+    expect(structuralAfter, 'redaction is invisible to the structural hash').toBe(before);
 
     const more = await act({ t: 'bet', author: 'u_backer', cid: id, opt: 1, amt: 10 });
     expect(more.body.error).toMatch(/was deleted — no new money goes in/);
