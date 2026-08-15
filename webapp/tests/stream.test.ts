@@ -455,4 +455,36 @@ describe('a broadcast through the host', () => {
     await w.until((c) => c.text.length > 0, 4000, 'a refusal');
     expect(JSON.parse(w.text[0]).why).toMatch(/not live/);
   }, 15000);
+  it('POST /api/live {stop} with the PIN ends the relayed stream, and the pusher is told why', async () => {
+    const open = await post('/api/stream/open', { as: 'u_bee', auth: '1234', cid: 'c9', title: 'pocket', can: [WEBM] });
+    expect(open.status).toBe(200);
+    const push = await wsConnect(`${BASE}/api/stream/ws?role=push&s=c9`);
+    push.sendText(JSON.stringify({ t: 'auth', key: open.body.key, mime: WEBM }));
+    await push.until((c) => c.text.some((t) => t.includes('ready')), 4000, 'the host to accept the key');
+    push.send(Buffer.concat([Buffer.from([0]), webmHeader()]));
+    await new Promise((r) => setTimeout(r, 100));
+    type LiveDoc = { live: Array<Record<string, unknown>>; capacity: Record<string, unknown> };
+    let live = await (await fetch(BASE + '/api/live')).json() as LiveDoc;
+    expect(live.live.some((e) => e.cid === 'c9')).toBe(true);
+    // The read carries capacity now, so a client can refuse to mint a stream
+    // act the relay would not carry.
+    expect(live.capacity).toMatchObject({ full: false });
+    expect(typeof live.capacity.maxStreams).toBe('number');
+
+    // The wrong PIN ends nothing.
+    const bad = await post('/api/live', { as: 'u_bee', auth: '9999', stop: true });
+    expect(bad.status).toBe(401);
+    live = await (await fetch(BASE + '/api/live')).json() as LiveDoc;
+    expect(live.live.some((e) => e.cid === 'c9')).toBe(true);
+
+    // The right one ends the relay, not just the legacy heartbeat entry.
+    const ok = await post('/api/live', { as: 'u_bee', auth: '1234', stop: true });
+    expect(ok.status).toBe(200);
+    expect((ok.body as unknown as { ended: number }).ended).toBe(1);
+    await push.until((c) => c.closed, 4000, 'the pusher to be closed');
+    expect(push.closeReason).toMatch(/another session/);
+    live = await (await fetch(BASE + '/api/live')).json() as LiveDoc;
+    expect(live.live.some((e) => e.cid === 'c9')).toBe(false);
+  }, 20000);
+
 });

@@ -247,6 +247,8 @@ html, body { overflow-x: hidden; overflow-x: clip; }
    between tabs and between modes — a broadcast you cannot stop is worse than
    one you cannot start. */
 .livebar { border-color: var(--ember); margin-bottom: 12px; }
+.rail-opt.owed { border-left: 3px solid var(--ember); }
+.smallnote.warn { color: var(--ember); }
 .livebar video { max-height: 180px; }
 /* Folded away, the bar keeps only its heading and its controls. It sits above
    whatever screen you are on, so it must be possible to get it out of the way
@@ -1241,7 +1243,7 @@ button, .btn { touch-action: manipulation; }
     l2Wallet = String(accs[0]).toLowerCase();
     return l2Wallet;
   }
-  var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags'
+  var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags' | 'bets'
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed';
   var selEdge = null, prevX = {}, REMOTE = false, feedMode = 'l1'; // geek feed: 'l1' | 'cogra' | 'new' | 'follow'
@@ -1284,6 +1286,7 @@ button, .btn { touch-action: manipulation; }
     try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
   }
   var feedLimit = 30;    // windowed rendering — raised by "show more"
+  var horizonLimit = 15; // the beyond-your-horizon list, same idea
   // An ORDERED LIST of pending attachments, not one slot. `media` has been an
   // array in the record since the day it existed — the composer was the only
   // thing insisting on a single entry, so a post could never be an album. The
@@ -1352,7 +1355,7 @@ button, .btn { touch-action: manipulation; }
       if (['all', 'image', 'video', 'audio', 'file', 'text'].indexOf(v0.feedFile) >= 0) feedFile = v0.feedFile;
       if (['any', 'post', 'market', 'event', 'stream', 'onair'].indexOf(v0.feedKind) >= 0) feedKind = v0.feedKind;
       if (['inbound', 'record'].indexOf(v0.alertView) >= 0) alertView = v0.alertView;
-      if (['alerts', 'network', 'tags'].indexOf(v0.railView) >= 0) railView = v0.railView;
+      if (['alerts', 'network', 'tags', 'bets'].indexOf(v0.railView) >= 0) railView = v0.railView;
       if (['soon', 'mine', 'invited', 'past'].indexOf(v0.eventView) >= 0) eventView = v0.eventView;
       // Mapped, never dropped: a browser that was last standing on 'pools'
       // or 'ledger' opens on Money, one that was on 'chain' or 'layer0'
@@ -1521,7 +1524,8 @@ button, .btn { touch-action: manipulation; }
     function ask(retry) {
       pinDialog('Unlock ' + label, retry
         ? 'That PIN did not match. Try again, or cancel — the host locks a handle out after repeated wrong attempts.'
-        : 'Your session expired, so the PIN is gone from this browser. Your handle and everything you posted are untouched — the PIN just proves it is you.')
+        : 'Your session expired, so the PIN is gone from this browser. Your handle and everything you posted are untouched — the PIN just proves it is you.',
+        REMOTE ? { label: 'Forgot PIN?', onclick: function () { recoverFlow(id); } } : null)
         .then(function (pin) {
           if (pin == null) { drain(false); return; }
           verifyPin(id, pin, hash).then(function (ok) {
@@ -1756,6 +1760,10 @@ button, .btn { touch-action: manipulation; }
     if (REMOTE && actor && act.t !== 'register' && lastPinHash[actor]) act.auth = pins[actor] || '';
     if (!REMOTE) {
       delete act.auth;
+      // The host stamps every act it appends; the private sandbox never did,
+      // so its cards had no 'when' and a bet closed early there had no
+      // moment to close AT. Same field, same meaning, same clock — this one.
+      if (typeof act.ts !== 'number') act.ts = Date.now();
       world.acts.push(act); save();
       if (onOk) onOk();
       done(); render(); return;
@@ -1877,6 +1885,7 @@ button, .btn { touch-action: manipulation; }
         // peer-to-peer build. Showing them would offer a Join button that
         // cannot work, so they are left out rather than explained away.
         liveList = (d.live || []).filter(function (e) { return e.relay; });
+        liveCapacity = d.capacity || null;
         var after = liveList.map(function (e) { return e.author; }).join(',');
         // Only re-render when the set actually changed, so a viewer count tick
         // does not tear down an open composer every eight seconds.
@@ -3012,6 +3021,51 @@ button, .btn { touch-action: manipulation; }
         out.push({ who: m.from, kind: 'dm', text: m.text, idx: m.idx });
       }
     });
+    // ── Bets and gatherings ────────────────────────────────────────────────
+    // Neither appends an edge — that is the wall — so they are read from their
+    // own records. Every entry still carries the index of the act that caused
+    // it, so 'fresh' means what it means for a reaction, and the same replay
+    // gives everyone the same list.
+    var mk = st.markets || {};
+    Object.keys(mk).forEach(function (cid) {
+      var m = mk[cid], hist = m.hist || [];
+      var iAsk = m.by === me, iBack = m.byBettor[me] !== undefined, iCand = m.cands[me] !== undefined;
+      var label = (st.payloads[cid] || '[removed]').slice(0, 60);
+      if (!iAsk && m.nominees.indexOf(me) >= 0 && st.handles[m.by]) {
+        out.push({ who: m.by, kind: 'nominated', target: cid, idx: m.idx, text: label });
+      }
+      hist.forEach(function (e) {
+        if (e.who === me || (e.who && !st.handles[e.who])) return;
+        if (e.t === 'bet' && iAsk) {
+          out.push({ who: e.who, kind: 'staked', target: cid, idx: e.i, text: fmt(e.amt, 6) + ' ' + m.cur + ' on “' + (m.opts[e.opt] || 'answer ' + (e.opt + 1)) + '”' });
+        } else if (e.t === 'stand' && iAsk) {
+          out.push({ who: e.who, kind: 'stood', target: cid, idx: e.i, text: label });
+        } else if (e.t === 'close' && (iBack || iCand)) {
+          out.push({ who: e.who, kind: 'closed', target: cid, idx: e.i, text: label });
+        } else if ((e.t === 'settled' || e.t === 'void') && (iAsk || iBack || iCand)) {
+          var line = e.t === 'void' ? 'voided — every stake back' : 'certified “' + (m.opts[e.outcome] || 'answer ' + (e.outcome + 1)) + '”';
+          if (m.paid[me]) line += ' · you were paid ' + fmt(m.paid[me], 6) + ' ' + m.cur;
+          else if (m.refunded[me]) line += ' · ' + fmt(m.refunded[me], 6) + ' ' + m.cur + ' back to you';
+          if (m.earned[me]) line += ' · your fee share ' + fmt(m.earned[me], 6) + ' ' + m.cur;
+          if (m.struck[me]) line += ' · your bond was struck';
+          out.push({ who: e.who || m.by, kind: 'settled', target: cid, idx: e.i, text: line });
+        }
+      });
+      // A seat that owes an answer. Not an act, so it takes its place in the
+      // list from the last thing that happened to the bet — the close, as a
+      // rule — and stays until the certification lands or time is called.
+      if (m.state === 'open' && !(m.at > Date.now()) && iCand && st.marketSeats
+          && st.marketSeats(m).seated.indexOf(me) >= 0 && m.attests[me] === undefined && st.handles[m.by]) {
+        out.push({ who: m.by, kind: 'certify', target: cid, idx: hist.length ? hist[hist.length - 1].i : m.idx, text: label });
+      }
+    });
+    var inv = st.eventInvites || {};
+    Object.keys(inv).forEach(function (cid) {
+      if (!inv[cid][me]) return;
+      var ev = st.events && st.events[cid];
+      if (!ev || !ev.host || ev.host === me || !st.handles[ev.host]) return;
+      out.push({ who: ev.host, kind: 'invited', target: cid, idx: (st.postMeta[cid] || {}).idx || 0, text: (st.payloads[cid] || '').slice(0, 60) });
+    });
     out.sort(function (a, b) { return b.idx - a.idx; });
     return out.slice(0, 40);
   }
@@ -3028,6 +3082,9 @@ button, .btn { touch-action: manipulation; }
     vouch: 'backed you', react: 'reacted to your post', comment: 'commented on your post',
     tag: 'tagged your post', mention: 'mentioned you', quote: 'quoted your post', dm: 'messaged you',
     call: '☎ called you —',
+    nominated: 'nominated you to moderate a bet —', staked: 'staked on your bet —', stood: 'stood for the jury of your bet —',
+    closed: 'closed betting early on a bet you are in —', settled: 'settled a bet you are in —',
+    certify: 'is waiting on your certification — you hold a seat on', invited: 'invited you to a gathering —',
   };
 
   // ── Direct messages ──
@@ -3148,6 +3205,86 @@ button, .btn { touch-action: manipulation; }
         toast(e && e.name === 'NotAllowedError' ? 'Cancelled.' : 'Could not create a passkey here.');
       });
     });
+  }
+
+  /**
+   * Sign one act with a passkey. The host issues a challenge, the
+   * authenticator signs it together with the origin the browser is really
+   * on, and the assertion goes where the PIN would have gone — the host has
+   * accepted that shape since passkeys existed; nothing on screen ever sent
+   * one. Every challenge is single-use, so this is one ceremony per act.
+   */
+  function passkeyAssertion(id, credIds) {
+    return fetch(API + '/api/auth/challenge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ as: id }),
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.challenge) throw new Error(d && d.error ? d.error : 'no challenge');
+      return navigator.credentials.get({
+        publicKey: {
+          challenge: b64urlToBytes(d.challenge),
+          rpId: d.rpId,
+          allowCredentials: (credIds || []).map(function (c) { return { type: 'public-key', id: b64urlToBytes(c) }; }),
+          userVerification: 'preferred',
+          timeout: 60000,
+        },
+      }).then(function (cred) {
+        return {
+          credId: bytesToB64url(cred.rawId),
+          challenge: d.challenge,
+          clientDataJSON: bytesToB64url(cred.response.clientDataJSON),
+          authenticatorData: bytesToB64url(cred.response.authenticatorData),
+          signature: bytesToB64url(cred.response.signature),
+        };
+      });
+    });
+  }
+
+  /**
+   * The way back into a handle with a passkey and no usable PIN: the passkey
+   * signs a setPin act, and from then on the new PIN carries the session
+   * exactly as before. This is what '+ Passkey' was FOR and never did — the
+   * drawer promised a credential that could not be cracked from the log, and
+   * then no screen would take it.
+   */
+  function passkeyResetPin(id) {
+    if (!REMOTE) { toast('Passkeys need the hosted network.'); return; }
+    if (!passkeySupported) { toast('This browser or context cannot use a passkey. It needs HTTPS and a device with a screen lock.'); return; }
+    fetch(API + '/api/auth/status?as=' + encodeURIComponent(id), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var keys = (d && d.passkeys) || [];
+        if (!keys.length) { toast('No passkey is registered to this handle — the recovery code is the other way back.'); return; }
+        var st0 = replay();
+        pinDialog('New PIN for ' + (st0.handles[id] || id), 'Your passkey will sign the change. Pick the PIN this browser then uses (4+ characters).').then(function (pin) {
+          if (pin == null) { render(); return; }
+          if (pin.length < 4) { toast('The new PIN needs at least 4 characters.'); render(); return; }
+          derivePinHash(id, pin).then(function (hx) {
+            return passkeyAssertion(id, keys.map(function (k) { return k.id; })).then(function (assertion) {
+              return fetch(API + '/api/act', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ t: 'setPin', id: id, pinHash: hx, auth: assertion, since: world.acts.length }),
+              }).then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); });
+            }).then(function (x) {
+              if (!x.ok) { toast(x.b && x.b.error ? x.b.error : 'The host refused.'); render(); return; }
+              mergeTail(x.b);
+              pins[id] = pin; who = id; save();
+              toast('PIN replaced — the passkey signed it. You are back in as ' + (st0.handles[id] || id) + '.');
+              render();
+            });
+          }).catch(function (e) {
+            toast(e && e.name === 'NotAllowedError' ? 'Cancelled.' : 'The passkey did not sign: ' + (e && e.message ? e.message : 'unknown'));
+            render();
+          });
+        });
+      }).catch(function () { toast('Could not reach the host.'); });
+  }
+
+  /** Every passkey off this handle, in one act — a lost phone must not lock its owner out. */
+  function removePasskeys(st) {
+    if (!REMOTE) { toast('Passkeys need the hosted network.'); return; }
+    if (!window.confirm('Remove every passkey from ' + (st.handles[who] || who) + '?\n\nFrom then on only the PIN opens this handle. You can add a passkey again later.')) return;
+    tryAct(who, { t: 'setKey', id: who, credId: null }, 'Passkeys removed. Only the PIN opens this handle now.');
   }
 
   /**
@@ -3448,6 +3585,33 @@ button, .btn { touch-action: manipulation; }
           body.appendChild(openForm);
         },
       }));
+      // A revision of your own comment: a Review act naming the comment it
+      // rewrites (`upd`), exactly as a post revision names its post. The
+      // host and the replay have taken it since the T-leg was allowed to be
+      // an existing Comment; nothing on screen had ever sent one.
+      if (c.author === who && st.pinHash[who] && st.postMeta[c.id] && typeof st.postMeta[c.id].idx === 'number') {
+        body.appendChild(h('button', {
+          class: 'btn small ghost',
+          text: 'Revise',
+          title: 'A further record about this comment, not a rewrite of it — the original stays in the log; readers see the latest.',
+          onclick: function () {
+            if (openForm) { openForm.remove(); openForm = null; return; }
+            var txtR = h('textarea', {});
+            txtR.value = c.text || '';
+            openForm = h('div', { class: 'mini-form' }, txtR,
+              h('button', { class: 'btn small primary', text: 'Publish revision · −θ', onclick: function () {
+                var t2 = txtR.value.trim();
+                if (!t2) { toast('Empty text deletes nothing — a comment cannot be deleted, only revised.'); return; }
+                if (t2 === (c.text || '')) { toast('That is the same text; nothing to record.'); return; }
+                var parent = parentOfComment(st, c.id);
+                if (!parent) { toast('Could not find what this comment answers — nothing was sent.'); return; }
+                tryAct(who, { t: 'review', author: who, target: parent, e: c.meta ? c.meta.e : 0.7, f: c.meta ? c.meta.f : 0.8, text: t2, upd: st.postMeta[c.id].idx },
+                  'Revision published — the comment shows the latest text; the original record stands.');
+              } }));
+            body.appendChild(openForm);
+          },
+        }));
+      }
       wrap.appendChild(row);
       // replies to this comment, capped so a pathological chain can't blow up the DOM
       if (depth < 4) {
@@ -3634,6 +3798,13 @@ button, .btn { touch-action: manipulation; }
     // own content down. A revision is NOT free: it is a real Publish act that
     // appends an edge and weighs home, so it is priced like the original.
     if (act.t === 'editPost' || act.t === 'deletePost' || act.t === 'deleteAccount') return 0;
+    // Free at the host and in the replay too — none of these debits θ:
+    // following, a profile edit, a recovery code, an invitation, a payout
+    // address, and leaving a gathering. This gate used to price them anyway,
+    // so a drained handle could not follow anyone, fix its bio, or leave an
+    // event it could no longer attend — refusals the host would never make.
+    if (act.t === 'follow' || act.t === 'profile' || act.t === 'setRecovery' || act.t === 'invite' || act.t === 'bindAddress' || act.t === 'setKey') return 0;
+    if (act.t === 'rsvp' && act.on === false) return 0;
     if (act.t !== 'post') return 1;
     var n = 1;
     if (act.ref) n++;
@@ -4220,7 +4391,70 @@ button, .btn { touch-action: manipulation; }
     if (activePinDone) { var f = activePinDone; activePinDone = null; f(null); }
   }
 
-  function pinDialog(title, subtitle) {
+  /**
+   * The way back into a handle whose PIN is gone: the recovery code its owner
+   * wrote down. The settings drawer has minted these since it existed and
+   * called them 'the one way back' — and no screen ever asked for one, so the
+   * host's door stood open to nobody. Goes through the host: it checks the
+   * code against the hash in the record and appends the new PIN itself.
+   */
+  function recoverFlow(id) {
+    var overlay = document.getElementById('overlay');
+    overlay.innerHTML = '';
+    var close = function () { overlay.innerHTML = ''; };
+    var st0 = replay();
+    var handleIn = h('input', { type: 'text', placeholder: 'handle', maxlength: '16', autocomplete: 'off', value: id ? (st0.handles[id] || '') : '' });
+    var codeIn = h('input', { type: 'text', placeholder: 'recovery code', maxlength: '80', autocomplete: 'off' });
+    var pinIn = h('input', { type: 'password', placeholder: 'new PIN (4+)', maxlength: '24', autocomplete: 'new-password' });
+    var go = function () {
+      var hid = findIdentity(handleIn.value, st0);
+      if (!hid) { toast('No handle by that name on this network.'); return; }
+      var code = codeIn.value.trim(), pin = pinIn.value;
+      if (!code) { toast('Type the recovery code you wrote down.'); return; }
+      if (pin.length < 4) { toast('The new PIN needs at least 4 characters.'); return; }
+      if (!REMOTE) { toast('Recovery goes through the host, and no host is answering right now.'); return; }
+      derivePinHash(hid, pin).then(function (hx) {
+        return fetch(API + '/api/auth/recover', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ as: hid, code: code, pinHash: hx }),
+        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+      }).then(function (x) {
+        if (!x.ok) { toast(x.d && x.d.error ? x.d.error : 'The host refused.'); return; }
+        close();
+        pins[hid] = pin; who = hid; save();
+        toast('You are back in as ' + (st0.handles[hid] || hid) + '. ' + (x.d.note || 'PIN replaced. Make a new recovery code if this one may have been seen.'));
+        // The host appended a setPin on this handle's behalf; read the tail
+        // so this session knows the new hash before the next act.
+        pollRemote();
+        render();
+      }).catch(function () { toast('Could not reach the host.'); });
+    };
+    pinIn.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') go(); });
+    var rowR = h('div', { class: 'row' },
+      h('button', { class: 'btn', text: 'Cancel', onclick: close }),
+      h('button', { class: 'btn primary', text: 'Recover', onclick: go }));
+    if (passkeySupported && REMOTE) {
+      // The other way back: a passkey signs the new PIN. Offered as a door
+      // here rather than checked first, because the handle is typed below
+      // and may not have one — the flow says so if not.
+      rowR.insertBefore(h('button', { class: 'btn ghost', text: 'Use passkey instead', onclick: function () {
+        var hid = findIdentity(handleIn.value, st0);
+        if (!hid) { toast('Type the handle first.'); return; }
+        close();
+        passkeyResetPin(hid);
+      } }), rowR.firstChild);
+    }
+    overlay.appendChild(h('div', { class: 'pin-dialog' },
+      h('div', { class: 'scrim', onclick: close }),
+      h('div', { class: 'pin-card' },
+        h('h3', { text: 'Recover a handle' }),
+        h('p', { class: 'smallnote', text: 'The recovery code you wrote down when you made one replaces a forgotten PIN. The host checks it against the hash in the record and sets the new PIN for you. The code stays valid until you make another one — do that once you are back in.' + (passkeySupported && REMOTE ? ' A passkey registered to the handle can sign the new PIN instead.' : '') }),
+        handleIn, codeIn, pinIn,
+        rowR)));
+    setTimeout(function () { (id ? codeIn : handleIn).focus(); }, 50);
+  }
+
+  function pinDialog(title, subtitle, extra) {
     return new Promise(function (resolve) {
       var overlay = document.getElementById('overlay');
       var input = h('input', { type: 'password', maxlength: '24', placeholder: '••••', autocomplete: 'off' });
@@ -4233,13 +4467,23 @@ button, .btn { touch-action: manipulation; }
         resolve(v);
       }
       activePinDone = done;
+      var row = h('div', { class: 'row' },
+        h('button', { class: 'btn', text: 'Cancel', onclick: function () { done(null); } }),
+        h('button', { class: 'btn primary', text: 'Unlock', onclick: function () { done(input.value); } }));
+      if (extra && extra.label) {
+        // A third way out. It settles this dialog as cancelled first — the
+        // caller's cancel path repaints and clears the overlay — and only
+        // then, on the next tick, opens whatever it leads to on top.
+        row.insertBefore(h('button', { class: 'btn ghost', text: extra.label, onclick: function () {
+          done(null);
+          setTimeout(function () { extra.onclick(); }, 0);
+        } }), row.firstChild);
+      }
       var card = h('div', { class: 'pin-card' },
         h('h3', { text: title }),
         h('p', { class: 'smallnote', text: subtitle }),
         input,
-        h('div', { class: 'row' },
-          h('button', { class: 'btn', text: 'Cancel', onclick: function () { done(null); } }),
-          h('button', { class: 'btn primary', text: 'Unlock', onclick: function () { done(input.value); } })));
+        row);
       input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') done(input.value); });
       overlay.innerHTML = '';
       overlay.appendChild(h('div', { class: 'pin-dialog' }, h('div', { class: 'scrim', onclick: function () { done(null); } }), card));
@@ -4262,7 +4506,8 @@ button, .btn { touch-action: manipulation; }
       });
       return;
     }
-    pinDialog('Unlock ' + (st.handles[id] || id), 'This handle is PIN-secured.').then(function (pin) {
+    pinDialog('Unlock ' + (st.handles[id] || id), 'This handle is PIN-secured.',
+      REMOTE ? { label: 'Forgot PIN?', onclick: function () { recoverFlow(id); } } : null).then(function (pin) {
       if (pin == null) { render(); return; }
       verifyPin(id, pin, hash).then(function (ok) {
         if (ok) { pins[id] = pin; who = id; save(); render(); toast('Welcome back, ' + st.handles[id] + '.'); }
@@ -4488,9 +4733,26 @@ button, .btn { touch-action: manipulation; }
    */
   function onAirStrip(st) {
     var others = liveList.filter(function (e) { return e.author !== who; });
-    if (!others.length || live || watching) return null;
-    var card = h('div', { class: 'card' },
-      h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }),
+    // This handle, on air, and not from here: a phone that went live and
+    // was put down, a tab that is still pushing somewhere. Said at the top,
+    // with the one button that ends it — the bar above cannot draw it,
+    // because the bar only exists in the page that is pushing.
+    var mineElsewhere = who ? liveList.filter(function (e) { return e.author === who && !(live && live.cid === e.cid); }) : [];
+    if ((!others.length && !mineElsewhere.length) || live || watching) return null;
+    var card = h('div', { class: 'card' });
+    if (mineElsewhere.length) {
+      card.appendChild(h('p', { class: 'eyebrow' }, h('span', { class: 'live-dot' }), ' you are on air — from another session'));
+      mineElsewhere.forEach(function (e) {
+        card.appendChild(h('div', { class: 'chat-row' },
+          avatar(e.author, 'avatar s'),
+          h('div', { class: 'grow' },
+            h('b', {}, e.title || 'live'),
+            h('div', { class: 'smallnote', text: e.viewers + ' watching · ' + fmtDur(Math.round((Date.now() - e.since) / 1000))
+              + ' · pushed from another device or tab' })),
+          h('button', { class: 'btn small danger', text: 'End broadcast', onclick: function () { broadcastStopRemote(e.cid); } })));
+      });
+    }
+    if (others.length) card.appendChild(h('p', { class: 'eyebrow', style: mineElsewhere.length ? 'margin-top:8px' : '' }, h('span', { class: 'live-dot' }),
         ' on air now · ' + others.length + (others.length === 1 ? ' broadcast' : ' broadcasts')));
     others.forEach(function (e) {
       card.appendChild(h('div', { class: 'chat-row' },
@@ -4712,6 +4974,7 @@ button, .btn { touch-action: manipulation; }
   var live = null;     // broadcaster: see broadcastStart
   var watching = null; // viewer: see watchStart
   var liveList = [];   // what the host says is on air
+  var liveCapacity = null; // {streams, maxStreams, full} from the same read — asked BEFORE the priced act
 
   // Containers this browser might record, best first. WebM leads because its
   // pieces come out every 400ms; an MP4 fragment cannot leave the encoder until
@@ -4794,25 +5057,78 @@ button, .btn { touch-action: manipulation; }
     if (note) toast(note);
   }
 
-  function broadcastStart(title, withVideo) {
-    if (!REMOTE) { toast('Streaming needs the hosted network — there is nothing to relay through in the private sandbox.'); return; }
-    if (live) { toast('You are already live.'); return; }
+  /**
+   * Everything that has to be true before a broadcast is worth paying for —
+   * asked BEFORE the stream act, because the act is a priced Publish that
+   * mints a permanent node. Measured on the live log: twenty-six of
+   * twenty-six broadcasts were published by handles that could not open a
+   * relay, burning θ each for a card nobody could ever join — one of them
+   * titled 'no pin'. Returns the refusal, or null.
+   */
+  function goLiveRefusal() {
+    if (!REMOTE) return 'Streaming needs the hosted network — there is nothing to relay through in the private sandbox.';
+    if (live) return 'You are already live.';
+    if (!canRecord().length) return 'This browser cannot encode video for streaming: it has no MediaRecorder support.';
+    if (!navigator.mediaDevices || !window.isSecureContext) return 'Streaming needs camera access over HTTPS — this context has neither.';
+    if (!replay().pinHash[who]) return 'Set a PIN before broadcasting — a stream puts your face and your voice on this handle, and the relay will not carry one without it.';
+    // The relay's own count, from the last /api/live poll. A host at its cap
+    // used to answer the SECOND step with 503, after the act had been paid.
+    if (liveCapacity && liveCapacity.full) {
+      return 'This host is already carrying as many live streams as it will (' + liveCapacity.maxStreams + '). Nothing was spent — try again when one of them ends.';
+    }
+    return null;
+  }
+
+  /**
+   * Back on air on a card that already exists. The relay takes the same
+   * content id again (it ends whatever was there and starts fresh), so a
+   * broadcast interrupted by a reload, a dropped socket or a phone going to
+   * sleep can continue on the same node — no second θ, no second card.
+   */
+  function broadcastResume(cid, title, withVideo) {
+    var why = goLiveRefusal();
+    if (why) { toast(why); return; }
     if (watching) watchStop();
-    if (!canRecord().length) {
-      toast('This browser cannot encode video for streaming: it has no MediaRecorder support.'); return;
-    }
-    if (!navigator.mediaDevices || !window.isSecureContext) {
-      toast('Streaming needs camera access over HTTPS — this context has neither.'); return;
-    }
-    // The relay refuses a handle with no PIN, and it refuses AFTER the stream
-    // act has already been minted and paid for. Measured on the live log:
-    // twenty-six of twenty-six broadcasts were published by handles that could
-    // not open a relay, burning θ each for a permanent node nobody could ever
-    // join — one of them titled 'no pin'. Ask first.
-    if (!replay().pinHash[who]) {
-      toast('Set a PIN before broadcasting — a stream puts your face and your voice on this handle, and the relay will not carry one without it.');
-      return;
-    }
+    navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: withVideo ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
+    }).then(function (stream) {
+      var formats = recordFormatsFor(stream);
+      if (!formats.length) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        toast('This browser cannot encode ' + (stream.getVideoTracks().length ? 'video' : 'audio') + ' in any format the network can relay.');
+        return;
+      }
+      openRelay(cid, title, stream, formats);
+    }).catch(function () { toast('Could not open the camera or microphone — check the browser permissions for this site.'); });
+  }
+
+  /**
+   * End a broadcast this handle is pushing from ANOTHER device or tab. The
+   * host closes that session's socket on the PIN's say-so — the phone that
+   * went live is in a pocket, the laptop is where the person is reading, and
+   * before this the only way to end it was to find the phone.
+   */
+  function broadcastStopRemote(cid) {
+    if (!REMOTE || !who) return;
+    withUnlock(function () {
+      fetch(API + '/api/live', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ as: who, auth: pins[who] || '', stop: true }),
+      }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (x) {
+          if (!x.ok) { toast(x.d.error || 'The host refused.'); return; }
+          toast(x.d.ended ? 'Broadcast ended. The card stays in the record; the video was never in it.' : 'Nothing was on air for this handle.');
+          pollLive();
+        })
+        .catch(function () { toast('Could not reach the host.'); });
+    });
+  }
+
+  function broadcastStart(title, withVideo) {
+    var refusal = goLiveRefusal();
+    if (refusal) { toast(refusal); return; }
+    if (watching) watchStop();
     navigator.mediaDevices.getUserMedia({
       audio: true,
       video: withVideo ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
@@ -5601,7 +5917,15 @@ button, .btn { touch-action: manipulation; }
     // old edit rewrote bytes in the stored log and that had to happen while it
     // was still nearly fresh. A revision is now an ordinary act appended to the
     // end, so it can be authored whenever — and it costs θ, like everything.
-    frag.appendChild(h('button', { class: btnC, text: 'Revise · −θ', onclick: function () {
+    if (pm.market || pm.event) {
+      // The host refuses a revision of either — a bet's question, answers
+      // and closing time are what every stake was placed against, and a
+      // gathering's time, place and price are what people answered to. The
+      // button used to be here anyway and bounced. Say why instead.
+      frag.appendChild(h('span', { class: 'smallnote', style: 'align-self:center', text: pm.market
+        ? 'A bet cannot be revised once asked — every stake was placed against these exact words. Delete redacts the question; the stakes still settle.'
+        : 'A gathering cannot be revised — its time, place and price are what people answered to. Delete it and announce again.' }));
+    } else frag.appendChild(h('button', { class: btnC, text: 'Revise · −θ', onclick: function () {
       toggle(function () {
         var txt = h('textarea', {});
         txt.value = st.payloads[cid] || '';
@@ -5744,7 +6068,9 @@ button, .btn { touch-action: manipulation; }
       h('div', { class: 'join' }, input, pinInput,
         h('button', { class: 'btn primary', text: 'Create account', onclick: join })),
       h('div', { class: 'join', style: 'margin-top:12px' }, loginInput,
-        h('button', { class: 'btn', text: 'Log in', onclick: function () { loginWithHandle(loginInput.value, st); } })),
+        h('button', { class: 'btn', text: 'Log in', onclick: function () { loginWithHandle(loginInput.value, st); } }),
+        REMOTE ? h('button', { class: 'btn ghost', text: 'Forgot PIN?', title: 'Get back in with the recovery code you wrote down.',
+          onclick: function () { recoverFlow(findIdentity(loginInput.value, st)); } }) : null),
       h('div', {}, h('p', { class: 'smallnote', style: 'margin-top:22px', text: 'or step into a known peer:' }), residents),
       h('p', { class: 'smallnote', style: 'margin-top:30px', text: REMOTE
         ? 'Public test instance · real Layer-1 mathematics (spec v0.24.1-dev) · one shared network for every visitor — a PIN protects your handle; don’t post anything private.'
@@ -6067,7 +6393,7 @@ button, .btn { touch-action: manipulation; }
       deltaChip(who, st),
       h('span', { class: 'g-gauge' }, h('i', { style: 'width:' + Math.min(100, me.burnBal * 25) + '%' })),
       h('span', { class: 'num', text: Math.floor(me.burnBal / THETA) + ' acts' }),
-      h('button', { class: 'btn small', text: 'Burn +1', onclick: function () {
+      h('button', { class: 'btn small', text: 'Burn bitcoin →', onclick: function () {
         burnDialog();
       } })));
     // Left rail: whatever the tab you are on is about — the feed's reading
@@ -6131,7 +6457,9 @@ button, .btn { touch-action: manipulation; }
         h('div', { class: 'smallnote' },
           'Your PIN is not in this browser any more — it is forgotten whenever the browser closes, on purpose, so a shared machine cannot keep it. You are still ' + name + ' and nothing you posted is affected; you just cannot act or receive calls until you prove it is you.'),
         h('button', { class: 'btn small primary', style: 'margin-top:8px',
-          text: 'Unlock', onclick: function () { withUnlock(function () {}); } }));
+          text: 'Unlock', onclick: function () { withUnlock(function () {}); } }),
+        h('button', { class: 'btn small ghost', style: 'margin-top:8px; margin-left:8px',
+          text: 'Forgot PIN? Use the recovery code', onclick: function () { recoverFlow(who); } }));
     }
     if (!st.pinHash[who]) {
       return h('div', { class: 'wall-warn lock-warn' },
@@ -6913,19 +7241,42 @@ button, .btn { touch-action: manipulation; }
     ranked.forEach(function (f) { seen[f.node.id] = 1; });
     var horizon = [];
     st.g.nodes.forEach(function (n) {
-      if (n.kind === 'Content' && st.payloads[n.id] && !seen[n.id]) horizon.push(n);
+      if (n.kind !== 'Content' || !st.payloads[n.id] || seen[n.id]) return;
+      var hm = st.postMeta[n.id] || {};
+      if (hm.comment) return;
+      // The same two filters the ranked list obeyed. A reader who chose
+      // 'Bets' used to lose this section entirely — and with it every bet
+      // they could not yet reach, which for a newcomer is every bet.
+      if (feedKind === 'event' && !hm.event) return;
+      if (feedKind === 'stream' && !hm.stream) return;
+      if (feedKind === 'market' && !hm.market) return;
+      if (feedKind === 'onair' && !liveEntryFor(n.id)) return;
+      if (feedKind === 'post' && (hm.event || hm.stream || hm.market)) return;
+      if (feedFile !== 'all') {
+        var hk = mediaKinds(st, n.id);
+        if (feedFile === 'text' ? (hk.image || hk.video || hk.audio || hk.file) : !hk[feedFile]) return;
+      }
+      horizon.push(n);
     });
+    // Newest first. This came out in node order — oldest first — and showed
+    // fifteen of those, so a bet asked today sat behind the seed world's
+    // photo and never reached the screen of anyone who could not reach it.
+    horizon.sort(function (x, y) { return (((st.postMeta[y.id] || {}).idx) || 0) - (((st.postMeta[x.id] || {}).idx) || 0); });
     // Not under Following either. That list is the accounts you chose; padding
     // it with everything you did not choose is the opposite of what was asked
     // for — it showed a viewer their own unfollowed posts under a heading
     // saying these were the people they follow.
-    if (horizon.length && ['new', 'follow', 'old', 'talked', 'backed'].indexOf(feedMode) < 0
-        && feedFile === 'all' && feedKind === 'any') {
+    if (horizon.length && ['new', 'follow', 'old', 'talked', 'backed'].indexOf(feedMode) < 0) {
       wrap.appendChild(h('div', { class: 'card', style: 'margin-top:14px' },
-        h('p', { class: 'eyebrow', text: 'beyond your horizon — exists, not yet reachable in ≤4 hops (' + horizon.length + ')' })));
-      horizon.slice(0, 15).forEach(function (n) {
+        h('p', { class: 'eyebrow', text: 'beyond your horizon — exists, not yet reachable in ≤4 hops (' + horizon.length + ') · newest first' })));
+      horizon.slice(0, horizonLimit).forEach(function (n) {
         wrap.appendChild(postCard(st, { node: n, bfsWeight: 0, amplifier: 1, contentNorm: 0, relevance: 0 }, null, 1));
       });
+      if (horizon.length > horizonLimit) {
+        wrap.appendChild(h('div', { style: 'text-align:center; margin:12px 0' },
+          h('button', { class: 'btn', text: 'Show more beyond the horizon (' + (horizon.length - horizonLimit) + ')',
+            onclick: function () { horizonLimit += 15; render(); } })));
+      }
     }
     return wrap;
   }
@@ -7171,8 +7522,9 @@ button, .btn { touch-action: manipulation; }
         : m.state === 'void' ? 'bet · voided'
         : betting ? 'bet · open' : 'bet · with the jury' }));
 
-    box.appendChild(h('div', { class: 'kv' }, h('span', { text: (m.at > now) ? 'betting closes' : 'betting closed' }),
-      h('span', { class: 'num', text: m.at ? new Date(m.at).toLocaleString() : 'not stated' })));
+    var iAsked = !!who && who === m.by;
+    box.appendChild(h('div', { class: 'kv' }, h('span', { text: (m.at > now) ? 'betting closes' : (m.closedEarly ? 'betting closed early by the author' : 'betting closed') }),
+      h('span', { class: 'num', text: m.at ? new Date(m.at).toLocaleString() + (m.at > now ? ' · in ' + spanShort(m.at - now) : '') : 'not stated' })));
     box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'pool' }),
       h('span', { class: 'num', text: fmt(m.pool, 6) + ' ' + m.cur })));
 
@@ -7206,13 +7558,20 @@ button, .btn { touch-action: manipulation; }
     }
 
     // ── Backing one ────────────────────────────────────────────────────────
-    if (betting && who) {
+    if (betting && who && !iAsked) {
       pickSel.value = String(mktPick[cid] || 0);
       pickSel.addEventListener('change', function () { mktPick[cid] = Number(pickSel.value); });
       var amt = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'stake', style: 'width:120px' });
       var why0 = st.marketActError && st.marketActError({ t: 'bet', author: who, cid: cid, opt: 0, amt: 1e-9 });
-      if (why0 && /author of a bet|moderator cannot back/.test(why0)) {
+      if (why0 && /moderator cannot back/.test(why0)) {
         box.appendChild(h('p', { class: 'smallnote', text: why0 }));
+      } else if (!st.pinHash[who]) {
+        // The host refuses a stake from a handle with no PIN — a balance
+        // must not be spendable by whoever knows the name — and the form
+        // used to be drawn anyway, so the refusal arrived after the click.
+        box.appendChild(h('div', { class: 'mini-form' },
+          h('button', { class: 'btn small', text: '🔒 Set a PIN to stake', onclick: function () { setPinFlow(st, false); } }),
+          h('span', { class: 'smallnote', text: 'A stake spends your balance, so the host will not take one from a handle anybody can use.' })));
       } else {
         box.appendChild(h('div', { class: 'mini-form' }, pickSel, amt,
           h('button', { class: 'btn small primary', text: 'Back it', onclick: function () {
@@ -7230,6 +7589,8 @@ button, .btn { touch-action: manipulation; }
       box.appendChild(h('div', { class: 'kv' }, h('span', { text: 'your position' }),
         h('span', { class: 'num', text: fmt(myStake, 6) + ' ' + m.cur })));
     }
+    // ── The author's own view: what happens by itself, and the two levers ──
+    if (iAsked && m.state === 'open') box.appendChild(marketAuthorBlock(st, cid, m, betting, deadline));
 
     // ── The jury ───────────────────────────────────────────────────────────
     box.appendChild(h('p', { class: 'eyebrow', style: 'margin-top:10px', text: 'jury · ' + m.seats
@@ -7260,6 +7621,11 @@ button, .btn { touch-action: manipulation; }
       }
     }
     var ballotBoxes = {};
+    // A ballot weighs proven bitcoin burns; a handle that has destroyed none
+    // cannot cast one, and the checkboxes used to be drawn for it anyway.
+    var voteWhy = (who && betting && m.state === 'open' && st.marketActError)
+      ? st.marketActError({ t: 'modVote', author: who, cid: cid, for: [] }) : null;
+    var canVote = !(voteWhy && /destroyed none|not enough energy/.test(voteWhy));
     standing.forEach(function (id) {
       var sat = seats.seated.indexOf(id) >= 0;
       var said = m.attests[id];
@@ -7273,7 +7639,7 @@ button, .btn { touch-action: manipulation; }
             : null),
         h('span', { class: 'num', text: (seats.weight[id] || 0) + ' sat' }));
       box.appendChild(line);
-      if (m.state === 'open' && betting && who && who !== id) {
+      if (m.state === 'open' && betting && who && who !== id && canVote) {
         var cb = h('input', { type: 'checkbox' });
         ballotBoxes[id] = cb;
         line.firstChild.insertBefore(cb, line.firstChild.firstChild);
@@ -7282,6 +7648,9 @@ button, .btn { touch-action: manipulation; }
 
     var jrow = h('div', { class: 'mini-form' });
     if (m.state === 'open' && betting && who) {
+      if (!canVote && standing.length && who !== m.by) {
+        box.appendChild(h('p', { class: 'smallnote', text: voteWhy + ' — so this handle cannot help elect the jury. Everything else here is open to it.' }));
+      }
       if (Object.keys(ballotBoxes).length) {
         jrow.appendChild(h('button', { class: 'btn small', text: 'Vote', title: 'Approval voting: name up to ' + m.seats + '. Your ballot weighs the satoshis you have proved you destroyed, and a later ballot replaces this one.', onclick: function () {
           var picked = [];
@@ -7298,22 +7667,42 @@ button, .btn { touch-action: manipulation; }
         } }));
       } else {
         var standWhy = st.marketActError && st.marketActError({ t: 'modStand', author: who, cid: cid, on: true });
+        var named = m.nominees.indexOf(who) >= 0;
         // The two refusals nothing the reader does can lift: they are the
         // author, or they hold a position. Say it once, and offer no door.
-        if (standWhy && /cannot also certify|hold a position/.test(standWhy)) {
+        // (The author's is said in their own block above, not repeated here.)
+        if (standWhy && /cannot also certify/.test(standWhy)) {
+          standWhy = 'shown';
+        } else if (standWhy && /hold a position/.test(standWhy)) {
           box.appendChild(h('p', { class: 'smallnote', text: standWhy }));
           standWhy = 'shown';
-        } else jrow.appendChild(h('button', { class: 'btn small', text: 'Stand · bond ' + fmt(m.bond, 6) + ' ' + m.cur,
-          title: standWhy || 'The bond is forfeit if you certify an answer the jury does not reach, or if you take a seat and never certify at all.',
-          onclick: function () {
-            if (standWhy) { toast(standWhy); return; }
-            tryAct(who, { t: 'modStand', author: who, cid: cid, on: true },
-              'Standing. The bond is posted — it comes back unless you certify against the jury, or take a seat and stay silent past the deadline.');
-          } }));
+        } else if (!st.pinHash[who]) {
+          // Standing posts the bond, and the host will not take a bond from a
+          // handle anybody can use. The nomination, if there is one, still
+          // stands — it is waiting on exactly this.
+          if (named) box.appendChild(h('p', { class: 'smallnote warn', text: 'You were nominated to moderate this bet. Standing posts the ' + fmt(m.bond, 6) + ' ' + m.cur + ' bond, and that needs a PIN on your handle first.' }));
+          jrow.appendChild(h('button', { class: 'btn small', text: '🔒 Set a PIN to stand', onclick: function () { setPinFlow(st, false); } }));
+        } else {
+          if (named) {
+            // Being named is the one thing on this card that is FOR the
+            // reader personally, and it used to be a line of grey text.
+            box.appendChild(h('p', { class: 'smallnote warn', text: 'You were nominated to moderate this bet. Accepting means standing: it posts the ' + fmt(m.bond, 6) + ' ' + m.cur + ' bond, and the community still elects the ' + m.seats + ' seat(s). ' + (standWhy || 'You may stand right now.') }));
+          }
+          jrow.appendChild(h('button', { class: 'btn small' + (named && !standWhy ? ' primary' : ''), text: (named ? 'Accept · stand · bond ' : 'Stand · bond ') + fmt(m.bond, 6) + ' ' + m.cur,
+            title: standWhy || 'The bond is forfeit if you certify an answer the jury does not reach, or if you take a seat and never certify at all.',
+            onclick: function () {
+              if (standWhy) { toast(standWhy); return; }
+              tryAct(who, { t: 'modStand', author: who, cid: cid, on: true },
+                'Standing. The bond is posted — it comes back unless you certify against the jury, or take a seat and stay silent past the deadline.');
+            } }));
+        }
       }
     }
     // ── Certifying ─────────────────────────────────────────────────────────
     if (m.state === 'open' && !betting && iSit && m.attests[who] === undefined) {
+      // The one thing on this card that is owed by the reader, said as such.
+      box.appendChild(h('p', { class: 'smallnote warn', text: 'You hold a seat on this jury and have not certified yet. Name the answer that came true by '
+        + (deadline ? new Date(deadline).toLocaleString() : 'the deadline') + ' — a seat that is still silent when time is called forfeits its bond.' }));
       var certSel = h('select', {});
       for (var ci = 0; ci < m.n; ci++) certSel.appendChild(h('option', { value: String(ci), text: m.opts[ci] || 'answer ' + (ci + 1) }));
       certSel.appendChild(h('option', { value: '-1', text: 'no answer — void it' }));
@@ -7332,7 +7721,8 @@ button, .btn { touch-action: manipulation; }
     // Past the jury's window, OR the moment a closed bet turns out to have no
     // candidates at all — there is no jury to keep waiting for, and the host
     // door agrees: it drops the window for exactly this case.
-    if (m.state === 'open' && !betting && who && (!standing.length || (deadline && now > deadline))) {
+    // (The author's withdrawal of an unbacked bet lives in their block above.)
+    if (m.state === 'open' && !betting && who && !(iAsked && !(m.pool > 0)) && (!standing.length || (deadline && now > deadline))) {
       jrow.appendChild(h('button', { class: 'btn small danger', text: 'Call time',
         title: 'The jury had its window and did not settle this. Every stake goes back in full; the seats that never certified forfeit their bonds to the people whose money was held.',
         onclick: function () {
@@ -7359,7 +7749,9 @@ button, .btn { touch-action: manipulation; }
     } else if (m.state === 'void') {
       box.appendChild(h('p', { class: 'smallnote', text: 'Voided — every stake went back in full and no fee was taken'
         + (m.slashedTotal > 0 ? ', and ' + fmt(m.slashedTotal, 6) + ' ' + m.cur + ' of bonds was struck from seats that never certified and shared out across the stakes.' : '.') }));
-    } else if (!betting) {
+    } else if (!betting && standing.length) {
+      // With an empty candidate list the note above has already said the
+      // only true thing — nobody can certify — and this one would contradict it.
       box.appendChild(h('p', { class: 'smallnote', text: 'Betting is closed and the jury is certifying. If it has not agreed by '
         + (deadline ? new Date(deadline).toLocaleString() : 'the deadline') + ', anyone can call time and every stake goes back in full.' }));
     }
@@ -7373,6 +7765,68 @@ button, .btn { touch-action: manipulation; }
     if (!raw) return NaN;
     var n = parseFloat(raw);
     return isFinite(n) ? n : NaN;
+  }
+
+  /** A span of time ahead, in the two largest units that matter: '3d 4h', '2h 05m', '45s'. */
+  function spanShort(ms) {
+    var sec = Math.max(0, Math.round(ms / 1000));
+    var d = Math.floor(sec / 86400), hh = Math.floor((sec % 86400) / 3600), mm = Math.floor((sec % 3600) / 60);
+    if (d > 0) return d + 'd ' + hh + 'h';
+    if (hh > 0) return hh + 'h ' + ('0' + mm).slice(-2) + 'm';
+    if (mm > 0) return mm + 'm';
+    return sec + 's';
+  }
+
+  /**
+   * The author's own view of a running bet.
+   *
+   * Everything on this card is FOR everyone else — back it, stand, vote,
+   * certify — and the author may do none of it, so what they saw was two grey
+   * refusals and no explanation of what happens next or what they can do. The
+   * answer to "how do I accept the bets" is that nothing needs accepting; the
+   * answer to "how do I finish it" is the jury, unless nobody has staked. This
+   * says both, and holds the author's two levers: closing betting before the
+   * stated time (which only ever tightens the market) and taking back a
+   * question nobody has put money on (which can cost nobody but the author).
+   */
+  function marketAuthorBlock(st, cid, m, betting, deadline) {
+    var stakers = Object.keys(m.byBettor).length;
+    var standing = Object.keys(m.cands).length;
+    var wrap = h('div', { class: 'card', style: 'margin:8px 0; background:var(--card)' },
+      h('p', { class: 'eyebrow', text: 'you asked this' }));
+    wrap.appendChild(h('p', { class: 'smallnote', text:
+      (stakers ? stakers + ' handle(s) have staked ' + fmt(m.pool, 6) + ' ' + m.cur + ' so far. ' : 'Nobody has staked yet. ')
+      + 'Stakes land by themselves — there is nothing to accept, and nothing to edit: the question, the answers and the closing time are what every stake is placed against. '
+      + (betting
+        ? 'Betting closes ' + new Date(m.at).toLocaleString() + ' (in ' + spanShort(m.at - Date.now()) + '), or the moment you close it. '
+        : 'Betting is closed. ')
+      + (betting ? 'Then the jury' : 'The jury') + ' — ' + m.seats + ' seat(s), elected from whoever stands' + (standing ? ' (' + standing + ' standing now)' : ' (nobody has stood yet)')
+      + ' — names the answer that came true, and has until ' + (deadline ? new Date(deadline).toLocaleString() : 'seven days after the close')
+      + ' to do it. You may not stake or sit; you earn half the ' + (m.feeBp / 100) + '% fee whichever answer wins.' }));
+    var row = h('div', { class: 'mini-form persistent' });
+    if (betting) {
+      row.appendChild(h('button', { class: 'btn small', text: 'Close betting now',
+        title: 'Stops stakes, candidacies and ballots at once — what the closing time would have done later. It picks no answer and touches no stake.',
+        onclick: function () {
+          if (!window.confirm('Close betting on this now?\n\nNo more stakes, no more candidates, no more ballots from this moment; the jury certifies from here. It does not decide the answer, and it cannot be undone.')) return;
+          var why = st.marketActError && st.marketActError({ t: 'marketClose', author: who, cid: cid });
+          if (why) { toast(why); return; }
+          tryAct(who, { t: 'marketClose', author: who, cid: cid },
+            'Betting closed. The jury certifies from here; nothing else about the bet changed.');
+        } }));
+    }
+    if (!(m.pool > 0)) {
+      row.appendChild(h('button', { class: 'btn small', text: 'Withdraw the question',
+        title: 'Nobody has staked, so this ends the bet at no cost to anyone: no fee, and every bond posted goes straight back.',
+        onclick: function () {
+          if (!window.confirm('Withdraw this bet?\n\nNobody has staked on it, so nothing is refunded and no fee is taken; anyone standing gets their bond back in full. The question stays in the record as a voided bet.')) return;
+          tryAct(who, { t: 'marketVoid', author: who, cid: cid }, 'Withdrawn. Every bond went back; no fee was taken.');
+        } }));
+    } else {
+      row.appendChild(h('span', { class: 'smallnote', text: 'Money is on it now, so it ends by the jury or by the window — it cannot be withdrawn. Delete redacts the question; the stakes still settle.' }));
+    }
+    wrap.appendChild(row);
+    return wrap;
   }
 
   function eventPanel(st, cid, ev) {
@@ -7397,7 +7851,10 @@ button, .btn { touch-action: manipulation; }
       box.appendChild(h('p', { class: 'smallnote', text: 'This has already happened — the door is closed.' }));
     }
     var row = h('div', { class: 'mini-form' });
-    if (who && who !== ev.host && !over) {
+    // Withdrawing is allowed at any time — the host and the replay take it
+    // after the event as readily as before, and somebody who could not make
+    // it should be able to say so. Joining stops when the door does.
+    if (who && who !== ev.host && (mine || !over)) {
       if (mine) {
         row.appendChild(h('button', {
           class: 'btn small', text: 'Withdraw',
@@ -7406,6 +7863,12 @@ button, .btn { touch-action: manipulation; }
             tryAct(who, { t: 'rsvp', from: who, cid: cid, on: false }, 'Withdrawn — the entry fee is not returned.');
           },
         }));
+      } else if (ev.fee > 0 && !st.pinHash[who]) {
+        // The host refuses a paid entry from a handle with no PIN — a balance
+        // must not be spendable by whoever knows the name. Offer the door
+        // that works rather than a button that bounces.
+        row.appendChild(h('button', { class: 'btn small', text: '🔒 Set a PIN to pay the entry', onclick: function () { setPinFlow(st, false); } }));
+        row.appendChild(h('span', { class: 'smallnote', text: 'The entry fee spends your balance, so the host will not take it from a handle anyone can use.' }));
       } else {
         row.appendChild(h('button', {
           class: 'btn small primary',
@@ -7602,7 +8065,7 @@ button, .btn { touch-action: manipulation; }
           var meta = st.postMeta[n.id] || {};
           var ev0 = st.events && st.events[n.id];
           var mk0 = st.markets && st.markets[n.id];
-          var kind = meta.market ? 'bet' : meta.event ? 'event' : meta.stream ? 'stream' : 'post';
+          var kind = meta.market ? 'bet' : meta.event ? 'event' : meta.stream ? (liveEntryFor(n.id) ? 'stream' : 'stream · off air') : 'post';
           if (ev0 && ev0.fee > 0) kind += ' · ' + fmt(ev0.fee, 6) + ' ' + ev0.cur;
           if (mk0) kind += ' · ' + fmt(mk0.pool, 6) + ' ' + mk0.cur + (mk0.state === 'open' ? '' : ' · ' + mk0.state);
           return h('span', { class: 'kindtag' + (meta.event ? ' k-event' : meta.stream ? ' k-stream' : ''), text: kind });
@@ -7636,14 +8099,40 @@ button, .btn { touch-action: manipulation; }
     var mkm = (st.markets && st.markets[n.id]) ? st.markets[n.id] : null;
     if (mkm) card.appendChild(marketPanel(st, n.id, mkm));
     var liveNow = liveEntryFor(n.id);
-    if (liveNow && st.postMeta[n.id] && st.postMeta[n.id].stream) {
-      card.appendChild(h('div', { class: 'mini-form' },
-        h('button', { class: 'btn small primary', text: 'Watch · on air', onclick: function () {
-          // The player opens above this card rather than on another screen.
-          liveOpen = true;
-          watchStart({ author: liveNow.author, cid: n.id });
-        } }),
-        h('span', { class: 'smallnote', text: 'Relayed through the host — free to watch.' })));
+    if (st.postMeta[n.id] && st.postMeta[n.id].stream) {
+      if (liveNow && author === who) {
+        // Your own broadcast, seen from its card. If THIS page is pushing it
+        // the bar above holds the End button; if another device is — the
+        // phone that went live, read from the laptop — the button has to be
+        // here, because there is nowhere else it can be.
+        if (!(live && live.cid === n.id)) {
+          card.appendChild(h('div', { class: 'mini-form persistent' },
+            h('button', { class: 'btn small danger', text: 'End broadcast',
+              title: 'Ends the stream this handle is pushing from another device or tab. Your PIN is the proof it is you.',
+              onclick: function () { broadcastStopRemote(n.id); } }),
+            h('span', { class: 'smallnote', text: 'On air from another session · ' + liveNow.viewers + ' watching. Ending it here closes that session’s stream.' })));
+        }
+      } else if (liveNow) {
+        card.appendChild(h('div', { class: 'mini-form' },
+          h('button', { class: 'btn small primary', text: 'Watch · on air', onclick: function () {
+            // The player opens above this card rather than on another screen.
+            liveOpen = true;
+            watchStart({ author: liveNow.author, cid: n.id });
+          } }),
+          h('span', { class: 'smallnote', text: 'Relayed through the host — free to watch.' })));
+      } else {
+        // Off air. A broadcast card outlives its broadcast by design — the
+        // video was never in the record — and it used to be told apart from
+        // a live one only by the button that was not there.
+        var offRow = h('div', { class: 'mini-form persistent' },
+          h('span', { class: 'smallnote', text: 'Off air — this broadcast has ended. The video was live only and never entered the record; the reactions and comments on it did.' }));
+        if (author === who && REMOTE && !live) {
+          offRow.appendChild(h('button', { class: 'btn small', text: 'Go live again · same card',
+            title: 'Reopens the relay on this very node — no second θ, no second card.',
+            onclick: function () { broadcastResume(n.id, st.payloads[n.id] || '', true); } }));
+        }
+        card.appendChild(offRow);
+      }
     }
     mediaBlock(st.mediaMeta[n.id]).forEach(function (el) { card.appendChild(el); });
     var keepRow = offlineRow(st, n.id);
@@ -8701,7 +9190,7 @@ button, .btn { touch-action: manipulation; }
 
     var notifs = notificationsFor(st, who);
     var wrap = h('div', { class: 'card' },
-      h('p', { class: 'eyebrow', text: 'alerts — inbound acts naming you (mentions, quotes, backings, comments, messages)' }));
+      h('p', { class: 'eyebrow', text: 'alerts — inbound acts naming you (mentions, quotes, backings, comments, messages, bets, gatherings)' }));
     if (!notifs.length) {
       wrap.appendChild(h('p', { class: 'smallnote', text: 'Nothing inbound yet. Note that inbound acts never enter your feed ranking — this list is the only place they surface.' }));
       outer.appendChild(wrap);
@@ -9005,7 +9494,88 @@ button, .btn { touch-action: manipulation; }
     var comments = commentsOf(st, cid);
     if (comments.length) card.appendChild(commentTree(st, comments, 0));
     else card.appendChild(h('p', { class: 'smallnote', text: 'Nothing said yet.' }));
+    // ── The broadcaster's bets, in the room ──────────────────────────────
+    // A bet is a post, so it lives in the feed — but somebody watching a
+    // stream is looking at the stream, and a wager the broadcaster opens
+    // mid-air ("will this land?") has to be where the audience is. Every open
+    // bet the broadcaster has asked is drawn here with its full card: back
+    // it, stand, vote, certify — the same doors, the same rulebook.
+    var host = st.creators[cid];
+    var openBets = Object.keys(st.markets || {}).filter(function (mc) {
+      var mm = st.markets[mc];
+      return mm.by === host && mm.state === 'open';
+    }).sort(function (x, y) { return st.markets[y].idx - st.markets[x].idx; });
+    if (openBets.length || who === host) {
+      var bsec = h('div', { class: 'card', style: 'margin-top:14px' },
+        h('p', { class: 'eyebrow', text: 'bets by the broadcaster · open now' }));
+      openBets.forEach(function (mc) {
+        bsec.appendChild(h('p', { style: 'margin:6px 0 0' }, h('b', { text: st.payloads[mc] || '[removed]' })));
+        bsec.appendChild(marketPanel(st, mc, st.markets[mc]));
+      });
+      if (!openBets.length) bsec.appendChild(h('p', { class: 'smallnote', text: 'No open bet right now.' }));
+      if (who === host) bsec.appendChild(quickBetForm(st));
+      card.appendChild(bsec);
+    }
     return card;
+  }
+
+  /**
+   * A bet asked from inside the room, while on air. The same `market` act the
+   * composer sends, with the fields a broadcaster actually has time for: the
+   * question, two or three answers, how long betting stays open, the bond a
+   * moderator posts, and — since the broadcaster may not certify their own
+   * bet — who they would like to. Closing early is one button away on the
+   * card, so 'how long' is a ceiling, not a promise.
+   */
+  function quickBetForm(st) {
+    var box = h('div', { style: 'margin-top:10px' },
+      h('p', { class: 'eyebrow', text: 'ask a bet on this broadcast' }));
+    var q = h('input', { type: 'text', maxlength: '280', placeholder: 'the question — e.g. does this land?', style: 'flex:1 1 100%; min-width:0' });
+    var a1 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 1', style: 'flex:1 1 120px; min-width:0' });
+    var a2 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 2', style: 'flex:1 1 120px; min-width:0' });
+    var a3 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 3 (optional)', style: 'flex:1 1 120px; min-width:0' });
+    var mins = h('select', {});
+    [[5, '5 min'], [15, '15 min'], [30, '30 min'], [60, '1 hour'], [240, '4 hours']].forEach(function (o) {
+      mins.appendChild(h('option', { value: String(o[0]), text: 'betting open ' + o[1] + ' at most' }));
+    });
+    mins.value = '15';
+    var cur = h('select', {});
+    Object.keys((st.tokens && st.tokens.meta) || { PEER: 1 }).forEach(function (sym) {
+      if (sym === 'tBTC') return;
+      cur.appendChild(h('option', { value: sym, text: sym }));
+    });
+    var bond = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'bond per seat', style: 'width:120px' });
+    var nom = h('select', {}, h('option', { value: '', text: 'nominate a moderator (optional)' }));
+    st.ledgers.forEach(function (l) {
+      if (l.id === who || l.deleted) return;
+      nom.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+    });
+    box.appendChild(h('div', { class: 'mini-form persistent', style: 'flex-wrap:wrap' }, q, a1, a2, a3));
+    box.appendChild(h('div', { class: 'mini-form persistent', style: 'flex-wrap:wrap' }, mins, cur, bond, nom,
+      h('button', { class: 'btn small primary', text: 'Ask · −θ', onclick: function () {
+        var text = q.value.trim();
+        var answers = [a1.value, a2.value, a3.value].map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+        if (!text) { toast('Say what the bet is about.'); return; }
+        if (answers.length < 2) { toast('A bet needs at least two answers people can take sides on.'); return; }
+        var seenA = {};
+        for (var i = 0; i < answers.length; i++) {
+          if (seenA[answers[i].toLowerCase()]) { toast('Two answers say the same thing.'); return; }
+          seenA[answers[i].toLowerCase()] = 1;
+        }
+        var b = parseFloat(String(bond.value || '').replace(',', '.'));
+        if (!(b > 0)) { toast('Set the bond a moderator has to post — it is the only thing a corrupt certification can cost them.'); return; }
+        var at = Date.now() + Number(mins.value) * 60 * 1000;
+        var able = whoCouldStand(st, cur.value, b, who, null);
+        if (!able.n && !window.confirm('Nobody but you holds ' + b + ' ' + cur.value + ' right now, and you may not certify your own bet — so as things stand nobody could sit on this jury and it could only end voided. Ask it anyway?')) return;
+        var act = { t: 'market', author: who, text: text, opts: answers, cur: cur.value, at: at, seats: 1, bond: b, feeBp: 200, mods: nom.value ? [nom.value] : [] };
+        var why = st.marketActError && st.marketActError({ t: 'market', author: who, opts: answers, cur: cur.value, seats: 1, bond: b, feeBp: 200 });
+        if (why) { toast(why); return; }
+        tryAct(who, act, 'Bet asked. It is a post in everyone’s feed and it is drawn here in the room; close betting from its card whenever the moment has passed.', function () {
+          q.value = ''; a1.value = ''; a2.value = ''; a3.value = ''; bond.value = '';
+        });
+      } })));
+    box.appendChild(h('p', { class: 'smallnote', text: 'One seat, 2% fee, and betting stays open at most as long as you say — close it earlier from the card. You may not stake on it or certify it; the answer is the jury’s to give.' }));
+    return box;
   }
 
   // ══ Wallet ═══════════════════════════════════════════════════════════════
@@ -9116,12 +9686,20 @@ button, .btn { touch-action: manipulation; }
     var sTo = h('select', {});
     st.ledgers.forEach(function (l) { if (l.id !== who && !st.deleted[l.id]) sTo.appendChild(h('option', { value: l.id, text: st.handles[l.id] || l.id })); });
     var sAmt = h('input', { type: 'text', placeholder: 'amount', style: 'width:90px', inputmode: 'decimal' });
-    act1.appendChild(h('div', { class: 'mini-form' }, sSym, sAmt, h('span', { class: 'smallnote', text: 'to' }), sTo,
-      h('button', { class: 'btn small', text: 'Send \u00b7 \u2212\u03b8', onclick: function () {
-        var v = parseFloat(sAmt.value);
-        if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
-        tryAct(who, { t: 'tokenSend', author: who, sym: sSym.value, to: sTo.value, amt: v }, 'Sent.');
-      } })));
+    if (!sSym.options.length) {
+      // An empty select used to send sym '' and be refused as 'bad sym' —
+      // a refusal about a field the person never saw. Say the true thing.
+      act1.appendChild(h('p', { class: 'smallnote', text: 'Nothing to move yet — this handle holds no balance in any asset. PEER arrives with an epoch close, or from someone who sends you some.' }));
+    } else {
+      act1.appendChild(h('div', { class: 'mini-form' }, sSym, sAmt, h('span', { class: 'smallnote', text: 'to' }), sTo,
+        h('button', { class: 'btn small', text: 'Send \u00b7 \u2212\u03b8', onclick: function () {
+          var v = parseFloat(String(sAmt.value).replace(',', '.'));
+          if (!isFinite(v) || v <= 0) { toast('Say how much.'); return; }
+          if (!sSym.value) { toast('Pick what to send.'); return; }
+          if (!sTo.value) { toast('Pick who to send it to.'); return; }
+          tryAct(who, { t: 'tokenSend', author: who, sym: sSym.value, to: sTo.value, amt: v }, 'Sent.');
+        } })));
+    }
     wrap.appendChild(act1);
     return wrap;
   }
@@ -11041,6 +11619,48 @@ button, .btn { touch-action: manipulation; }
       // label: when its source is down, a label is what is lost.
       stateBox.appendChild(euroLine);
       stateBox.appendChild(log);
+      // What the chain shows at the sink that this log has not credited —
+      // the same list the bitcoin dialog draws for its address, and the one
+      // place a burn made from a wallet outside this page becomes visible
+      // together with the host's reason for leaving it uncredited. Yours can
+      // be filed from here; anyone else's is a fact, not an offer.
+      var pendBox = h('div', { style: 'margin-top:10px' });
+      stateBox.appendChild(pendBox);
+      railAsk(peerPendMemo, DOOR + '/pending', function (rp) {
+        pendBox.innerHTML = '';
+        if (!rp || rp.status !== 200 || !rp.d) return;
+        var rows = Array.isArray(rp.d.uncredited) ? rp.d.uncredited : [];
+        var why = rp.d.lastTickSaw && typeof rp.d.lastTickSaw === 'object' ? rp.d.lastTickSaw : {};
+        if (!rows.length) return;
+        pendBox.appendChild(h('p', { class: 'eyebrow', style: 'margin:0 0 4px', text: 'burns at the sink not yet credited · ' + rows.length }));
+        var mine = you && you.boundAddress ? String(you.boundAddress).toLowerCase() : null;
+        rows.slice(0, 12).forEach(function (r) {
+          var reason = why[r.txid] && (why[r.txid].why || why[r.txid].code) ? String(why[r.txid].why || why[r.txid].code) : '';
+          var isMine = mine && String(r.from || '').toLowerCase() === mine;
+          var line = h('div', { class: 'kv' },
+            h('span', {}, l2ScanLink ? l2ScanLink(Number(oc && oc.chainId), 'tx', r.txid, l2ShortHex(r.txid)) : l2ShortHex(r.txid),
+              h('span', { class: 'smallnote', text: ' from ' + l2ShortHex(String(r.from || '')) + (isMine ? ' — yours' : '') + (reason ? ' · ' + reason.slice(0, 120) : '') })),
+            h('span', { class: 'num', text: l2Human(r.amtRaw, 18) + ' PEER' }));
+          pendBox.appendChild(line);
+          if (isMine && who) {
+            pendBox.appendChild(h('div', { class: 'mini-form persistent' },
+              h('button', { class: 'btn small', text: 'Claim this one now', onclick: function () {
+                withUnlock(function () {
+                  fetch(API + DOOR + '/claim', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: who, auth: pins[who] || '', txid: r.txid }) })
+                    .then(function (x) { return x.json().then(function (b) { return { ok: x.ok, b: b }; }); })
+                    .then(function (x) {
+                      if (!x.ok) { say('Not recorded yet: ' + String((x.b && (x.b.error || x.b.why)) || 'refused') + ' — the burn stays on the chain and stays valid.', 'bad'); return; }
+                      say('Recorded: ' + String(x.b.sats) + ' sat → ' + String(x.b.reserve) + ' reserve.', 'ok');
+                      pollRemote();
+                    })
+                    .catch(function () { say('Could not reach the host.', 'bad'); });
+                });
+              } })));
+          }
+        });
+        pendBox.appendChild(h('p', { class: 'smallnote', text: 'A burn is credited to the handle that had BOUND the sending address before it landed — never to whoever asks first. The host does this on its own tick; filing one only makes it sooner.' }));
+      });
       // var(--bad) inline: `.bad` was never a rule in this stylesheet, so a
       // refusal styled with it renders in the same grey as everything else.
       function say(t, cls) { log.appendChild(h('div', { class: 'smallnote', style: cls === 'bad' ? 'color:var(--bad)' : (cls === 'ok' ? 'color:var(--moss)' : ''), text: t })); }
@@ -12808,9 +13428,27 @@ button, .btn { touch-action: manipulation; }
             if (!isFinite(va) || !isFinite(vb) || va <= 0 || vb <= 0) { toast('Both amounts, please.'); return; }
             tryAct(who, { t: 'poolAdd', author: who, pool: pid, amtA: va, amtB: vb }, 'Added liquidity to ' + pid + ' (proportional part of what you offered).');
           } }),
-          mine > 0 ? h('button', { class: 'btn small', text: 'Withdraw all · −θ', onclick: function () {
-            tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: mine }, 'Withdrew your liquidity from ' + pid + '.');
-          } }) : null));
+          mine > 0 ? (function () {
+            // Any part of a position, not only the whole of it — the rulebook
+            // takes 0 < shares ≤ own, and the on-chain panel already offers
+            // the same choice. Blank means all, which is what the one button
+            // here used to do without asking.
+            var part = h('input', { type: 'text', placeholder: '% (blank = all)', style: 'width:110px', inputmode: 'decimal', title: 'How much of your position to withdraw, in percent. Blank withdraws all of it.' });
+            var wrapR = document.createDocumentFragment();
+            wrapR.appendChild(part);
+            wrapR.appendChild(h('button', { class: 'btn small', text: 'Withdraw · −θ', onclick: function () {
+              var pct = String(part.value || '').trim().replace(',', '.');
+              var sh = mine;
+              if (pct) {
+                var pv = parseFloat(pct);
+                if (!isFinite(pv) || pv <= 0 || pv > 100) { toast('A share to withdraw is a percentage between 0 and 100, or blank for all of it.'); return; }
+                sh = Math.min(mine, mine * pv / 100);
+              }
+              tryAct(who, { t: 'poolRemove', author: who, pool: pid, shares: sh },
+                (pct ? 'Withdrew ' + pct + '% of' : 'Withdrew all of') + ' your liquidity from ' + pid + '.');
+            } }));
+            return wrapR;
+          })() : null));
       });
 
       var npA = h('input', { type: 'text', placeholder: 'PEER', style: 'width:70px', maxlength: '8' });
@@ -13338,20 +13976,101 @@ button, .btn { touch-action: manipulation; }
    * shows — Alerts, Network, or Tags — instead of stacking all of them. The
    * choice survives reloads like every other piece of view state.
    */
+  /**
+   * What a bet is to the reader, in one line each — and whether it wants
+   * something from them.
+   *
+   * The feed shows a bet only if the reader can REACH it, and a newcomer
+   * reaches nothing: the bet with the most money on this network was invisible
+   * to exactly the people it was asking. Money is not a matter of graph
+   * distance. This reads st.markets directly — every bet, reachable or not —
+   * and jumps to the card, which the feed pins above itself regardless.
+   */
+  function betRows(st) {
+    var now = Date.now(), rows = [];
+    Object.keys(st.markets || {}).forEach(function (cid) {
+      var m = st.markets[cid];
+      var betting = m.state === 'open' && m.at > now;
+      var seats = st.marketSeats ? st.marketSeats(m) : { seated: [] };
+      var iSit = who && seats.seated.indexOf(who) >= 0;
+      var need = null, role = null;
+      if (who && m.state === 'open') {
+        if (who === m.by) role = 'you asked';
+        else if (m.byBettor[who] !== undefined) role = 'you back ' + fmt(m.byBettor[who], 6) + ' ' + m.cur;
+        if (m.cands[who] !== undefined) role = (role ? role + ' · ' : '') + (iSit ? 'seated' : 'standing');
+        if (betting && who !== m.by && m.nominees.indexOf(who) >= 0 && m.cands[who] === undefined && m.byBettor[who] === undefined) need = 'nominated — stand?';
+        else if (!betting && iSit && m.attests[who] === undefined) need = 'your certification is due';
+        else if (!betting && who === m.by && !Object.keys(m.cands).length) need = 'nobody can certify — call time';
+        else if (betting && who === m.by && !(m.pool > 0)) need = null;
+      } else if (who) {
+        if (m.paid[who]) role = 'you were paid ' + fmt(m.paid[who], 6) + ' ' + m.cur;
+        else if (m.refunded[who]) role = fmt(m.refunded[who], 6) + ' ' + m.cur + ' came back to you';
+        else if (m.earned[who]) role = 'your fee share ' + fmt(m.earned[who], 6) + ' ' + m.cur;
+        else if (m.struck[who]) role = 'your bond was struck';
+        else if (who === m.by) role = 'you asked';
+      }
+      var last = m.hist && m.hist.length ? m.hist[m.hist.length - 1].i : m.idx;
+      var stage = m.state !== 'open' ? 3 : betting ? 1 : 2;   // open · with the jury · settled
+      rows.push({ m: m, cid: cid, betting: betting, need: need, role: role, last: last, stage: need ? 0 : stage });
+    });
+    rows.sort(function (a, b) {
+      if (a.stage !== b.stage) return a.stage - b.stage;
+      if (a.stage === 1) return (a.m.at || 0) - (b.m.at || 0);   // soonest close first
+      return b.last - a.last;                                     // otherwise newest activity first
+    });
+    return rows;
+  }
+  function betsNeedingMe(st) { return betRows(st).filter(function (r) { return !!r.need; }); }
+  function betsWidget(st) {
+    var rows = betRows(st);
+    var card = h('div', { class: 'card' }, h('h2', { text: 'Bets' }));
+    if (!rows.length) {
+      card.appendChild(h('p', { class: 'smallnote', text: 'No bets asked yet. Ask one from the composer — Bet — and it is listed here for everyone, reachable or not.' }));
+      return card;
+    }
+    var HEAD = { 0: 'needs you', 1: 'open — betting', 2: 'closed — with the jury', 3: 'settled' };
+    var lastStage = -1;
+    rows.forEach(function (r) {
+      var m = r.m;
+      if (r.stage !== lastStage) {
+        lastStage = r.stage;
+        card.appendChild(h('p', { class: 'eyebrow', style: 'margin-top:8px', text: HEAD[r.stage] }));
+      }
+      var when = r.stage === 1 ? 'closes in ' + spanShort(m.at - Date.now())
+        : r.stage === 2 ? 'closed ' + relAgo(m.at)
+        : m.state === 'void' ? 'voided' : 'certified';
+      var line = fmt(m.pool, 6) + ' ' + m.cur + ' · ' + when + ' · by ' + (st.handles[m.by] || m.by)
+        + (r.need ? ' · ' + r.need : r.role ? ' · ' + r.role : '');
+      card.appendChild(h('button', { class: 'rail-opt' + (r.need ? ' owed' : ''), onclick: function () { jumpTo(st, r.cid); } },
+        h('b', { text: (st.payloads[r.cid] || '[removed]').slice(0, 70) }),
+        h('span', { class: 'smallnote', text: line })));
+    });
+    card.appendChild(h('p', { class: 'smallnote', text: 'Every bet on the network, whether or not your feed can reach it. Open one to back it, stand, vote or certify — the card carries every door.' }));
+    return card;
+  }
+
   function railPane(st) {
     var wrap = h('div', {});
     var bar = h('div', { class: 'rail-toggle' });
-    [['alerts', 'Alerts'], ['network', 'Network'], ['tags', 'Tags']].forEach(function (v) {
+    [['alerts', 'Alerts'], ['bets', 'Bets'], ['network', 'Network'], ['tags', 'Tags']].forEach(function (v) {
       var b = h('button', { class: railView === v[0] ? 'on' : '', text: v[1], 'aria-pressed': railView === v[0] ? 'true' : 'false',
         onclick: function () { railView = v[0]; saveView(); render(); } });
       if (v[0] === 'alerts' && railView !== 'alerts') {
         var fresh = unseenCount(notificationsFor(st, who));
         if (fresh > 0) b.appendChild(h('span', { class: 'nbadge', text: fresh > 9 ? '9+' : String(fresh) }));
       }
+      if (v[0] === 'bets') {
+        // Not "unseen": OWED. A nomination waiting on a bond, a seat waiting
+        // on a certification, a bet only its author can end.
+        var owed = betsNeedingMe(st).length;
+        if (owed > 0) b.appendChild(h('span', { class: 'nbadge', text: owed > 9 ? '9+' : String(owed) }));
+      }
       bar.appendChild(b);
     });
     wrap.appendChild(bar);
-    if (railView === 'network') {
+    if (railView === 'bets') {
+      wrap.appendChild(betsWidget(st));
+    } else if (railView === 'network') {
       var net = shapeWidget(st);
       if (net) wrap.appendChild(net);
       wrap.appendChild(h('div', { class: 'card' },
@@ -13453,6 +14172,7 @@ button, .btn { touch-action: manipulation; }
     } catch (e) { finish({ status: 0, d: null }); }
   }
   var railChainMemo = { at: 0, path: null, r: null, inflight: null, waiting: [] };
+  var peerPendMemo = { at: 0, path: null, r: null, inflight: null, waiting: [] };
   var railAuthMemo = { at: 0, path: null, r: null, inflight: null, waiting: [] };
 
   /** How many more acts a reserve covers. One act, one θ, whatever it is. */
@@ -13622,6 +14342,13 @@ button, .btn { touch-action: manipulation; }
       ['tag', 'tags', 'your work filed under a commons type'],
       ['dm', 'messages', 'public acts, like everything — Chats holds them'],
       ['call', 'calls', 'the call was never in the log; that it happened is'],
+      ['nominated', 'nominations', 'asked to sit on a jury — standing posts the bond'],
+      ['certify', 'certifications due', 'a seat you hold has an answer to give'],
+      ['staked', 'stakes', 'money on a bet you asked; it moves no standing'],
+      ['stood', 'candidates', 'somebody standing for a jury you asked for'],
+      ['closed', 'early closes', 'betting shut before its stated time'],
+      ['settled', 'settlements', 'a bet you were in paid out or refunded'],
+      ['invited', 'invitations', 'a gathering somebody wants you at'],
     ];
     // No "N new" chip here, and that is deliberate rather than an omission:
     // the centre column marks this list seen while it draws, and the centre
@@ -14159,7 +14886,7 @@ button, .btn { touch-action: manipulation; }
     var on = iFollow(st, id);
     return h('button', {
       class: 'btn small' + (on ? '' : ' primary'),
-      text: on ? 'Following' : 'Follow · −θ',
+      text: on ? 'Following' : 'Follow',
       title: on ? 'Stop following. Recorded as an act; it is in no score.'
         : 'Follow. Free, and in no score — θ is itself a standing input, so a follow must not spend one. Following is attention, and attention is not standing here.',
       onclick: function () {
@@ -14204,14 +14931,36 @@ button, .btn { touch-action: manipulation; }
       h('button', { class: 'btn small primary', text: 'Edit profile', onclick: function () { close(); profileFlow(st); } }),
     ]));
 
-    drawer.appendChild(group('Who can act as you',
-      'A PIN is a shared secret whose hash is published; a passkey is not. The recovery code is the one way back into a handle whose PIN is gone that does not need the operator.', [
+    var whoActs = group('Who can act as you',
+      'A PIN is a shared secret whose hash is published; a passkey is not. Either the recovery code or a passkey is the way back into a handle whose PIN is gone that does not need the operator.', [
       h('button', { class: 'btn small' + (secured ? '' : ' primary'), text: secured ? 'Change PIN' : 'Set PIN',
         onclick: function () { close(); setPinFlow(st, secured); } }),
       passkeySupported ? h('button', { class: 'btn small', text: '+ Passkey', onclick: function () { close(); addPasskey(st); } }) : null,
       h('button', { class: 'btn small', text: 'Recovery code', onclick: function () { close(); recoveryFlow(st); } }),
       REMOTE ? h('button', { class: 'btn small', text: 'Contact address', onclick: function () { close(); contactFlow(); } }) : null,
-    ]));
+    ]);
+    drawer.appendChild(whoActs);
+    if (REMOTE) {
+      // What the host holds for this handle, asked rather than assumed: the
+      // passkeys registered to it, each by its label, and the one act that
+      // takes them all off again.
+      var keysLine = h('p', { class: 'smallnote', text: 'asking the host which passkeys it holds for you…' });
+      whoActs.appendChild(keysLine);
+      fetch(API + '/api/auth/status?as=' + encodeURIComponent(who), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var keys = (d && d.passkeys) || [];
+          keysLine.textContent = keys.length
+            ? 'Passkeys on this handle: ' + keys.map(function (k) { return k.label || 'passkey'; }).join(', ') + '. Any of them can sign a new PIN if this one is lost (Forgot PIN → Use passkey).'
+            : 'No passkey on this handle yet.' + (passkeySupported ? ' Add one and it can sign a new PIN if this one is ever lost.' : '');
+          if (keys.length) {
+            var rm = h('div', { class: 'mini-form persistent', style: 'margin-top:6px' },
+              h('button', { class: 'btn small danger', text: 'Remove all passkeys', onclick: function () { close(); removePasskeys(st); } }));
+            whoActs.appendChild(rm);
+          }
+        })
+        .catch(function () { keysLine.textContent = 'Could not ask the host about passkeys right now.'; });
+    }
 
     drawer.appendChild(group('Reserve', 'Burning is the only way in: every act debits θ from the reserve and raises your act count.', [
       h('button', { class: 'btn small primary', text: 'Burn bitcoin \u2192', onclick: function () { burnDialog(); } }),

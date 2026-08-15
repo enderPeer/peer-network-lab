@@ -531,3 +531,68 @@ describe('purity', () => {
     expect(one.markets[cid].guilty).toEqual(two.markets[cid].guilty);
   });
 });
+
+describe('the author closes betting early', () => {
+  const cid = 'c1';
+  const closeEarly = (who: string, ts?: number) =>
+    ({ t: 'marketClose', author: 'u_' + who, cid, ...(ts === undefined ? {} : { ts }) });
+
+  it('moves the closing time to the moment the act landed, and only the author may', () => {
+    const at = 5_000_000_000_000;                     // far in the future
+    const landed = 4_000_000_000_000;                 // the host's stamp on the close
+    const st: any = replay([...table('al', 'bo'), ask('al', ['y', 'n'], { at }), closeEarly('al', landed)]);
+    expect(st.markets[cid].at).toBe(landed);
+    expect(st.markets[cid].closedEarly).toBe(true);
+    expect(st.markets[cid].state).toBe('open');       // closing is not settling
+    // A stranger's close is refused in the rulebook's own words, and does nothing.
+    const other: any = replay([...table('al', 'bo'), ask('al', ['y', 'n'], { at }), closeEarly('bo', landed)]);
+    expect(other.markets[cid].at).toBe(at);
+    expect(other.markets[cid].closedEarly).toBe(false);
+    expect(other.marketActError({ t: 'marketClose', author: 'u_bo', cid })).toMatch(/only the author of a bet closes/);
+    // and a second close is refused too
+    expect(st.marketActError({ t: 'marketClose', author: 'u_al', cid })).toMatch(/already closed early/);
+  });
+
+  it('never moves the closing time later, and a close with no stamp changes nothing', () => {
+    const at = 4_000_000_000_000;
+    const later: any = replay([...table('al'), ask('al', ['y', 'n'], { at }), closeEarly('al', at + 1000)]);
+    expect(later.markets[cid].at).toBe(at);
+    expect(later.markets[cid].closedEarly).toBe(false);
+    const none: any = replay([...table('al'), ask('al', ['y', 'n'], { at }), closeEarly('al')]);
+    expect(none.markets[cid].at).toBe(at);
+    expect(none.markets[cid].closedEarly).toBe(false);
+  });
+
+  it('costs θ like any act, moves no value, and touches no standing', () => {
+    const at = 5_000_000_000_000;
+    const before: any = replay([...table('al', 'bo'), ask('al', ['y', 'n'], { at }), bet('bo', cid, 0, 100)]);
+    const after: any = replay([...table('al', 'bo'), ask('al', ['y', 'n'], { at }), bet('bo', cid, 0, 100), closeEarly('al', at - 1)]);
+    expect(after.ledgerById.u_al.actCount).toBe(before.ledgerById.u_al.actCount + 1);
+    expect(chips(after, 'al')).toBe(chips(before, 'al'));
+    expect(chips(after, 'bo')).toBe(chips(before, 'bo'));
+    expect(after.markets[cid].pool).toBe(100);
+    expect(after.g.edges.length).toBe(before.g.edges.length);
+  });
+});
+
+describe('what happened to a bet is written down with the act that did it', () => {
+  it('records asked / bet / stand / vote / attest / settled with act indices, in log order', () => {
+    const { acts, cid } = game();
+    const st: any = replay([...acts, ballot('bo', cid, 'dd', 'ee', 'ff'), certify('dd', cid, 1), certify('ee', cid, 1)]);
+    const h = st.markets[cid].hist as Array<Record<string, any>>;
+    expect(h.map((e) => e.t)).toEqual(['asked', 'bet', 'bet', 'stand', 'stand', 'stand', 'vote', 'attest', 'attest', 'settled']);
+    for (let i = 1; i < h.length; i++) expect(h[i].i).toBeGreaterThanOrEqual(h[i - 1].i);
+    expect(h[1]).toMatchObject({ t: 'bet', who: 'u_bo', opt: 0, amt: 100 });
+    expect(h[h.length - 1]).toMatchObject({ t: 'settled', outcome: 1 });
+    // The market act itself is the first entry, at its own index.
+    expect(h[0].i).toBe(acts.findIndex((a: any) => a.t === 'market'));
+  });
+
+  it('is display state: settlement reads the maps, not the history', () => {
+    const { acts, cid, players } = game();
+    const log = [...acts, certify('dd', cid, 1), certify('ee', cid, 1)];
+    const st: any = replay(log);
+    expect(st.markets[cid].state).toBe('resolved');
+    expect(conserved(st, players, cid)).toBe(START * players.length);
+  });
+});

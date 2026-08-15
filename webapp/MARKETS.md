@@ -66,7 +66,7 @@ Ties break by bond, then by handle. That is determinism, not merit: two honest
 observers replaying the same log must seat the same people, or the network has
 two different answers to who may certify a bet.
 
-**4. Betting closes, and the jury certifies.** Each seated moderator names one
+**4. Betting closes, and the jury certifies.** Betting closes at the stated time, or earlier if the author closes it (`marketClose`): from that instant no stake, no candidacy and no ballot is accepted, the closing time on the card becomes the moment the act landed, and the jury window is measured from there. Closing early can only tighten a bet — it stops money coming in and freezes the election, exactly what the clock would have done later — and it cannot pick an answer or reach a stake already placed. Each seated moderator names one
 answer, or `void`. A certification is final — that is what makes the bond mean
 anything. The moment a strict majority of the seated jury agrees, the market
 settles. Juries are 1, 3 or 5 seats, because an even jury cannot reach a
@@ -111,6 +111,15 @@ author can post is set, and the card names the dead end once betting closes.
 Neither changes what a stander can do — one candidate is a jury that may still
 certify, and that bet waits its full window like any other.
 
+**And the author may take back a question nobody has put money on.** While a
+bet's pool is empty, its author may void it at any time — before the close,
+after it, with or without candidates. There is nothing to refund and no fee to
+take; every bond posted goes straight back, because with no stakes nobody was
+kept waiting and nothing is struck. The moment a single stake lands the lever
+is gone: from there the bet ends the way every other bet ends, by the jury or
+by the window. It is allowed precisely because it can cost nobody but the
+author, who spent θ asking and earns no fee.
+
 ## Who may not do what
 
 - **The author of a bet may not hold a position on it.** They are paid a fee
@@ -126,9 +135,13 @@ two roles that can shape the answer are the two that may not profit from it.
 Nowhere near the replay. Settlement happens because an **act landed**, never
 because time passed: the majority certificate settles the bet, and the timeout
 path is its own act that anybody can send. The host is what knows the time — it
-refuses stakes and ballots after the close, refuses certificates before it, and
-refuses calling time before the jury's window is up (except on a closed bet
-where nobody stood — there is no jury whose window it would be).
+refuses stakes and ballots after the close, refuses certificates before it,
+refuses an early close once the clock has already closed the bet, and refuses
+calling time before the jury's window is up (except on a closed bet where
+nobody stood — there is no jury whose window it would be — and except for the
+author of a bet with an empty pool). An early close moves the closing time to
+the host's stamp on that act: a number written into the log, which every
+replay then reads the same way — not a clock consulted during replay.
 
 This is not tidiness. A replay that consulted a clock would stop being a pure
 function of the log, and a market that settled differently depending on when
@@ -168,6 +181,16 @@ irreducible property of majority attestation, and no amount of bonding removes
 it; it can only be made expensive and visible. A larger jury and a larger bond
 both raise the price.
 
+**The author can shorten the contest.** Seats are contestable until the close,
+and the author decides when the close is — so an author who wanted a jury
+frozen as it stands can close betting the moment it suits them, and the
+community's window to move its weight is whatever the author left of it.
+The same is true of the stated closing time (nothing stops last-second
+ballots there either), the author has no position and earns the same fee
+whichever answer wins, and the close is a public act with its stamp beside
+it. But it is a lever the first version did not have, and it is written down
+here as one.
+
 **Bettors may vote.** Nothing stops somebody with money on an answer from
 voting for the jury that will certify it. Excluding them was considered and
 rejected: it would hand the election to the people with no interest in the
@@ -194,7 +217,8 @@ All cost θ like any act, all go through `POST /api/act`:
 | `modStand` | `cid`, `on` |
 | `modVote` | `cid`, `for` (handles, at most `seats`) |
 | `attest` | `cid`, `opt` (−1 = void) |
-| `marketVoid` | `cid` |
+| `marketVoid` | `cid` — after the jury window; at once on an unseatable bet; at any time by the author while the pool is empty |
+| `marketClose` | `cid` — author only, before the close: betting, standing and voting stop at once |
 
 Read state with `GET /api/v1/markets` (`?all=1` for settled ones too). Read the
 content id from there and never derive it — the id counter also ticks for

@@ -1262,6 +1262,19 @@ function replayUncached(acts) {
       // never take from one.
       return null;
     }
+    if (a.t === 'marketClose') {
+      // The author shuts betting before the stated closing time. This is the
+      // one lever the author holds over a running bet, and it only ever
+      // TIGHTENS the market: no new stakes, no new candidates, no new ballots
+      // from the moment it lands — exactly what the closing time would have
+      // done later. It cannot pay anyone, cannot pick an answer, and cannot
+      // reach a stake already placed. Whether the bet is already past its
+      // closing time is a clock question, and the host answers it at the
+      // door; here only the shape and the author are checked.
+      if (who !== m.by) return 'only the author of a bet closes betting on it early';
+      if (m.closedEarly) return 'betting on this bet was already closed early';
+      return null;
+    }
     return 'unknown market act';
   }
 
@@ -2262,6 +2275,14 @@ function replayUncached(acts) {
           paid: bare(), refunded: bare(), struck: bare(), earned: bare(),
           jury: [], honest: [], guilty: [], feePaid: 0, slashedTotal: 0,
           idx: i,
+          // Display state only. What happened to this bet, in log order, each
+          // entry carrying the index of the act that did it — so a screen can
+          // tell a nominee they were named, a backer that the bet settled, or
+          // a seated juror that a certification is due, and can say which of
+          // those is newer than the last thing the reader looked at. Nothing
+          // reads it back into value: settlement is decided by the maps above.
+          hist: [{ i: i, t: 'asked', who: a.author }],
+          closedEarly: false,
         };
       }
       if (!payloadGone) {
@@ -2289,6 +2310,7 @@ function replayUncached(acts) {
       // same rule an entry fee triggers, for the same reason: a payment must
       // not be able to buy the reactions that mint PEER.
       paidTo[a.author + '>' + bm.by] = true;
+      bm.hist.push({ i: i, t: 'bet', who: a.author, opt: a.opt, amt: stake });
       if (!payloadGone) {
         chron.push({ who: a.author, line: 'staked ' + fmtAmt(a.amt) + ' ' + bm.cur + ' on “'
           + (bm.opts[a.opt] || 'answer ' + (a.opt + 1)) + '” — escrowed, and in no score', to: a.cid });
@@ -2297,6 +2319,7 @@ function replayUncached(acts) {
       if (marketActError({ t: 'modStand', author: a.author, cid: a.cid, on: a.on }) !== null) continue;
       var sm = markets[a.cid];
       debit(a.author);
+      sm.hist.push({ i: i, t: a.on === false ? 'down' : 'stand', who: a.author });
       if (a.on === false) {
         var backBond = sm.cands[a.author];
         delete sm.cands[a.author];
@@ -2329,6 +2352,7 @@ function replayUncached(acts) {
       // today. The two must read the same act the same way.
       vm.votes[a.author] = { for: (Array.isArray(a.for) ? a.for : []).slice(), wt: burnedSats[a.author] || 0 };
       debit(a.author);
+      vm.hist.push({ i: i, t: 'vote', who: a.author, n: vm.votes[a.author].for.length });
       if (!payloadGone) {
         chron.push({ who: a.author, line: vm.votes[a.author].for.length
           ? 'voted for ' + vm.votes[a.author].for.map(dispName).join(', ') + ' on a jury · weight '
@@ -2340,6 +2364,7 @@ function replayUncached(acts) {
       var am = markets[a.cid];
       am.attests[a.author] = a.opt;
       debit(a.author);
+      am.hist.push({ i: i, t: 'attest', who: a.author, opt: a.opt });
       if (!payloadGone) {
         chron.push({ who: a.author, line: 'certified “' + (a.opt === -1 ? 'no answer — void' : (am.opts[a.opt] || 'answer ' + (a.opt + 1)))
           + '” on a bet · bond at risk until the jury agrees', to: a.cid });
@@ -2349,6 +2374,7 @@ function replayUncached(acts) {
       var verdict = mktVerdict(am);
       if (verdict !== null) {
         var out = mktSettle(am, verdict);
+        am.hist.push({ i: i, t: verdict === -1 ? 'void' : 'settled', outcome: verdict, who: a.author });
         chron.push({ line: 'a bet resolved to “'
           + (verdict === -1 ? 'no answer — void, every stake returned' : (am.opts[verdict] || 'answer ' + (verdict + 1)))
           + '” · pool ' + fmtAmt(am.pool) + ' ' + am.cur
@@ -2360,8 +2386,27 @@ function replayUncached(acts) {
       var zm = markets[a.cid];
       debit(a.author);
       var zout = mktSettle(zm, -1, true);
+      zm.hist.push({ i: i, t: 'void', who: a.author, outcome: -1 });
       chron.push({ who: a.author, line: 'called time on a bet the jury never settled — every stake returned in full'
         + (zout.slashed > 0 ? ', ' + zout.guilty.length + ' silent seat(s) struck for ' + fmtAmt(zout.slashed) : ''), to: a.cid });
+    } else if (a.t === 'marketClose') {
+      if (marketActError({ t: 'marketClose', author: a.author, cid: a.cid }) !== null) continue;
+      var cm = markets[a.cid];
+      debit(a.author);
+      // The closing time moves to the moment this act landed. `ts` is the
+      // stamp the host wrote on the act before appending it — a number in the
+      // log like `at` itself, not a clock consulted here — so every replay of
+      // this record moves the same closing time to the same instant, and every
+      // door that reads `at` (the host refusing late stakes and ballots, the
+      // card saying betting is closed, the jury deadline measured from the
+      // close) follows without knowing anything changed. Only ever earlier:
+      // a close that would move the time LATER is not a close.
+      if (typeof a.ts === 'number' && a.ts > 0 && (!(cm.at > 0) || a.ts < cm.at)) {
+        cm.at = a.ts;
+        cm.closedEarly = true;
+        cm.hist.push({ i: i, t: 'close', who: a.author });
+        chron.push({ who: a.author, line: 'closed betting early on their bet — no more stakes; the jury certifies from here', to: a.cid });
+      }
     } else if (a.t === 'closeEpoch') {
       // The certificate for a closed epoch is a full standing solve, and it
       // used to run here, inside the loop — once per epoch, over every cell

@@ -183,6 +183,7 @@ pub(crate) fn market(st: &mut State, a: &Value, i: usize, payload_gone: bool) {
                 fee_paid: 0.0,
                 slashed_total: 0.0,
                 idx: i as u64,
+                closed_early: false,
             },
         );
     }
@@ -459,6 +460,42 @@ pub(crate) fn market_void(st: &mut State, a: &Value, i: usize, payload_gone: boo
     });
 }
 
+// replay.cjs marketClose (after marketVoid): gate, debit, then move the
+// closing time to the act's own stamp — only ever earlier, and only when
+// the stamp is a positive number. Same predicate as the JS:
+//   typeof a.ts === 'number' && a.ts > 0 && (!(cm.at > 0) || a.ts < cm.at)
+// A ts that is not a JSON number (absent, string) leaves the market alone;
+// the debit and the gate still happen, exactly as they do in the JS. `hist`
+// (JS display state) is not ported — nothing in an epoch package reads it.
+pub(crate) fn market_close(st: &mut State, a: &Value, i: usize, payload_gone: bool) {
+    if market_act_error(st, a).is_some() {
+        return;
+    }
+    let author = js_prop_key(a.get("author"));
+    let cid = js_prop_key(a.get("cid"));
+    st.debit(&author);
+    let ts = match a.get("ts") {
+        Some(Value::Number(x)) => x.as_f64().unwrap_or(f64::NAN),
+        _ => f64::NAN,
+    };
+    let cm = st.markets.get_mut(&cid).expect("marketClose gate: market exists");
+    // `!(cm.at > 0)` in JS is true for 0, negative and NaN alike.
+    if ts > 0.0 && (!(cm.at > 0.0) || ts < cm.at) {
+        cm.at = ts;
+        cm.closed_early = true;
+        st.chron.push(ChronEntry {
+            who: WhoField::Id(author),
+            line: ChronLine::Text(
+                "closed betting early on their bet — no more stakes; the jury certifies from here"
+                    .to_string(),
+            ),
+            to: Some(cid),
+            refs: None,
+        });
+    }
+    let _ = (i, payload_gone);
+}
+
 /// replay.cjs 1170-1266 — marketActError. None = allowed; Some(sentence) =
 /// exact refusal. Exported on the final state (answers against final state).
 pub(crate) fn market_act_error(st: &State, a: &Value) -> Option<String> {
@@ -629,6 +666,17 @@ pub(crate) fn market_act_error(st: &State, a: &Value) -> Option<String> {
     }
     if t == "marketVoid" {
         // The deadline is host-side only (replay.cjs 1254-1263).
+        return None;
+    }
+    if t == "marketClose" {
+        // replay.cjs marketClose gate: author only, and not twice. Whether
+        // the clock already closed it is the host's question, not this one.
+        if !matches!(who_raw, Some(Value::String(s)) if *s == m.by) {
+            return Some("only the author of a bet closes betting on it early".to_string());
+        }
+        if m.closed_early {
+            return Some("betting on this bet was already closed early".to_string());
+        }
         return None;
     }
     Some("unknown market act".to_string())

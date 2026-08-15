@@ -125,6 +125,7 @@ pub fn replay(acts: &[Value]) -> State {
             Some("modVote") => acts_markets::mod_vote(&mut st, a, i, payload_gone),
             Some("attest") => acts_markets::attest(&mut st, a, i, payload_gone),
             Some("marketVoid") => acts_markets::market_void(&mut st, a, i, payload_gone),
+            Some("marketClose") => acts_markets::market_close(&mut st, a, i, payload_gone),
             Some("closeEpoch") => close::close_epoch(&mut st, a, i, payload_gone),
             // An act whose t matches no branch does nothing at all.
             _ => {}

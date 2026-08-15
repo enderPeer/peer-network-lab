@@ -47,8 +47,9 @@ const ACT_KINDS = new Set(['register', 'burn', 'btcBurn', 'peerBurn', 'resetToke
   // below and chain/earnings.mjs for what it binds and what it cannot.
   'bindAddress',
   // Prender Markets. `market` mints content like a post; the rest move value
-  // against it and mint nothing. See MARKETS.md.
-  'market', 'bet', 'modStand', 'modVote', 'attest', 'marketVoid']);
+  // against it and mint nothing. See MARKETS.md. `marketClose` moves no value
+  // at all: the author shutting betting before the stated time.
+  'market', 'bet', 'modStand', 'modVote', 'attest', 'marketVoid', 'marketClose']);
 const MAX_ACT_BYTES = 4096;
 const MAX_ACTS = 50000;
 const EDIT_WINDOW_MS = 5 * 60 * 1000; // posts are editable for 5 minutes
@@ -350,6 +351,7 @@ ACT_FIELDS.modStand = ['t', 'author', 'cid', 'on'];
 ACT_FIELDS.modVote = ['t', 'author', 'cid', 'for'];
 ACT_FIELDS.attest = ['t', 'author', 'cid', 'opt'];
 ACT_FIELDS.marketVoid = ['t', 'author', 'cid'];
+ACT_FIELDS.marketClose = ['t', 'author', 'cid'];
 
 // ── Deletion in an append-only log ──────────────────────────────────────────
 // Content ids are minted by a replay counter, and later acts reference them
@@ -2643,10 +2645,10 @@ const REFUSAL_CODES = [
   [/approve advert .* before marking it paid/i, 'AD_NOT_APPROVED'],
   [/url must be a plain/i, 'BAD_URL'],
   [/engine still loading/i, 'ENGINE_LOADING'],
-  [/betting on this closed|jury for this bet was settled|still open — a jury certifies|jury has until/i, 'MARKET_CLOSED'],
+  [/betting on this closed|jury for this bet was settled|still open — a jury certifies|jury has until|is already closed|already closed early/i, 'MARKET_CLOSED'],
   [/no bet is running|no such bet/i, 'NO_MARKET'],
   [/already resolved|was voided/i, 'MARKET_SETTLED'],
-  [/holds no seat|already certified|cannot back an answer|does not hold a position|cannot also certify/i, 'NOT_YOURS'],
+  [/holds no seat|already certified|cannot back an answer|does not hold a position|cannot also certify|only the author of a bet closes/i, 'NOT_YOURS'],
   [/not an ethereum address|bad address binding/i, 'BAD_ADDRESS'],
   // ── The PEER door ───────────────────────────────────────────────────────
   // Ordered before nothing and after everything, because these sentences are
@@ -3095,7 +3097,8 @@ function validate(act) {
     case 'modStand':
     case 'modVote':
     case 'attest':
-    case 'marketVoid': {
+    case 'marketVoid':
+    case 'marketClose': {
       if (!str(act.author, 24) || !str(act.cid, 40)) return 'bad ' + act.t;
       if (unknownTarget(act.cid)) return unknownTarget(act.cid);
       if (act.t === 'bet' && !num(act.amt)) return 'a stake must be a number';
@@ -3134,7 +3137,22 @@ function validate(act) {
       if (act.t === 'attest' && !closed) {
         return 'this bet is still open — a jury certifies after betting closes, not before';
       }
-      if (act.t === 'marketVoid' && Date.now() < m.at + marketResolveMs(st)) {
+      // Closing early is only meaningful while betting is open. Past the
+      // stated time the clock has already done it, and past an earlier close
+      // the act has — the replay refuses the second one on its own, but the
+      // sentence for the reader is the same in both cases: it is closed.
+      if (act.t === 'marketClose' && closed) {
+        return 'betting on this bet is already closed' + (m.closedEarly ? ' — you closed it early' : ' — it closed at ' + new Date(m.at).toLocaleString());
+      }
+      // The author taking back a question nobody has put money on. A void
+      // with an empty pool refunds nothing because there is nothing to
+      // refund, takes no fee, and returns every bond that was posted (the
+      // arithmetic in mktSettle: with no stakes there is no victim, so no
+      // bond is struck). It is the one ending the author is allowed to bring
+      // about, and it is allowed precisely because it cannot cost anyone but
+      // the author — who spent θ asking and earns no fee.
+      const authorWithdraws = act.t === 'marketVoid' && act.author === m.by && !(m.pool > 0);
+      if (act.t === 'marketVoid' && !authorWithdraws && Date.now() < m.at + marketResolveMs(st)) {
         // The jury window exists to give seated moderators time to certify.
         // Where NOBODY stood before betting closed there is nobody to wait for,
         // and no amount of waiting can produce one: `modStand` is refused from
@@ -3209,8 +3227,13 @@ function validate(act) {
       // not have asked. It redacts the question and the answers; it does NOT
       // touch the escrow, and the jury can still certify — money already
       // staked has to be able to find its way home.
-      if (!orig || (orig.t !== 'post' && orig.t !== 'event' && orig.t !== 'market')) {
-        return 'delete target is not a post, an event or a bet';
+      // 'stream' is here because a broadcast card outlives its broadcast by
+      // design — the video was never in the record — and its author had a
+      // Delete button that bounced off this line, which is a card that cannot
+      // be closed by the one person entitled to close it. A stream act parses
+      // no mentions (only `post` does), so redacting its title shifts no id.
+      if (!orig || (orig.t !== 'post' && orig.t !== 'event' && orig.t !== 'market' && orig.t !== 'stream')) {
+        return 'delete target is not a post, an event, a bet or a broadcast';
       }
       if (orig.author !== act.author) return 'only the author can delete a post';
       if (orig.redacted) return 'already deleted';
@@ -3587,7 +3610,7 @@ const API_DOC = {
     // and appeared nowhere in this index. A tester dug tokenSend out of the
     // client source and asked, correctly, whether a later ballot replaces an
     // earlier one — a question the doc should have answered. Now it does.
-    { method: 'POST', path: '/api/act', purpose: 'the raw door every verb goes through, for acts the /api/v1 shortcuts do not cover. Body is the act itself plus `auth` (your PIN). Market verbs: {t:"market", author, text, opts:[2..7], cur, at, seats:1|3|5, bond, feeBp, mods?} asks one; {t:"bet", author, cid, opt, amt} backs an answer; {t:"modStand", author, cid, on} stands for a seat (on:false stands down, bond back); {t:"modVote", author, cid, for:[ids]} elects — approval voting, up to `seats` names, weighed by the satoshis you proved you destroyed. A LATER BALLOT REPLACES YOUR EARLIER ONE, it never stacks; an empty `for` withdraws it. Betting, standing and voting all shut at `at`. {t:"attest", author, cid, opt} certifies after the close (opt -1 = void), seated moderators only, and a certification is final. {t:"marketVoid", author, cid} calls time once the jury window has passed, or at once on an unseatable bet. Value: {t:"tokenSend", author, sym, to, amt} moves a balance between HANDLES inside the log — off-chain, no 0x address involved, keyed by handle exactly like a stake or a bond. The 0x address you bind is a different layer: it only decides where an epoch\'s earnings leaf points. Every one of these costs θ like any act.', body: { t: 'the verb', author: 'your id', auth: 'your PIN', '…': 'the fields that verb takes, listed above' } },
+    { method: 'POST', path: '/api/act', purpose: 'the raw door every verb goes through, for acts the /api/v1 shortcuts do not cover. Body is the act itself plus `auth` (your PIN). Market verbs: {t:"market", author, text, opts:[2..7], cur, at, seats:1|3|5, bond, feeBp, mods?} asks one; {t:"bet", author, cid, opt, amt} backs an answer; {t:"modStand", author, cid, on} stands for a seat (on:false stands down, bond back); {t:"modVote", author, cid, for:[ids]} elects — approval voting, up to `seats` names, weighed by the satoshis you proved you destroyed. A LATER BALLOT REPLACES YOUR EARLIER ONE, it never stacks; an empty `for` withdraws it. Betting, standing and voting all shut at `at`. {t:"attest", author, cid, opt} certifies after the close (opt -1 = void), seated moderators only, and a certification is final. {t:"marketVoid", author, cid} calls time once the jury window has passed, or at once on an unseatable bet — and the author may send it at any time while the pool is empty, to take back an unbacked question (no fee, every bond returned). {t:"marketClose", author, cid} — author only — shuts betting before `at`: stakes, standing and ballots stop the instant it lands, closesAt moves to that moment, and the jury certifies from there. Value: {t:"tokenSend", author, sym, to, amt} moves a balance between HANDLES inside the log — off-chain, no 0x address involved, keyed by handle exactly like a stake or a bond. The 0x address you bind is a different layer: it only decides where an epoch\'s earnings leaf points. Every one of these costs θ like any act.', body: { t: 'the verb', author: 'your id', auth: 'your PIN', '…': 'the fields that verb takes, listed above' } },
     // Undiscoverable until now, which made it useless: proof of burn is the
     // ONLY source of weight in the PEER distribution since the faucet closed,
     // and a door nobody can find pays nobody. Sixty epochs had minted zero.
@@ -3754,7 +3777,7 @@ function applyActInner(act, auth, ip) {
     deletedIds.add(act.id);
     for (let ai = 1; ai < acts.length; ai++) {
       const a = acts[ai];
-      if ((a.t === 'post' || a.t === 'event' || a.t === 'market') && a.author === act.id && !a.redacted) redactPostAct(a, ai);
+      if ((a.t === 'post' || a.t === 'event' || a.t === 'market' || a.t === 'stream') && a.author === act.id && !a.redacted) redactPostAct(a, ai);
       // ONLY what this account authored. Blanking a message because it was
       // addressed to the leaver destroyed the counterparty's own record — their
       // words, erased by someone else's decision. The payload controller is the
@@ -4188,6 +4211,9 @@ async function handleBotApi(req, res, url, ip) {
         })),
         currency: m.cur, pool: m.pool, feeBp: m.feeBp, bond: m.bond, seats: m.seats,
         closesAt: m.at || null,
+        // True when the author shut betting before the time they first
+        // stated; closesAt then reads the moment that act landed.
+        closedEarly: !!m.closedEarly,
         juryDeadline: m.at ? m.at + marketResolveMs(st) : null,
         betting: m.state === 'open' && !!m.at && m.at > now,
         state: m.state,
@@ -4204,6 +4230,13 @@ async function handleBotApi(req, res, url, ip) {
         // Stated as a field rather than left to be re-derived, because the one
         // reader who most needs it is a bot deciding whether to wait.
         unseatable: m.state === 'open' && !!m.at && m.at <= now && Object.keys(m.cands).length === 0,
+        // What happened to it, in log order, each entry with the act index
+        // that did it — asked / bet / stand / down / vote / attest / close /
+        // settled / void. A bot polling for "did the bet I backed settle" reads
+        // the tail of this rather than diffing whole rows.
+        history: (m.hist || []).map((e) => ({ act: e.i, what: e.t, who: e.who ?? null,
+          ...(e.opt !== undefined ? { answer: e.opt } : {}), ...(e.amt !== undefined ? { amount: e.amt } : {}),
+          ...(e.outcome !== undefined ? { outcome: e.outcome } : {}) })),
       };
     }).filter((m) => (open ? m.state === 'open' : true))
       .sort((a, b) => (a.closesAt ?? Infinity) - (b.closesAt ?? Infinity));
@@ -4213,7 +4246,10 @@ async function handleBotApi(req, res, url, ip) {
         + 'Back one with {t:"bet", cid, opt, amt}. Stand for a seat with {t:"modStand", cid, on}, elect with '
         + '{t:"modVote", cid, for:[ids]}, certify with {t:"attest", cid, opt} (opt -1 = void), and after the jury '
         + 'deadline anyone may {t:"marketVoid", cid} — or straight away on a market marked "unseatable", where '
-        + 'betting closed with nobody standing and no jury can ever be seated. Every one costs θ like any act.',
+        + 'betting closed with nobody standing and no jury can ever be seated. The AUTHOR may {t:"marketClose", cid} '
+        + 'to shut betting before closesAt (stakes, standing and ballots all stop at that instant; the jury certifies '
+        + 'from there), and may {t:"marketVoid", cid} their own bet at any time while its pool is empty — nothing to '
+        + 'refund, no fee, every bond back. Every one costs θ like any act.',
       note: 'Stakes and bonds are value and touch no standing: no market act appends an edge, compiles a vouch, '
         + 'or enters an epoch certificate. Ballots are weighed by satoshis the voter proved they destroyed.',
     });
@@ -4266,6 +4302,12 @@ async function handleBotApi(req, res, url, ip) {
           transferL0: 'transferred credits', setPin: 'secured their handle', editPost: 'edited a post',
           deletePost: 'deleted a post', deleteAccount: 'deleted their account',
           closeEpoch: 'the epoch closed', closeCycle: 'the economic cycle closed', seedWorld: 'the world was seeded',
+          stream: 'went live', event: 'announced a gathering', rsvp: 'answered a gathering', invite: 'invited someone to a gathering',
+          follow: 'followed someone', profile: 'edited their profile', bindAddress: 'bound a payout address',
+          market: 'asked a bet', bet: 'staked on a bet', modStand: 'stood for a jury seat', modVote: 'voted on a jury',
+          attest: 'certified a bet', marketVoid: 'called time on a bet', marketClose: 'closed betting early on their bet',
+          tokenSend: 'moved tokens', assetCreate: 'minted an asset', poolCreate: 'opened a pool', poolAdd: 'added to a pool',
+          poolRemove: 'withdrew from a pool', poolSwap: 'swapped in a pool', btcBurn: 'burned bitcoin for reserve', peerBurn: 'burned PEER for reserve',
         }[a.t] || a.t;
         // The node this act minted, or (for a revision) the node it wrote to.
         // Asked for by an API client whose replies went to a self-derived id
@@ -5516,7 +5558,16 @@ const server = createServer((req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/api/live') {
     if (!readLimiter(ip)) { json(res, 429, { error: 'slow down' }); return; }
-    json(res, 200, { live: liveNow() });
+    // `capacity` is here so the app can refuse to mint a stream act it
+    // already knows the relay will not carry. Going live is a priced Publish
+    // — θ spent, a permanent node minted — and it used to be paid BEFORE the
+    // relay was asked; a host at its stream cap answered the second step with
+    // 503 and left a dead broadcast card that had cost real reserve.
+    const carrying = streamHub.list().length;
+    json(res, 200, {
+      live: liveNow(),
+      capacity: { streams: carrying, maxStreams: streamHub.limits.maxStreams, full: carrying >= streamHub.limits.maxStreams },
+    });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/live') {
@@ -5534,7 +5585,21 @@ const server = createServer((req, res) => {
         if (!pinFailLimiter(ip)) { json(res, 429, { error: 'too many PIN attempts — locked for a few minutes' }); return; }
         json(res, 401, { error: aerr }); return;
       }
-      if (m.stop) { liveStreams.delete(id); json(res, 200, { ok: true, live: false }); return; }
+      if (m.stop) {
+        liveStreams.delete(id);
+        // The relayed broadcast too — not only the legacy heartbeat entry.
+        // This is what lets a broadcaster end their own stream from a device
+        // other than the one pushing it: the phone that went live is in a
+        // pocket, the laptop is where they are reading, and the PIN is the
+        // proof it is the same person. The push socket is closed with a
+        // reason, so the broadcasting tab learns why it stopped.
+        let ended = 0;
+        for (const s of streamHub.list()) {
+          if (s.owner === id) { streamHub.end(s.id, 'ended by the broadcaster from another session'); ended += 1; }
+        }
+        json(res, 200, { ok: true, live: false, ended });
+        return;
+      }
       const prev = liveStreams.get(id);
       liveStreams.set(id, {
         cid: typeof m.cid === 'string' ? m.cid.slice(0, 40) : (prev && prev.cid) || null,

@@ -674,6 +674,21 @@ chron.push({ who: a.author, line: 'called time on a bet the jury never settled �
 ```
 Chron unconditional.
 
+## `marketClose` (added 2026-08-15, follows `marketVoid`)
+
+Gate via marketActError (`{t:'marketClose', author, cid}`): actor/energy/market-exists/open, then `who !== m.by` → `'only the author of a bet closes betting on it early'`, then `m.closedEarly` → `'betting on this bet was already closed early'`. Whether the clock already closed it is host-only. Then:
+```js
+var cm = markets[a.cid];
+debit(a.author);
+if (typeof a.ts === 'number' && a.ts > 0 && (!(cm.at > 0) || a.ts < cm.at)) {
+  cm.at = a.ts;                 // the closing time moves to the act's own host stamp — only ever earlier
+  cm.closedEarly = true;
+  cm.hist.push({ i: i, t: 'close', who: a.author });   // JS display state, not ported
+  chron.push({ who: a.author, line: 'closed betting early on their bet — no more stakes; the jury certifies from here', to: a.cid });
+}
+```
+`ts` is read as data (the host stamped it before appending) — this is not a clock consulted in replay. Debit happens even when the stamp is missing and nothing moves. `hist` (an array on every market: asked/bet/stand/down/vote/attest/close/settled/void entries with the act index) is display state consumed by the interface and `/api/v1/markets.history`; no epoch package reads it, so the Rust port carries `closed_early` only.
+
 ## `closeEpoch` (2365–2495) — full sequence, in order
 
 ```js

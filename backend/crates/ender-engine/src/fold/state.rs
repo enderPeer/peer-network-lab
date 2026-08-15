@@ -739,6 +739,10 @@ pub struct Market {
     pub fee_paid: f64,
     pub slashed_total: f64,
     pub idx: u64,
+    /// True once the author closed betting early (replay.cjs marketClose):
+    /// `at` then holds the stamp of that act. Display state; nothing in
+    /// settlement reads it.
+    pub closed_early: bool,
 }
 
 // ---------------------------------------------------------------------------

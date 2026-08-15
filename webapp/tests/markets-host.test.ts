@@ -304,3 +304,107 @@ describe('deleting a bet', () => {
     expect(more.body.error).toMatch(/was deleted — no new money goes in/);
   });
 });
+
+describe('the author’s two levers', () => {
+  it('closes betting early: stakes, standing and ballots stop at once, the jury may certify, and the API says so', async () => {
+    const { r, cid: id } = await ask('close me early', { at: Date.now() + HOUR, seats: 1, bond: 10, feeBp: 200 });
+    expect(r.status).toBe(200);
+    expect((await act({ t: 'bet', author: 'u_backer', cid: id, opt: 0, amt: 5 })).status).toBe(200);
+    expect((await act({ t: 'modStand', author: 'u_mod1', cid: id, on: true })).status).toBe(200);
+    // Not the author: refused in the replay's words, and betting stays open.
+    const stranger = await act({ t: 'marketClose', author: 'u_mod2', cid: id });
+    expect(stranger.status).toBe(400);
+    expect(stranger.body.error).toMatch(/only the author of a bet closes/);
+    expect(stranger.body.code).toBe('NOT_YOURS');
+    let row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === id)!;
+    expect(row.betting).toBe(true);
+    expect(row.closedEarly).toBe(false);
+    // The author: accepted, and the closing time is now the moment it landed.
+    const t0 = Date.now();
+    const closed = await act({ t: 'marketClose', author: 'u_asker', cid: id });
+    expect(closed.status).toBe(200);
+    row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === id)!;
+    expect(row.betting).toBe(false);
+    expect(row.closedEarly).toBe(true);
+    expect(row.closesAt).toBeGreaterThanOrEqual(t0 - 5);
+    expect(row.closesAt).toBeLessThanOrEqual(Date.now() + 5);
+    expect(row.juryDeadline).toBe(row.closesAt + 7 * 24 * HOUR);
+    expect(row.history.map((e: any) => e.what)).toEqual(['asked', 'bet', 'stand', 'close']);
+    // Everything that shapes the answer is refused from here on…
+    const late = await act({ t: 'bet', author: 'u_backer', cid: id, opt: 1, amt: 5 });
+    expect(late.status).toBe(400);
+    expect(late.body.code).toBe('MARKET_CLOSED');
+    expect((await act({ t: 'modStand', author: 'u_mod2', cid: id, on: true })).body.code).toBe('MARKET_CLOSED');
+    expect((await act({ t: 'modVote', author: 'u_backer', cid: id, for: ['u_mod1'] })).body.code).toBe('MARKET_CLOSED');
+    // …a second close is refused as already closed…
+    const again = await act({ t: 'marketClose', author: 'u_asker', cid: id });
+    expect(again.status).toBe(400);
+    expect(again.body.error).toMatch(/already closed/);
+    // …and the seated juror may certify straight away.
+    const cert = await act({ t: 'attest', author: 'u_mod1', cid: id, opt: 0 });
+    expect(cert.status).toBe(200);
+    row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === id)!;
+    expect(row.state).toBe('resolved');
+    expect(row.outcome).toBe(0);
+  });
+
+  it('refuses to close a bet the clock already closed', async () => {
+    const shut = await ask('clock beat me', { at: Date.now() + 1200, seats: 1, feeBp: 0 });
+    expect(shut.r.status).toBe(200);
+    await new Promise((res) => setTimeout(res, 1400));
+    const r = await act({ t: 'marketClose', author: 'u_asker', cid: shut.cid });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/already closed/);
+    expect(r.body.code).toBe('MARKET_CLOSED');
+  });
+
+  it('lets the author take back an unbacked question at any time — and nobody else, and not once money is on it', async () => {
+    const { cid: id } = await ask('withdraw me', { at: Date.now() + HOUR, seats: 1, bond: 10, feeBp: 200 });
+    // A candidate has bonded: the withdrawal must hand that bond straight back.
+    expect((await act({ t: 'modStand', author: 'u_mod3', cid: id, on: true })).status).toBe(200);
+    const modBefore = (await get('/api/v1/tokens?as=u_mod3')).balances.CHIP as number;
+    // Not the author, and the jury window has not passed: refused as before.
+    const stranger = await act({ t: 'marketVoid', author: 'u_mod2', cid: id });
+    expect(stranger.status).toBe(400);
+    expect(stranger.body.error).toMatch(/jury has until/);
+    // The author, with an empty pool: accepted at once.
+    const mine = await act({ t: 'marketVoid', author: 'u_asker', cid: id });
+    expect(mine.status).toBe(200);
+    const row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === id)!;
+    expect(row.state).toBe('void');
+    expect(Object.keys(row.struck)).toEqual([]);              // nobody was kept waiting, no bond struck
+    const modAfter = (await get('/api/v1/tokens?as=u_mod3')).balances.CHIP as number;
+    expect(modAfter - modBefore).toBeCloseTo(10, 6);          // the bond came home
+    // Once a stake is on it, the author has no such lever.
+    const { cid: backed } = await ask('cannot withdraw', { at: Date.now() + HOUR, seats: 1, bond: 10, feeBp: 200 });
+    expect((await act({ t: 'bet', author: 'u_backer', cid: backed, opt: 0, amt: 1 })).status).toBe(200);
+    const no = await act({ t: 'marketVoid', author: 'u_asker', cid: backed });
+    expect(no.status).toBe(400);
+    expect(no.body.error).toMatch(/jury has until/);
+  });
+});
+
+describe('a broadcast card can be deleted by its author', () => {
+  it('accepts deletePost on a stream act, redacts the title, and refuses everyone else', async () => {
+    expect((await act({ t: 'stream', author: 'u_asker', text: 'kitchen cam', a: 0.8 })).status).toBe(200);
+    const acts = (await get('/api/acts')).acts as Array<Record<string, unknown>>;
+    let sIdx = -1;
+    for (let i = 0; i < acts.length; i++) if (acts[i]!.t === 'stream' && acts[i]!.text === 'kitchen cam') sIdx = i;
+    expect(sIdx).toBeGreaterThan(0);
+    const other = await act({ t: 'deletePost', author: 'u_backer', target: sIdx });
+    expect(other.status).toBe(400);
+    expect(other.body.error).toMatch(/only the author/);
+    const own = await act({ t: 'deletePost', author: 'u_asker', target: sIdx });
+    expect(own.status).toBe(200);
+    const after = (await get('/api/acts')).acts as Array<Record<string, unknown>>;
+    expect(after[sIdx]!.text).toBe('');
+    expect(after[sIdx]!.redacted).toBe(true);
+    // The structural commitment is untouched: a stream act carries no
+    // mentions, and its title is payload to the chain like any text.
+    const { actCommitments } = await import(new URL('../chain/acts.mjs', import.meta.url).href);
+    const { R } = await import('./helpers/chain');
+    const before = actCommitments(acts.slice(1), R.parseMentions).structural[sIdx - 1];
+    const now = actCommitments(after.slice(1), R.parseMentions).structural[sIdx - 1];
+    expect(now).toBe(before);
+  });
+});
