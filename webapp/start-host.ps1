@@ -10,8 +10,14 @@ $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $logDir = Join-Path $here 'server-data'
 
+# node.exe ONLY. The filter used to be the command line alone, and a
+# PowerShell whose own command line merely mentioned server.mjs - a hashing
+# one-liner run beside this script - matched, was killed, and took THIS
+# script down with it before the new host had started. The network was
+# dark for a minute. The command line names the file; the process name
+# names the runtime; a host is both.
 Get-CimInstance Win32_Process |
-  Where-Object { $_.CommandLine -like '*server.mjs*' } |
+  Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*server.mjs*' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 3
 
