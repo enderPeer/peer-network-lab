@@ -1889,6 +1889,18 @@ button, .btn { touch-action: manipulation; }
       .catch(function () {});
   }
 
+  // A repaint a background source owed but could not pay: the poll's RESPONSE
+  // used to call render() unguarded, and render() settles an open PIN dialog
+  // as cancelled — so a dialog opened during the round trip (long, on a phone
+  // returning from the reconnect banner) vanished mid-typing with no toast,
+  // and the switch silently died. Background repaints now go through
+  // repaintSoon(): paint if it is safe, otherwise owe it and pay on the next
+  // safe poll tick. Nothing a user opened is torn down by a timer.
+  var repaintOwed = false;
+  function repaintSoon() {
+    if (document.querySelector('.pin-dialog') || !safeToRepaint()) { repaintOwed = true; return; }
+    render();
+  }
   function pollRemote() {
     var ae = document.activeElement;
     // Never while a credential is being typed, offline or not: the reconnect
@@ -1896,6 +1908,7 @@ button, .btn { touch-action: manipulation; }
     // the connection can wait the five seconds until the next tick.
     if (document.querySelector('.pin-dialog')) return;
     if (!offline && !safeToRepaint()) return;
+    if (repaintOwed) { repaintOwed = false; render(); }
     // Captured at dispatch, honoured at response. `since` because the world
     // may have GROWN while the request travelled (a push landing mid-poll
     // would double the tail); `gen` because the world may have been REPLACED —
@@ -1908,7 +1921,8 @@ button, .btn { touch-action: manipulation; }
         if (gen !== netGen) return;
         var wasOffline = offline;
         setOnline(true);
-        if (mergeTail({ acts: d.acts, since: since }) || wasOffline) render();
+        // The dispatch guard, applied at RESPONSE too: see repaintSoon().
+        if (mergeTail({ acts: d.acts, since: since }) || wasOffline) repaintSoon();
         // The drain's second chance: the adoption-time attempt is a single
         // shot that silently loses to pushBusy or a lingering offline flag.
         // Untried entries only — drainOutbox never auto-retries a marked one.
@@ -7065,7 +7079,7 @@ button, .btn { touch-action: manipulation; }
         if (!d || !Array.isArray(d.ads)) return;
         var changed = d.ads.length !== adList.length;
         adList = d.ads;
-        if (changed) render();
+        if (changed) repaintSoon();
       })
       .catch(function () {});
   }
