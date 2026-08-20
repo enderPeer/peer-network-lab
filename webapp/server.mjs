@@ -2645,7 +2645,7 @@ const REFUSAL_CODES = [
   [/approve advert .* before marking it paid/i, 'AD_NOT_APPROVED'],
   [/url must be a plain/i, 'BAD_URL'],
   [/engine still loading/i, 'ENGINE_LOADING'],
-  [/betting on this closed|jury for this bet was settled|still open — a jury certifies|jury has until|is already closed|already closed early/i, 'MARKET_CLOSED'],
+  [/betting on this closed|jury for this bet was settled|still open — a jury certifies|jury has until|is already closed|already closed early|already closing by the clock|impossible to certify|no longer be withdrawn/i, 'MARKET_CLOSED'],
   [/no bet is running|no such bet/i, 'NO_MARKET'],
   [/already resolved|was voided/i, 'MARKET_SETTLED'],
   [/holds no seat|already certified|cannot back an answer|does not hold a position|cannot also certify|only the author of a bet closes/i, 'NOT_YOURS'],
@@ -2889,6 +2889,14 @@ function validate(act) {
     case 'review':
       if (act.upd !== undefined) {
         if (!Number.isInteger(act.upd)) return 'bad comment update target';
+        // Normalise to the MINT. A revision is itself a review act carrying
+        // `upd`, so 'revise what I just revised' arrives naming a revision —
+        // which the replay would treat as a fresh comment (actContent is only
+        // set for mints), splitting the thread. Same walk the post door does.
+        let seenUpd = 0;
+        while (acts[act.upd] && acts[act.upd].t === 'review' && Number.isInteger(acts[act.upd].upd) && seenUpd++ < 64) {
+          act.upd = acts[act.upd].upd;
+        }
         const orig = acts[act.upd];
         if (!orig || orig.t !== 'review') return 'update target is not a comment';
         if (orig.author !== act.author) return 'only the author can revise their own comment';
@@ -3137,12 +3145,33 @@ function validate(act) {
       if (act.t === 'attest' && !closed) {
         return 'this bet is still open — a jury certifies after betting closes, not before';
       }
-      // Closing early is only meaningful while betting is open. Past the
-      // stated time the clock has already done it, and past an earlier close
-      // the act has — the replay refuses the second one on its own, but the
-      // sentence for the reader is the same in both cases: it is closed.
-      if (act.t === 'marketClose' && closed) {
-        return 'betting on this bet is already closed' + (m.closedEarly ? ' — you closed it early' : ' — it closed at ' + new Date(m.at).toLocaleString());
+      if (act.t === 'marketClose') {
+        // The rulebook FIRST, so a stranger hears 'only the author closes'
+        // (NOT_YOURS, the replay's own sentence) rather than a clock sentence
+        // with a false 'you' in it. Then the two clock refusals, which are
+        // this door's alone: the stated time has passed, or is about to.
+        const doorWhy = marketDoor(act, { author: act.author, cid: act.cid });
+        if (doorWhy) return doorWhy;
+        if (closed) {
+          return 'betting on this bet is already closed — it closed at ' + new Date(m.at).toLocaleString();
+        }
+        // The stamp this act will carry is written AFTER the PIN check, which
+        // takes real milliseconds — a close accepted here with less margin
+        // than that would land in the log stamped past the closing time, and
+        // the replay (rightly) refuses to move a closing time LATER, so the
+        // author would have paid θ for an act that did nothing.
+        if (m.at - Date.now() < 1000) {
+          return 'betting on this bet is already closing by the clock — nothing left to close early';
+        }
+        // A backed bet with no candidates must stay open to its stated time:
+        // standing shuts with betting, so closing it now would freeze the
+        // candidate list empty and hand ANYONE an immediate void of a bet
+        // with real money on it. The stakes were placed against the stated
+        // time; only a jury that can still form may end it sooner.
+        if (m.pool > 0 && Object.keys(m.cands).length === 0) {
+          return 'money is on this bet and nobody is standing yet — closing now would make it impossible to certify. It stays open to its stated time so a jury can still form.';
+        }
+        return null;
       }
       // The author taking back a question nobody has put money on. A void
       // with an empty pool refunds nothing because there is nothing to
@@ -3152,7 +3181,13 @@ function validate(act) {
       // about, and it is allowed precisely because it cannot cost anyone but
       // the author — who spent θ asking and earns no fee.
       const authorWithdraws = act.t === 'marketVoid' && act.author === m.by && !(m.pool > 0);
-      if (act.t === 'marketVoid' && !authorWithdraws && Date.now() < m.at + marketResolveMs(st)) {
+      // From the STATED closing time when the author closed early: an early
+      // close lets the jury certify sooner but must never shorten its window
+      // below the time the question itself needs — a bet about Sunday closed
+      // on Monday would otherwise strike every honest seat for staying
+      // silent about an answer that did not exist yet.
+      const mktWindowFrom = Math.max(m.at || 0, m.statedAt || 0);
+      if (act.t === 'marketVoid' && !authorWithdraws && Date.now() < mktWindowFrom + marketResolveMs(st)) {
         // The jury window exists to give seated moderators time to certify.
         // Where NOBODY stood before betting closed there is nobody to wait for,
         // and no amount of waiting can produce one: `modStand` is refused from
@@ -3171,7 +3206,12 @@ function validate(act) {
         // to the same numbers for everyone who replays it.
         const juryStillPossible = Object.keys(m.cands).length > 0;
         if (juryStillPossible || !closed) {
-          return 'the jury has until ' + new Date(m.at + marketResolveMs(st)).toLocaleString()
+          // The author asking to take back a bet somebody has staked on gets
+          // the true sentence, not a date: no date lifts this refusal.
+          if (act.author === m.by && m.pool > 0) {
+            return 'a stake has landed on this bet, so it can no longer be withdrawn — it ends by the jury, or by the window at ' + new Date(mktWindowFrom + marketResolveMs(st)).toLocaleString();
+          }
+          return 'the jury has until ' + new Date(mktWindowFrom + marketResolveMs(st)).toLocaleString()
             + ' to certify this bet; time can be called after that';
         }
       }
@@ -4212,9 +4252,13 @@ async function handleBotApi(req, res, url, ip) {
         currency: m.cur, pool: m.pool, feeBp: m.feeBp, bond: m.bond, seats: m.seats,
         closesAt: m.at || null,
         // True when the author shut betting before the time they first
-        // stated; closesAt then reads the moment that act landed.
+        // stated; closesAt then reads the moment that act landed and
+        // closesAtStated keeps the original. The jury window runs from the
+        // LATER of the two: an early close lets the jury certify sooner but
+        // never shortens the time the question itself needs.
         closedEarly: !!m.closedEarly,
-        juryDeadline: m.at ? m.at + marketResolveMs(st) : null,
+        closesAtStated: m.statedAt || m.at || null,
+        juryDeadline: (m.at || m.statedAt) ? Math.max(m.at || 0, m.statedAt || 0) + marketResolveMs(st) : null,
         betting: m.state === 'open' && !!m.at && m.at > now,
         state: m.state,
         outcome: m.outcome >= 0 ? m.outcome : null,
@@ -4247,9 +4291,11 @@ async function handleBotApi(req, res, url, ip) {
         + '{t:"modVote", cid, for:[ids]}, certify with {t:"attest", cid, opt} (opt -1 = void), and after the jury '
         + 'deadline anyone may {t:"marketVoid", cid} — or straight away on a market marked "unseatable", where '
         + 'betting closed with nobody standing and no jury can ever be seated. The AUTHOR may {t:"marketClose", cid} '
-        + 'to shut betting before closesAt (stakes, standing and ballots all stop at that instant; the jury certifies '
-        + 'from there), and may {t:"marketVoid", cid} their own bet at any time while its pool is empty — nothing to '
-        + 'refund, no fee, every bond back. Every one costs θ like any act.',
+        + 'to shut betting before closesAt (stakes, standing and ballots all stop at that instant; the jury may '
+        + 'certify from there, and its deadline still runs from closesAtStated), and may {t:"marketVoid", cid} their '
+        + 'own bet at any time while its pool is empty — nothing to refund, no fee, every bond back. Each row carries '
+        + '`history`: what happened to the bet in log order (asked/bet/stand/down/vote/attest/close/settled/void), '
+        + 'each entry with the index of the act that did it. Every act costs θ like any act.',
       note: 'Stakes and bonds are value and touch no standing: no market act appends an edge, compiles a vouch, '
         + 'or enters an epoch certificate. Ballots are weighed by satoshis the voter proved they destroyed.',
     });
@@ -5537,6 +5583,16 @@ const server = createServer((req, res) => {
       }
       const cid = typeof m.cid === 'string' ? m.cid.slice(0, 40) : '';
       if (!cid) { json(res, 400, { code: 'BAD_REQUEST', error: 'a broadcast needs the content id of its stream act' }); return; }
+      // The node must be a stream THIS handle minted. Without the check,
+      // anyone with a PIN could open a relay on someone else's stream card —
+      // the card keys 'on air' on the cid, so their viewers would join a
+      // stranger's broadcast wearing the author's name.
+      const stStream = freshState();
+      if (!stStream) { json(res, 503, { code: 'ENGINE_LOADING', error: 'engine still loading — try again in a moment' }); return; }
+      if (!stStream.postMeta[cid] || !stStream.postMeta[cid].stream || stStream.creators[cid] !== as) {
+        json(res, 403, { code: 'NOT_YOURS', error: 'that content id is not a broadcast of yours — going live mints its own stream act, and only its author may push to it' });
+        return;
+      }
       const r = streamHub.open({ id: cid, owner: as, title: m.title, can: m.can });
       if (r.error) { json(res, 503, { code: 'STREAM_BUSY', error: r.error }); return; }
       json(res, 200, {

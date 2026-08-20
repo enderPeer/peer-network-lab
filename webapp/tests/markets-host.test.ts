@@ -328,7 +328,10 @@ describe('the author’s two levers', () => {
     expect(row.closedEarly).toBe(true);
     expect(row.closesAt).toBeGreaterThanOrEqual(t0 - 5);
     expect(row.closesAt).toBeLessThanOrEqual(Date.now() + 5);
-    expect(row.juryDeadline).toBe(row.closesAt + 7 * 24 * HOUR);
+    // The window runs from the STATED close, not the early one: an early
+    // close must never shorten the time the question itself needs.
+    expect(row.closesAtStated).toBeGreaterThan(row.closesAt);
+    expect(row.juryDeadline).toBe(row.closesAtStated + 7 * 24 * HOUR);
     expect(row.history.map((e: any) => e.what)).toEqual(['asked', 'bet', 'stand', 'close']);
     // Everything that shapes the answer is refused from here on…
     const late = await act({ t: 'bet', author: 'u_backer', cid: id, opt: 1, amt: 5 });
@@ -346,6 +349,30 @@ describe('the author’s two levers', () => {
     row = ((await get('/api/v1/markets?all=1')).markets as Array<Record<string, any>>).find((m) => m.id === id)!;
     expect(row.state).toBe('resolved');
     expect(row.outcome).toBe(0);
+  });
+
+  it('refuses to close a backed bet while nobody is standing — that close would be a void anyone could call', async () => {
+    const { cid: id } = await ask('backed and unjuried', { at: Date.now() + HOUR, seats: 1, bond: 10, feeBp: 200 });
+    expect((await act({ t: 'bet', author: 'u_backer', cid: id, opt: 0, amt: 3 })).status).toBe(200);
+    const r = await act({ t: 'marketClose', author: 'u_asker', cid: id });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/impossible to certify/);
+    expect(r.body.code).toBe('MARKET_CLOSED');
+    // And the author asking to withdraw it gets the true sentence, not a date that will lift.
+    const wd = await act({ t: 'marketVoid', author: 'u_asker', cid: id });
+    expect(wd.status).toBe(400);
+    expect(wd.body.error).toMatch(/no longer be withdrawn/);
+    // Once somebody stands, the early close is allowed again.
+    expect((await act({ t: 'modStand', author: 'u_mod2', cid: id, on: true })).status).toBe(200);
+    expect((await act({ t: 'marketClose', author: 'u_asker', cid: id })).status).toBe(200);
+  });
+
+  it('answers a stranger closing another author’s bet with the rulebook’s own sentence', async () => {
+    const { cid: id } = await ask('not yours to close', { at: Date.now() + HOUR, seats: 1, bond: 10, feeBp: 200 });
+    const r = await act({ t: 'marketClose', author: 'u_backer', cid: id });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/only the author of a bet closes/);
+    expect(r.body.code).toBe('NOT_YOURS');
   });
 
   it('refuses to close a bet the clock already closed', async () => {
@@ -380,7 +407,8 @@ describe('the author’s two levers', () => {
     expect((await act({ t: 'bet', author: 'u_backer', cid: backed, opt: 0, amt: 1 })).status).toBe(200);
     const no = await act({ t: 'marketVoid', author: 'u_asker', cid: backed });
     expect(no.status).toBe(400);
-    expect(no.body.error).toMatch(/jury has until/);
+    // The author hears the true sentence — no date will lift this refusal.
+    expect(no.body.error).toMatch(/no longer be withdrawn/);
   });
 });
 

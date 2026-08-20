@@ -687,7 +687,7 @@ if (typeof a.ts === 'number' && a.ts > 0 && (!(cm.at > 0) || a.ts < cm.at)) {
   chron.push({ who: a.author, line: 'closed betting early on their bet — no more stakes; the jury certifies from here', to: a.cid });
 }
 ```
-`ts` is read as data (the host stamped it before appending) — this is not a clock consulted in replay. Debit happens even when the stamp is missing and nothing moves. `hist` (an array on every market: asked/bet/stand/down/vote/attest/close/settled/void entries with the act index) is display state consumed by the interface and `/api/v1/markets.history`; no epoch package reads it, so the Rust port carries `closed_early` only.
+`ts` is read as data (the host stamped it before appending) — this is not a clock consulted in replay. The record also carries `statedAt` (set at mint to the same value as `at`, never moved): the HOST measures the jury window from max(at, statedAt), so an early close cannot shorten it; the replay itself never reads statedAt. Debit happens even when the stamp is missing and nothing moves. `hist` (an array on every market: asked/bet/stand/down/vote/attest/close/settled/void entries with the act index) is display state consumed by the interface and `/api/v1/markets.history`; no epoch package reads it, so the Rust port carries `closed_early` only.
 
 ## `closeEpoch` (2365–2495) — full sequence, in order
 

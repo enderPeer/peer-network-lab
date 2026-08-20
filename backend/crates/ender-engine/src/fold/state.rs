@@ -708,6 +708,10 @@ pub struct Market {
     /// Labels '' when redacted.
     pub opts: Vec<String>,
     pub at: f64,
+    /// The closing time as first stated. `at` moves on an early close; this
+    /// never does, and the host measures the jury window from the later of
+    /// the two. Not read by any epoch package.
+    pub stated_at: f64,
     pub seats: u64,
     /// round6'd.
     pub bond: f64,

@@ -188,7 +188,7 @@ for (var pre = 0; pre < acts.length; pre++) {
   paid: IndexMap<String, f64>, refunded: IndexMap<String, f64>,
   struck: IndexMap<String, f64>, earned: IndexMap<String, f64>,   // all bare()
   jury: Vec<String>, honest: Vec<String>, guilty: Vec<String>,
-  feePaid: f64, slashedTotal: f64, idx: u64, closedEarly: bool, hist: [display-only, not ported] }
+  feePaid: f64, slashedTotal: f64, idx: u64, closedEarly: bool, statedAt: f64 (the at as first stated; marketClose moves at only), hist: [display-only, not ported] }
 ```
 
   **It sites:** `mktSeats` — `for (id in m.cands)` (zero-init of `w`, insertion order = output order of `weight`), `for (var v in m.votes)` (**float accumulation order** of `w[cand] += wt` follows votes insertion order; JS object reassignment `votes[a.author] = …` keeps the FIRST insertion position — IndexMap `insert` matches), `Object.keys(m.cands).sort(comparator)` (deterministic sort, see helper). `mktSettle` — `Object.keys(m.cands).sort()`, `Object.keys(m.stakes[outcome]).sort()`, `Object.keys(m.stakes[i]).sort()`, `Object.keys(m.byBettor).sort()` — all lexicographically sorted, order-insensitive to insertion but **round6 running-sum order = sorted key order**. `mktVerdict` iterates `seated` (Vec order).

@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -381,6 +381,16 @@ describe('a broadcast through the host', () => {
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'peer-stream-test-'));
     mkdirSync(join(dir, 'server-data'), { recursive: true });
+    // Registered WITH energy, in the seed file: the relay refuses a cid that
+    // is not the caller's own stream node now, so these tests publish real
+    // stream acts — and a stream act is W1-gated, which an account opened at
+    // zero through the API could never afford.
+    const seedLog = [
+      { t: 'register', id: 'u_bee', handle: 'bee', seed: 1, epoch: 0, pinHash: pinHash('u_bee', '1234') },
+      { t: 'btcBurn', id: 'u_bee', sats: 40000, addr: 'bc1qdead', txid: 'bee'.padEnd(64, 'abcdef0123456789') },
+      { t: 'register', id: 'u_nopin', handle: 'nopin', seed: 1, epoch: 0 },
+    ];
+    writeFileSync(join(dir, 'server-data', 'acts.jsonl'), seedLog.map((a) => JSON.stringify(a)).join(String.fromCharCode(10)) + String.fromCharCode(10));
     child = spawn(process.execPath, [join(ROOT, 'server.mjs'), String(PORT)], {
       stdio: 'ignore',
       env: { ...process.env, PEER_DATA_DIR: join(dir, 'server-data') },
@@ -388,10 +398,24 @@ describe('a broadcast through the host', () => {
     for (let i = 0; i < 100; i++) {
       try { await fetch(BASE + '/api/live'); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
     }
-    const total = async () => ((await (await fetch(BASE + '/api/acts')).json()) as { total: number }).total;
-    await post('/api/act', { t: 'register', id: 'u_bee', handle: 'bee', seed: 1, epoch: 0, pinHash: pinHash('u_bee', '1234'), since: await total() });
-    await post('/api/act', { t: 'register', id: 'u_nopin', handle: 'nopin', seed: 1, epoch: 0, since: await total() });
   }, 30000);
+
+  /** Publish a stream act as u_bee and read back the node it minted. */
+  async function mintStream(title: string): Promise<string> {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const total = ((await (await fetch(BASE + '/api/acts')).json()) as { total: number }).total;
+      const r = await post('/api/act', { t: 'stream', author: 'u_bee', text: title, a: 0.8, auth: '1234', since: total });
+      if (r.status !== 200) { await new Promise((res) => setTimeout(res, 100)); continue; }   // engine may still be warming
+      for (let i = 0; i < 50; i++) {
+        const ev = (await (await fetch(BASE + '/api/v1/events?since=' + total)).json()) as { events?: Array<{ node?: string }> };
+        const node = ev.events && ev.events[0] && ev.events[0].node;
+        if (node) return node;
+        await new Promise((res) => setTimeout(res, 100));
+      }
+      break;
+    }
+    throw new Error('stream node never minted');
+  }
 
   afterAll(() => {
     child?.kill();
@@ -411,11 +435,12 @@ describe('a broadcast through the host', () => {
   });
 
   it('carries real bytes from a broadcaster to a viewer', async () => {
-    const open = await post('/api/stream/open', { as: 'u_bee', auth: '1234', cid: 'c7', title: 'kitchen', can: [WEBM] });
+    const cid = await mintStream('kitchen');
+    const open = await post('/api/stream/open', { as: 'u_bee', auth: '1234', cid, title: 'kitchen', can: [WEBM] });
     expect(open.status).toBe(200);
     expect(open.body.key).toBeTruthy();
 
-    const push = await wsConnect(`${BASE}/api/stream/ws?role=push&s=c7`);
+    const push = await wsConnect(`${BASE}/api/stream/ws?role=push&s=${cid}`);
     push.sendText(JSON.stringify({ t: 'auth', key: open.body.key, mime: WEBM }));
     await push.until((c) => c.text.some((t) => t.includes('ready')), 4000, 'the host to accept the key');
 
@@ -426,9 +451,9 @@ describe('a broadcast through the host', () => {
     await new Promise((r) => setTimeout(r, 150));
 
     const live = await (await fetch(BASE + '/api/live')).json() as { live: Array<Record<string, unknown>> };
-    expect(live.live[0], 'the broadcast must appear in the live list').toMatchObject({ author: 'u_bee', cid: 'c7', relay: true });
+    expect(live.live[0], 'the broadcast must appear in the live list').toMatchObject({ author: 'u_bee', cid, relay: true });
 
-    const watch = await wsConnect(`${BASE}/api/stream/ws?role=watch&s=c7`);
+    const watch = await wsConnect(`${BASE}/api/stream/ws?role=watch&s=${cid}`);
     watch.sendText(JSON.stringify({ t: 'can', list: [WEBM] }));
     await watch.until((c) => c.binary.length >= 2, 4000, 'header and first cluster');
     expect(watch.binary[0].equals(webmHeader()), 'the header arrives first').toBe(true);
@@ -455,17 +480,24 @@ describe('a broadcast through the host', () => {
     await w.until((c) => c.text.length > 0, 4000, 'a refusal');
     expect(JSON.parse(w.text[0]).why).toMatch(/not live/);
   }, 15000);
+  it('refuses to open a relay on a node that is not the caller’s own broadcast', async () => {
+    const r = await post('/api/stream/open', { as: 'u_bee', auth: '1234', cid: 'c999', title: 'hijack', can: [WEBM] });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('NOT_YOURS');
+  });
+
   it('POST /api/live {stop} with the PIN ends the relayed stream, and the pusher is told why', async () => {
-    const open = await post('/api/stream/open', { as: 'u_bee', auth: '1234', cid: 'c9', title: 'pocket', can: [WEBM] });
+    const cid = await mintStream('pocket');
+    const open = await post('/api/stream/open', { as: 'u_bee', auth: '1234', cid, title: 'pocket', can: [WEBM] });
     expect(open.status).toBe(200);
-    const push = await wsConnect(`${BASE}/api/stream/ws?role=push&s=c9`);
+    const push = await wsConnect(`${BASE}/api/stream/ws?role=push&s=${cid}`);
     push.sendText(JSON.stringify({ t: 'auth', key: open.body.key, mime: WEBM }));
     await push.until((c) => c.text.some((t) => t.includes('ready')), 4000, 'the host to accept the key');
     push.send(Buffer.concat([Buffer.from([0]), webmHeader()]));
     await new Promise((r) => setTimeout(r, 100));
     type LiveDoc = { live: Array<Record<string, unknown>>; capacity: Record<string, unknown> };
     let live = await (await fetch(BASE + '/api/live')).json() as LiveDoc;
-    expect(live.live.some((e) => e.cid === 'c9')).toBe(true);
+    expect(live.live.some((e) => e.cid === cid)).toBe(true);
     // The read carries capacity now, so a client can refuse to mint a stream
     // act the relay would not carry.
     expect(live.capacity).toMatchObject({ full: false });
@@ -475,7 +507,7 @@ describe('a broadcast through the host', () => {
     const bad = await post('/api/live', { as: 'u_bee', auth: '9999', stop: true });
     expect(bad.status).toBe(401);
     live = await (await fetch(BASE + '/api/live')).json() as LiveDoc;
-    expect(live.live.some((e) => e.cid === 'c9')).toBe(true);
+    expect(live.live.some((e) => e.cid === cid)).toBe(true);
 
     // The right one ends the relay, not just the legacy heartbeat entry.
     const ok = await post('/api/live', { as: 'u_bee', auth: '1234', stop: true });
@@ -484,7 +516,7 @@ describe('a broadcast through the host', () => {
     await push.until((c) => c.closed, 4000, 'the pusher to be closed');
     expect(push.closeReason).toMatch(/another session/);
     live = await (await fetch(BASE + '/api/live')).json() as LiveDoc;
-    expect(live.live.some((e) => e.cid === 'c9')).toBe(false);
+    expect(live.live.some((e) => e.cid === cid)).toBe(false);
   }, 20000);
 
 });

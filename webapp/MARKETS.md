@@ -32,7 +32,9 @@ reputation system holds here, and it holds in both directions:
 in, a closing time, the bond a moderator must post, and a resolution fee capped
 at 5% of the pool. All of it is on the card before anybody stakes anything, and
 none of it can be edited afterwards — a stake records an answer's *number*, so
-editing the list would repoint money at a different answer. The author may
+editing the list would repoint money at a different answer. The one exception
+is the closing time, which the author may only ever bring FORWARD
+(`marketClose`, below) — never back. The author may
 nominate up to eight people to moderate; a nomination is an invitation and
 nothing more.
 
@@ -66,7 +68,7 @@ Ties break by bond, then by handle. That is determinism, not merit: two honest
 observers replaying the same log must seat the same people, or the network has
 two different answers to who may certify a bet.
 
-**4. Betting closes, and the jury certifies.** Betting closes at the stated time, or earlier if the author closes it (`marketClose`): from that instant no stake, no candidacy and no ballot is accepted, the closing time on the card becomes the moment the act landed, and the jury window is measured from there. Closing early can only tighten a bet — it stops money coming in and freezes the election, exactly what the clock would have done later — and it cannot pick an answer or reach a stake already placed. Each seated moderator names one
+**4. Betting closes, and the jury certifies.** Betting closes at the stated time, or earlier if the author closes it (`marketClose`): from that instant no stake, no candidacy and no ballot is accepted, and the closing time on the card becomes the moment the act landed. The jury window is still measured from the time the author FIRST stated: an early close lets the jury certify sooner, but the question may not be answerable until the stated moment, and a window that ended before the answer existed would strike honest seats for a silence they could not lawfully break. The host also refuses to close a bet early while money is on it and nobody has stood — standing shuts with betting, so that close would freeze the candidate list empty and turn a backed bet into one anyone could void at once. Closing early can only tighten a bet — it stops money coming in and freezes the election, exactly what the clock would have done later — and it cannot pick an answer or reach a stake already placed. Each seated moderator names one
 answer, or `void`. A certification is final — that is what makes the bond mean
 anything. The moment a strict majority of the seated jury agrees, the market
 settles. Juries are 1, 3 or 5 seats, because an even jury cannot reach a
@@ -185,6 +187,8 @@ both raise the price.
 and the author decides when the close is — so an author who wanted a jury
 frozen as it stands can close betting the moment it suits them, and the
 community's window to move its weight is whatever the author left of it.
+(The jury's own window to certify is NOT shortened — it runs from the stated
+close — and a backed bet with no candidates cannot be closed early at all.)
 The same is true of the stated closing time (nothing stops last-second
 ballots there either), the author has no position and earns the same fee
 whichever answer wins, and the close is a public act with its stamp beside

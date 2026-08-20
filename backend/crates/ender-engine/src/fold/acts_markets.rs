@@ -159,6 +159,10 @@ pub(crate) fn market(st: &mut State, a: &Value, i: usize, payload_gone: bool) {
                     Some(Value::Number(x)) => x.as_f64().unwrap_or(f64::NAN),
                     _ => 0.0,
                 },
+                stated_at: match a.get("at") {
+                    Some(Value::Number(x)) => x.as_f64().unwrap_or(f64::NAN),
+                    _ => 0.0,
+                },
                 // Validated: ToString(a.seats) is "1" | "3" | "5".
                 seats: js_prop_key(a.get("seats")).parse::<u64>().unwrap_or(0),
                 bond: round6(js_tonum(a.get("bond"))),

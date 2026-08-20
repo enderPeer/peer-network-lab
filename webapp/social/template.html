@@ -2931,8 +2931,18 @@ button, .btn { touch-action: manipulation; }
    * bot cannot reconstruct a thread from the raw act log without the engine.
    */
   function commentsOf(st, nodeId) {
+    // One row per comment NODE. A revision appends a second ReviewT edge to
+    // the same node, so listing edges showed a revised comment once per
+    // revision — the duplicate carried identical text, which made it look
+    // like a double post rather than what it is.
+    var seenCmt = {};
     return st.g.edges
-      .filter(function (e) { return e.family === 'ReviewT' && e.src === nodeId; })
+      .filter(function (e) {
+        if (e.family !== 'ReviewT' || e.src !== nodeId) return false;
+        if (seenCmt[e.tgt]) return false;
+        seenCmt[e.tgt] = 1;
+        return true;
+      })
       .map(function (e) {
         return {
           id: e.tgt,
@@ -3056,7 +3066,11 @@ button, .btn { touch-action: manipulation; }
       // rule — and stays until the certification lands or time is called.
       if (m.state === 'open' && !(m.at > Date.now()) && iCand && st.marketSeats
           && st.marketSeats(m).seated.indexOf(me) >= 0 && m.attests[me] === undefined && st.handles[m.by]) {
-        out.push({ who: m.by, kind: 'certify', target: cid, idx: hist.length ? hist[hist.length - 1].i : m.idx, text: label });
+        // `sticky`: an obligation, not an event. It counts as fresh until the
+        // certification lands or time is called, however long ago the close
+        // was — an alert that went quiet after one look at the tab would be
+        // a bond quietly forfeited.
+        out.push({ who: m.by, kind: 'certify', target: cid, idx: hist.length ? hist[hist.length - 1].i : m.idx, text: label, sticky: true });
       }
     });
     var inv = st.eventInvites || {};
@@ -3064,14 +3078,17 @@ button, .btn { touch-action: manipulation; }
       if (!inv[cid][me]) return;
       var ev = st.events && st.events[cid];
       if (!ev || !ev.host || ev.host === me || !st.handles[ev.host]) return;
-      out.push({ who: ev.host, kind: 'invited', target: cid, idx: (st.postMeta[cid] || {}).idx || 0, text: (st.payloads[cid] || '').slice(0, 60) });
+      // The replay records the INVITE act's index now; older maps stored
+      // `true`, so fall back to the announcement's index for those.
+      var invIdx = typeof inv[cid][me] === 'number' ? inv[cid][me] : ((st.postMeta[cid] || {}).idx || 0);
+      out.push({ who: ev.host, kind: 'invited', target: cid, idx: invIdx, text: (st.payloads[cid] || '').slice(0, 60) });
     });
     out.sort(function (a, b) { return b.idx - a.idx; });
     return out.slice(0, 40);
   }
   function unseenCount(list) {
     var n = 0;
-    for (var i = 0; i < list.length; i++) if (list[i].idx > seenMark) n++;
+    for (var i = 0; i < list.length; i++) if (list[i].idx > seenMark || list[i].sticky) n++;
     return n;
   }
   function markSeen(list) {
@@ -3082,9 +3099,9 @@ button, .btn { touch-action: manipulation; }
     vouch: 'backed you', react: 'reacted to your post', comment: 'commented on your post',
     tag: 'tagged your post', mention: 'mentioned you', quote: 'quoted your post', dm: 'messaged you',
     call: '☎ called you —',
-    nominated: 'nominated you to moderate a bet —', staked: 'staked on your bet —', stood: 'stood for the jury of your bet —',
-    closed: 'closed betting early on a bet you are in —', settled: 'settled a bet you are in —',
-    certify: 'is waiting on your certification — you hold a seat on', invited: 'invited you to a gathering —',
+    nominated: 'nominated you to moderate a bet', staked: 'staked on your bet', stood: 'stood for the jury of your bet',
+    closed: 'closed betting early on a bet you are in', settled: 'settled a bet you are in',
+    certify: 'is waiting on your certification — you hold a seat on a bet', invited: 'invited you to a gathering',
   };
 
   // ── Direct messages ──
@@ -3284,7 +3301,31 @@ button, .btn { touch-action: manipulation; }
   function removePasskeys(st) {
     if (!REMOTE) { toast('Passkeys need the hosted network.'); return; }
     if (!window.confirm('Remove every passkey from ' + (st.handles[who] || who) + '?\n\nFrom then on only the PIN opens this handle. You can add a passkey again later.')) return;
-    tryAct(who, { t: 'setKey', id: who, credId: null }, 'Passkeys removed. Only the PIN opens this handle now.');
+    if (st.pinHash[who]) {
+      tryAct(who, { t: 'setKey', id: who, credId: null }, 'Passkeys removed. Only the PIN opens this handle now.');
+      return;
+    }
+    // No PIN: the passkey itself has to sign its own removal, or the button
+    // loops through an unlock that has nothing to unlock with.
+    fetch(API + '/api/auth/status?as=' + encodeURIComponent(who), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var ids = ((d && d.passkeys) || []).map(function (k) { return k.id; });
+        if (!ids.length) { toast('No passkey is registered to this handle.'); return; }
+        return passkeyAssertion(who, ids).then(function (assertion) {
+          return fetch(API + '/api/act', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ t: 'setKey', id: who, credId: null, auth: assertion, since: world.acts.length }),
+          }).then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); });
+        }).then(function (x) {
+          if (!x) return;
+          if (!x.ok) { toast(x.b && x.b.error ? x.b.error : 'The host refused.'); return; }
+          mergeTail(x.b); save();
+          toast('Passkeys removed. This handle now has NO credential at all — set a PIN right away, or anyone can act as you.');
+          render();
+        });
+      })
+      .catch(function (e) { toast(e && e.name === 'NotAllowedError' ? 'Cancelled.' : 'Could not reach the host.'); });
   }
 
   /**
@@ -5042,16 +5083,27 @@ button, .btn { touch-action: manipulation; }
 
   // ── broadcasting ─────────────────────────────────────────────────────────
 
-  function broadcastStop(note) {
+  function broadcastStop(note, hostAlreadyEnded) {
     if (!live) return;
     live.state = 'stopping';
     live.recs.forEach(function (r) { if (r) { try { r.rec.stop(); } catch (e) {} } });
     if (live.stream) live.stream.getTracks().forEach(function (t) { t.stop(); });
     try { live.ws.close(); } catch (e) {}
-    fetch(API + '/api/live', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ as: who, auth: pins[who] || '', stop: true }),
-    }).catch(function () {});
+    // When the HOST closed the socket (ended from another device, idle,
+    // four-hour cap) the stream is already gone there — and a stop sent now
+    // would end whatever session this handle starts NEXT, because the stop
+    // is by handle. Only a stop this page initiated posts one.
+    if (!hostAlreadyEnded) {
+      fetch(API + '/api/live', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ as: who, auth: pins[who] || '', stop: true }),
+      }).catch(function () {});
+    }
+    // The strip and the card key on liveList, which polls every eight
+    // seconds — drop this handle's entries now so ending a broadcast does
+    // not leave 'you are on air' on screen for a poll cycle.
+    liveList = liveList.filter(function (e) { return e.author !== who; });
+    pollLive();
     live = null;
     render();
     if (note) toast(note);
@@ -5088,6 +5140,10 @@ button, .btn { touch-action: manipulation; }
   function broadcastResume(cid, title, withVideo) {
     var why = goLiveRefusal();
     if (why) { toast(why); return; }
+    // Unlock BEFORE the camera: the relay needs the PIN, and asking for a
+    // face before a credential means a refused key tears down a camera that
+    // was already running.
+    if (sessionLocked()) { withUnlock(function () { broadcastResume(cid, title, withVideo); }); return; }
     if (watching) watchStop();
     navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -5211,7 +5267,7 @@ button, .btn { touch-action: manipulation; }
       };
       ws.onclose = function (e) {
         if (!live || live.state === 'stopping') return;
-        broadcastStop((e && e.reason) || 'The connection to the host closed, so the broadcast ended.');
+        broadcastStop((e && e.reason) || 'The connection to the host closed, so the broadcast ended.', true);
       };
     }).catch(function () {
       stream.getTracks().forEach(function (t) { t.stop(); });
@@ -6984,7 +7040,7 @@ button, .btn { touch-action: manipulation; }
           + '· staked in: ' + draft.mCur + '\n'
           + '· jury: ' + draft.mSeats + ' seat(s), bond ' + bond2 + ' ' + draft.mCur + '\n'
           + '· fee: ' + pct2 + '% of the pool, half to you and half to the jury\n\n'
-          + 'The answers and the closing time cannot be edited afterwards. You may not stake on your own bet.';
+          + 'The answers cannot be edited afterwards, and the closing time can only ever be brought FORWARD (Close betting now, on the card). You may not stake on your own bet.';
         if (!window.confirm(summary2)) return;
         tryAct(who, {
           t: 'market', author: who, text: t, opts: answers, cur: draft.mCur,
@@ -7516,7 +7572,11 @@ button, .btn { touch-action: manipulation; }
     // the host enforces this window, and a card that drew a different one
     // would offer a door the door refuses.
     var window7 = (st.marketLimits && st.marketLimits.resolveMs) || 7 * 24 * 60 * 60 * 1000;
-    var deadline = m.at ? m.at + window7 : 0;
+    // From the LATER of the moving close and the stated one: an early close
+    // lets the jury certify sooner, never gives it less time than the
+    // question itself needs.
+    var mktFrom = Math.max(m.at || 0, m.statedAt || 0);
+    var deadline = mktFrom ? mktFrom + window7 : 0;
     var box = h('div', { class: 'card', style: 'margin:8px 0; background:var(--card-2)' },
       h('p', { class: 'eyebrow', text: m.state === 'resolved' ? 'bet · settled'
         : m.state === 'void' ? 'bet · voided'
@@ -7790,6 +7850,8 @@ button, .btn { touch-action: manipulation; }
    * question nobody has put money on (which can cost nobody but the author).
    */
   function marketAuthorBlock(st, cid, m, betting, deadline) {
+    // `deadline` arrives from marketPanel already measured from the stated
+    // close; nothing here recomputes it.
     var stakers = Object.keys(m.byBettor).length;
     var standing = Object.keys(m.cands).length;
     var wrap = h('div', { class: 'card', style: 'margin:8px 0; background:var(--card)' },
@@ -7800,20 +7862,33 @@ button, .btn { touch-action: manipulation; }
       + (betting
         ? 'Betting closes ' + new Date(m.at).toLocaleString() + ' (in ' + spanShort(m.at - Date.now()) + '), or the moment you close it. '
         : 'Betting is closed. ')
-      + (betting ? 'Then the jury' : 'The jury') + ' — ' + m.seats + ' seat(s), elected from whoever stands' + (standing ? ' (' + standing + ' standing now)' : ' (nobody has stood yet)')
-      + ' — names the answer that came true, and has until ' + (deadline ? new Date(deadline).toLocaleString() : 'seven days after the close')
-      + ' to do it. You may not stake or sit; you earn half the ' + (m.feeBp / 100) + '% fee whichever answer wins.' }));
+      + (!betting && !standing
+        ? '— and nobody stood before it closed, so no seat can ever be filled and no answer can be certified: this bet can only end by being voided'
+          + (stakers ? ', which anyone may do now — every stake goes back in full and no fee is taken.' : '.')
+        : (betting ? 'Then the jury' : 'The jury') + ' — ' + m.seats + ' seat(s), elected from whoever stands' + (standing ? ' (' + standing + ' standing now)' : ' (nobody has stood yet)')
+          + ' — names the answer that came true, and has until ' + (deadline ? new Date(deadline).toLocaleString() : 'seven days after the stated close')
+          + ' to do it. You may not stake or sit; you earn half the ' + (m.feeBp / 100) + '% fee whichever answer wins.') }));
     var row = h('div', { class: 'mini-form persistent' });
     if (betting) {
-      row.appendChild(h('button', { class: 'btn small', text: 'Close betting now',
-        title: 'Stops stakes, candidacies and ballots at once — what the closing time would have done later. It picks no answer and touches no stake.',
-        onclick: function () {
-          if (!window.confirm('Close betting on this now?\n\nNo more stakes, no more candidates, no more ballots from this moment; the jury certifies from here. It does not decide the answer, and it cannot be undone.')) return;
-          var why = st.marketActError && st.marketActError({ t: 'marketClose', author: who, cid: cid });
-          if (why) { toast(why); return; }
-          tryAct(who, { t: 'marketClose', author: who, cid: cid },
-            'Betting closed. The jury certifies from here; nothing else about the bet changed.');
-        } }));
+      if (stakers && !standing) {
+        // The host refuses this close: freezing the candidate list empty on
+        // a backed bet would make it impossible to certify. Say so instead
+        // of drawing a button that bounces.
+        row.appendChild(h('span', { class: 'smallnote', text: 'Money is on it and nobody is standing yet, so betting cannot be closed early — the bet stays open to its stated time so a jury can still form.' }));
+      } else {
+        row.appendChild(h('button', { class: 'btn small', text: 'Close betting now',
+          title: 'Stops stakes, candidacies and ballots at once — what the closing time would have done later. It picks no answer and touches no stake, and the jury keeps its full window from the stated close.',
+          onclick: function () {
+            var warnNoJury = !standing
+              ? '\n\nNOBODY IS STANDING. Closing now freezes the candidate list empty: no seat can ever be filled, no answer can ever be certified, and this bet will only be able to end by being voided.'
+              : '';
+            if (!window.confirm('Close betting on this now?\n\nNo more stakes, no more candidates, no more ballots from this moment; the jury may certify from here and keeps its window measured from the stated close. It does not decide the answer, and it cannot be undone.' + warnNoJury)) return;
+            var why = st.marketActError && st.marketActError({ t: 'marketClose', author: who, cid: cid });
+            if (why) { toast(why); return; }
+            tryAct(who, { t: 'marketClose', author: who, cid: cid },
+              'Betting closed. The jury certifies from here; nothing else about the bet changed.');
+          } }));
+      }
     }
     if (!(m.pool > 0)) {
       row.appendChild(h('button', { class: 'btn small', text: 'Withdraw the question',
@@ -8127,9 +8202,15 @@ button, .btn { touch-action: manipulation; }
         var offRow = h('div', { class: 'mini-form persistent' },
           h('span', { class: 'smallnote', text: 'Off air — this broadcast has ended. The video was live only and never entered the record; the reactions and comments on it did.' }));
         if (author === who && REMOTE && !live) {
+          // The record does not say whether the broadcast carried video, so
+          // the choice is offered rather than assumed — resuming an audio
+          // show must not demand a camera the device may not have.
+          var camAgain = h('input', { type: 'checkbox' });
+          camAgain.checked = true;
+          offRow.appendChild(h('label', { class: 'smallnote' }, camAgain, ' camera'));
           offRow.appendChild(h('button', { class: 'btn small', text: 'Go live again · same card',
             title: 'Reopens the relay on this very node — no second θ, no second card.',
-            onclick: function () { broadcastResume(n.id, st.payloads[n.id] || '', true); } }));
+            onclick: function () { broadcastResume(n.id, st.payloads[n.id] || '', camAgain.checked); } }));
         }
         card.appendChild(offRow);
       }
@@ -9197,7 +9278,7 @@ button, .btn { touch-action: manipulation; }
       return outer;
     }
     notifs.forEach(function (n) {
-      var row = h('div', { class: 'alert-row' + (n.idx > seenMark ? ' fresh' : '') },
+      var row = h('div', { class: 'alert-row' + (n.idx > seenMark || n.sticky ? ' fresh' : '') },
         avatar(n.who, 'avatar s'),
         h('div', { class: 'grow' },
           h('div', {}, h('b', { text: st.handles[n.who] || n.who }), ' ',
@@ -9510,7 +9591,13 @@ button, .btn { touch-action: manipulation; }
         h('p', { class: 'eyebrow', text: 'bets by the broadcaster · open now' }));
       openBets.forEach(function (mc) {
         bsec.appendChild(h('p', { style: 'margin:6px 0 0' }, h('b', { text: st.payloads[mc] || '[removed]' })));
-        bsec.appendChild(marketPanel(st, mc, st.markets[mc]));
+        var panel = marketPanel(st, mc, st.markets[mc]);
+        // The panel's forms are always on screen here, so they must not
+        // trip safeToRepaint's transient-form rule — that rule exists for a
+        // form somebody OPENED, and blocking on these froze the whole room:
+        // reactions and comments arrived and were never drawn.
+        panel.querySelectorAll('.mini-form').forEach(function (el) { el.classList.add('persistent'); });
+        bsec.appendChild(panel);
       });
       if (!openBets.length) bsec.appendChild(h('p', { class: 'smallnote', text: 'No open bet right now.' }));
       if (who === host) bsec.appendChild(quickBetForm(st));
@@ -9527,28 +9614,38 @@ button, .btn { touch-action: manipulation; }
    * bet — who they would like to. Closing early is one button away on the
    * card, so 'how long' is a ceiling, not a promise.
    */
+  // The quick form's draft lives OUT here for the composer's reason: the
+  // livebar is rebuilt by every render, and a poll landing mid-question used
+  // to wipe what the broadcaster had typed the moment focus was on a select.
+  var qbDraft = { q: '', a1: '', a2: '', a3: '', mins: '15', cur: '', bond: '', nom: '' };
   function quickBetForm(st) {
     var box = h('div', { style: 'margin-top:10px' },
       h('p', { class: 'eyebrow', text: 'ask a bet on this broadcast' }));
-    var q = h('input', { type: 'text', maxlength: '280', placeholder: 'the question — e.g. does this land?', style: 'flex:1 1 100%; min-width:0' });
-    var a1 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 1', style: 'flex:1 1 120px; min-width:0' });
-    var a2 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 2', style: 'flex:1 1 120px; min-width:0' });
-    var a3 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 3 (optional)', style: 'flex:1 1 120px; min-width:0' });
+    var q = h('input', { type: 'text', maxlength: '280', placeholder: 'the question — e.g. does this land?', style: 'flex:1 1 100%; min-width:0', value: qbDraft.q });
+    var a1 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 1', style: 'flex:1 1 120px; min-width:0', value: qbDraft.a1 });
+    var a2 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 2', style: 'flex:1 1 120px; min-width:0', value: qbDraft.a2 });
+    var a3 = h('input', { type: 'text', maxlength: '60', placeholder: 'answer 3 (optional)', style: 'flex:1 1 120px; min-width:0', value: qbDraft.a3 });
     var mins = h('select', {});
     [[5, '5 min'], [15, '15 min'], [30, '30 min'], [60, '1 hour'], [240, '4 hours']].forEach(function (o) {
       mins.appendChild(h('option', { value: String(o[0]), text: 'betting open ' + o[1] + ' at most' }));
     });
-    mins.value = '15';
+    mins.value = qbDraft.mins || '15';
     var cur = h('select', {});
     Object.keys((st.tokens && st.tokens.meta) || { PEER: 1 }).forEach(function (sym) {
       if (sym === 'tBTC') return;
       cur.appendChild(h('option', { value: sym, text: sym }));
     });
-    var bond = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'bond per seat', style: 'width:120px' });
+    if (qbDraft.cur) cur.value = qbDraft.cur;
+    var bond = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'bond per seat', style: 'width:120px', value: qbDraft.bond });
     var nom = h('select', {}, h('option', { value: '', text: 'nominate a moderator (optional)' }));
     st.ledgers.forEach(function (l) {
       if (l.id === who || l.deleted) return;
       nom.appendChild(h('option', { value: l.id, text: st.handles[l.id] }));
+    });
+    if (qbDraft.nom) nom.value = qbDraft.nom;
+    [[q, 'q'], [a1, 'a1'], [a2, 'a2'], [a3, 'a3'], [mins, 'mins'], [cur, 'cur'], [bond, 'bond'], [nom, 'nom']].forEach(function (pair) {
+      pair[0].addEventListener('input', function () { qbDraft[pair[1]] = pair[0].value; });
+      pair[0].addEventListener('change', function () { qbDraft[pair[1]] = pair[0].value; });
     });
     box.appendChild(h('div', { class: 'mini-form persistent', style: 'flex-wrap:wrap' }, q, a1, a2, a3));
     box.appendChild(h('div', { class: 'mini-form persistent', style: 'flex-wrap:wrap' }, mins, cur, bond, nom,
@@ -9572,6 +9669,7 @@ button, .btn { touch-action: manipulation; }
         if (why) { toast(why); return; }
         tryAct(who, act, 'Bet asked. It is a post in everyone’s feed and it is drawn here in the room; close betting from its card whenever the moment has passed.', function () {
           q.value = ''; a1.value = ''; a2.value = ''; a3.value = ''; bond.value = '';
+          qbDraft = { q: '', a1: '', a2: '', a3: '', mins: qbDraft.mins, cur: qbDraft.cur, bond: '', nom: '' };
         });
       } })));
     box.appendChild(h('p', { class: 'smallnote', text: 'One seat, 2% fee, and betting stays open at most as long as you say — close it earlier from the card. You may not stake on it or certify it; the answer is the jury’s to give.' }));
@@ -11630,7 +11728,10 @@ button, .btn { touch-action: manipulation; }
         pendBox.innerHTML = '';
         if (!rp || rp.status !== 200 || !rp.d) return;
         var rows = Array.isArray(rp.d.uncredited) ? rp.d.uncredited : [];
-        var why = rp.d.lastTickSaw && typeof rp.d.lastTickSaw === 'object' ? rp.d.lastTickSaw : {};
+        // An ARRAY of {txid, why|code, …} rows, folded into a map — reading
+        // it as a map made every reason silently undefined.
+        var why = {};
+        (Array.isArray(rp.d.lastTickSaw) ? rp.d.lastTickSaw : []).forEach(function (rw) { if (rw && rw.txid) why[rw.txid] = rw; });
         if (!rows.length) return;
         pendBox.appendChild(h('p', { class: 'eyebrow', style: 'margin:0 0 4px', text: 'burns at the sink not yet credited · ' + rows.length }));
         var mine = you && you.boundAddress ? String(you.boundAddress).toLowerCase() : null;
@@ -14036,8 +14137,11 @@ button, .btn { touch-action: manipulation; }
         lastStage = r.stage;
         card.appendChild(h('p', { class: 'eyebrow', style: 'margin-top:8px', text: HEAD[r.stage] }));
       }
-      var when = r.stage === 1 ? 'closes in ' + spanShort(m.at - Date.now())
-        : r.stage === 2 ? 'closed ' + relAgo(m.at)
+      // From the market's real phase, not the sort stage — stage 0 is
+      // 'needs you', and a needs-you row was borrowing the settled wording.
+      var ph = m.state !== 'open' ? 3 : r.betting ? 1 : 2;
+      var when = ph === 1 ? 'closes in ' + spanShort(m.at - Date.now())
+        : ph === 2 ? 'closed ' + relAgo(m.at)
         : m.state === 'void' ? 'voided' : 'certified';
       var line = fmt(m.pool, 6) + ' ' + m.cur + ' · ' + when + ' · by ' + (st.handles[m.by] || m.by)
         + (r.need ? ' · ' + r.need : r.role ? ' · ' + r.role : '');

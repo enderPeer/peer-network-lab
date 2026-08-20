@@ -542,6 +542,7 @@ describe('the author closes betting early', () => {
     const landed = 4_000_000_000_000;                 // the host's stamp on the close
     const st: any = replay([...table('al', 'bo'), ask('al', ['y', 'n'], { at }), closeEarly('al', landed)]);
     expect(st.markets[cid].at).toBe(landed);
+    expect(st.markets[cid].statedAt, 'the stated close never moves — the jury window is measured from it').toBe(at);
     expect(st.markets[cid].closedEarly).toBe(true);
     expect(st.markets[cid].state).toBe('open');       // closing is not settling
     // A stranger's close is refused in the rulebook's own words, and does nothing.

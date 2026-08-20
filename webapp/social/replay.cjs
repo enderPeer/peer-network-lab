@@ -174,7 +174,7 @@ function replayUncached(acts) {
   var TBTC_FAUCET_CLOSED_FROM = 62;
   var faucetCount = bare();   // (id '@' epoch) -> how many this epoch
   var events = bare();        // cid -> {host, at, place, fee, cur, cap, idx}
-  var eventInvites = bare();  // cid -> { invitee: true }
+  var eventInvites = bare();  // cid -> { invitee: act index of the invite }
   var eventGoing = bare();    // cid -> { attendee: true }
   // (actor '>' creator) pairs where money moved this epoch. Cleared with the
   // engagement records at close.
@@ -1797,7 +1797,11 @@ function replayUncached(acts) {
       if (!known(a.from) || !known(a.to)) continue;
       var iev = events[a.cid];
       if (!iev || iev.host !== a.from || a.to === a.from) continue;
-      (eventInvites[a.cid] || (eventInvites[a.cid] = {}))[a.to] = true;
+      // The act index, not `true`: every reader only asks whether the key
+      // exists (and an invite is never act 0 — that is the seed world), and
+      // the alerts list needs to know WHEN the invitation happened to say
+      // whether it is newer than the last look.
+      (eventInvites[a.cid] || (eventInvites[a.cid] = {}))[a.to] = i;
       chron.push({ who: a.from, line: 'invited ' + (handles[a.to] || a.to) + ' to an event', to: a.cid });
     } else if (a.t === 'rsvp') {
       if (!known(a.from)) continue;
@@ -2262,6 +2266,12 @@ function replayUncached(acts) {
         markets[mcid] = {
           cid: mcid, by: a.author, cur: a.cur, n: mopts.length, opts: mopts,
           at: typeof a.at === 'number' ? a.at : 0,
+          // The closing time as the author FIRST stated it. `at` moves when the
+          // author closes early; this never does, and the jury window is
+          // measured from whichever is later — an early close must not shorten
+          // the time the question itself needs to become answerable, or honest
+          // seats get struck for a silence they could not lawfully break.
+          statedAt: typeof a.at === 'number' ? a.at : 0,
           seats: a.seats, bond: round6(a.bond), feeBp: Math.floor(a.feeBp),
           // Who the author asked. A nomination is an invitation and nothing
           // more: it puts a name on the card, and that name still has to post

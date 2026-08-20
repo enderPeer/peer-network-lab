@@ -126,7 +126,11 @@ describe('a paid event moves money and nothing that is ranked', () => {
       { t: 'invite', from: 'u_host', to: 'u_a', cid: 'c1' },
       { t: 'invite', from: 'u_b', to: 'u_b', cid: 'c1' },   // not the host: ignored
     ]));
-    expect(st.eventInvites.c1.u_a).toBe(true);
+    // The value is the INVITE act's index now (display state: the alerts
+    // list says whether an invitation is newer than the last look). Every
+    // other reader asks only whether the key exists.
+    expect(typeof st.eventInvites.c1.u_a).toBe('number');
+    expect(st.eventInvites.c1.u_a).toBeGreaterThan(0);
     expect(st.eventInvites.c1.u_b).toBeUndefined();
     // The event itself is a Publish and moves its author, as content does —
     // but the invitation is attention and moves nobody.
