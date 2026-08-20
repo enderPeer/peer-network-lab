@@ -1,6 +1,0 @@
-# The archive is a verifiable copy: its manifest publishes a SHA-256 of
-# acts.jsonl, so git must not rewrite a single byte of it. Line-ending
-# conversion would leave the published hash describing a file nobody receives —
-# an integrity claim that quietly does not hold is worse than none.
-archive/acts.jsonl -text
-archive/media/** -text binary
