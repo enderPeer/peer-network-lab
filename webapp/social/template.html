@@ -1125,6 +1125,37 @@ button, .btn { touch-action: manipulation; }
     var t = String((e && e.message) || e);
     return t.length > 140 ? t.slice(0, 139) + '\u2026' : t;
   }
+  // The parameters a wallet needs to ADD a chain it has never met. Only
+  // chains named here can ever be offered: an RPC address is a thing the
+  // wallet will trust on this page's word from then on, so the table is
+  // short, official, and reviewed like the selectors above \u2014 never derived
+  // from anything a host answers.
+  var L2_CHAIN_PARAMS = {
+    '0x2105': { chainId: '0x2105', chainName: 'Base', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'] }
+  };
+  // A failed switch is two different facts wearing one error: the user said
+  // no, or the wallet has no such chain to switch TO \u2014 which is every fresh
+  // phone wallet, whose list starts at Ethereum and has never met Base
+  // (MetaMask answers 4902 for that, and its iOS app has answered other
+  // codes for the same fact). Only the second is repaired here, by offering
+  // the chain itself; a "no" (4001) is final, because asking twice is how a
+  // page teaches people to stop reading wallet prompts. Nothing returned
+  // here is believed: the caller re-asks eth_chainId either way, since a
+  // request resolving means the wallet accepted an ASK, not that the
+  // network moved.
+  async function l2SwitchOrAdd(want) {
+    try { await l2Eth('wallet_switchEthereumChain', [{ chainId: want }]); return; }
+    catch (e) {
+      var params = L2_CHAIN_PARAMS[String(want).toLowerCase()];
+      if (!params || (e && e.code === 4001)) throw e;
+      await l2Eth('wallet_addEthereumChain', [params]);
+      // MetaMask switches as part of adding; a wallet that does not gets the
+      // plain ask once more, and one that still will not move is caught by
+      // the caller's re-read rather than trusted from here.
+      try { await l2Eth('wallet_switchEthereumChain', [{ chainId: want }]); } catch (e2) { /* the re-read decides */ }
+    }
+  }
   // A 32-byte answer as a BigInt, or a refusal in a plain sentence. An
   // eth_call that reaches an address holding no code answers '0x' — EMPTY,
   // not zero — and reading that as a balance of nothing is how a page on the
@@ -1235,8 +1266,8 @@ button, .btn { touch-action: manipulation; }
     if (!accs || !accs[0]) return null;
     var chain = await l2Eth('eth_chainId');
     if (!l2OnChain(chain, want)) {
-      try { await l2Eth('wallet_switchEthereumChain', [{ chainId: want }]); }
-      catch (e) { toast('That wallet is not on ' + name + ' and would not switch. Switch it by hand, then connect again.'); return null; }
+      try { await l2SwitchOrAdd(want); }
+      catch (e) { toast('That wallet is not on ' + name + ' and would not switch or take the network when offered. Switch it by hand, then connect again.'); return null; }
       chain = await l2Eth('eth_chainId');
       if (!l2OnChain(chain, want)) { toast('The wallet still answers for chain ' + chain + ', not ' + name + '. Nothing here will read or sign until it does.'); return null; }
     }
@@ -1268,11 +1299,15 @@ button, .btn { touch-action: manipulation; }
     var phone = /iP(hone|ad|od)|Android/.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS lies
     if (!phone || !/^https?:$/.test(location.protocol)) return box;
-    // #econ: every door lives on the Economy lane, and the wallet's in-app
-    // browser is a fresh profile whose restored view is the default feed.
-    // The hash is the one channel that survives the crossing, so the
-    // reopened page lands where the tap happened instead of on the feed.
-    var here = location.origin + location.pathname + location.search + '#econ';
+    // #econ-connect: every door lives on the Economy lane, and the wallet's
+    // in-app browser is a fresh profile whose restored view is the default
+    // feed. The hash is the one channel that survives the crossing, so the
+    // reopened page lands where the tap happened instead of on the feed —
+    // and the marker carries WHY it was opened, so the arrival can ask the
+    // wallet to connect once (l2DoorArrive) instead of making the reader
+    // find Connect a second time. Boot scrubs the marker back to #econ, so
+    // a reload or a copied address never carries a prompt with it.
+    var here = location.origin + location.pathname + location.search + '#econ-connect';
     var ephemeral = /\.trycloudflare\.com$/i.test(location.hostname);
     var row = h('div', { style: 'display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px' });
     // MetaMask's /dapp/ format has no scheme slot and reopens as https, so
@@ -1296,7 +1331,7 @@ button, .btn { touch-action: manipulation; }
     // reader meets. One deferred pass over the attached doors settles it,
     // and any later door schedules a fresh election over what is attached.
     var extra = h('div', { class: 'wallet-door-extra', style: 'display:none' });
-    extra.appendChild(h('p', { class: 'smallnote', style: 'margin:6px 0 0', text: 'On a phone the wallet is an app, not an extension, and it can only see this page from inside the wallet\u2019s own browser. Each button reopens this page there; if that wallet is not on this phone, the same tap should land where it can be installed \u2014 after installing, come back here and tap the button again. The Base app is one specific wallet, the one formerly named Coinbase Wallet \u2014 and it sometimes lands in the App Store even when it is installed; if that happens, open it yourself and paste this page\u2019s address into its browser with the button below. Trust Wallet has no button here: on iPhone it has no browser to open this page in. Any wallet that does have one (Rainbow, Zerion, Trust on Android) works the same way \u2014 copy this page\u2019s address into it.'
+    extra.appendChild(h('p', { class: 'smallnote', style: 'margin:6px 0 0', text: 'On a phone the wallet is an app, not an extension, and it can only see this page from inside the wallet\u2019s own browser. Each button reopens this page there and asks that wallet, once, to connect; if that wallet is not on this phone, the same tap should land where it can be installed \u2014 after installing, come back here and tap the button again. The Base app is one specific wallet, the one formerly named Coinbase Wallet \u2014 and it sometimes lands in the App Store even when it is installed; if that happens, open it yourself and paste this page\u2019s address into its browser with the button below. Trust Wallet has no button here: on iPhone it has no browser to open this page in. Any wallet that does have one (Rainbow, Zerion, Trust on Android) works the same way \u2014 copy this page\u2019s address into it.'
       + (ephemeral ? ' And this copy of the app lives at a temporary address that changes when its host restarts \u2014 if a reopened link stops answering later, come back in through the app\u2019s permanent address.' : '') }));
     extra.appendChild(h('div', { style: 'margin-top:6px' },
       h('button', { class: 'btn small ghost', text: 'Copy this page\u2019s address', onclick: function () {
@@ -1325,6 +1360,37 @@ button, .btn { touch-action: manipulation; }
       setTimeout(function () { settle(8); }, 0);
     }
     return box;
+  }
+  // The far side of the door. Inside a wallet's browser window.ethereum is
+  // usually injected before this script runs, but not always — some wallets
+  // are late — so the arrival watches briefly instead of checking once. One
+  // attempt, ever: the tap on the door was the consent, and a page that asks
+  // again on its own is a page training people to dismiss wallet prompts. A
+  // decline is reported and left alone — the Connect button on the money
+  // cards is the second ask, and it belongs to the reader.
+  var l2Arriving = false;
+  function l2DoorArrive() {
+    if (l2Arriving) return;
+    l2Arriving = true;
+    var tries = 24; // ~6 seconds of patience, then the door is just a door
+    var kick = function () {
+      if (!window.ethereum) {
+        if (--tries > 0) setTimeout(kick, 250);
+        return;
+      }
+      l2Connect().then(function (a) {
+        if (!a) return; // l2Connect already said why not
+        toast('Connected — wallet ' + a + '. Connecting signs nothing; nothing is signed until a button that says so.');
+        // A full render, not l2RedrawAll: the hooks only exist once their
+        // cards have finished their own fetches, and an arrival can win
+        // that race — connecting is a state change to the whole lane, so
+        // it is repainted the way every other state change repaints it.
+        render();
+      }).catch(function (e) {
+        toast('The wallet declined to connect: ' + l2Err(e) + ' — the Connect button on the money cards asks again whenever you are ready.');
+      });
+    };
+    setTimeout(kick, 0);
   }
   var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags' | 'bets'
 
@@ -1455,6 +1521,19 @@ button, .btn { touch-action: manipulation; }
     // worked. The manifest names only tabs that exist now.
     var h0 = (location.hash || '').slice(1);
     if (GEEK_TABS.indexOf(h0) >= 0) tab = h0;
+    // #econ-connect is the wallet door's own hash: this page was reopened
+    // inside a wallet's in-app browser by a tap whose whole meaning was
+    // "connect this wallet here". Landing on the Money lane and then asking
+    // the reader to find Connect again would be the door forgetting why it
+    // was opened, so this one arrival asks the wallet itself, once
+    // (l2DoorArrive). The marker is scrubbed back to #econ immediately: a
+    // reload, a bookmark or a link shared onward must not carry a connect
+    // prompt with it.
+    if (h0 === 'econ-connect') {
+      tab = 'econ'; econView = 'money';
+      try { history.replaceState(null, '', location.pathname + location.search + '#econ'); } catch (e2) {}
+      l2DoorArrive();
+    }
   } catch (e) {}
 
   function epochOf() {
@@ -12563,8 +12642,8 @@ button, .btn { touch-action: manipulation; }
           // The wrong network is the failure that looks most like success —
           // same shapes, different chain — so nothing proceeds until the
           // wallet itself confirms Base.
-          try { await ocEth('wallet_switchEthereumChain', [{ chainId: OC_CHAIN }]); }
-          catch (e) { toast('That wallet is not on Base and would not switch. Switch it by hand, then connect again.'); return null; }
+          try { await l2SwitchOrAdd(OC_CHAIN); }
+          catch (e) { toast('That wallet is not on Base and would not switch or take the network when offered. Switch it by hand, then connect again.'); return null; }
           // Ask again rather than believing the switch. That call resolving
           // means the wallet accepted the request, not that the network
           // moved — and this is the one question where accepting a promise
