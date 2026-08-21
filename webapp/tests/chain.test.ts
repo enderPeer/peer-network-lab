@@ -153,6 +153,33 @@ describe('lawful redaction — chain-neutral by construction', () => {
     expect(report.ok).toBe(false);
     expect(report.errors.join(' ')).toMatch(/payload differs .* no redaction stamp/);
   });
+
+  it('the redaction stamp does not license SUBSTITUTING content — only removing it', () => {
+    // The attack the tightened payloadMayDiffer closes: a party who serves the
+    // log sets redacted:true but fills the payload with NEW text instead of the
+    // blanked residue. The structural hash strips text, so only the payload
+    // check stands between this and an authentic-looking rewrite of a sealed post.
+    const acts = [...world('al', 'bo'), post('al', 'the real thing', { rmen: [] }), like('bo', 'c1'), close(1)];
+    const { blocks } = build(acts);
+    const forged = clone(acts);
+    const idx = forged.findIndex((a) => a.t === 'post');
+    forged[idx] = { ...forged[idx], text: 'a forgery wearing the tombstone', redacted: true };
+    const report = verify(forged, blocks);
+    expect(report.ok).toBe(false);
+    expect(report.errors.join(' ')).toMatch(/payload differs .* no redaction stamp/);
+    expect(report.tombstoned).toBe(0); // it was NOT accepted as a lawful tombstone
+  });
+
+  it('a lawful blanked redaction is still accepted (the residue, not the stamp, is what passes)', () => {
+    const acts = [...world('al', 'bo'), post('al', 'to be removed', { rmen: [] }), like('bo', 'c1'), close(1)];
+    const { blocks } = build(acts);
+    const redacted = clone(acts);
+    const idx = redacted.findIndex((a) => a.t === 'post');
+    redacted[idx] = { ...redacted[idx], text: '', redacted: true }; // residue: empty text, no media/place
+    const report = verify(redacted, blocks);
+    expect(report.ok).toBe(true);
+    expect(report.tombstoned).toBe(1);
+  });
 });
 
 describe('tampering fails loudly and names its block', () => {
@@ -200,6 +227,31 @@ describe('tampering fails loudly and names its block', () => {
     const report = verify(acts, impostor, { producer: honest[0].producer });
     expect(report.ok).toBe(false);
     expect(report.errors.join(' ')).toMatch(/pinned key/);
+  });
+
+  it('an elected failover produces a legitimately two-producer chain — a SET pin accepts it, a single pin does not', () => {
+    // The failover case G6 must not break: epoch 1 sealed by producer A, then
+    // A dies, B is elected and seals epoch 2 with its own key. The chain is
+    // genuinely two-producer.
+    const kA = newKey();
+    const kB = newKey();
+    const base = [...world('al', 'bo'), post('al', 'P', { rmen: [] }), like('bo', 'c1'), close(1)];
+    const c1 = build(base, kA).blocks;
+    const ext = [...clone(base), post('bo', 'Q', { rmen: [] }), close(2)];
+    const c2 = build(ext, kB, c1).blocks; // block 1 reused (A), block 2 signed by B
+    expect(c2[0].producer).toBe(kA.pub);
+    expect(c2[1].producer).toBe(kB.pub);
+
+    // A PEER_PRODUCER set listing both keys accepts it.
+    expect(verify(ext, c2, { producer: [kA.pub, kB.pub] }).ok).toBe(true);
+    // No pin at all: multi-producer is a warning, not a fault — this is the
+    // mirror's default (unpinned), so automatic failover to a new producer works.
+    expect(verify(ext, c2).ok).toBe(true);
+    // Pinning ONLY to A rejects B's block — a deliberately strict PEER_PRODUCER
+    // refuses the handoff until the operator adds B's key, exactly as documented.
+    const strict = verify(ext, c2, { producer: kA.pub });
+    expect(strict.ok).toBe(false);
+    expect(strict.errors.join(' ')).toMatch(/pinned key/);
   });
 
   it('a broken hash link is a fault', () => {

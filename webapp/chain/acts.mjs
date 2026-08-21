@@ -69,8 +69,25 @@ export function actCommitments(fileActs, parseMentions) {
   return { structural, payload };
 }
 
-/** True when a sealed payload commitment is allowed to differ from the
- *  current bytes: the act carries the redaction stamp. */
+/**
+ * True when a sealed payload commitment is allowed to differ from the current
+ * bytes: the act carries the redaction stamp AND its payload fields hold the
+ * blanked residue a lawful redaction leaves behind (redactPostAct in
+ * server.mjs: text emptied, media dropped, place emptied).
+ *
+ * The stamp alone is not enough. A redaction may only REMOVE content, never
+ * substitute it — so the tombstone is accepted only when the content is in
+ * fact gone. Trusting `redacted === true` by itself let anyone who serves the
+ * log (a malicious primary, a tunnel MITM) rewrite the visible text/media of
+ * any sealed act to anything they liked and have it verify as authentic: the
+ * structural hash strips these fields and the payload check waved the change
+ * through under the flag. Binding the tolerance to the empty residue closes
+ * that: a rewrite that keeps the stamp but carries new content no longer
+ * matches, and one that blanks the content is exactly a lawful delete.
+ */
 export function payloadMayDiffer(act) {
-  return act.redacted === true;
+  return act.redacted === true
+    && (act.text === undefined || act.text === '')
+    && act.media === undefined
+    && (act.place === undefined || act.place === '');
 }

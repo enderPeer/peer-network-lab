@@ -546,12 +546,33 @@ const role = {
 };
 const isMirror = () => !!role.mirrorOf;
 function writeRole(mirrorOf) {
+  const before = role.mirrorOf;
   role.mirrorOf = (mirrorOf || '').trim().replace(/\/+$/, '');
+  // Every role change funnels through here. A refusal names ONE primary's
+  // record; the moment the role changes (promotion, or re-pointing to a
+  // different writer) that refusal is stale, so clear it rather than publish
+  // it against a host it was never about. On becoming a mirror of someone
+  // new, force the next sync to be a full verified pull.
+  if (role.mirrorOf !== before) {
+    mirrorState.refused = null;
+    mirrorState.refusedGate = null;
+    if (role.mirrorOf) mirrorState.lastFull = 0;
+  }
   try { writeFileSync(roleFile, JSON.stringify({ mirrorOf: role.mirrorOf }) + '\n'); }
   catch (e) { console.error('[election] could not persist role.json: ' + e.message); }
 }
 const MIRROR_INTERVAL = Math.max(300, Number(process.env.PEER_MIRROR_INTERVAL) || 5000);
-const mirrorState = { ok: null, busy: false, lastFull: 0, snapDay: -1 };
+const mirrorState = {
+  ok: null, busy: false, lastFull: 0, snapDay: -1,
+  // The reason this mirror is currently refusing to adopt the primary's
+  // record, if it is (see mirrorVerifiedAdopt). `refused` is null while
+  // everything checks out; while set, the mirror keeps serving its last good
+  // record. `refusedGate` is the (total, chainHead) the last refusal saw, so a
+  // steady refusal does not re-download and re-verify the whole record every
+  // tick — only a change on the primary reopens the attempt. `warnedUnverified`
+  // latches the one-time "adopting UNVERIFIED" notice for a chainless primary.
+  refused: null, refusedGate: null, refusedGateAt: 0, warnedUnverified: false,
+};
 
 function mirrorRefuse(res) {
   if (role.mirrorOf) {
@@ -617,6 +638,148 @@ function mirrorAdoptSafely(remoteActs) {
   mirrorAdopt(remoteActs);
 }
 
+/**
+ * Adopt the primary's FULL record only after checking it against the sealed
+ * chain — the difference between a backup and a witness.
+ *
+ * mirrorAdoptSafely protects what this host itself saw. It says nothing about
+ * history this host did not see: a mirror started from an empty data dir
+ * holds no acts, so its prefix check is vacuous, and it would take whatever
+ * pre-history the primary served. The election path already treats a peer's
+ * record as a claim to be verified (demoteTo); routine sync must too. Two
+ * checks, both against numbers anyone can recompute:
+ *
+ *   1. Sealed history may only GROW. The primary's blocks must extend the
+ *      blocks this mirror already verified (forkChainMergeable) — a shorter
+ *      chain, or one whose early blocks hash differently, is a rewrite of
+ *      sealed history or a different producer re-sealing it. Refuse.
+ *   2. The served log must be the log those blocks sealed: every sealed act's
+ *      structural and payload commitment, every root, every link, every
+ *      signature (verifyChain, structure only — see chain.mjs). Once a
+ *      producer has been verified here it is pinned; a chain that changes
+ *      producer mid-stream is refused too. Refuse on any mismatch.
+ *
+ * On success the mirror KEEPS the blocks it verified, so from its first sync
+ * forward a rewrite of anything sealed is detectable here — and a rewrite of
+ * anything unsealed is caught by the prefix check as before. A refusal is not
+ * an outage: the mirror keeps serving its last good record and says why at
+ * /api/election (`refusing`) and the admin metrics (`mirrorRefusing`), and a
+ * person decides.
+ *
+ * Trust bounds, stated honestly. Without PEER_PRODUCER a fresh mirror takes
+ * whatever internally-consistent chain the primary first serves (trust on
+ * first use, over the HTTPS tunnel); it still catches every LATER rewrite,
+ * and per-block signatures still reject a forged block. Set PEER_PRODUCER
+ * (comma-separated for a chain that failed over between producers) to refuse
+ * an unexpected producer, including at birth. `theirBlocks` may be passed in
+ * by the caller that already fetched /api/chain (mirrorSync fetches the chain
+ * BEFORE the log, so a seal landing mid-sync can only make the log newer than
+ * the blocks — which verifyChain tolerates — never the reverse); when omitted
+ * this fetches it (the election-handover caller).
+ */
+async function mirrorVerifiedAdopt(remoteActs, stillMine, theirBlocks) {
+  const theirFile = (remoteActs || []).filter((a) => a && a.t !== 'seedWorld');
+  if (theirBlocks === undefined) {
+    theirBlocks = [];
+    try {
+      theirBlocks = await fedBlocks(role.mirrorOf + '/api/chain', 30_000);
+    } catch (e) {
+      // NO_CHAIN (404): the primary has sealed nothing yet. Anything else is a
+      // transport failure — surface it as one, do not adopt on a guess.
+      if (!/HTTP 404/.test(String(e && e.message))) throw e;
+    }
+    if (!stillMine()) return false;
+  }
+  const ourBlocks = readBlocksLocal();
+  const envPins = (process.env.PEER_PRODUCER || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const refuse = (reason) => {
+    const same = mirrorState.refused && mirrorState.refused.reason === reason;
+    mirrorState.refused = { at: Date.now(), reason, servedActs: theirFile.length, servedHeight: theirBlocks.length, heldHeight: ourBlocks.length };
+    mirrorState.ok = false;
+    if (!same) {
+      // A producer-pin mismatch is a different problem with a different fix:
+      // the chain failed over to a key the operator did not list, and deleting
+      // this host's chain would NOT clear it (PEER_PRODUCER is still the old
+      // key). Point at the actual remedy instead of the generic one.
+      const pinMismatch = envPins.length && /pinned key\(s\)/.test(reason);
+      const remedy = pinMismatch
+        ? ' — this chain is sealed by a producer not in PEER_PRODUCER. If the failover is legitimate,'
+          + ' add the new producer key to PEER_PRODUCER (comma-separated) and restart; deleting this'
+          + ' host’s chain will NOT clear this refusal.'
+        : ' — serving the last verified record (' + acts.length + ' acts, chain height ' + ourBlocks.length
+          + ') and retrying. To accept the primary, a person removes this host’s chain/blocks.jsonl and'
+          + ' chain/HEAD.json (keep chain/producer.pem — it is this host’s election identity); if the'
+          + ' primary is the impostor, the record here is the witness.';
+      console.error('[mirror] REFUSING to adopt ' + role.mirrorOf + '’s record: ' + reason + remedy);
+    }
+    return false;
+  };
+  // Sealed history may only GROW: the served chain must extend the blocks this
+  // mirror already verified. A shorter chain, or one whose shared prefix hashes
+  // differently, is a rewrite, a truncation, or a different producer re-sealing.
+  if (!forkChainMergeable(theirBlocks, ourBlocks)) {
+    return refuse('the served sealed chain (height ' + theirBlocks.length + ') does not extend the chain this mirror verified (height '
+      + ourBlocks.length + ') — sealed history was rewritten, shortened, or re-sealed by another producer');
+  }
+  if (theirBlocks.length) {
+    if (!stateCache.R) {
+      await ensureEngine();
+      if (engineMod && replayMod) stateCache.R = replayMod.create(engineMod);
+    }
+    // No engine, no verification — but that is a refusal to adopt blind, not a
+    // silent pass and not a thrown transport error. An un-built mirror keeps
+    // serving what it has and says exactly why.
+    if (!stateCache.R) return refuse(engineErr || 'the engine bundle is not built here, so the served chain cannot be verified — run `npm run build:social`');
+    const { verifyChain } = await import('./chain/chain.mjs');
+    // Pin: PEER_PRODUCER if set, else no producer pin at all. An unpinned
+    // mirror is trust-on-first-use — per-block signatures still reject a forged
+    // block, and forkChainMergeable bit-pins the prefix it already verified, so
+    // held history cannot be rewritten under it. What an unpinned mirror does
+    // NOT do is second-guess WHO the writer is: an elected failover seals its
+    // tail under a new producer key, and refusing that would break automatic
+    // failover for every mirror that already held blocks. Deciding the writer
+    // is the election's job, not the pin's. An operator who wants the stricter
+    // guarantee sets PEER_PRODUCER (comma-separate a known-good failover set).
+    const pin = envPins.length ? new Set(envPins) : null;
+    // Replay-verify only the blocks we have not verified before (bounded to
+    // the new epochs); the prefix is already hash-identical to ours.
+    const rep = verifyChain({ fileActs: theirFile, blocks: theirBlocks, R: stateCache.R, producer: pin, checkState: true, checkStateFrom: ourBlocks.length });
+    if (!rep.ok) return refuse('the served log is not the log its own chain sealed: ' + rep.errors[0]);
+  } else {
+    // The primary serves no sealed chain. If we hold blocks it should have at
+    // least those — a chain that vanished is a rewrite (caught above, since
+    // forkChainMergeable([], ours>0) is false). Reaching here means we hold
+    // none either. With a producer pinned, a record we cannot verify is one we
+    // do not adopt. Without a pin, adopt (early-network / PEER_SEAL=off cloud
+    // stand-in), but say ONCE that it is unverified rather than imply it isn't.
+    if (envPins.length) {
+      return refuse('PEER_PRODUCER is set, so a sealed chain is expected — but the primary serves none;'
+        + ' an empty /api/chain would bypass every check this mirror exists to perform');
+    }
+    if (!mirrorState.warnedUnverified) {
+      console.error('[mirror] adopting ' + role.mirrorOf + '’s record UNVERIFIED — the primary has sealed no'
+        + ' chain (/api/chain is empty), so there is nothing to check it against. Set PEER_PRODUCER once the'
+        + ' primary seals its first epoch to make this a verified mirror. (This line prints once.)');
+      mirrorState.warnedUnverified = true;
+    }
+  }
+  // All awaits are behind us; re-check the role once before either write, so a
+  // promotion that landed during the engine load or the import cannot make
+  // this host wipe its own freshly-accepted log or overwrite its own chain.
+  const { writeChain } = await import('./chain/build.mjs');
+  if (!stillMine()) return false;
+  mirrorAdoptSafely(remoteActs);
+  if (theirBlocks.length > ourBlocks.length) {
+    try {
+      writeChain(resolve(DATA_DIR, 'chain'), theirBlocks);
+    } catch (e) { console.error('[mirror] verified the chain but could not keep it: ' + e.message); }
+  }
+  if (mirrorState.refused) console.log('[mirror] ' + role.mirrorOf + '’s record verifies again — adopting (' + theirFile.length + ' acts, chain height ' + theirBlocks.length + ')');
+  mirrorState.refused = null;
+  mirrorState.refusedGate = null;
+  return true;
+}
+
 /** Everything derived from `acts` that applyAct maintains incrementally on a
  *  writer, re-derived after an adoption — credentials AND the deleted set,
  *  or a promoted mirror would let a deleted account act and validate against
@@ -648,23 +811,68 @@ async function mirrorSync() {
   const syncingFor = role.mirrorOf;
   const stillMine = () => role.mirrorOf === syncingFor && syncingFor !== '';
   try {
-    const d = await (await mirrorGet('/api/acts?since=' + acts.length)).json();
+    // fedJson caps the body at FED_MAX_BYTES — a mirror pulls from a host it
+    // does not control, so an unbounded .json() was a memory-exhaustion door.
+    const d = await fedJson(role.mirrorOf + '/api/acts?since=' + acts.length, 15_000);
     if (!stillMine()) return;
     let mediaRefs = [];
     const wantFull =
+      mirrorState.refused !== null ||                 // a refused record is re-checked whole, never appended to
       d.total < acts.length ||                        // primary shrank: a rewrite happened
       d.acts.some((a) => a.t === 'deletePost' || a.t === 'deleteAccount') || // redactions touch old lines
       Date.now() - mirrorState.lastFull > 30 * 60_000; // belt and braces
     if (wantFull) {
-      const full = await (await mirrorGet('/api/acts')).json();
+      // While already refusing, do NOT re-download and re-verify the whole
+      // record every tick: gate the attempt on the primary's cheap head
+      // signature (log length + sealed chain head). Only a change on the
+      // primary can end the refusal, so nothing else is worth the bytes.
+      if (mirrorState.refused) {
+        let sig = 'total:' + d.total;
+        try {
+          const h = await fedJson(role.mirrorOf + '/api/chain/head', 10_000);
+          sig += ' head:' + (h.hash || '') + '@' + (h.height || 0);
+        } catch (e) {
+          if (!/HTTP 404/.test(String(e && e.message))) throw e;
+          sig += ' head:none';
+        }
+        if (!stillMine()) return;
+        // Skip the full re-pull only while the primary looks unchanged AND we
+        // re-verified within the last half hour. A payload/structure mismatch
+        // can be corrected in place on the primary without moving total or the
+        // chain head, so the signature alone would latch the refusal forever;
+        // the time bound guarantees at most one wasted re-verify per 30 min and
+        // that a silent content fix is still eventually picked up.
+        if (mirrorState.refusedGate === sig && Date.now() - mirrorState.refusedGateAt < 30 * 60_000) {
+          mirrorState.ok = false; return;
+        }
+        mirrorState.refusedGate = sig;
+        mirrorState.refusedGateAt = Date.now();
+      }
+      // Fetch the sealed chain BEFORE the log. If a close+seal lands between
+      // the two, the log is then newer than the blocks — which verifyChain
+      // tolerates as "closed epoch not yet sealed" — never the reverse, which
+      // would read as a rewrite and raise a false federation-visible refusal.
+      let theirBlocks = [];
+      try {
+        theirBlocks = await fedBlocks(role.mirrorOf + '/api/chain', 30_000);
+      } catch (e) {
+        if (!/HTTP 404/.test(String(e && e.message))) throw e;
+      }
       if (!stillMine()) return;
-      mirrorAdoptSafely(full.acts);
+      const full = await fedJson(role.mirrorOf + '/api/acts', 30_000);
+      if (!stillMine()) return;
+      // Verified against the sealed chain, or not adopted at all.
+      if (!(await mirrorVerifiedAdopt(full.acts, stillMine, theirBlocks))) return;
       mirrorState.lastFull = Date.now();
       mediaRefs = full.acts.flatMap(mediaRefsOf);
     } else if (d.acts.length) {
       for (const a of d.acts) { acts.push(a); persist(a); }
       reindexAfterAdoption();
       mediaRefs = d.acts.flatMap(mediaRefsOf);
+      // A close means the primary seals a block shortly; pull the whole
+      // record through the verified path soon after, rather than waiting
+      // for the half-hour backstop to hold the new block here too.
+      if (d.acts.some((a) => a && a.t === 'closeEpoch')) mirrorState.lastFull = Math.min(mirrorState.lastFull, Date.now() - 30 * 60_000 + 15_000);
     }
     await mirrorMedia(mediaRefs);
     // Rolling snapshots: seven files, one per weekday, overwritten in place.
@@ -939,23 +1147,25 @@ async function demoteTo(writer, opts) {
     }
   }
 
-  const P = commonPrefixLen(ourFile, theirFile, stateCache.R.parseMentions);
-  if (P < ourFile.length) {
-    saveForkTail(ourFile, P, 'yielding to (' + writer.url + ')');
-  } else {
-    console.log('[election] DEMOTED — ' + writer.url + ' holds the longer record (chain height '
-      + writer.chainHeight + ', ' + theirFile.length + ' acts). Becoming its mirror; every act here is in its log.');
-  }
   rememberPeer(writer.url);
   writeRole(writer.url);
   role.quarantine = false;
-  // Adopt what was already fetched and verified, rather than leaving the
-  // diverged tail in the live log for the next incremental sync to append
-  // the winner's acts on top of — that produced a silently corrupt log with
-  // every position reference off by the length of the tail.
-  mirrorAdopt(theirs.acts || []);
+  // Become the mirror, then adopt the winner's record through the SAME G6
+  // check routine sync runs: forkChainMergeable + verifyChain against the
+  // served sealed chain (mirrorVerifiedAdopt). It saves any divergent tail of
+  // ours to a fork file first (mirrorAdoptSafely), so nothing this host wrote
+  // past the split is lost. Winning the election is a claim about act counts
+  // and chain prefixes; it is NOT proof the served LOG matches the served
+  // BLOCKS, so a fresh host that demoted here no longer adopts a pre-history on
+  // the election's word alone. A record that fails to verify leaves this host
+  // demoted-but-serving-its-own, refusing and retrying — never a silent adopt.
+  const adopted = await mirrorVerifiedAdopt(theirs.acts || [], () => role.mirrorOf === writer.url);
   mirrorState.lastFull = Date.now();
   mirrorState.ok = null;
+  if (adopted) {
+    console.log('[election] DEMOTED — ' + writer.url + ' holds the longer record (chain height '
+      + writer.chainHeight + ', ' + theirFile.length + ' acts). Becoming its mirror; every act here is in its log.');
+  }
 }
 
 function readBlocksLocal() {
@@ -4663,7 +4873,11 @@ function adminMetrics() {
       uptimeSec: Math.round((Date.now() - OPS_STARTED) / 1000),
       role: role.mirrorOf ? 'mirror' : 'primary',
       mirrorOf: role.mirrorOf || null,
-      mirrorInSync: role.mirrorOf ? mirrorState.ok : null,
+      mirrorInSync: role.mirrorOf ? (mirrorState.refused ? false : mirrorState.ok) : null,
+      // Non-null while this mirror is refusing to adopt the primary's record
+      // because it fails verification against the sealed chain — the mirror
+      // keeps serving its last verified record and says so here.
+      mirrorRefusing: role.mirrorOf ? mirrorState.refused : null,
       node: process.version,
       rssMb: +(mem.rss / 1048576).toFixed(1),
       heapMb: +(mem.heapUsed / 1048576).toFixed(1),
@@ -4795,6 +5009,10 @@ const server = createServer((req, res) => {
       quarantine: role.quarantine,
       primary: role.mirrorOf || null,
       writer: electionState.lastWriter,
+      // A mirror refusing an unverifiable record says so to the federation
+      // too: its acts/chainHeight above describe the record it is SERVING,
+      // which is deliberately not the record its primary is offering.
+      refusing: role.mirrorOf && mirrorState.refused ? mirrorState.refused.reason : null,
     });
     return;
   }

@@ -150,8 +150,23 @@ export function buildBlocks({ fileActs, R, editions, constants, key, existing = 
  * Every failure is attributed — link, signature, structure, payload, state,
  * or edition drift — because a discrepancy nobody can attribute is the
  * "third outcome" the canonical-publication postulate exists to remove.
+ *
+ * `checkState: false` skips the per-block state replay and answers only the
+ * narrower question "is this log the one these blocks sealed?" — links,
+ * signatures, structural and payload commitments, roots. `checkStateFrom: k`
+ * keeps the full replay but only from block height k+1 up: a mirror that
+ * keeps the blocks it already replayed re-verifies just the NEW ones each
+ * sync, so the cost is one replay per epoch over a mirror's lifetime rather
+ * than the whole chain every time.
+ *
+ * `producer` may be a single key or an array/Set of accepted keys — an
+ * elected failover seals its tail under a new producer, so a chain that is
+ * legitimately multi-producer is pinned by the SET of keys that produced it,
+ * not one.
  */
-export function verifyChain({ fileActs, blocks, R, editions = null, producer = null }) {
+export function verifyChain({ fileActs, blocks, R, editions = null, producer = null, checkState = true, checkStateFrom = 0 }) {
+  const pinned = producer == null ? null
+    : (producer instanceof Set ? producer : new Set([].concat(producer)));
   const report = { ok: true, height: blocks.length, blocks: [], errors: [], warnings: [], tombstoned: 0 };
   const fail = (msg) => { report.ok = false; report.errors.push(msg); };
 
@@ -198,7 +213,7 @@ export function verifyChain({ fileActs, blocks, R, editions = null, producer = n
     if (merkleRoot(b.payloads) !== b.payloadsRoot) bad('payloadsRoot does not match its own leaf list');
 
     if (stateRoot(b.package) !== b.stateRoot) bad('stateRoot does not hash its own package');
-    if (entry.ok) {
+    if (entry.ok && checkState && n >= checkStateFrom) {
       const st = replayPrefix(R, fileActs, end);
       let pkg;
       try {
@@ -222,7 +237,7 @@ export function verifyChain({ fileActs, blocks, R, editions = null, producer = n
 
     if (!verifyBlockSignature(b)) bad('signature does not verify against the named producer');
     producers.add(b.producer);
-    if (producer && b.producer !== producer) bad('producer is not the pinned key');
+    if (pinned && !pinned.has(b.producer)) bad('producer is not among the pinned key(s)');
 
     prev = blockHash(b);
     entry.hash = prev;

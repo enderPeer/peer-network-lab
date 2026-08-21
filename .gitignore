@@ -5,6 +5,7 @@ PeerNetwork_PeerNetwork_*.pdf
 build.log
 docs/spec-digests/
 docs/COVERAGE.md
+harness/
 
 # --- build artifacts & runtime state ---
 node_modules/
