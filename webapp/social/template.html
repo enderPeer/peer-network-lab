@@ -1243,6 +1243,89 @@ button, .btn { touch-action: manipulation; }
     l2Wallet = String(accs[0]).toLowerCase();
     return l2Wallet;
   }
+  // ── The phone door ──────────────────────────────────────────────────────
+  // A phone browser has no extension slot: on iOS and Android,
+  // window.ethereum exists only INSIDE a wallet's own in-app browser. So
+  // where a desktop reads "install an extension", a phone gets a door:
+  // universal links that reopen THIS page inside a wallet's browser when the
+  // wallet is installed — and the same tap lands in the app store when it is
+  // not, which is the only install-detection Apple allows a web page. The
+  // links must be real anchor taps: a scripted redirect to a universal link
+  // does not launch the app, and iOS 18 made that stricter, not looser.
+  // Trust Wallet is deliberately absent — its iPhone app removed the dApp
+  // browser in 2021, so its link would install a wallet that cannot reach
+  // this page. Wallets with a browser but no documented door (Rainbow,
+  // Zerion) are reached by the copy row instead. The page's own address is
+  // what travels: this app is self-hosted by whoever runs it, and a URL
+  // written into the source would be one nobody checked.
+  var l2DoorElect = false;
+  function l2WalletDoor() {
+    // Hidden until it holds buttons: an empty width:100% child of a flex
+    // .mini-form is a wrapped blank line and a stray row-gap on every
+    // desktop card that has nothing to say here.
+    var box = h('div', { style: 'width:100%; display:none' });
+    if (window.ethereum) return box;
+    var phone = /iP(hone|ad|od)|Android/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS lies
+    if (!phone || !/^https?:$/.test(location.protocol)) return box;
+    // #econ: every door lives on the Economy lane, and the wallet's in-app
+    // browser is a fresh profile whose restored view is the default feed.
+    // The hash is the one channel that survives the crossing, so the
+    // reopened page lands where the tap happened instead of on the feed.
+    var here = location.origin + location.pathname + location.search + '#econ';
+    var ephemeral = /\.trycloudflare\.com$/i.test(location.hostname);
+    var row = h('div', { style: 'display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px' });
+    // MetaMask's /dapp/ format has no scheme slot and reopens as https, so
+    // on an http origin (a LAN host) its button would send the wallet to an
+    // address nothing answers. The other two links carry the scheme, encoded.
+    if (location.protocol === 'https:') {
+      row.appendChild(h('a', { class: 'btn small', rel: 'noopener',
+        href: 'https://link.metamask.io/dapp/' + here.replace(/^https:\/\//, ''), text: 'Open in MetaMask' }));
+    }
+    row.appendChild(h('a', { class: 'btn small', rel: 'noopener',
+      href: 'https://go.cb-w.com/dapp?cb_url=' + encodeURIComponent(here), text: 'Open in Base app' }));
+    row.appendChild(h('a', { class: 'btn small', rel: 'noopener',
+      href: 'https://web3.okx.com/download?deeplink=' + encodeURIComponent('okx://wallet/dapp/url?dappUrl=' + encodeURIComponent(here)), text: 'Open in OKX' }));
+    box.appendChild(row);
+    box.style.display = '';
+    box.setAttribute('data-wallet-door', 'pending');
+    // Several cards on one lane can each hold a door, and five copies of the
+    // same paragraph teach nothing the first did not. Which door explains is
+    // decided by where it SITS, not when it was drawn — async cards fill in
+    // above earlier ones, and the paragraph belongs to the topmost door a
+    // reader meets. One deferred pass over the attached doors settles it,
+    // and any later door schedules a fresh election over what is attached.
+    var extra = h('div', { class: 'wallet-door-extra', style: 'display:none' });
+    extra.appendChild(h('p', { class: 'smallnote', style: 'margin:6px 0 0', text: 'On a phone the wallet is an app, not an extension, and it can only see this page from inside the wallet\u2019s own browser. Each button reopens this page there; if that wallet is not on this phone, the same tap should land where it can be installed \u2014 after installing, come back here and tap the button again. The Base app is one specific wallet, the one formerly named Coinbase Wallet \u2014 and it sometimes lands in the App Store even when it is installed; if that happens, open it yourself and paste this page\u2019s address into its browser with the button below. Trust Wallet has no button here: on iPhone it has no browser to open this page in. Any wallet that does have one (Rainbow, Zerion, Trust on Android) works the same way \u2014 copy this page\u2019s address into it.'
+      + (ephemeral ? ' And this copy of the app lives at a temporary address that changes when its host restarts \u2014 if a reopened link stops answering later, come back in through the app\u2019s permanent address.' : '') }));
+    extra.appendChild(h('div', { style: 'margin-top:6px' },
+      h('button', { class: 'btn small ghost', text: 'Copy this page\u2019s address', onclick: function () {
+        copyLine(here, ephemeral
+          ? 'Copied \u2014 note this host\u2019s address changes when it restarts; the permanent address is the surer one to keep.'
+          : 'Copied. Paste it into the address bar inside your wallet\u2019s browser.');
+      } })));
+    box.appendChild(extra);
+    if (!l2DoorElect) {
+      l2DoorElect = true;
+      // setTimeout, never requestAnimationFrame: rAF is paint-gated and does
+      // not fire in a backgrounded tab, which would leave every door
+      // 'pending' — buttons with their explanation hidden — until the tab
+      // was fronted. The retries cover a door built into a card that is
+      // attached to the document a moment after this helper returns.
+      var settle = function (tries) {
+        var all = document.querySelectorAll('[data-wallet-door]');
+        if (!all.length && tries > 0) { setTimeout(function () { settle(tries - 1); }, 120); return; }
+        l2DoorElect = false;
+        for (var i = 0; i < all.length; i++) {
+          all[i].setAttribute('data-wallet-door', i === 0 ? 'full' : 'compact');
+          var ex = all[i].getElementsByClassName('wallet-door-extra');
+          for (var j = 0; j < ex.length; j++) ex[j].style.display = i === 0 ? '' : 'none';
+        }
+      };
+      setTimeout(function () { settle(8); }, 0);
+    }
+    return box;
+  }
   var railView = 'alerts'; // right-rail instrument: 'alerts' | 'network' | 'tags' | 'bets'
 
   var world = { acts: [{ t: 'seedWorld' }] }, who = null, tab = 'feed';
@@ -2016,6 +2099,11 @@ button, .btn { touch-action: manipulation; }
     document.addEventListener('click', function (ev) {
       var a = ev.target && ev.target.closest && ev.target.closest('a[href]');
       if (!a) return;
+      // The wallet door's whole job is to LEAVE this app for the wallet, and
+      // a universal link only launches the wallet from a real anchor tap —
+      // window.open here would turn the door into a page about installing a
+      // wallet the person may already have.
+      if (a.closest && a.closest('[data-wallet-door]')) return;
       var href = a.getAttribute('href') || '';
       if (!/^https?:/i.test(href)) return;
       if (new URL(href, location.href).origin === location.origin) return;
@@ -9953,6 +10041,7 @@ button, .btn { touch-action: manipulation; }
         addRow.appendChild(h('span', { class: 'smallnote', text: 'This only tells the wallet that the token exists. It moves nothing, mints nothing and changes no balance: coins sent to an account are in it whether or not the wallet lists them, and MetaMask simply does not show a token it has never been told about. That is the whole of \u201cwhere is it\u201d.' }));
       } else {
         addRow.appendChild(h('span', { class: 'smallnote', text: 'No wallet in this browser. Anything sent to an account on ' + chainName + ' is in it regardless \u2014 open that account in a wallet on ' + chainName + ' and paste the address above under \u201cimport token\u201d to see it listed.' }));
+        addRow.appendChild(l2WalletDoor());
       }
       body.appendChild(addRow);
 
@@ -10288,7 +10377,8 @@ button, .btn { touch-action: manipulation; }
           }
         }
       } else {
-        row.appendChild(h('span', { class: 'smallnote', text: 'No wallet extension in this browser, so the address is entered by hand below. Copy it from the wallet that will collect — never retype it from memory.' }));
+        row.appendChild(h('span', { class: 'smallnote', text: 'No wallet in this browser. The address can be entered by hand below — copy it from the wallet that will collect, never retype it from memory.' }));
+        row.appendChild(l2WalletDoor());
       }
 
       // ── the manual path, always present ──
@@ -10449,6 +10539,7 @@ button, .btn { touch-action: manipulation; }
       if (!claimAddr) return;      // nothing on a chain to talk to yet
       if (!window.ethereum) {
         wRow.appendChild(h('span', { class: 'smallnote', text: 'No wallet in this browser, so nothing below can be checked against the chain or claimed. The amounts are still what this host computes from the log.' }));
+        wRow.appendChild(l2WalletDoor());
         return;
       }
       if (!chainHex) {
@@ -11883,7 +11974,7 @@ button, .btn { touch-action: manipulation; }
         if (!who) { note('Sign in to a handle first: a burn is credited to a handle, and there is none here to credit.'); return; }
         if (!you || !you.boundAddress) { note('No button until this handle has an address bound to it — PEER destroyed from an unbound address credits nobody, and no host can undo that.'); return; }
         if (!token || !chainHex) { note('This host did not say which token on which chain to send, so nothing here will build a transfer: an ERC-20 transfer aimed at a guess is money destroyed for nothing.'); return; }
-        if (!window.ethereum) { note('No wallet in this browser, so nothing here can sign. The transfer is an ordinary ERC-20 send of PEER to the address above, from the bound address, in any wallet — the host credits it on its own tick.'); return; }
+        if (!window.ethereum) { note('No wallet in this browser, so nothing here can sign. The transfer is an ordinary ERC-20 send of PEER to the address above, from the bound address, in any wallet — the host credits it on its own tick.'); actions.appendChild(l2WalletDoor()); return; }
         if (l2Wallet && String(l2Wallet).toLowerCase() !== String(you.boundAddress).toLowerCase()) {
           note('The connected wallet is ' + l2ShortHex(l2Wallet) + ' and this handle is bound to ' + l2ShortHex(String(you.boundAddress)) + '. A burn from the connected one would not be yours, so no button is drawn: switch the wallet, or bind that address above.');
           return;
@@ -12855,6 +12946,7 @@ button, .btn { touch-action: manipulation; }
             walletRow.appendChild(h('span', { class: 'smallnote', text: 'Prices are public; only signing needs the wallet. It signs, this page never sees a key.' }));
           } else {
             walletRow.appendChild(h('span', { class: 'smallnote', text: 'No wallet detected — the pool stays readable, but swapping, adding and withdrawing need one on Base.' }));
+            walletRow.appendChild(l2WalletDoor());
           }
         }
 
