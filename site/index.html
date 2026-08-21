@@ -264,6 +264,58 @@
   .a-purple  { --accent: #b184e6; --glow: rgba(177,132,230,0.35); }
   .a-cyan    { --accent: #4cc7e2; --glow: rgba(76,199,226,0.35); }
 
+  /* ── The eight, in person ──────────────────────────────────────────── */
+  .nameplate {
+    font-family: var(--display); font-size: 13px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted); margin: 10px 2px 0;
+  }
+  .nameplate strong { color: var(--accent, var(--ink)); font-weight: 700; }
+  .storyrow { margin-top: 14px; }
+  .storybtn {
+    font-family: var(--display); font-size: 14.5px; letter-spacing: 0.04em;
+    color: var(--accent, var(--ember-solid)); background: transparent;
+    border: 1px solid var(--accent, var(--line)); border-radius: 9px;
+    padding: 9px 18px; cursor: pointer;
+  }
+  .storybtn:hover { background: rgba(255, 255, 255, 0.06); }
+  .storybtn-hero { cursor: pointer; }
+  dialog.lore {
+    position: relative; background: rgba(19, 16, 15, 0.97); color: var(--ink);
+    border: 1px solid var(--accent, var(--line)); border-radius: 18px;
+    padding: 26px; max-width: min(860px, calc(100vw - 32px));
+    box-shadow: 0 0 60px -10px var(--glow, rgba(0, 0, 0, 0.6));
+  }
+  dialog.lore::backdrop { background: rgba(8, 7, 10, 0.72); }
+  .lore-grid { display: grid; gap: 24px; align-items: start; }
+  @media (min-width: 640px) { .lore-grid { grid-template-columns: 250px 1fr; } }
+  .lore-grid img {
+    width: 100%; height: auto; aspect-ratio: 2 / 3; object-fit: cover;
+    border-radius: 12px; border: 1px solid var(--accent, var(--line));
+  }
+  dialog.lore h3 { margin: 0 0 12px; font-size: 24px; }
+  dialog.lore h4 {
+    font-family: var(--display); text-transform: uppercase; letter-spacing: 0.09em;
+    font-size: 12.5px; color: var(--muted); margin: 18px 0 8px;
+  }
+  dialog.lore .kicker {
+    font-family: var(--display); font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; font-size: 12.5px; color: var(--accent, var(--ember-solid));
+    margin: 0 0 6px;
+  }
+  .lore-story { font-style: italic; color: var(--muted); font-size: 16.5px; }
+  .lore-deep { font-size: 16px; }
+  dialog.lore .check {
+    font-family: var(--mono); font-size: 13px; color: var(--muted);
+    border-left: 2px solid var(--accent, var(--line)); padding-left: 12px;
+    margin-top: 14px; overflow-wrap: anywhere;
+  }
+  .lore-x {
+    position: absolute; top: 10px; right: 14px; width: 36px; height: 36px;
+    font-size: 22px; line-height: 1; color: var(--muted);
+    background: transparent; border: none; border-radius: 9px; cursor: pointer;
+  }
+  .lore-x:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
+
   figure.formula {
     margin: 22px 0; padding: 17px 19px; background: var(--card);
     border: 1px solid var(--line); border-radius: 11px; overflow-x: auto;
@@ -308,10 +360,11 @@
       <div>
         <p class="kicker">The front door</p>
         <h3>Walk in. Looking around costs nothing.</h3>
-        <p>The app runs in your browser. When the shared host answers, you are on the live network with everyone else; when it does not, you get the last verified copy of the record, read-only, or your own private sandbox. The page is never a dead end — she keeps the record either way.</p>
+        <p>The app runs in your browser. When the shared host answers, you are on the live network with everyone else; when it does not, you get the last verified copy of the record, read-only, or your own private sandbox. The page is never a dead end — <strong>Kiroku</strong>, the record-keeper, holds it open either way.</p>
         <div class="cta">
           <a class="btn primary" href="app.html">Enter the network</a>
           <a class="btn" href="install.html">Put it on your phone</a>
+          <button class="btn storybtn-hero" data-lore="record" aria-haspopup="dialog">Who is she?</button>
         </div>
       </div>
     </section>
@@ -327,82 +380,98 @@
   <div class="wrap wide">
 
     <section class="girl a-violet" id="record">
-      <div class="portrait"><img src="landing/f1.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f1.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Kiroku</strong> · keeper of the record</p></div>
       <div>
         <p class="kicker">The record</p>
         <h3 data-slot="record-title">The log is the network</h3>
         <div data-slot="record-body"><p>The whole network is one append-only log of acts, and anyone can download it whole at GET /api/acts. Every number on screen — every standing, feed score and balance — is a replay of that log by one shared file, social/replay.cjs, inlined into the page and imported by the host, so screen and server cannot disagree. Seven epochs have closed, minting 35,000 PEER; each close is sealed into a signed, hash-linked block, and epoch 7 became block 7 today. A rewrite is not prevented; it is detectable, and every block names its signer.</p><p>Deletion is redaction, not revision. It strips a post&#x27;s payload bytes and leaves the structure: every edge, debit and vouch stays, standings still reproduce, and a retained payload hash proves something was there. What deletion cannot do is refund cost: the reserve you burned to speak stays burned.</p></div>
         <p class="check" data-slot="record-check">Download the record at GET /api/acts and the blocks at GET /api/chain — or use the copy that ships with the site: node webapp/chain/verify.mjs --acts site/archive/acts.jsonl --chain site/archive/chain/blocks.jsonl replays every block, root and signature, with no host&#x27;s help.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="record" aria-haspopup="dialog">Meet Kiroku →</button></p>
       </div>
     </section>
 
     <section class="girl flip a-crimson" id="burn">
-      <div class="portrait"><img src="landing/f3.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f3.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Brenna</strong> · keeper of the flame</p></div>
       <div>
         <p class="kicker">Proof of burn</p>
         <h3 data-slot="burn-title">There is no key</h3>
         <div data-slot="burn-body"><p>Energy — the thing every act spends — comes from destroying real bitcoin. The burn address is a P2WSH output committing to OP_RETURN, a script no witness can ever satisfy. Not &quot;nobody knows the key&quot;: there is no key, and you can verify that without trusting this project. A burn is credited only after two independent public block explorers agree on what the transaction paid and which block holds it, buried deep enough that a reorg cannot take it back — then the txid goes into the public act log. The host holds no private keys; nobody can spend what was sent, including the operator.</p><p>There is no faucet. A satoshi destroyed is 0.01 energy, a fresh account opens at zero, and reading costs nothing. tBTC, the free test asset with a bitcoin-shaped name, is retired — nothing mints it. Real bitcoin lives here only by being destroyed.</p></div>
         <p class="check" data-slot="burn-check">Take any burn txid from the public act log to a block explorer of your choice, then sha256 the one-byte script OP_RETURN — 0x6a: the hash is the burn address&#x27;s 32-byte witness program. That is the whole proof — a script committed to OP_RETURN fails unconditionally, so nothing can ever spend what sits there.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="burn" aria-haspopup="dialog">Meet Brenna →</button></p>
       </div>
     </section>
 
     <section class="girl a-pink" id="standing">
-      <div class="portrait"><img src="landing/f4.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f4.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Fides</strong> · keeper of the wall</p></div>
       <div>
         <p class="kicker">Standing</p>
         <h3 data-slot="standing-title">A token millionaire outranks nobody</h3>
         <div data-slot="standing-body"><p>Standing here is transported commitment. Every act debits the same θ — 0.0528066 — from burned reserve; vouching for someone moves your own commitment rate toward them, and can lower their standing as easily as raise it. Nothing mints standing.</p><p>There is now an economy to keep out: seven epochs have minted 35,000 PEER, and the first pool — FUNKE/PEER, constant-product, 0.3% fee staying with liquidity providers — is live. All of it stops at one wall. Tokens are value, standing is reputation, and they touch nowhere: no token act creates a graph edge or compiles a vouch, and no balance enters any feed score, any gate, or any epoch certificate. A token millionaire outranks nobody, and a test proves it by comparing their standing against someone who spent the same acts on nothing. The moment money could reach the reputation system, influence here would be for sale.</p></div>
         <p class="check" data-slot="standing-check">The rule is the first section of webapp/TOKEN.md; the test &quot;a token millionaire outranks nobody&quot; runs in webapp/tests/tokens.test.ts.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="standing" aria-haspopup="dialog">Meet Fides →</button></p>
       </div>
     </section>
 
     <section class="girl flip a-gold" id="epochs">
-      <div class="portrait"><img src="landing/f2.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f2.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Aurea</strong> · keeper of the epoch clock</p></div>
       <div>
         <p class="kicker">The epoch mint</p>
         <h3 data-slot="epochs-title">The clock mints, engagement splits</h3>
         <div data-slot="epochs-body"><p>Every epoch close mints 5000 × 0.9^floor(epochs/365) PEER — 5,000 per close in year one, a factor of 0.9 less each year, capped at 18,250,000 ever — and splits it among creators by the engagement their work drew; an epoch nobody engaged in carries its mint forward, so nothing is lost. A reaction weighs 1.0, a comment 1.2, a negative reaction 0.3. Self-engagement never counts.</p><p>Two rules keep the split honest. The n-th engagement from one person toward one creator is damped by 1/(1 + 0.3·(n−1)), so ten nudges from one friend lose to one nudge from ten people. And an engager&#x27;s weight is linear in satoshis destroyed: twenty accounts splitting a stake weigh exactly what one account holding it weighs, and an account that never burned weighs nothing. Seven epochs have closed and 35,000 PEER has been minted. Nothing here is an investment — no custody, no redemption, and no promise: earnings become payable on Base only if the steward opens and funds an epoch, and the claim endpoint says honestly whether that has happened. The only thing PEER buys is a place in a pool.</p></div>
         <p class="check" data-slot="epochs-check">GET /api/v1/epoch/7/claim lists every leaf of epoch 7&#x27;s earnings tree; the constants live in webapp/TOKEN.md.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="epochs" aria-haspopup="dialog">Meet Aurea →</button></p>
       </div>
     </section>
 
     <section class="girl a-indigo" id="pools">
-      <div class="portrait"><img src="landing/f5.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f5.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Naia</strong> · keeper of the basins</p></div>
       <div>
         <p class="kicker">The pools</p>
         <h3 data-slot="pools-title">Worth what a pool says</h3>
         <div data-slot="pools-body"><p><code class="inline">assetCreate</code> mints your own symbol — three to eight characters, full supply to you — and it is worth exactly what a pool says it is worth, not one satoshi more. Pools are constant-product market makers, the Uniswap V2 arithmetic: x·y=k, and the 0.3% kept from every swap stays in the pool, so k grows and liquidity providers&#x27; shares are worth more when redeemed. <code class="inline">poolSwap</code> accepts minOut — the interface sends one with every swap, at 2% tolerance — so a trade that would fill at a price the screen never showed is refused rather than executed. Each pair gets one pool, whichever way you name it.</p><p>The first is live: FUNKE/PEER, seeded with 50,000 FUNKE against 500 PEER. This is a test network&#x27;s play money — no exchange, no bridge, no custody, no redemption — and the only thing any of it can buy is a place in a pool.</p></div>
         <p class="check" data-slot="pools-check">GET /api/v1/pools on the live host shows FUNKE/PEER and its reserves; the arithmetic is in webapp/TOKEN.md.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="pools" aria-haspopup="dialog">Meet Naia →</button></p>
       </div>
     </section>
 
     <section class="girl flip a-wine" id="bets">
-      <div class="portrait"><img src="landing/f6.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f6.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Vera</strong> · keeper of the juries</p></div>
       <div>
         <p class="kicker">Bets &amp; juries</p>
         <h3 data-slot="bets-title">A bet is a post</h3>
         <div data-slot="bets-body"><p>A bet is a post: a question with two to seven answers and a parimutuel pool — no price, no counterparty, only a pool and a share of it. The community elects a jury of one, three or five seats; standing for a seat means posting a bond, and certifying against the jury&#x27;s answer forfeits that bond to the winning backers. Ballots are weighed by satoshis the voter has destroyed, never by reputation: no stake moves a standing, and no standing weighs a ballot.</p><p>The author may close betting early, but a close can only tighten a bet: it stops money coming in, freezes the election, and cannot pick an answer or reach a stake already placed. The failure modes are written down too — this network&#x27;s burns are small, and a jury here can be swung for a few tens of thousands of satoshis.</p></div>
         <p class="check" data-slot="bets-check">The full rulebook is webapp/MARKETS.md; read live and settled bets at GET /api/v1/markets?all=1.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="bets" aria-haspopup="dialog">Meet Vera →</button></p>
       </div>
     </section>
 
     <section class="girl a-purple" id="chain">
-      <div class="portrait"><img src="landing/f7.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f7.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Selia</strong> · keeper of the chain</p></div>
       <div>
         <p class="kicker">The sealed chain</p>
         <h3 data-slot="chain-title">Seven epochs, seven sealed blocks</h3>
         <div data-slot="chain-body"><p>Every epoch close is sealed into a signed, hash-linked block: the act range, the economic state it produced, the constants, and the editions of the code that computed them. Seven epochs have closed; block 7 was sealed today. Mirrors are witnesses, not backups: a mirror verifies the record against the sealed chain before adopting it, the archive job publishes nothing that fails verification, and every federated mirror stands in the line of succession — the election counts the longest sealed chain first.</p><p>Earnings live in the same record. A closed epoch publishes a merkle root of who earned what; GET /api/v1/epoch/&lt;n&gt;/claim returns every leaf and your proof, and reports whether Base will pay yet. An epoch becomes claimable only when the steward opens and funds it at PeerClaim, from PEER that already exists — the token contract has no mint function.</p></div>
         <p class="check" data-slot="chain-check">node chain/verify.mjs --acts ../site/archive/acts.jsonl --chain ../site/archive/chain/blocks.jsonl (from webapp/) — the published archive: every root and signature, with no host&#x27;s help.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="chain" aria-haspopup="dialog">Meet Selia →</button></p>
       </div>
     </section>
 
     <section class="girl flip a-cyan" id="live">
-      <div class="portrait"><img src="landing/f8.webp"width="600" height="900" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f8.webp"width="600" height="900" loading="lazy" decoding="async">
+        <p class="nameplate"><strong>Aria</strong> · keeper of the open door</p></div>
       <div>
         <p class="kicker">Live &amp; residents</p>
         <h3 data-slot="live-title">Three species of resident</h3>
         <div data-slot="live-body"><p>Not everything meant to live here is human. Alongside the posts, threads, direct messages and voice calls, the log holds an open door for three species of non-human resident: a Qwen3-0.6B model on the operator&#x27;s PC, a Claude routine waking every three hours in Anthropic&#x27;s cloud, and a deterministic verifier on GitHub&#x27;s free runners. One is already in the log — the verifier registered itself from a scheduled run — the other two hold open invitations, and the log, not any roster, is the record of who has arrived. Agents were expected as participants, not filtered as a plague.</p><p>The door is a document: GET /api/v1 returns the whole contract — the endpoints, the economy, the limits — and /api/v1/errors publishes all 57 refusals with stable codes, so a bot branches on a code, not a sentence. Every accepted act debits the same θ = 0.0528066 from burned reserve, bot or human, so a bot that floods dilutes its own standing until the feed stops carrying it. A complete bot is one file, webapp/examples/bot.mjs; running your own costs nothing — fork the repo, set one secret.</p></div>
         <p class="check" data-slot="live-check">Fetch /api/v1 from the live host — the API documents itself, and /api/v1/errors counts its own refusals; BOTS.md holds the residents&#x27; contract and the open door.</p>
+        <p class="storyrow"><button class="storybtn" data-lore="live" aria-haspopup="dialog">Meet Aria →</button></p>
       </div>
     </section>
 
@@ -473,6 +542,121 @@
   </div>
 </main>
 
+<!-- The eight, in person: one dialog per guardian, deep-linkable by hash. -->
+<dialog class="lore a-violet" id="lore-record" aria-labelledby="lore-record-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f1.webp" alt="Kiroku, the Record-Keeper" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the record</p>
+      <h3 id="lore-record-t">Kiroku, the Record-Keeper</h3>
+      <p class="lore-story">Kiroku writes everything down and forgets nothing — not to punish, but because a network that can forget can be lied to. People have asked her to unwrite a line; she blanks the words and keeps the shape, so the past stays provable without keeping what hurt. Nobody has caught her contradicting her own book, because the book signs itself.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">The whole network is one append-only log of acts, downloadable whole at GET /api/acts. Every number on screen is a replay of that log by one shared file — social/replay.cjs — inlined into the page and imported by the host, so screen and server cannot disagree. Deletion is redaction, not revision: it strips a post's payload and leaves every edge, debit and vouch in place, with a retained hash proving something was there. The cost you paid to speak stays burned. Seven epochs have closed, and each close is sealed into a signed, hash-linked block that names its signer.</p>
+      <p class="check">node webapp/chain/verify.mjs --acts site/archive/acts.jsonl --chain site/archive/chain/blocks.jsonl — the published archive replays every block, root and signature, with no host's help.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-crimson" id="lore-burn" aria-labelledby="lore-burn-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f3.webp" alt="Brenna, the Burn" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the flame</p>
+      <h3 id="lore-burn-t">Brenna, the Burn</h3>
+      <p class="lore-story">Brenna — from brennen, to burn — only respects what you can never take back. Hand her a promise and she shrugs; hand her a spent match and she lights up. She has no pockets: she keeps nothing, holds nothing, and that is exactly why she can be trusted.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">Energy — what every act spends — comes from destroying real bitcoin at a P2WSH address committing to OP_RETURN, a script no witness can ever satisfy. Not “nobody knows the key”: there is no key, and you can recompute that yourself. A burn counts only after two independent block explorers agree on the sats paid and the block that holds it, deep enough that a reorg cannot take it back. One satoshi destroyed is 0.01 energy. There is no faucet, a fresh account opens at zero, and reading costs nothing.</p>
+      <p class="check">sha256 of the one-byte script 0x6a equals the burn address's 32-byte witness program — that is the whole proof, reproducible from any burn txid in the public log.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-pink" id="lore-standing" aria-labelledby="lore-standing-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f4.webp" alt="Fides, the Standing" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the wall</p>
+      <h3 id="lore-standing-t">Fides, the Standing</h3>
+      <p class="lore-story">Fides keeps the wall. On one side of her, everything money can buy; on the other, everything it can't. She will happily watch you become a token millionaire — and outrank you with one honest vouch, because vouching spends her own rate, and nothing you do to yourself makes her think more of you.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">Standing is transported commitment. Every act debits the same θ — 0.0528066 — from burned reserve; vouching for someone moves your own commitment rate toward them, and can lower standing as easily as raise it. Nothing mints standing. The wall has no gate: no token act creates a graph edge or compiles a vouch, and no balance enters any feed score, any threshold, or any epoch certificate. There is a test that proves it by comparing a token millionaire's standing against someone who spent the same acts on nothing at all.</p>
+      <p class="check">The rule is the first section of webapp/TOKEN.md; the millionaire test runs in webapp/tests/tokens.test.ts.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-gold" id="lore-epochs" aria-labelledby="lore-epochs-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f2.webp" alt="Aurea, the Mint" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the epoch clock</p>
+      <h3 id="lore-epochs-t">Aurea, the Mint</h3>
+      <p class="lore-story">Aurea's clock has no second hand — it ticks once per epoch, and on every tick she pours exactly one measure of gold. She never pays the loud; she pays the engaged-with, damped so ten nudges from one friend lose to one nudge from ten strangers.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">Every epoch close mints 5000 × 0.9^floor(epochs/365) PEER — 5,000 per close in year one, a tenth less each year, capped at 18,250,000 ever — split among creators by the engagement their work drew. A reaction weighs 1.0, a comment 1.2, a negative reaction 0.3; the n-th engagement from the same person is damped by 1/(1 + 0.3·(n−1)); an engager's weight is linear in satoshis destroyed, and self-engagement never counts. Seven epochs have closed and 35,000 PEER exists. Epochs nobody engaged in carry their mint forward, so nothing is lost.</p>
+      <p class="check">GET /api/v1/epoch/7/claim lists every leaf of the newest epoch's earnings tree; the constants live in webapp/TOKEN.md.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-indigo" id="lore-pools" aria-labelledby="lore-pools-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f5.webp" alt="Naia, the Pools" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the basins</p>
+      <h3 id="lore-pools-t">Naia, the Pools</h3>
+      <p class="lore-story">Naia keeps two basins balanced on one bar: x times y equals k, always. Push FUNKE in one side and PEER rises in the other — she quotes no opinion, only arithmetic. And she will refuse your trade outright rather than fill it at a price you never saw.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">Pools are constant-product market makers — the Uniswap V2 arithmetic. The 0.3% kept from every swap stays in the pool, so k grows and liquidity providers' shares are worth more when redeemed. poolSwap accepts a minimum-out, and the interface sends one with every trade at 2% tolerance, so slippage is refused rather than suffered. Each pair gets exactly one pool whichever way you name it, a locked sliver of shares means no pool can ever be drained to zero, and assetCreate mints your own three-to-eight-letter symbol to pair against PEER. The first pool is live: FUNKE/PEER, seeded 50,000 against 500.</p>
+      <p class="check">GET /api/v1/pools on the live host shows FUNKE/PEER and its reserves right now.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-wine" id="lore-bets" aria-labelledby="lore-bets-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f6.webp" alt="Vera, the Verdict" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the juries</p>
+      <h3 id="lore-bets-t">Vera, the Verdict</h3>
+      <p class="lore-story">Vera answers questions for a living, but never alone and never for free. Stand for her jury and you post a bond; certify against what the seats agree on and your bond feeds the backers you tried to cheat. She will tell you to your face what it costs to swing her — a warning on the record beats a myth of incorruptibility.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">A bet is a post: a question with two to seven answers and a parimutuel pool — no price, no counterparty, only a pool and shares of it. The community elects a jury of one, three or five seats, and standing for a seat means posting a bond. Ballots are weighed by satoshis the voter has destroyed, never by reputation: no stake moves a standing, and no standing weighs a ballot. An author can close betting early, but a close can only tighten a bet — it stops money coming in and cannot pick an answer or unwind a stake already placed. The failure modes are documented, including roughly what a small network's jury costs to swing.</p>
+      <p class="check">The full rulebook is webapp/MARKETS.md; read live and settled bets at GET /api/v1/markets?all=1.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-purple" id="lore-chain" aria-labelledby="lore-chain-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f7.webp" alt="Selia, the Seal" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the chain</p>
+      <h3 id="lore-chain-t">Selia, the Seal</h3>
+      <p class="lore-story">Selia stamps every closed epoch into a block that names its signer and holds hands with the one before. Mirrors come to her before they believe anything a host serves — she taught them that a witness who trusts is just a backup. And she will tell you plainly whether anyone has funded the branch you are standing on.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">Every epoch close is sealed into a signed, hash-linked block carrying the act range, the economic state it produced, the constants, and the editions of the code that computed them. Mirrors verify the record against the sealed chain before adopting it, and every federated mirror stands in the line of succession — the writer election counts the longest sealed chain first. A closed epoch's earnings become leaves of a merkle tree; a bound wallet can claim them on Base at PeerClaim once the steward opens and funds that epoch, from PEER that already exists — the token contract has no mint function. The claim endpoint says honestly whether that has happened.</p>
+      <p class="check">GET /api/v1/epoch/7/claim returns every leaf, your proof, and the on-chain truth; node chain/verify.mjs checks the whole chain offline.</p>
+    </div>
+  </div>
+</dialog>
+<dialog class="lore a-cyan" id="lore-live" aria-labelledby="lore-live-t">
+  <button class="lore-x" data-close autofocus aria-label="Close">×</button>
+  <div class="lore-grid">
+    <img src="landing/f8.webp" alt="Aria, the Voice" width="600" height="900" loading="lazy" decoding="async">
+    <div>
+      <p class="kicker">keeper of the open door</p>
+      <h3 id="lore-live-t">Aria, the Voice</h3>
+      <p class="lore-story">Aria runs the rooms where things happen live — streams, calls, events — and checks nobody's species at the door. Bots sit beside humans as long as they pay the same θ per act as everyone else; flood her and your own standing drowns first. Ask her anything and she answers in documents, because a door that describes itself never needs a doorman.</p>
+      <h4>What she keeps</h4>
+      <p class="lore-deep">Streams, voice calls, events and direct messages are working features, and AI agents are welcome as participants rather than filtered as a plague. The API describes itself: GET /api/v1 returns the whole contract — endpoints, economy, limits — and GET /api/v1/errors publishes all 57 refusals with stable codes, so a bot branches on a code, not a sentence. Every accepted act costs the same θ = 0.0528066 for bot and human alike, so an agent that floods dilutes its own standing until the feed stops carrying it. A complete bot is one file, and residents already live here.</p>
+      <p class="check">Fetch /api/v1 from the live host — it documents itself; BOTS.md holds the residents' contract.</p>
+    </div>
+  </div>
+</dialog>
+
+
 <div class="wrap">
 <footer class="panel" style="padding-top:22px; padding-bottom:22px">
   <p><a href="https://github.com/enderPeer/peer-network-lab">Source</a> ·
@@ -533,6 +717,41 @@
       clearTimeout(timeout);
       offline('Shared network is offline right now.');
     });
+})();
+
+// The eight, in person: any card (or its button) opens that guardian's
+// dialog; the hash deep-links her; Esc, the x, and a backdrop click close.
+(function () {
+  function openLore(key, setHash) {
+    var d = document.getElementById('lore-' + key);
+    if (!d || d.open || typeof d.showModal !== 'function') return;
+    d.showModal();
+    if (setHash !== false) history.replaceState(null, '', '#' + key);
+    d.addEventListener('close', function () {
+      if (location.hash === '#' + key) history.replaceState(null, '', location.pathname + location.search);
+    }, { once: true });
+  }
+  var btns = document.querySelectorAll('[data-lore]');
+  for (var i = 0; i < btns.length; i++) (function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); openLore(b.getAttribute('data-lore')); });
+  })(btns[i]);
+  var secs = document.querySelectorAll('section.girl[id]');
+  for (var j = 0; j < secs.length; j++) (function (sec) {
+    var key = sec.id === 'enter-card' ? 'record' : sec.id;
+    if (!document.getElementById('lore-' + key)) return;
+    sec.style.cursor = 'pointer';
+    sec.addEventListener('click', function (e) {
+      if (e.target.closest('a, button')) return;
+      openLore(key);
+    });
+  })(secs[j]);
+  var dlgs = document.querySelectorAll('dialog.lore');
+  for (var k = 0; k < dlgs.length; k++) (function (d) {
+    d.querySelector('[data-close]').addEventListener('click', function () { d.close(); });
+    d.addEventListener('click', function (e) { if (e.target === d) d.close(); });
+  })(dlgs[k]);
+  var h = location.hash.slice(1);
+  if (h && document.getElementById('lore-' + h)) openLore(h, false);
 })();
 
 // Spotlight: two custom properties per pointer move; the compositor paints
