@@ -2100,6 +2100,14 @@ button, .btn { touch-action: manipulation; }
           ? 'Open the ⋮ menu and choose “Add to Home screen”. It opens full-screen, keeps you signed in, and still works offline with your own private copy of the network.'
           : 'It opens full-screen, keeps you signed in, and still works when the shared host is offline — you get your own private copy of the network instead.';
       var row = h('div', { class: 'row' });
+      // Safari's card can only point at the Share sheet; the install page
+      // on the permanent address also offers the downloadable install
+      // file, so iOS gets a door to every option.
+      if (kind === 'ios') {
+        row.appendChild(h('button', { text: 'Every way to install', onclick: function () {
+          window.open('https://enderpeer.github.io/peer-network-lab/install.html', '_blank', 'noopener');
+        } }));
+      }
       if (kind === 'prompt') {
         row.appendChild(h('button', { text: 'Install', onclick: function () {
           var p = installPrompt;
