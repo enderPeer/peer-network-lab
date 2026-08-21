@@ -246,7 +246,7 @@ export const CATALOGUE = {
   // ── Tokens and pools ────────────────────────────────────────────────────
   INSUFFICIENT_BALANCE: {
     http: 400,
-    why: 'You do not hold as much of that asset as the act would move — buying a placement counts here too, since an advert is paid for in tBTC and the payment is burned. Balances are derived from the log by replay, so what the interface showed may already be one act out of date.',
+    why: 'You do not hold as much of that asset as the act would move — buying a placement counts here too, since an advert is paid for in PEER and the payment is destroyed, not paid to anyone. Balances are derived from the log by replay, so what the interface showed may already be one act out of date.',
     fix: 'Reload and check the balance, then send the amount you actually have.',
   },
   SLIPPAGE: {
