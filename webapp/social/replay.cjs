@@ -1078,7 +1078,15 @@ function replayUncached(acts) {
     if (a.t === 'poolRemove') {
       if (!pl) return 'no such pool: ' + a.pool;
       var own = (pl.shares[who] || 0);
-      if (!(a.shares > 0) || a.shares > own + 1e-12) return 'you hold ' + round6(own) + ' shares of ' + a.pool + ', tried to remove ' + a.shares;
+      if (!(a.shares > 0) || a.shares > own + 1e-12) {
+        // A holding can sit a dust-width under a round number — the creator's
+        // locked sliver does exactly this — and round6 would then display the
+        // very amount being refused ("you hold 5000, tried to remove 5000").
+        // When rounding would contradict the refusal, show the exact figure.
+        var held = round6(own);
+        if (held >= a.shares) held = own;
+        return 'you hold ' + held + ' shares of ' + a.pool + ', tried to remove ' + a.shares;
+      }
       return null;
     }
     if (a.t === 'poolSwap') {
