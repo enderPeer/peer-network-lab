@@ -1,10 +1,5 @@
 {
-    "url": "https://suit-express-perfect-cms.trycloudflare.com",
-    "updated": "2026-08-21T13:01:20Z",
-    "note": "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.",
-    "candidates": [
-        "https://suit-express-perfect-cms.trycloudflare.com"
-    ],
-    "checked": "2026-08-21T16:20:08.723Z",
-    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
+    "url":  "https://suit-express-perfect-cms.trycloudflare.com",
+    "updated":  "2026-08-21T16:26:45Z",
+    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
 }
