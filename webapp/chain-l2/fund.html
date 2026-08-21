@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Fund the epochs — Peer Network</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- setup.html funds every unopened epoch in one sequence, which is right for
+     first setup and wrong forever after: it cannot skip an epoch whose only
+     leaf pays a contract, or one whose leaf pays an address its handle has
+     since abandoned. This page funds a CHOSEN set. It deploys nothing, holds
+     no bytecode and no secret; every number is read from the host or the
+     chain at press time, and every signature is MetaMask asking you. -->
+<meta name="peer-host" content="">
+<style>
+  :root{--paper:#131110;--ink:#EFE7DB;--muted:#9C8E7E;--ember:#B84525;--ok:#3f7d4e;--line:#2a2622}
+  body{background:var(--paper);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:28px 18px 80px}
+  main{max-width:760px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);margin:0 0 22px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0;background:#181513}
+  button{background:var(--ember);color:#fff;border:0;border-radius:7px;padding:13px 22px;font-size:16px;cursor:pointer}
+  button.small{padding:7px 14px;font-size:14px}
+  button:disabled{background:#3a3531;color:#7d746c;cursor:not-allowed}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}
+  .ok{color:var(--ok)} .bad{color:var(--ember)} .muted{color:var(--muted)}
+  .hd{color:var(--ink);font-weight:700;margin-top:6px}
+  .now{font-size:17px;font-weight:700;margin:14px 0 6px;min-height:1.4em}
+  #log{white-space:pre-wrap;margin-top:10px;max-height:60vh;overflow-y:auto}
+  .ep{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0}
+  .ep label{display:flex;gap:10px;align-items:baseline;cursor:pointer}
+  .ep input[type=checkbox]{width:auto}
+  .ep .why{color:var(--muted);font-size:13px;margin:4px 0 0 26px}
+  .ep.dead{opacity:.75}
+  input[type=text]{background:#0f0d0c;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:8px;box-sizing:border-box;font-family:ui-monospace,monospace;width:120px}
+  a{color:var(--ember)}
+  .dustrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+</style></head><body><main>
+<h1>Fund the epochs</h1>
+<p class="sub">The claim contract pays only what the steward deposits behind a published root, and each deposit is two signatures: an approve, then openEpoch. This page reads every closed epoch off the host, says plainly which are worth funding and why the rest are not, and signs nothing itself — MetaMask asks you, once per transaction, each named before it arrives.</p>
+
+<div class="card">
+  <b>Where this page is pointed</b>
+  <div id="cfg" class="mono muted" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <p><button id="connect">Connect the steward wallet</button></p>
+  <div id="who" class="mono muted"></div>
+</div>
+
+<div class="card">
+  <b>The epochs, as this host computes them</b>
+  <div class="muted" style="font-size:13px;margin-top:4px">Ticked epochs are funded when you press the button below. An epoch is once per number, forever: its root and its deposit can never be changed, topped up or taken back early — only what nobody claims returns, to the steward, after the deadline.</div>
+  <div id="eps" class="muted" style="margin-top:8px">Reading the host…</div>
+</div>
+
+<div class="card" id="dustCard" style="display:none">
+  <b>Gas for the claimants</b>
+  <div class="muted" style="font-size:13px;margin-top:4px">The contract pays <code>msg.sender</code> and only <code>msg.sender</code> — deliberately, so nobody can claim on somebody's behalf. The other side of that coin: a wallet with no ETH on Base cannot claim at all, and every claimant below currently holds none. Each row is one plain ETH send from this wallet, prefilled with enough for many claims on Base. Optional — claimants can also fund themselves.</div>
+  <div id="dust"></div>
+</div>
+
+<div class="card">
+  <p><button id="go" disabled>Read everything first</button></p>
+  <div id="now" class="now"></div>
+</div>
+
+<div class="card"><div id="log" class="mono">Nothing has happened yet.</div></div>
+</main>
+<script>
+// ---- selectors, by hand, from the build artifacts' hashes blocks ----
+const S_OPEN_EPOCH  = '0x02179e67'; // openEpoch(uint256,bytes32,uint256,uint64)
+const S_EPOCH_INFO  = '0x3894228e'; // epochInfo(uint256)
+const S_CHECK_CLAIM = '0x65574c78'; // checkClaim(uint256,address,uint256,bytes32[])
+const S_STEWARD     = '0x637eea19'; // steward()
+const S_CLAIM_TOKEN = '0xfc0c546a'; // token()
+const S_MIN_WINDOW  = '0x52b65c4b'; // MIN_WINDOW()
+const S_MAX_WINDOW  = '0xdeb96634'; // MAX_WINDOW()
+const S_APPROVE     = '0x095ea7b3'; // approve(address,uint256)
+const S_ALLOWANCE   = '0xdd62ed3e'; // allowance(address,address)
+const S_BALANCE_OF  = '0x70a08231'; // balanceOf(address)
+
+const BASE_CHAIN_ID = '0x2105';
+const BASE_CHAIN_NUM = 8453;
+const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+let logStarted = false;
+const log = (m, cls) => {
+  const d = $('log');
+  if (!logStarted) { d.innerHTML = ''; logStarted = true; }
+  d.innerHTML += '<div class="' + (cls || '') + '">' + (m === '' ? '&nbsp;' : m) + '</div>';
+  d.scrollTop = d.scrollHeight;
+};
+const scan = (kind, id) => '<a href="https://basescan.org/' + kind + '/' + id + '" target="_blank" rel="noopener">' + id + '</a>';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const setNow = (t) => { $('now').textContent = t; };
+
+// ---- the ABI words ----
+const addrWord = (a) => String(a).replace(/^0x/i, '').toLowerCase().padStart(64, '0');
+const u256Word = (v) => BigInt(v).toString(16).padStart(64, '0');
+const b32Word = (h) => String(h).replace(/^0x/i, '').toLowerCase().padStart(64, '0');
+const wordsOf = (ret) => {
+  const s = String(ret || '').replace(/^0x/i, '');
+  const out = [];
+  for (let i = 0; i + 64 <= s.length; i += 64) out.push(s.slice(i, i + 64));
+  return out;
+};
+const bigWord = (w) => BigInt('0x' + String(w === undefined || w === null || w === '' ? '0' : w).replace(/^0x/i, ''));
+const units = (raw, dec) => {
+  const v = BigInt(raw), d = Number(dec), base = 10n ** BigInt(d);
+  const frac = (v % base).toString().padStart(d, '0').replace(/0+$/, '');
+  return (v / base).toString() + (frac ? '.' + frac : '');
+};
+// ETH typed by a person to wei, by string surgery — no float anywhere on a
+// path that ends in a signature.
+function ethToWei(s) {
+  const t = String(s || '').trim();
+  if (!/^\d+(\.\d{1,18})?$/.test(t)) return null;
+  const [w, f] = t.split('.');
+  return BigInt(w) * 10n ** 18n + BigInt(((f || '') + '0'.repeat(18)).slice(0, 18));
+}
+const addrOf = (v) => (ADDR_RE.test(String(v || '')) ? String(v).toLowerCase() : '');
+const eqAddr = (a, b) => !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
+
+// ---- where this page is pointed: loopback only, same rule as setup.html ----
+const QS = new URLSearchParams(location.search);
+const metaOf = (n) => { const m = document.querySelector('meta[name="' + n + '"]'); return m ? String(m.content || '').trim() : ''; };
+const noSlash = (u) => String(u || '').trim().replace(/\/+$/, '');
+const LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?$/i;
+const HOST = noSlash(QS.get('host') || metaOf('peer-host') || 'http://127.0.0.1:5210');
+const HOST_OK = LOOPBACK.test(HOST);
+$('cfg').innerHTML = 'the host: <b>' + esc(HOST) + '</b>' + (HOST_OK ? '' : ' <span class="bad">— REFUSED: not a loopback address. A URL is a thing somebody can send you, and this page moves the steward’s coins.</span>');
+
+async function getJson(url, what) {
+  let r;
+  try { r = await fetch(url, { method: 'GET', cache: 'no-store' }); }
+  catch (e) { throw new Error(what + ': nothing answered at ' + url + ' (' + (e.message || e) + ')'); }
+  const text = await r.text();
+  let j = null;
+  try { j = JSON.parse(text); } catch (e) { /* below */ }
+  if (!r.ok) { const err = new Error(what + ': ' + url + ' answered ' + r.status + ' — ' + ((j && (j.error || j.code)) || text.slice(0, 200))); err.status = r.status; throw err; }
+  if (!j) throw new Error(what + ': that answer was not JSON — ' + text.slice(0, 200));
+  return j;
+}
+
+// ---- wallet plumbing, setup.html's own ----
+let account = null, chainId = null, running = false, RUN_ACCOUNT = null;
+const onBase = () => !!chainId && parseInt(chainId, 16) === BASE_CHAIN_NUM;
+function renderWho() {
+  const el = $('who');
+  if (!account) { el.textContent = ''; return; }
+  el.innerHTML = esc(account) + '  ·  chain ' + (chainId ? parseInt(chainId, 16) : '?') +
+    (onBase() ? ' <span class="ok">— Base</span>' : ' <span class="bad">— NOT Base (8453). Nothing will be sent.</span>');
+}
+const requireBase = async (out) => {
+  let now = null;
+  try { now = await window.ethereum.request({ method: 'eth_chainId' }); }
+  catch (e) { out('Could not read the wallet chain: ' + esc(e.message || e) + '. Nothing was sent.', 'bad'); return false; }
+  chainId = now; renderWho();
+  if (!onBase()) { out('The wallet is on chain ' + parseInt(now, 16) + ', not Base (' + BASE_CHAIN_NUM + '). Nothing was sent — switch to Base in MetaMask and press again.', 'bad'); return false; }
+  return true;
+};
+function sameAccount() {
+  if (RUN_ACCOUNT && (!account || account.toLowerCase() !== RUN_ACCOUNT.toLowerCase())) {
+    const e = new Error('the wallet switched accounts mid-run (' + RUN_ACCOUNT + ' to ' + (account || 'none') + '). Stopping rather than signing the next step as somebody else.');
+    e.hard = true; throw e;
+  }
+}
+const ethCall = (to, data, from) => window.ethereum.request({
+  method: 'eth_call',
+  params: [from ? { from: from, to: to, data: data } : { to: to, data: data }, 'latest'],
+});
+const mined = async (tx, out) => {
+  out('Transaction sent: ' + esc(tx));
+  out('Waiting for it to be mined…');
+  let receipt = null;
+  for (let i = 0; i < 120 && !receipt; i++) {
+    await sleep(2000);
+    receipt = await window.ethereum.request({ method: 'eth_getTransactionReceipt', params: [tx] });
+  }
+  if (!receipt) { out('Still not mined after four minutes. Check the hash on basescan.org — it may yet land.', 'bad'); return null; }
+  if (receipt.status !== '0x1') { out('The transaction failed on chain. You paid gas; nothing else changed.', 'bad'); return null; }
+  out('CONFIRMED in block ' + (receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : '?'), 'ok');
+  out('<a href="https://basescan.org/tx/' + tx + '" target="_blank" rel="noopener">View on Basescan</a>');
+  return receipt;
+};
+
+// ---- state read at load and re-read at press ----
+const S = { token: null, claim: null, steward: null, peerDec: 18, epochs: [], binds: {}, names: {} };
+
+// Which address each handle is bound to NOW. An epoch's tree freezes the
+// bindings at ITS close, so a leaf can point at an address its handle has
+// since replaced — worth a warning before it is funded, never an error: the
+// tree is the tree.
+async function readBindings() {
+  const j = await getJson(HOST + '/api/acts', 'reading the log for bindings');
+  const acts = j.acts || [];
+  for (const a of acts) {
+    if (a.t === 'register') S.names[a.id] = a.handle;
+    if (a.t === 'bindAddress') S.binds[a.id] = String(a.addr || '').toLowerCase();
+  }
+}
+
+async function readHost() {
+  const oc = await getJson(HOST + '/api/token/onchain', 'asking the host what is deployed');
+  S.token = addrOf(oc.token);
+  S.peerDec = Number(oc.decimals) || 18;
+  S.claim = addrOf(oc.claimState && oc.claimState.contract);
+  S.steward = addrOf(oc.claimState && oc.claimState.steward);
+  if (!S.token) throw new Error('this host names no token, so there is nothing to fund an epoch with.');
+  if (!S.claim) throw new Error('this host names no claim contract (PEER_CLAIM_ADDR unset). Deploy one with setup.html first.');
+  const eps = [];
+  for (let n = 1; n <= 64; n++) {
+    let j;
+    try { j = await getJson(HOST + '/api/v1/epoch/' + n + '/claim', 'reading epoch ' + n); }
+    catch (e) { if (e.status === 404) break; throw e; }
+    eps.push(j);
+  }
+  S.epochs = eps;
+}
+
+// The plan rows. Each epoch gets a verdict BEFORE any wallet exists, from the
+// host's own data; the chain refines it (already open, code at a leaf, zero
+// balances) once a wallet is connected.
+function verdictOf(ep) {
+  const total = BigInt(ep.total || '0');
+  const v = { fundable: false, checked: false, notes: [], disabled: false };
+  if (!ep.leafCount || total <= 0n) {
+    v.disabled = true;
+    v.notes.push('nothing to claim: ' + (ep.unbound && ep.unbound.count ? ep.unbound.count + ' handle(s) earned with no address bound at the close, so the tree has no leaf' : 'no leaves') + '. Funding it would lock PEER against a root nobody can claim from.');
+    return v;
+  }
+  let sum = 0n;
+  for (const l of (ep.leaves || [])) sum += BigInt(l.amount || '0');
+  if (sum !== total) {
+    v.disabled = true;
+    v.notes.push('REFUSED: its leaves add up to ' + sum.toString() + ' raw against a total of ' + total.toString() + '. A root that oversums its deposit pays first-come and reverts for everyone after — find out why before this is funded by any route.');
+    return v;
+  }
+  v.fundable = true;
+  const stew = S.steward;
+  const allSteward = (ep.leaves || []).every((l) => eqAddr(l.address, stew));
+  if (allSteward) {
+    v.notes.push('every leaf pays the steward — this wallet. Funding it moves coins out and claims them back: gas twice, nothing delivered. Left unticked.');
+    v.checked = false;
+    return v;
+  }
+  let stale = false;
+  for (const l of (ep.leaves || [])) {
+    for (const h of (l.handles || [])) {
+      const now = S.binds[h];
+      if (now && !eqAddr(now, l.address)) {
+        stale = true;
+        v.notes.push((S.names[h] || h) + '’s leaf pays ' + l.address + ', but that handle has since rebound to ' + now + '. The tree cannot change — fund this only if the OLD key is still held, or settle it with a direct transfer instead.');
+      }
+    }
+  }
+  v.checked = !stale;
+  return v;
+}
+
+function renderEpochs() {
+  const box = $('eps');
+  box.innerHTML = '';
+  if (!S.epochs.length) { box.textContent = 'No closed epochs on this host yet.'; return; }
+  for (const ep of S.epochs) {
+    const v = ep._v;
+    const row = document.createElement('div');
+    row.className = 'ep' + (v.disabled ? ' dead' : '');
+    const total = BigInt(ep.total || '0');
+    const leavesTxt = (ep.leaves || []).map((l) => {
+      const hs = (l.handles || []).map((h) => S.names[h] || h).join('+');
+      return esc(hs) + ' ' + units(BigInt(l.amount), S.peerDec) + ' → ' + esc(l.address);
+    }).join('<br>');
+    row.innerHTML =
+      '<label><input type="checkbox" data-ep="' + ep.epoch + '" ' + (v.checked ? 'checked' : '') + (v.disabled || !v.fundable ? ' disabled' : '') + '>' +
+      '<span><b>epoch ' + ep.epoch + '</b> — ' + (v.fundable ? units(total, S.peerDec) + ' PEER over ' + ep.leafCount + ' leaf/leaves' : 'not fundable') + '</span></label>' +
+      (leavesTxt ? '<div class="why mono">' + leavesTxt + '</div>' : '') +
+      v.notes.map((n) => '<div class="why">' + esc(n) + '</div>').join('') +
+      '<div class="why chainfacts" data-ep="' + ep.epoch + '"></div>';
+    box.appendChild(row);
+  }
+  const anyTickable = S.epochs.some((e) => e._v.fundable && !e._v.disabled);
+  $('go').disabled = !anyTickable;
+  $('go').textContent = anyTickable ? 'Fund the ticked epochs' : 'Nothing here can be funded';
+}
+
+// The dust rows follow the TICKED set: dusting the abandoned address of an
+// epoch nobody chose to fund would be gas sent to a key that may be lost.
+function computeDust() {
+  const dust = [];
+  for (const ep of S.epochs) {
+    const cb = document.querySelector('input[data-ep="' + ep.epoch + '"]');
+    if (!cb || !cb.checked || cb.disabled) continue;
+    for (const g of (ep._gasless || [])) {
+      if (!dust.some((d) => eqAddr(d.address, g.address))) dust.push(g);
+    }
+  }
+  renderDust(dust);
+}
+
+// Chain refinements once a wallet exists: already open, code at a leaf
+// address, claimant balances. Each is a fact the host cannot know alone.
+async function refineFromChain() {
+  for (const ep of S.epochs) {
+    const v = ep._v;
+    if (!v.fundable) continue;
+    const facts = document.querySelector('.chainfacts[data-ep="' + ep.epoch + '"]');
+    const cb = document.querySelector('input[data-ep="' + ep.epoch + '"]');
+    const said = [];
+    try {
+      const w = wordsOf(await ethCall(S.claim, S_EPOCH_INFO + u256Word(ep.epoch)));
+      if (w.length >= 5 && bigWord(w[0]) !== 0n) {
+        v.disabled = true;
+        if (cb) { cb.checked = false; cb.disabled = true; }
+        const same = w[0] === b32Word(ep.root0x);
+        said.push('already open on-chain with ' + (same ? 'exactly this root' : 'A DIFFERENT ROOT — look before anybody claims') + ', ' + units(bigWord(w[1]), S.peerDec) + ' PEER deposited, ' + units(bigWord(w[2]), S.peerDec) + ' claimed, until ' + new Date(Number(bigWord(w[3])) * 1000).toUTCString() + '. openEpoch is once per number; there is nothing to sign.');
+      }
+    } catch (e) { said.push('could not read epochInfo (' + (e.message || e) + ') — the run re-checks before signing.'); }
+    for (const l of (ep.leaves || [])) {
+      try {
+        const code = await window.ethereum.request({ method: 'eth_getCode', params: [l.address, 'latest'] });
+        if (code && code !== '0x') {
+          v.disabled = true;
+          if (cb) { cb.checked = false; cb.disabled = true; }
+          said.push('LEAF PAYS A CONTRACT: ' + l.address + ' holds code on Base. claim() pays msg.sender and only msg.sender, and a contract with no code path to call it can never claim — funding this locks ' + units(BigInt(l.amount), S.peerDec) + ' PEER until the deadline, then sweeps it back. If ' + ((l.handles || []).map((h) => S.names[h] || h).join('+') || 'the earner') + ' should be made whole, that is a plain transfer, not an epoch.');
+        } else if (!v.disabled && !eqAddr(l.address, S.steward)) {
+          const bal = bigWord(await window.ethereum.request({ method: 'eth_getBalance', params: [l.address, 'latest'] }));
+          if (bal === 0n) {
+            ep._gasless = ep._gasless || [];
+            if (!ep._gasless.some((d) => eqAddr(d.address, l.address))) ep._gasless.push({ address: l.address, handles: (l.handles || []).map((h) => S.names[h] || h) });
+          }
+        }
+      } catch (e) { /* a refinement, not a gate: the run re-checks */ }
+    }
+    if (facts && said.length) facts.innerHTML = said.map(esc).join('<br>');
+  }
+  computeDust();
+  const anyTickable = S.epochs.some((e) => e._v.fundable && !e._v.disabled);
+  $('go').disabled = running || !anyTickable;
+  $('go').textContent = anyTickable ? 'Fund the ticked epochs' : 'Nothing here needs funding';
+}
+
+function renderDust(rows) {
+  const card = $('dustCard'), box = $('dust');
+  if (!rows.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  box.innerHTML = '';
+  for (const r of rows) {
+    const div = document.createElement('div');
+    div.className = 'dustrow';
+    div.innerHTML = '<span class="mono">' + esc(r.address) + '</span><span class="muted">(' + esc(r.handles.join('+') || '?') + ' — holds 0 ETH)</span>' +
+      '<input type="text" value="0.00005" data-dust-amt="' + esc(r.address) + '"> ETH ' +
+      '<button class="small" data-dust="' + esc(r.address) + '">Send gas</button>';
+    box.appendChild(div);
+  }
+  box.querySelectorAll('button[data-dust]').forEach((b) => {
+    b.onclick = () => sendDust(b.getAttribute('data-dust'), b);
+  });
+}
+
+async function sendDust(to, btn) {
+  if (!account) { log('Connect the wallet first.', 'bad'); return; }
+  const inp = document.querySelector('input[data-dust-amt="' + to + '"]');
+  const wei = ethToWei(inp && inp.value);
+  if (wei === null || wei <= 0n) { log('That is not an ETH amount: ' + esc(inp && inp.value), 'bad'); return; }
+  // Gas dust, not a payment. A fat-fingered 0.5 where 0.00005 was meant is
+  // three orders of magnitude of somebody's ETH, so there is a ceiling.
+  if (wei > ethToWei('0.005')) { log('Refused: ' + esc(inp.value) + ' ETH is far more than claim gas. This row exists to dust a wallet, not to pay one — raise the ceiling in the source if you truly mean it.', 'bad'); return; }
+  if (!(await requireBase(log))) return;
+  btn.disabled = true;
+  try {
+    log('MetaMask is about to ask. This one sends ' + units(wei, 18) + ' ETH to ' + esc(to) + ' so it can pay claim gas.');
+    const tx = await window.ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{ from: account, chainId: BASE_CHAIN_ID, to: to, value: '0x' + wei.toString(16) }],
+    });
+    await mined(tx, log);
+  } catch (e) {
+    log('The send did not happen: ' + esc((e && e.message) || e), 'bad');
+  } finally { btn.disabled = false; }
+}
+
+// ---- the run ----
+async function runFund() {
+  if (running) return;
+  running = true; $('go').disabled = true;
+  try {
+    RUN_ACCOUNT = account;
+    if (!account) throw new Error('connect the steward wallet first.');
+    // The contract's steward is immutable; only it can open an epoch, so this
+    // is checked before anything is planned, in the contract's own words.
+    const swRaw = await ethCall(S.claim, S_STEWARD);
+    const sw = addrOf('0x' + String(swRaw || '').slice(-40));
+    if (!eqAddr(sw, account)) throw new Error('the PeerClaim at ' + S.claim + ' has ' + sw + ' as its steward and this wallet is ' + account + '. Only the steward can open an epoch. Connect the steward wallet (the one that deployed the token) and press again.');
+    const picked = [];
+    for (const ep of S.epochs) {
+      const cb = document.querySelector('input[data-ep="' + ep.epoch + '"]');
+      if (cb && cb.checked && !cb.disabled) picked.push(ep);
+    }
+    if (!picked.length) throw new Error('nothing is ticked. Tick the epochs to fund, then press again.');
+
+    // Re-read each picked epoch from the host NOW and drop any that turn out
+    // already open — the plan below promises a count of MetaMask prompts, and
+    // it must be the count that arrives.
+    const toOpen = [];
+    let need = 0n;
+    for (const p of picked) {
+      const ep = await getJson(HOST + '/api/v1/epoch/' + p.epoch + '/claim', 'reading epoch ' + p.epoch + ' back');
+      if (ep.root0x !== p.root0x || String(ep.total) !== String(p.total)) throw new Error('epoch ' + p.epoch + ' reads differently now than when this page loaded: root ' + ep.root0x + ' vs ' + p.root0x + '. Nothing was signed — reload and look.');
+      let sum = 0n;
+      for (const l of (ep.leaves || [])) sum += BigInt(l.amount || '0');
+      if (sum !== BigInt(ep.total)) throw new Error('epoch ' + ep.epoch + '’s leaves no longer add up to its total. Nothing was signed.');
+      const w = wordsOf(await ethCall(S.claim, S_EPOCH_INFO + u256Word(ep.epoch)));
+      if (w.length >= 5 && bigWord(w[0]) !== 0n) {
+        if (w[0] !== b32Word(ep.root0x)) throw new Error('epoch ' + ep.epoch + ' is open on-chain with a DIFFERENT root than this host computes. Nothing was signed — that must be looked at before anybody claims.');
+        log('epoch ' + ep.epoch + ' is already open with exactly this root. Skipped.', 'ok');
+        continue;
+      }
+      toOpen.push(ep);
+      need += BigInt(ep.total);
+    }
+    if (!toOpen.length) { log('Everything ticked is already open. Nothing to sign.', 'ok'); return; }
+
+    log('');
+    log('THE PLAN — approve once, then open ' + toOpen.length + ' epoch(s):', 'hd');
+    for (const ep of toOpen) log('  · epoch ' + ep.epoch + ': ' + units(BigInt(ep.total), S.peerDec) + ' PEER behind root ' + esc(ep.root0x));
+    log('  total pulled from this wallet: ' + units(need, S.peerDec) + ' PEER.');
+
+    // Approve exactly the sum, minus whatever allowance already stands.
+    sameAccount();
+    const have = bigWord(await ethCall(S.token, S_ALLOWANCE + addrWord(account) + addrWord(S.claim)));
+    const bal = bigWord(await ethCall(S.token, S_BALANCE_OF + addrWord(account)));
+    if (bal < need) throw new Error('this wallet holds ' + units(bal, S.peerDec) + ' PEER and the ticked epochs need ' + units(need, S.peerDec) + '. openEpoch pulls the whole total up front. Nothing was signed.');
+    if (have >= need) {
+      log('A standing allowance of ' + units(have, S.peerDec) + ' PEER already covers this. Nothing to approve.', 'ok');
+    } else {
+      if (!(await requireBase(log))) throw new Error('not on Base — nothing was sent.');
+      log('MetaMask is about to ask. This one approves exactly ' + units(need, S.peerDec) + ' PEER to the claim contract — not unlimited — and moves no coins.');
+      const tx = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, chainId: BASE_CHAIN_ID, to: S.token, data: S_APPROVE + addrWord(S.claim) + u256Word(need) }],
+      });
+      const r = await mined(tx, log);
+      if (!r) throw new Error('the approve did not land — nothing after it was sent.');
+    }
+
+    // Open each, setup.html's own sequence: deadline from the CHAIN's clock
+    // inside the contract's own MIN/MAX, dry-run first, then the signature.
+    for (const ep of toOpen) {
+      sameAccount();
+      const n = ep.epoch;
+      const total = BigInt(ep.total);
+      const root = b32Word(ep.root0x);
+      const blk = await window.ethereum.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
+      const chainNow = Number(bigWord(blk.timestamp));
+      const minW = Number(bigWord(await ethCall(S.claim, S_MIN_WINDOW)));
+      const maxW = Number(bigWord(await ethCall(S.claim, S_MAX_WINDOW)));
+      if (!(minW > 0 && maxW > minW)) throw new Error('could not read MIN_WINDOW / MAX_WINDOW off the contract; this page will not guess a deadline. Nothing was sent.');
+      let win = 90 * 24 * 3600;
+      if (win < minW + 7 * 24 * 3600) win = minW + 7 * 24 * 3600;
+      if (win > maxW - 24 * 3600) win = maxW - 24 * 3600;
+      const claimUntil = chainNow + win;
+      log('');
+      log('epoch ' + n + ': window ' + Math.round(win / 86400) + ' days, closing ' + esc(new Date(claimUntil * 1000).toUTCString()) + '. Until then anyone with a leaf can claim and the deposit cannot come back; after it, sweep() returns what nobody claimed — to the steward only.');
+      const data = S_OPEN_EPOCH + u256Word(n) + root + u256Word(total) + u256Word(claimUntil);
+      try { await ethCall(S.claim, data, account); }
+      catch (e) { throw new Error('the chain refused epoch ' + n + ' in a dry run: ' + ((e && (e.message || e)) || 'no reason') + '. Nothing was sent and nothing was spent.'); }
+      log('The chain accepts it in a dry run. Sending it for real.', 'ok');
+      if (!(await requireBase(log))) throw new Error('not on Base — nothing was sent.');
+      log('MetaMask is about to ask. This one opens epoch ' + n + ' and moves ' + units(total, S.peerDec) + ' PEER into the claim contract.');
+      const tx = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, chainId: BASE_CHAIN_ID, to: S.claim, data: data }],
+      });
+      const r = await mined(tx, log);
+      if (!r) throw new Error('opening epoch ' + n + ' did not land — see above.');
+    }
+
+    // Read back and check a real proof, so the last line is a fact.
+    log('');
+    log('— READ BACK OFF THE CHAIN —', 'hd');
+    for (const ep of toOpen) {
+      const n = ep.epoch;
+      const w = wordsOf(await ethCall(S.claim, S_EPOCH_INFO + u256Word(n)));
+      if (w.length < 5) { log('epoch ' + n + ': epochInfo returned nothing readable.', 'bad'); continue; }
+      const same = w[0] === b32Word(ep.root0x);
+      log('epoch ' + n + ': root ' + (same ? 'matches this host' : 'DOES NOT MATCH THIS HOST') + ', ' + units(bigWord(w[1]), S.peerDec) + ' PEER deposited, open ' + (bigWord(w[4]) === 1n ? 'yes' : 'no') + '.', same ? 'ok' : 'bad');
+      const first = (ep.leaves || []).find((l) => !eqAddr(l.address, S.steward)) || (ep.leaves || [])[0];
+      if (first) {
+        try {
+          const full = await getJson(HOST + '/api/v1/epoch/' + n + '/claim?address=' + first.address, 'reading a proof');
+          const c = full && full.claimant;
+          if (c && c.proof && c.proof.length) {
+            const d = S_CHECK_CLAIM + u256Word(n) + addrWord(c.address) + u256Word(c.amount) + u256Word(128) + u256Word(c.proof.length) + c.proof.map(b32Word).join('');
+            const ans = bigWord(wordsOf(await ethCall(S.claim, d))[0]);
+            log('  checkClaim says ' + (ans === 1n ? 'YES' : 'no') + ' for ' + scan('address', c.address) + ' — ' + units(BigInt(c.amount), S.peerDec) + ' PEER against the proof this host hands out.', ans === 1n ? 'ok' : 'bad');
+          }
+        } catch (e) { log('  could not fetch a proof to check (' + esc(e.message || e) + '). The epoch is open regardless.', 'muted'); }
+      }
+    }
+    log('');
+    log('DONE. Claimants press Claim in the app (Economy → the money lane), from exactly their bound wallet. The card dry-runs before it signs.', 'ok');
+    setNow('Done.');
+  } catch (e) {
+    log('');
+    log('STOPPED: ' + esc((e && e.message) || e), 'bad');
+    setNow('Stopped — the log says where and why.');
+  } finally {
+    running = false;
+    $('go').disabled = false;
+  }
+}
+
+// ---- boot ----
+async function connect() {
+  if (!window.ethereum) { log('No wallet in this browser. Open this page where MetaMask lives.', 'bad'); return; }
+  try {
+    const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    account = addrOf(accs && accs[0]);
+    chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    renderWho();
+    window.ethereum.on && window.ethereum.on('accountsChanged', (a) => { account = addrOf(a && a[0]); renderWho(); });
+    window.ethereum.on && window.ethereum.on('chainChanged', (c) => { chainId = c; renderWho(); });
+    if (S.epochs.length) await refineFromChain();
+  } catch (e) { log('Connect failed: ' + esc((e && e.message) || e), 'bad'); }
+}
+$('connect').onclick = connect;
+$('go').onclick = runFund;
+$('eps').addEventListener('change', computeDust);
+
+(async () => {
+  if (!HOST_OK) { $('eps').innerHTML = '<span class="bad">This page refuses a non-loopback host.</span>'; return; }
+  try {
+    await readBindings();
+    await readHost();
+    for (const ep of S.epochs) ep._v = verdictOf(ep);
+    renderEpochs();
+    if (window.ethereum && window.ethereum.selectedAddress) {
+      account = addrOf(window.ethereum.selectedAddress);
+      chainId = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
+      renderWho();
+      await refineFromChain();
+    }
+  } catch (e) {
+    $('eps').innerHTML = '<span class="bad">' + esc((e && e.message) || e) + '</span>';
+  }
+})();
+</script>
+</body></html>
