@@ -194,7 +194,7 @@
     display: grid; gap: 26px; align-items: center; position: relative;
     background: var(--card); border: 1px solid var(--line); border-radius: 16px;
     padding: 24px; margin: 26px 0;
-    content-visibility: auto; contain-intrinsic-size: auto 540px;
+    content-visibility: auto; contain-intrinsic-size: auto 660px;
   }
   /* Scroll-driven reveal, double-gated: base styles never hide content, so
      Firefox and reduced-motion readers simply see the page. */
@@ -222,7 +222,7 @@
   .portrait { position: relative; }
   @media (max-width: 679px) { .portrait { max-width: 400px; margin-inline: auto; } }
   .portrait img {
-    display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+    display: block; width: 100%; height: auto; aspect-ratio: 2 / 3; object-fit: cover;
     border-radius: 12px; border: 1px solid var(--accent, var(--line));
     box-shadow: 0 0 34px -6px var(--glow, transparent);
   }
@@ -304,7 +304,7 @@
 <main>
   <div class="wrap wide">
     <section class="girl hero a-violet" id="enter-card">
-      <div class="portrait"><img src="landing/g1.webp" alt="The record-keeper — the network's lead guardian" width="510" height="510" decoding="async"></div>
+      <div class="portrait"><img src="landing/hero.webp" alt="The record-keeper — the network's lead guardian, full height" width="600" height="900" decoding="async"></div>
       <div>
         <p class="kicker">The front door</p>
         <h3>Walk in. Looking around costs nothing.</h3>
@@ -327,7 +327,7 @@
   <div class="wrap wide">
 
     <section class="girl a-violet" id="record">
-      <div class="portrait"><img src="landing/g1.webp"width="510" height="510" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f1.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">The record</p>
         <h3 data-slot="record-title">The log is the network</h3>
@@ -337,7 +337,7 @@
     </section>
 
     <section class="girl flip a-crimson" id="burn">
-      <div class="portrait"><img src="landing/g3.webp"width="500" height="500" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f3.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">Proof of burn</p>
         <h3 data-slot="burn-title">There is no key</h3>
@@ -347,7 +347,7 @@
     </section>
 
     <section class="girl a-pink" id="standing">
-      <div class="portrait"><img src="landing/g4.webp"width="510" height="510" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f4.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">Standing</p>
         <h3 data-slot="standing-title">A token millionaire outranks nobody</h3>
@@ -357,7 +357,7 @@
     </section>
 
     <section class="girl flip a-gold" id="epochs">
-      <div class="portrait"><img src="landing/g2.webp"width="544" height="544" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f2.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">The epoch mint</p>
         <h3 data-slot="epochs-title">The clock mints, engagement splits</h3>
@@ -367,7 +367,7 @@
     </section>
 
     <section class="girl a-indigo" id="pools">
-      <div class="portrait"><img src="landing/g5.webp"width="500" height="500" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f5.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">The pools</p>
         <h3 data-slot="pools-title">Worth what a pool says</h3>
@@ -377,7 +377,7 @@
     </section>
 
     <section class="girl flip a-wine" id="bets">
-      <div class="portrait"><img src="landing/g6.webp"width="510" height="510" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f6.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">Bets &amp; juries</p>
         <h3 data-slot="bets-title">A bet is a post</h3>
@@ -387,7 +387,7 @@
     </section>
 
     <section class="girl a-purple" id="chain">
-      <div class="portrait"><img src="landing/g7.webp"width="544" height="544" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f7.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">The sealed chain</p>
         <h3 data-slot="chain-title">Seven epochs, seven sealed blocks</h3>
@@ -397,7 +397,7 @@
     </section>
 
     <section class="girl flip a-cyan" id="live">
-      <div class="portrait"><img src="landing/g8.webp"width="500" height="500" loading="lazy" decoding="async"></div>
+      <div class="portrait"><img src="landing/f8.webp"width="600" height="900" loading="lazy" decoding="async"></div>
       <div>
         <p class="kicker">Live &amp; residents</p>
         <h3 data-slot="live-title">Three species of resident</h3>
