@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#131110">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ender Net">
+
+<title>Get the Ender Net app — install it straight from this page</title>
+<meta name="description" content="Install Ender Net on iPhone, Android or your computer directly from the website — no app store, no account. Works in the European Union and everywhere else.">
+<link rel="canonical" href="https://enderpeer.github.io/peer-network-lab/install.html">
+<meta name="robots" content="index, follow">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Ender Net">
+<meta property="og:url" content="https://enderpeer.github.io/peer-network-lab/install.html">
+<meta property="og:title" content="Get the Ender Net app">
+<meta property="og:description" content="Installs straight from the website — no store, no account, works in the EU and everywhere else.">
+<meta property="og:image" content="https://enderpeer.github.io/peer-network-lab/og.svg">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --paper: #FBF6F0; --ink: #251F19; --muted: #7A6C5C; --line: #E7DCCC;
+    --ember-solid: #B84525; --card: #FFFFFF;
+    --display: 'Bahnschrift', 'Avenir Next Condensed', 'Roboto Condensed', 'Arial Narrow', sans-serif;
+    --body: 'Charter', 'Bitstream Charter', Cambria, 'Iowan Old Style', Georgia, serif;
+    --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #131110; --ink: #EFE7DB; --muted: #9C8E7E; --line: #2E2823; --card: #1C1917; --ember-solid: #E0663C; }
+    /* The brighter dark-mode ember fails AA under white text (3.42:1);
+       near-black clears it at 5.5:1. */
+    .btn.primary { color: #131110; }
+  }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--body); font-size: 18px; line-height: 1.62;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 740px; margin: 0 auto; padding: 0 22px; }
+  header { padding: 54px 0 8px; }
+  .mark {
+    font-family: var(--display); font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; font-size: 22px; margin: 0 0 30px;
+  }
+  .mark a { color: inherit; text-decoration: none; }
+  .mark em { font-style: normal; color: var(--ember-solid); }
+  h1 { font-size: clamp(28px, 6vw, 40px); line-height: 1.16; margin: 0 0 16px; font-weight: 600; letter-spacing: -0.012em; }
+  .lede { font-size: clamp(17px, 2.4vw, 20px); color: var(--muted); margin: 0 0 26px; }
+  h2 {
+    font-family: var(--display); text-transform: uppercase; letter-spacing: 0.09em;
+    font-size: 13px; color: var(--muted); font-weight: 700;
+    margin: 44px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  p { margin: 0 0 16px; }
+  a { color: var(--ember-solid); }
+  .btn {
+    display: inline-block; padding: 13px 26px; border-radius: 9px; text-decoration: none;
+    font-family: var(--display); font-size: 16px; letter-spacing: 0.03em; cursor: pointer;
+    border: 1px solid var(--ember-solid); color: var(--ember-solid); background: transparent;
+  }
+  .btn.primary { background: var(--ember-solid); color: #fff; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 10px; }
+
+  /* The platform switch. Auto-set from the device, but every tab stays a
+     click away: people install for the phone in their other hand. */
+  .platforms { display: flex; gap: 8px; margin: 26px 0 6px; flex-wrap: wrap; }
+  .platforms button {
+    font-family: var(--display); font-size: 15px; letter-spacing: 0.04em;
+    padding: 10px 18px; border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+  }
+  .platforms button[aria-selected="true"] {
+    border-color: var(--ember-solid); color: var(--ember-solid); font-weight: 700;
+  }
+  section[hidden] { display: none; }
+
+  ol.steps { margin: 14px 0 18px; padding-left: 0; list-style: none; counter-reset: step; }
+  ol.steps li {
+    counter-increment: step; position: relative; padding: 0 0 14px 44px;
+    font-size: 17px;
+  }
+  ol.steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 1px;
+    width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--ember-solid);
+    color: var(--ember-solid); font-family: var(--display); font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps svg { width: 20px; height: 20px; vertical-align: -4px; margin: 0 2px; }
+  .glyph { stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  details { border-top: 1px solid var(--line); padding: 15px 0; }
+  details summary { cursor: pointer; font-weight: 600; font-size: 17px; }
+  details p { margin: 11px 0 0; font-size: 16.5px; color: var(--muted); }
+  pre.profile {
+    background: var(--card); border: 1px solid var(--line); border-radius: 11px;
+    padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.5; margin: 14px 0 0;
+  }
+  .honest { font-size: 15.5px; color: var(--muted); border-left: 2px solid var(--ember-solid); padding-left: 15px; margin: 26px 0; }
+  .note { font-size: 15px; color: var(--muted); }
+  .installed {
+    display: none; background: var(--card); border: 1px solid var(--line); border-radius: 11px;
+    padding: 14px 18px; margin: 18px 0; font-size: 16px;
+  }
+  footer { margin: 56px 0 44px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; color: var(--muted); }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="mark"><a href="./">End<em>e</em>r Net</a></p>
+  <h1>Put the app on your phone.</h1>
+  <p class="lede">No store, no account, no gatekeeper. Ender Net installs straight from this page — in the European Union and everywhere else — and what installs is the same open-source page you can read before you trust it.</p>
+  <div class="installed" id="already">You are reading this from inside the installed app — nothing more to do here.</div>
+</header>
+
+<main>
+  <div class="platforms" role="tablist" aria-label="Choose your device">
+    <button role="tab" id="tab-ios" aria-selected="true" aria-controls="ios">iPhone &amp; iPad</button>
+    <button role="tab" id="tab-android" aria-selected="false" aria-controls="android">Android</button>
+    <button role="tab" id="tab-desktop" aria-selected="false" aria-controls="desktop">Computer</button>
+  </div>
+
+  <!-- The iOS panel ships visible so the page still instructs when scripting
+       is off; select() re-hides it before first paint when the script runs. -->
+  <section id="ios" role="tabpanel" aria-labelledby="tab-ios">
+    <h2>The one-minute way</h2>
+    <ol class="steps">
+      <li>Open this page in <strong>Safari</strong>.</li>
+      <li>Tap the Share button
+        <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8.5 6.5 12 3l3.5 3.5"/><path d="M6 10H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>
+        at the bottom of the screen (on iPad: top right, next to the address bar).</li>
+      <li>Scroll down and choose <strong>Add to Home Screen</strong>
+        <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 9v6M9 12h6"/></svg>,
+        then <strong>Add</strong>.</li>
+    </ol>
+    <p>That is the whole install. The icon appears on your home screen and opens full-screen with no browser around it — Safari simply has no install <em>button</em>, so the Share sheet is where Apple put it.</p>
+
+    <h2>Or download the install file</h2>
+    <p>Prefer a real download? This file places the same icon for you. It is 5&nbsp;KB of XML you can read below — one instruction, no settings touched, removable any time.</p>
+    <div class="cta">
+      <a class="btn primary" href="endernet.mobileconfig" id="dlProfile">Download for iPhone</a>
+    </div>
+    <p class="note" id="dlNote" hidden>The shared host is not answering right now, so instead of opening the installer, Safari will save the file. On an iPhone: open it from <strong>Files</strong>, then continue with step 2. On an iPad that detour is unreliable — use <strong>Add to Home Screen</strong> above instead; it installs the same thing.</p>
+    <ol class="steps">
+      <li>Tap the button and choose <strong>Allow</strong> when Safari asks to download a configuration profile.</li>
+      <li>Open <strong>Settings</strong> — a <strong>Profile Downloaded</strong> entry appears near the top. On some versions it is under <strong>General&nbsp;→ VPN&nbsp;&amp; Device Management</strong>. Do this soon: iOS quietly deletes an uninstalled profile after about eight minutes, and if the entry is gone, just tap the download button again.</li>
+      <li>Tap it, then tap <strong>Install</strong>. The Ender Net icon appears on your home screen.</li>
+    </ol>
+    <p class="note">iOS will point out that the file is <strong>not signed</strong>. That is true: a signature would only name who published the file — it needs a certificate and key this project would have to hold somewhere — and it would change nothing about what the file does. Read it instead; that is a better guarantee than a signature:</p>
+    <details>
+      <summary>What is in the file, exactly?</summary>
+      <p>The complete file, with only the icon's base64 bytes shortened. It places one icon pointing at one address and asks it to open full-screen. Nothing else — no certificates, no VPN, no restrictions. Removing it (Settings&nbsp;→ the profile&nbsp;→ Remove) removes the icon and leaves no trace.</p>
+      <pre class="profile" id="profileXml">loading…</pre>
+    </details>
+
+    <h2>Why is this not in the App Store?</h2>
+    <p>Because there is no company behind this, and it does not need one. Apple does let native apps be downloaded from a developer's own website in the EU now — but only for paid, Apple-approved developer organizations clearing steep eligibility bars, and even the EU's alternative app stores require a paid Apple subscription and Apple's signature on every app. The path used here is the one open to everyone: a web app installed straight from the page. Apple supports it in the EU — it tried to switch this off in 2024 and reversed under pressure — and everywhere else, and what you get is a real app on your home screen: full-screen, signed in, and once it has run online once, working with no connection at all.</p>
+  </section>
+
+  <section id="android" role="tabpanel" aria-labelledby="tab-android" hidden>
+    <h2>Install</h2>
+    <div class="cta">
+      <button class="btn primary" id="androidInstall" hidden>Install the app</button>
+    </div>
+    <p id="androidHint">If your browser offers an install banner or an <strong>Install app</strong> entry, that is the fastest way. Otherwise:</p>
+    <ol class="steps">
+      <li>Open this page in <strong>Chrome</strong> (or any browser — Firefox works too).</li>
+      <li>Open the <strong>⋮</strong> menu in the top corner.</li>
+      <li>Choose <strong>Add to Home screen</strong> or <strong>Install app</strong>, then confirm.</li>
+    </ol>
+    <p>The icon lands on your home screen and opens full-screen, like any installed app.</p>
+  </section>
+
+  <section id="desktop" role="tabpanel" aria-labelledby="tab-desktop" hidden>
+    <h2>On a computer</h2>
+    <div class="cta">
+      <button class="btn primary" id="desktopInstall" hidden>Install the app</button>
+    </div>
+    <ol class="steps">
+      <li>Open <a href="app.html">the app</a> in <strong>Chrome</strong> or <strong>Edge</strong>.</li>
+      <li>Click the install icon at the right end of the address bar — it says <strong>Install Ender Net</strong>.</li>
+    </ol>
+    <p class="note">Safari on a Mac installs it too, from the menu bar: <strong>File → Add to Dock</strong>. Firefox on the desktop does not install web apps — the site still works there as a normal page. And if it is your phone you wanted: open <strong>enderpeer.github.io/peer-network-lab/install.html</strong> there and this page will show the right steps.</p>
+  </section>
+
+  <h2>What you get</h2>
+  <p>The same network, wearing an app: it opens full-screen from its own icon, keeps you signed in, and — once it has run online once — <strong>still opens with no connection at all</strong>: offline it runs your own private copy of the network in your browser instead of showing an error page. It updates itself on the next load, costs nothing, and uninstalls like any app.</p>
+
+  <p class="honest">Installing changes nothing about your data: there is no tracking, no cookies and no analytics on this page or in the app, and nothing you write leaves your device until you choose to post to the shared network. One caveat, stated plainly: to aim the download button, this page does check once per visit whether the shared host is awake — a plain read, stored nowhere.</p>
+</main>
+
+<footer>
+  <p><a href="./">About the network</a> ·
+     <a href="app.html">Open in the browser</a> ·
+     <a href="https://github.com/enderPeer/peer-network-lab">Source</a></p>
+  <p>Built in the open. No tracking, no cookies, no analytics on this page.</p>
+</footer>
+
+</div>
+
+<script>
+(function () {
+  // ── Which device is this? ───────────────────────────────────────────────
+  // Auto-select the right panel, but keep all three reachable: the person
+  // reading on a laptop is often installing for the phone on the desk.
+  var ua = navigator.userAgent;
+  var isIOS = /iP(hone|ad|od)/.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS lies
+  var isAndroid = /Android/.test(ua);
+  var initial = isIOS ? 'ios' : isAndroid ? 'android' : 'desktop';
+  // ?p=ios|android|desktop overrides — for linking a specific panel.
+  var forced = /[?&]p=(ios|android|desktop)/.exec(location.search);
+  if (forced) initial = forced[1];
+
+  var tabs = ['ios', 'android', 'desktop'];
+  function select(which) {
+    tabs.forEach(function (t) {
+      document.getElementById(t).hidden = (t !== which);
+      document.getElementById('tab-' + t).setAttribute('aria-selected', t === which ? 'true' : 'false');
+    });
+  }
+  tabs.forEach(function (t) {
+    document.getElementById('tab-' + t).addEventListener('click', function () { select(t); });
+  });
+  select(initial);
+
+  // Already installed? Say so instead of instructing.
+  var standalone = !!(window.navigator.standalone
+    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+  if (standalone) document.getElementById('already').style.display = 'block';
+
+  // ── The native install prompt, where a browser grants one ───────────────
+  // Chromium fires beforeinstallprompt when the page qualifies; capturing it
+  // turns the buried menu entry into a real button. The listener must be
+  // top-level: the event often fires within seconds of load.
+  var installPrompt = null;
+  function showButtons() {
+    ['androidInstall', 'desktopInstall'].forEach(function (id) {
+      var b = document.getElementById(id);
+      b.hidden = !installPrompt;
+      b.onclick = function () {
+        var p = installPrompt;
+        if (!p) return;
+        installPrompt = null;
+        showButtons();
+        p.prompt();
+      };
+    });
+    var hint = document.getElementById('androidHint');
+    if (installPrompt) hint.textContent = 'One tap — your browser handles the rest. If you would rather do it by hand:';
+  }
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installPrompt = e;
+    showButtons();
+  });
+  window.addEventListener('appinstalled', function () {
+    installPrompt = null;
+    showButtons();
+    document.getElementById('already').style.display = 'block';
+    document.getElementById('already').textContent = 'Installed. Ender Net now opens from your home screen.';
+  });
+
+  // ── Aim the download at a door that answers with the right MIME type ────
+  // GitHub Pages serves .mobileconfig as application/octet-stream, and Safari
+  // only opens the profile installer for application/x-apple-aspen-config —
+  // downloaded from Pages, the file would land in the Files app instead of
+  // installing. The live host serves the same bytes with the right type, so
+  // the button prefers whichever published host answers. The probe asks for
+  // the download itself, not the host's health: a host running older code
+  // answers its health door happily and still 404s this file, and a wrong
+  // Content-Type is exactly the failure being routed around — Content-Type
+  // is a CORS-safelisted header, so the check works cross-origin.
+  var dl = document.getElementById('dlProfile');
+  var dlNote = document.getElementById('dlNote');
+  var dlLabel = dl.textContent;
+  var dlSettled = false;
+  var dlWaiting = false;
+  function dlSettle(href) {
+    dlSettled = true;
+    if (href) { dl.href = href; dlNote.hidden = true; }
+    else dlNote.hidden = false;
+    if (dlWaiting) { dlWaiting = false; dl.textContent = dlLabel; dl.removeAttribute('aria-disabled'); }
+  }
+  // A tap before the probe settles would fetch the Pages copy while the
+  // steps promise the installer. Hold the tap instead — the probe resolves
+  // within six seconds either way, and the person taps again on a button
+  // that by then points somewhere true.
+  dl.addEventListener('click', function (ev) {
+    if (dlSettled) return;
+    ev.preventDefault();
+    dlWaiting = true;
+    dl.setAttribute('aria-disabled', 'true');
+    dl.textContent = 'One moment — checking the shared host…';
+  });
+  setTimeout(function () { if (!dlSettled) dlSettle(null); }, 6000); // a dead tunnel hangs rather than refusing
+  fetch('host.json', { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+    .then(function (cfg) {
+      var urls = (cfg.urls && cfg.urls.length ? cfg.urls : (cfg.url ? [cfg.url] : []))
+        .map(function (u) { return String(u).replace(/\/+$/, ''); });
+      if (!urls.length) throw new Error();
+      // First door that serves the file correctly, probed in the published
+      // order — the same order the app itself walks.
+      return urls.reduce(function (p, u) {
+        return p.catch(function () {
+          return fetch(u + '/endernet.mobileconfig', { cache: 'no-store' })
+            .then(function (r) {
+              if (!r.ok) throw new Error();
+              if ((r.headers.get('content-type') || '').indexOf('application/x-apple-aspen-config') !== 0) throw new Error();
+              return u;
+            });
+        });
+      }, Promise.reject(new Error()));
+    })
+    // A host that answers at second seven still deserves the button: a late
+    // success withdraws the fallback note rather than losing to it.
+    .then(function (u) { dlSettle(u + '/endernet.mobileconfig'); })
+    .catch(function () { if (!dlSettled) dlSettle(null); });
+
+  // ── Show the install file's own text ────────────────────────────────────
+  // The "read it before you trust it" promise, kept literally: fetch the
+  // actual file this page offers and print it, shortening only the icon
+  // bytes. If the fetch fails (offline first visit), say so honestly.
+  fetch('endernet.mobileconfig')
+    .then(function (r) { if (!r.ok) throw new Error(); return r.text(); })
+    .then(function (t) {
+      var shown = t.replace(/<data>[\s\S]*?<\/data>/,
+        '<data> …the 180px icon, 2.2 KB of PNG bytes… </data>');
+      document.getElementById('profileXml').textContent = shown;
+    })
+    .catch(function () {
+      document.getElementById('profileXml').textContent =
+        'Could not load the file for display (are you offline?). The download button still works — or fetch endernet.mobileconfig yourself and read it.';
+    });
+
+  // The app's service worker, registered here too: it makes this page part
+  // of the installable scope and lets the whole site open offline.
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>

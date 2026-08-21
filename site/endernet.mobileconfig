@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>FullScreen</key>
+			<true/>
+			<key>Icon</key>
+			<data>
+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
+Pg9ojgYJSrsT6SZT5eb46CyHuIrr21wW1xSSPvK19F6T78FR5PjeXcTC04O3
+kJusGifZRDj/uQbPDWslRzH/ROYv3ht53o3eJ3hQUtx+rO7ZU/OVY7hs5fBV
+7Oyh5sJms1gXF8zRQLnm8gzJIc5YdI1csBonblOVvPKkpRYaRitdIyfo+QsG
+LHGjWd9lyf71ha5aaChHVMBSC8uDzeWYTcfF/UJfLg82/NrnMY902s0znc4W
+WUmC1fI53915wQ250uFB7aTaqJSX94k9e9qt/1qtlJV+fpzaSvw2VZmwtvNW
+6belkSN5Bc4u5XfefsO5Ief9ifrpTuRI3idmjgYus6OSnXT3/ES56QnI8ViY
+X+Jbfg/IgRzIgRzIgRzIgRzIgRzIgRzIgRzIgRzIoSXFr2YsxoIhB7j4Zgm1
+pafEIIf++NqFhjEH4iKHzvi6ShusHBB6xaGX7WUDOQA5ADkAOQA5ADkAOQA5
+ADkAOQA5AJADkAOQA5ADkAOQA5ADkAOQA5ADADkAOQA5ADkAOQA5ADkAOQA5
+ADkAkAOQA5ADkAPWxf9i3nKXShE2oAAAAABJRU5ErkJggg==
+			</data>
+			<key>IsRemovable</key>
+			<true/>
+			<key>Label</key>
+			<string>Ender Net</string>
+			<key>PayloadDescription</key>
+			<string>Puts the Ender Net icon on your home screen. It opens the app full-screen.</string>
+			<key>PayloadDisplayName</key>
+			<string>Ender Net home screen icon</string>
+			<key>PayloadIdentifier</key>
+			<string>io.github.enderpeer.webclip.app</string>
+			<key>PayloadType</key>
+			<string>com.apple.webClip.managed</string>
+			<key>PayloadUUID</key>
+			<string>D1637D8D-8803-4CCC-8586-981F942965D2</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>Precomposed</key>
+			<true/>
+			<key>URL</key>
+			<string>https://enderpeer.github.io/peer-network-lab/app.html</string>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>Installs the Ender Net app icon on your home screen. This file contains exactly one instruction: place this icon, pointing at https://enderpeer.github.io/peer-network-lab/app.html, and open it full-screen. It changes no settings, adds no certificates, and can be removed at any time under Settings.</string>
+	<key>PayloadDisplayName</key>
+	<string>Ender Net</string>
+	<key>PayloadIdentifier</key>
+	<string>io.github.enderpeer.webclip</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>D4D9E7AA-B1A9-420D-8D62-11CAA3AF8356</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

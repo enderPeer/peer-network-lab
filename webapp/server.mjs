@@ -5771,6 +5771,29 @@ const server = createServer((req, res) => {
     }
     return;
   }
+  // ── The iOS install file ──────────────────────────────────────────────
+  // Same bytes as the copy on the published site, served here because of a
+  // MIME technicality that decides everything: Safari only opens the profile
+  // installer for application/x-apple-aspen-config, and GitHub Pages serves
+  // .mobileconfig as application/octet-stream — from Pages the file lands in
+  // the Files app instead of installing. The install page resolves the live
+  // host and points its download button here; a read door, so mirrors answer
+  // it too.
+  if (req.method === 'GET' && url.pathname === '/endernet.mobileconfig') {
+    try {
+      const buf = readFileSync(resolve(here, '../site/endernet.mobileconfig'));
+      res.writeHead(200, {
+        'Content-Type': 'application/x-apple-aspen-config',
+        'Cache-Control': 'no-cache',
+        ...SECURITY_HEADERS,
+      });
+      res.end(buf);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('not found — run: node tools/make-webclip.mjs');
+    }
+    return;
+  }
   // ── Live-stream relay ──────────────────────────────────────────────────
   //
   // Opening a stream is a POST because it needs the account's PIN once, and a

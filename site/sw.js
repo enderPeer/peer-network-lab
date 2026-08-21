@@ -16,12 +16,18 @@
 // origin, so an unscoped name meant any other copy of this app activating
 // there would sweep this one's shell as "stale". The scope path makes the
 // name this copy's own, and the sweep below never reaches past it.
+// v9: the install page and the install file joined the shell, so the site
+// can still explain how to install itself when it is opened with no network —
+// and the offline fallback below became navigations-only, so a missing
+// subresource fails honestly instead of impersonating the app page.
 const SCOPE_PATH = new URL(self.registration.scope).pathname;
-const VERSION = 'peer-shell-v8:' + SCOPE_PATH;
+const VERSION = 'peer-shell-v9:' + SCOPE_PATH;
 const SHELL = [
   './',
   './index.html',
   './app.html',
+  './install.html',
+  './endernet.mobileconfig',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -149,6 +155,10 @@ self.addEventListener('fetch', (e) => {
 
   // Shell: try the network first so a redeploy is picked up, fall back to the
   // cache when there is none. Cache-first would strand people on an old build.
+  // The app-page fallback is for NAVIGATIONS only: handing app.html to a
+  // subresource fetch would give the requester a 200 full of the wrong bytes —
+  // the install page once printed the whole app as "the install file's text"
+  // that way. A subresource with no cache entry fails honestly instead.
   e.respondWith(
     fetch(req)
       .then((res) => {
@@ -158,6 +168,8 @@ self.addEventListener('fetch', (e) => {
         }
         return res;
       })
-      .catch(() => caches.match(req).then((hit2) => hit2 || caches.match('./app.html'))),
+      .catch(() => caches.match(req).then(
+        (hit2) => hit2 || (req.mode === 'navigate' ? caches.match('./app.html') : Response.error()),
+      )),
   );
 });
