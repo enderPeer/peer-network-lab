@@ -284,7 +284,14 @@
     border: 1px solid var(--accent, var(--line)); border-radius: 18px;
     padding: 26px; max-width: min(860px, calc(100vw - 32px));
     box-shadow: 0 0 60px -10px var(--glow, rgba(0, 0, 0, 0.6));
+    max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px);
+    overflow-y: auto; overscroll-behavior: contain;
   }
+  /* While a guardian is open, the page behind her holds still: no scroll
+     chaining, no losing your place. scrollbar-gutter keeps the width from
+     jumping when the page scrollbar disappears. */
+  html { scrollbar-gutter: stable; }
+  body.lore-open { overflow: hidden; }
   dialog.lore::backdrop { background: rgba(8, 7, 10, 0.72); }
   .lore-grid { display: grid; gap: 24px; align-items: start; }
   @media (min-width: 640px) { .lore-grid { grid-template-columns: 250px 1fr; } }
@@ -725,9 +732,14 @@
   function openLore(key, setHash) {
     var d = document.getElementById('lore-' + key);
     if (!d || d.open || typeof d.showModal !== 'function') return;
+    // Remember where the reader stands; the page must not move under her.
+    var y = window.scrollY;
+    document.body.classList.add('lore-open');
     d.showModal();
     if (setHash !== false) history.replaceState(null, '', '#' + key);
     d.addEventListener('close', function () {
+      document.body.classList.remove('lore-open');
+      window.scrollTo(0, y);
       if (location.hash === '#' + key) history.replaceState(null, '', location.pathname + location.search);
     }, { once: true });
   }
