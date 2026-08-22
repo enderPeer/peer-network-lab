@@ -5,6 +5,6 @@
     "candidates": [
         "https://suit-express-perfect-cms.trycloudflare.com"
     ],
-    "checked": "2026-08-22T10:12:56.125Z",
+    "checked": "2026-08-22T10:39:44.368Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
