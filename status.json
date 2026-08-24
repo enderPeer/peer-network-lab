@@ -1,5 +1,5 @@
 {
-  "checked": "2026-08-24T16:14:42.932Z",
+  "checked": "2026-08-24T16:55:58.361Z",
   "anyLive": false,
   "writer": null,
   "hosts": [
@@ -10,7 +10,7 @@
       "role": null,
       "writer": false,
       "chainHeight": null,
-      "error": "HTTP 530"
+      "error": "fetch failed"
     }
   ],
   "note": "Written every 15 minutes by a scheduled GitHub Action. It probes the hosts named in host.json and repoints that file; it never touches the act log."
