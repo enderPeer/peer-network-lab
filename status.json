@@ -1,16 +1,16 @@
 {
-  "checked": "2026-08-24T15:37:03.299Z",
-  "anyLive": true,
-  "writer": "https://suit-express-perfect-cms.trycloudflare.com",
+  "checked": "2026-08-24T16:14:42.932Z",
+  "anyLive": false,
+  "writer": null,
   "hosts": [
     {
       "url": "https://suit-express-perfect-cms.trycloudflare.com",
-      "live": true,
-      "acts": 251,
-      "role": "primary",
-      "writer": true,
-      "chainHeight": 8,
-      "error": null
+      "live": false,
+      "acts": null,
+      "role": null,
+      "writer": false,
+      "chainHeight": null,
+      "error": "HTTP 530"
     }
   ],
   "note": "Written every 15 minutes by a scheduled GitHub Action. It probes the hosts named in host.json and repoints that file; it never touches the act log."
