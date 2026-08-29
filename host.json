@@ -5,6 +5,6 @@
     "candidates": [
         "https://syntax-vat-creative-beans.trycloudflare.com"
     ],
-    "checked": "2026-08-29T21:14:53.319Z",
+    "checked": "2026-08-29T23:21:21.565Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
