@@ -1,13 +1,13 @@
 {
-    "acts": 250,
-    "sha256": "59d5c55268c422c3f05de4ea512dd59c443386d79525861a1e3c07721ffdffbd",
-    "at": 1787403602025,
-    "host": "https://suit-express-perfect-cms.trycloudflare.com",
-    "media": true,
-    "note": "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
-    "chain": {
-        "height": 8,
-        "hash": "a110369dee9c7797f535c1eecd1a34334962641cd66ad1e6719cd57f3e577274",
-        "producer": "lD2Z1G6mz-e-umbOUx9ONgSGa3m-Mc26rVneYASo8u4"
-    }
+    "acts":  250,
+    "sha256":  "59d5c55268c422c3f05de4ea512dd59c443386d79525861a1e3c07721ffdffbd",
+    "at":  1788011329273,
+    "host":  "https://syntax-vat-creative-beans.trycloudflare.com",
+    "media":  true,
+    "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
+    "chain":  {
+                  "height":  8,
+                  "hash":  "a110369dee9c7797f535c1eecd1a34334962641cd66ad1e6719cd57f3e577274",
+                  "producer":  "lD2Z1G6mz-e-umbOUx9ONgSGa3m-Mc26rVneYASo8u4"
+              }
 }
