@@ -1,16 +1,16 @@
 {
-  "checked": "2026-08-29T15:19:40.939Z",
-  "anyLive": true,
-  "writer": "https://syntax-vat-creative-beans.trycloudflare.com",
+  "checked": "2026-08-29T18:42:56.231Z",
+  "anyLive": false,
+  "writer": null,
   "hosts": [
     {
       "url": "https://syntax-vat-creative-beans.trycloudflare.com",
-      "live": true,
-      "acts": 251,
-      "role": "primary",
-      "writer": true,
-      "chainHeight": 8,
-      "error": null
+      "live": false,
+      "acts": null,
+      "role": null,
+      "writer": false,
+      "chainHeight": null,
+      "error": "fetch failed"
     }
   ],
   "note": "Written every 15 minutes by a scheduled GitHub Action. It probes the hosts named in host.json and repoints that file; it never touches the act log."
