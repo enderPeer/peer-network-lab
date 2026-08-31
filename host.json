@@ -5,6 +5,6 @@
     "candidates": [
         "https://racks-rip-perform-stress.trycloudflare.com"
     ],
-    "checked": "2026-08-31T00:34:08.092Z",
+    "checked": "2026-08-31T06:08:36.586Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
