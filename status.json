@@ -1,16 +1,16 @@
 {
-  "checked": "2026-09-05T15:32:05.958Z",
-  "anyLive": true,
-  "writer": "https://album-hebrew-flat-bandwidth.trycloudflare.com",
+  "checked": "2026-09-05T17:36:33.272Z",
+  "anyLive": false,
+  "writer": null,
   "hosts": [
     {
       "url": "https://album-hebrew-flat-bandwidth.trycloudflare.com",
-      "live": true,
-      "acts": 251,
-      "role": "primary",
-      "writer": true,
-      "chainHeight": 8,
-      "error": null
+      "live": false,
+      "acts": null,
+      "role": null,
+      "writer": false,
+      "chainHeight": null,
+      "error": "fetch failed"
     }
   ],
   "note": "Written every 15 minutes by a scheduled GitHub Action. It probes the hosts named in host.json and repoints that file; it never touches the act log."
