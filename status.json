@@ -1,15 +1,15 @@
 {
-  "checked": "2026-08-15T16:42:11.502Z",
+  "checked": "2026-09-05T15:32:05.958Z",
   "anyLive": true,
-  "writer": "https://suit-express-perfect-cms.trycloudflare.com",
+  "writer": "https://album-hebrew-flat-bandwidth.trycloudflare.com",
   "hosts": [
     {
-      "url": "https://suit-express-perfect-cms.trycloudflare.com",
+      "url": "https://album-hebrew-flat-bandwidth.trycloudflare.com",
       "live": true,
-      "acts": 153,
+      "acts": 251,
       "role": "primary",
       "writer": true,
-      "chainHeight": 6,
+      "chainHeight": 8,
       "error": null
     }
   ],

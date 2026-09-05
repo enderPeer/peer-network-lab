@@ -1,5 +1,10 @@
 {
-    "url":  "https://album-hebrew-flat-bandwidth.trycloudflare.com",
-    "updated":  "2026-09-05T13:21:44Z",
-    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
+    "url": "https://album-hebrew-flat-bandwidth.trycloudflare.com",
+    "updated": "2026-09-05T13:21:44Z",
+    "note": "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.",
+    "candidates": [
+        "https://album-hebrew-flat-bandwidth.trycloudflare.com"
+    ],
+    "checked": "2026-09-05T15:32:05.958Z",
+    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
