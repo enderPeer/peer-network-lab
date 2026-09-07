@@ -5,6 +5,6 @@
     "candidates": [
         "https://notification-spoke-minolta-twice.trycloudflare.com"
     ],
-    "checked": "2026-09-06T22:19:48.849Z",
+    "checked": "2026-09-07T00:05:47.707Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
