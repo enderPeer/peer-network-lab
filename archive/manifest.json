@@ -1,8 +1,8 @@
 {
     "acts":  250,
     "sha256":  "59d5c55268c422c3f05de4ea512dd59c443386d79525861a1e3c07721ffdffbd",
-    "at":  1788702495046,
-    "host":  "https://notification-spoke-minolta-twice.trycloudflare.com",
+    "at":  1788868832029,
+    "host":  "https://harbour-volvo-themselves-tsunami.trycloudflare.com",
     "media":  true,
     "note":  "A snapshot of the act log. Replay it with webapp/social/replay.cjs and you get the same standings, feeds and balances the live host computes - that is what makes this a verifiable copy rather than a backup you have to trust.",
     "chain":  {
