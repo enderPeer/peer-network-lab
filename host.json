@@ -1,5 +1,10 @@
 {
-    "url":  "https://jet-align-all-basic.trycloudflare.com",
-    "updated":  "2026-09-09T05:33:31Z",
-    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
+    "url": "https://jet-align-all-basic.trycloudflare.com",
+    "updated": "2026-09-09T05:33:31Z",
+    "note": "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.",
+    "candidates": [
+        "https://jet-align-all-basic.trycloudflare.com"
+    ],
+    "checked": "2026-09-09T09:47:56.761Z",
+    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
