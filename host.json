@@ -5,6 +5,6 @@
     "candidates": [
         "https://jet-align-all-basic.trycloudflare.com"
     ],
-    "checked": "2026-09-13T06:10:18.365Z",
+    "checked": "2026-09-13T11:46:00.694Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
