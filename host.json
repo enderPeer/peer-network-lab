@@ -1,5 +1,10 @@
 {
-    "url":  "https://colleagues-walter-demand-johnston.trycloudflare.com",
-    "updated":  "2026-09-16T07:34:48Z",
-    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
+    "url": "https://colleagues-walter-demand-johnston.trycloudflare.com",
+    "updated": "2026-09-16T07:34:48Z",
+    "note": "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.",
+    "candidates": [
+        "https://colleagues-walter-demand-johnston.trycloudflare.com"
+    ],
+    "checked": "2026-09-16T10:10:05.428Z",
+    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
