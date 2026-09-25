@@ -5,6 +5,6 @@
     "candidates": [
         "https://feedback-went-veteran-biz.trycloudflare.com"
     ],
-    "checked": "2026-09-24T21:47:04.776Z",
+    "checked": "2026-09-25T00:08:12.145Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
