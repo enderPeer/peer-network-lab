@@ -5,6 +5,6 @@
     "candidates": [
         "https://jersey-tcp-studying-head.trycloudflare.com"
     ],
-    "checked": "2026-10-06T09:09:03.238Z",
+    "checked": "2026-10-06T15:54:05.641Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
