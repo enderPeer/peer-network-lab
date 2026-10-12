@@ -1,10 +1,5 @@
 {
-    "url": "https://jersey-tcp-studying-head.trycloudflare.com",
-    "updated": "2026-09-29T06:07:53Z",
-    "note": "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser.",
-    "candidates": [
-        "https://jersey-tcp-studying-head.trycloudflare.com"
-    ],
-    "checked": "2026-10-12T08:16:13.240Z",
-    "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
+    "url":  "https://hugh-sox-introduce-dentists.trycloudflare.com",
+    "updated":  "2026-10-12T10:53:15Z",
+    "note":  "Written by publish-site.ps1. urls is ordered, primary first; a second entry is a read-only mirror the app falls back to when the primary does not answer. An empty url means no shared host is published; the app then runs entirely in your browser."
 }
