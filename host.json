@@ -5,6 +5,6 @@
     "candidates": [
         "https://hugh-sox-introduce-dentists.trycloudflare.com"
     ],
-    "checked": "2026-11-11T03:43:18.203Z",
+    "checked": "2026-11-11T11:27:26.387Z",
     "checkedBy": "liveness workflow (.github/workflows/liveness.yml)"
 }
